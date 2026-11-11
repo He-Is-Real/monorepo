@@ -5,6 +5,7 @@ import {
   ApiUserProblem,
   ApiUserUnavailable,
   newIdempotencyKey,
+  plainMessage,
   StaleVersion,
 } from '@/lib/api-user';
 import { forgetShareStorageExcept, PREFIX } from '@/lib/share-storage';
@@ -13,7 +14,6 @@ import {
   fieldsOf,
   mergePatch,
   normalise,
-  plainMessage,
   sameField,
   type ShareApi,
   type SocialMediaSharing,
@@ -421,6 +421,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
                 : plainMessage(
                     err,
                     'Your story couldn’t be saved. It’s kept on this device; try again.',
+                    'Your story is kept on this device.',
                   ),
             );
           }

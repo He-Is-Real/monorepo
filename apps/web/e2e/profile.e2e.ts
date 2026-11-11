@@ -283,7 +283,7 @@ test.describe('behaviour', () => {
     page.on('download', () => (downloads += 1));
     await card.getByRole('button', { name: 'Download my data' }).click();
     await expect(card.getByRole('alert')).toHaveText(
-      'We couldn’t prepare your file just now. Please try again in a moment.',
+      'Something went wrong. Please try again later.',
     );
     await expect(
       card.getByRole('button', { name: 'Download my data' }),

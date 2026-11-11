@@ -42,7 +42,8 @@ function articleJsonLd(story: PublicStory) {
 
 /**
  * When api-public-read can't be reached: a calm message in the page the server sends, so
- * visitors without JavaScript get it too, like browse's (Joel, 2026-10-25). The page answers
+ * visitors without JavaScript get it too, like browse's (Joel, 2026-10-25). Only "Something went
+ * wrong. Please try again later." (Joel, 2026-11-09). The page answers
  * 200, as browse does (Next.js can't send a page with a 5xx), and isn't indexed
  * (generateMetadata). "Try again" is a plain link to the same page.
  */
@@ -52,12 +53,8 @@ function StoryUnavailable({ slug }: { slug: string }) {
       id="main"
       className="mx-auto flex w-full max-w-measure flex-1 flex-col items-center justify-center gap-4 px-4 py-16 text-center"
     >
-      <h1 className="text-3xl font-semibold">
-        This story can’t be shown right now
-      </h1>
-      <p className="text-secondary-text">
-        Stories are briefly unavailable. Please try again in a moment.
-      </p>
+      <h1 className="text-3xl font-semibold">Something went wrong</h1>
+      <p className="text-secondary-text">Please try again later.</p>
       <div className="flex flex-wrap justify-center gap-3">
         <a
           href={`/stories/${slug}`}

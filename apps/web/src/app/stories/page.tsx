@@ -20,6 +20,7 @@ import { logStoriesUnavailable, whenUnavailable } from '@/lib/log';
 import { StoriesUnavailableError } from '@/lib/public-stories';
 import { RestartingMessage } from '@/components/restarting/restarting-message';
 import { pageMetadata } from '@/lib/seo';
+import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 
 type Props = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -138,7 +139,7 @@ export default async function BrowsePage({ searchParams }: Props) {
             role="status"
             className="mx-auto max-w-measure rounded-xl bg-raised px-4 py-6 text-center text-secondary-text"
           >
-            Stories can’t be loaded right now. Please try again in a moment.
+            {TRY_AGAIN_LATER}
           </p>
         ) : result.cards.length === 0 ? (
           <div className="mx-auto max-w-measure rounded-xl bg-raised px-4 py-10 text-center">

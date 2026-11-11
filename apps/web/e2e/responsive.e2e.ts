@@ -123,9 +123,7 @@ for (const scheme of ['light', 'dark'] as const) {
     }, info) => {
       await page.goto('/stories/down');
       await expect(
-        page.getByRole('heading', {
-          name: 'This story can’t be shown right now',
-        }),
+        page.getByRole('heading', { name: 'Something went wrong' }),
       ).toBeVisible();
       await expectTarget(page, page.getByRole('link', { name: 'Try again' }));
       await expectNoHorizontalOverflow(page);

@@ -1,4 +1,5 @@
 import { ApiUserProblem, NotSignedIn } from '@/lib/api-user';
+import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 import type { MediaPlayback, StoryImage } from '@/lib/public-stories';
 
 /** api-admin's `ModerationQueueItem` (M3 task 3.1). */
@@ -43,9 +44,6 @@ export interface ModerationStory {
   submittedAt: string;
   statusLog: StatusEntry[];
 }
-
-/** Joel, 2026-11-09: every system error says only this, never a code or the service's state. */
-export const TRY_AGAIN_LATER = 'Something went wrong. Please try again later.';
 
 /** What to tell a moderator when api-admin refused or couldn't answer. */
 export function moderationProblem(err: unknown): string {

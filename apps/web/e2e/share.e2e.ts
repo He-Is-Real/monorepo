@@ -756,6 +756,171 @@ test.describe('behaviour', () => {
     );
   };
 
+  // People never see error codes or backend state (Joel, 2026-11-09): whatever api-user answers
+  // when something goes wrong on our side, web says only "Something went wrong. Please try again
+  // later.", except a restart, which is named with when to try again (the next test).
+  for (const failure of [
+    {
+      name: 'a server error',
+      status: 500,
+      body: {
+        type: 'about:blank',
+        title: 'Internal server error',
+        status: 500,
+        code: 'internal_failure',
+        detail: 'Query failed: the database said no',
+      },
+    },
+    // Technical 4xx answers are about our own request, not what the person sent (Codex review of
+    // #206): they get the plain message too, never the API's words.
+    {
+      name: 'a missing If-Match',
+      status: 428,
+      body: {
+        type: 'about:blank',
+        title: 'Precondition required',
+        status: 428,
+        code: 'if_match_required',
+        detail: 'This command needs If-Match with the story’s version',
+      },
+    },
+    {
+      name: 'a reused Idempotency-Key',
+      status: 422,
+      body: {
+        type: 'about:blank',
+        title: 'Unprocessable entity',
+        status: 422,
+        code: 'idempotency_key_reused',
+        detail: 'Idempotency-Key was already used with a different request',
+      },
+    },
+  ]) {
+    test(`${failure.name} at submit shows only the plain message, never its code or state`, async ({
+      page,
+      request,
+    }) => {
+      const id = `plain-${failure.status}`;
+      await atReview(page, request, id);
+      await page.route(`${STUB_USER_URL}/v1/stories/${id}/submit`, (route) =>
+        route.fulfill({
+          status: failure.status,
+          contentType: 'application/problem+json',
+          headers: {
+            'access-control-allow-origin': new URL(WEB_SIGNED_IN_URL).origin,
+          },
+          body: JSON.stringify(failure.body),
+        }),
+      );
+      await page.getByRole('button', { name: 'Submit for review' }).click();
+      await expect(page.getByRole('main').getByRole('alert')).toHaveText(
+        'Something went wrong. Please try again later. Your story is saved.',
+      );
+      const text = await page.locator('body').innerText();
+      for (const hidden of [
+        failure.body.code,
+        failure.body.title,
+        failure.body.detail,
+        'restarting',
+      ]) {
+        expect(text).not.toContain(hidden);
+      }
+    });
+  }
+
+  // The one error web names (Joel, 2026-11-09: "reveal when compute is restarting with a count
+  // down but for any other error it should be generic"): where the submit was, and at the bottom.
+  test('the database restarting at submit is named, counted down, then “try again later”', async ({
+    page,
+    request,
+  }) => {
+    const id = 'plain-restarting';
+    // The countdown runs on this clock: frozen from the submit, so "about 2 minutes" (61 s,
+    // rounded up) can't tick down to 1 before it's read.
+    await page.clock.install();
+    await atReview(page, request, id);
+    const body = {
+      type: 'about:blank',
+      title: 'Service restarting',
+      status: 503,
+      code: 'service_restarting',
+      detail:
+        'Our compute is currently restarting. Please try again in a few minutes.',
+      restartingSince: '2026-11-07T12:00:00.000Z',
+      retryAfterSeconds: 61,
+    };
+    await page.route(`${STUB_USER_URL}/v1/stories/${id}/submit`, (route) =>
+      route.fulfill({
+        status: 503,
+        contentType: 'application/problem+json',
+        headers: {
+          'access-control-allow-origin': new URL(WEB_SIGNED_IN_URL).origin,
+          'retry-after': '61',
+        },
+        body: JSON.stringify(body),
+      }),
+    );
+    await page.clock.pauseAt(Date.now() + 1_000);
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    const said = page.getByRole('main').getByRole('alert');
+    const notice = page.locator('[data-restarting-notice]');
+    const restarting = 'Our compute is currently restarting.';
+    await expect(said).toHaveText(
+      `${restarting} Please try again in about 2 minutes. Your story is saved.`,
+    );
+    await expect(notice).toHaveText(
+      `${restarting} Please try again in about 2 minutes.`,
+    );
+    await page.clock.fastForward('00:02');
+    await expect(said).toHaveText(
+      `${restarting} Please try again in about 1 minute. Your story is saved.`,
+    );
+    await expect(notice).toHaveText(
+      `${restarting} Please try again in about 1 minute.`,
+    );
+    // Run out: no "about 1 minute" floor, never 0.
+    await page.clock.fastForward('01:00');
+    await expect(said).toHaveText(
+      `${restarting} Please try again later. Your story is saved.`,
+    );
+    await expect(notice).toHaveText(`${restarting} Please try again later.`);
+    const text = await page.locator('body').innerText();
+    for (const hidden of [body.code, body.title]) {
+      expect(text).not.toContain(hidden);
+    }
+  });
+
+  test('a refusal of what the person sent still shows its own words', async ({
+    page,
+    request,
+  }) => {
+    const id = 'plain-refusal';
+    await atReview(page, request, id);
+    const detail =
+      'We’re still checking your video. Please try again in a minute.';
+    await page.route(`${STUB_USER_URL}/v1/stories/${id}/submit`, (route) =>
+      route.fulfill({
+        status: 409,
+        contentType: 'application/problem+json',
+        headers: {
+          'access-control-allow-origin': new URL(WEB_SIGNED_IN_URL).origin,
+        },
+        body: JSON.stringify({
+          type: 'about:blank',
+          title: 'Conflict',
+          status: 409,
+          code: 'media_processing',
+          detail,
+        }),
+      }),
+    );
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await expect(page.getByRole('main').getByRole('alert')).toHaveText(detail);
+    expect(await page.locator('body').innerText()).not.toContain(
+      'media_processing',
+    );
+  });
+
   test('after a lost submit answer, Back and Review again replays the same submission (Codex #118 round 2)', async ({
     page,
     request,
@@ -764,7 +929,7 @@ test.describe('behaviour', () => {
     await loseSubmitAnswer(page, 'back', 'none');
     await page.getByRole('button', { name: 'Submit for review' }).click();
     await expect(page.getByRole('main').getByRole('alert')).toContainText(
-      'can’t reach our server',
+      'Something went wrong. Please try again later.',
     );
     expect((await me.stories())[0].status).toBe('pending');
     // Leaving Review and coming back, changing nothing, keeps the unresolved submission.
@@ -784,7 +949,7 @@ test.describe('behaviour', () => {
     await loseSubmitAnswer(page, 'reload', 'none');
     await page.getByRole('button', { name: 'Submit for review' }).click();
     await expect(page.getByRole('main').getByRole('alert')).toContainText(
-      'can’t reach our server',
+      'Something went wrong. Please try again later.',
     );
     await page.goto(`${SHARE}?draft=reload`);
     await expect(
@@ -803,7 +968,7 @@ test.describe('behaviour', () => {
     await loseSubmitAnswer(page, 'cutoff', 'truncated');
     await page.getByRole('button', { name: 'Submit for review' }).click();
     await expect(page.getByRole('main').getByRole('alert')).toContainText(
-      'can’t reach our server',
+      'Something went wrong. Please try again later.',
     );
     expect((await me.stories())[0].status).toBe('pending');
     await page.getByRole('button', { name: 'Submit for review' }).click();
@@ -865,7 +1030,7 @@ test.describe('behaviour', () => {
     await loseSubmitAnswer(page, 'typed', 'none');
     await page.getByRole('button', { name: 'Submit for review' }).click();
     await expect(page.getByRole('main').getByRole('alert')).toContainText(
-      'can’t reach our server',
+      'Something went wrong. Please try again later.',
     );
     await page.getByRole('button', { name: 'Back' }).click();
     await step(page, 'Add some details');
@@ -887,7 +1052,7 @@ test.describe('behaviour', () => {
     await loseSubmitAnswer(page, 'nokey', 'none');
     await page.getByRole('button', { name: 'Submit for review' }).click();
     await expect(page.getByRole('main').getByRole('alert')).toContainText(
-      'can’t reach our server',
+      'Something went wrong. Please try again later.',
     );
     // The kept submission is lost too (e.g. storage cleared): a new key, refused.
     await page.evaluate(() => {

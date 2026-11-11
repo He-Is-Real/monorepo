@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import type { AgreementName } from '@/lib/legal-text';
 import { personalApiUser, usePersonalSession } from '@/lib/personal-session';
 import { signInHref } from '@/lib/return-path';
+import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 
 const KEY = {
   'terms-of-use': 'termsOfUse',
@@ -73,9 +74,7 @@ export function AgreementPage({
         role="alert"
         className="rounded-2xl border border-border bg-card p-6"
       >
-        <p className="mb-4 text-secondary-text">
-          We couldn’t load your account just now. Please try again in a moment.
-        </p>
+        <p className="mb-4 text-secondary-text">{TRY_AGAIN_LATER}</p>
         <Button
           variant="outline"
           className="h-auto min-h-11 px-5 py-2 whitespace-normal"

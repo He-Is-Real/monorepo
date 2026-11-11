@@ -8,10 +8,12 @@ import {
   type ApiUser,
   ApiUserProblem,
   ApiUserUnavailable,
+  plainMessage,
   StaleVersion,
 } from '@/lib/api-user';
 import { shortDate } from '@/lib/legal-text';
 import { signInHref } from '@/lib/return-path';
+import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 import { useOwnData, useOwnNotice } from './use-own-data';
 
 /** The contract's `StoryMine`, the parts the profile shows. */
@@ -137,11 +139,7 @@ export function MySubmissions() {
         await own.reload(owner);
         if (err instanceof StaleVersion)
           return 'This story changed since the page loaded. It’s up to date now: check it, then try again.';
-        if (err instanceof ApiUserProblem && err.problem.detail)
-          return err.problem.detail;
-        return command === 'delete'
-          ? 'We couldn’t delete it just now. Please try again in a moment.'
-          : 'We couldn’t withdraw it just now. Please try again in a moment.';
+        return plainMessage(err, TRY_AGAIN_LATER);
       }
     }
     say(
@@ -181,7 +179,7 @@ export function MySubmissions() {
     body = (
       <div className="min-h-48">
         <p role="alert" className="mb-4 text-secondary-text">
-          Your stories couldn’t load. Try again in a moment.
+          {TRY_AGAIN_LATER}
         </p>
         <Button
           variant="outline"

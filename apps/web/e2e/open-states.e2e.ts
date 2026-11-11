@@ -42,7 +42,9 @@ test('a failed load’s Try again fits with a full-size target', async ({
   await page.evaluate(() =>
     window.scrollTo(0, document.documentElement.scrollHeight),
   );
-  await expect(page.getByText('More stories couldn’t load.')).toBeVisible();
+  await expect(
+    page.getByText('Something went wrong. Please try again later.'),
+  ).toBeVisible();
   await expectTarget(page, page.getByRole('button', { name: 'Try again' }));
   await expectNoHorizontalOverflow(page);
 });

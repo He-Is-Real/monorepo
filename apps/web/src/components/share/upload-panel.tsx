@@ -2,9 +2,11 @@
 
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Upload } from 'tus-js-client';
+import { RestartingText } from '@/components/restarting/restarting-message';
 import {
   ApiUserProblem,
-  ApiUserUnavailable,
+  plainMessage,
+  restartWait,
   StaleVersion,
 } from '@/lib/api-user';
 import { PREFIX } from '@/lib/share-storage';
@@ -704,9 +706,11 @@ export function UploadPanel({
 }
 
 /** api-user's refusal of RequestUpload, in plain words. */
-function refusal(err: unknown, noun: string): string {
-  if (err instanceof ApiUserUnavailable) {
-    return 'We can’t reach our server right now. Your story is saved; please try again in a moment.';
+function refusal(err: unknown, noun: string): React.ReactNode {
+  const restarting = restartWait(err);
+  if (restarting !== undefined) {
+    // The database restarting: named, with when to try again (Joel, 2026-11-09).
+    return <RestartingText seconds={restarting} kept="Your story is saved." />;
   }
   if (err instanceof StaleVersion) {
     return 'Your story was changed in another tab or window. Please choose your file again.';
@@ -724,7 +728,11 @@ function refusal(err: unknown, noun: string): string {
       }).format(new Date(p.availableAt));
       return `You’ve started as many uploads as you can for now. Your story is saved: you can upload your ${noun} from ${when}.`;
     }
-    if (p.detail) return p.detail;
   }
-  return `Your ${noun} couldn’t be uploaded. Your story is saved; please try again.`;
+  // On our side: only the plain message (Joel, 2026-11-09); else the refusal's own words.
+  return plainMessage(
+    err,
+    `Your ${noun} couldn’t be uploaded. Your story is saved; please try again.`,
+    'Your story is saved.',
+  );
 }

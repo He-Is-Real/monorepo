@@ -3,10 +3,11 @@ import { BEHAVIOUR_DEVICES } from './devices';
 import { STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 
 // SurrealDB on Spot (Joel, 2026-11-07): while the database restarts, the API answers
-// `503 service_restarting` with when to try again (the stub: 61 seconds). The page says so calmly,
-// with the server's estimate in the HTML (so it reads right without JavaScript), counted down in
-// the browser and never below "about 1 minute". The fit of the message is checked on every device
-// in responsive.e2e.ts; this runs on one phone and one desktop.
+// `503 service_restarting` with when to try again (the stub: 61 seconds). The page says so calmly
+// (the one error web names; Joel, 2026-11-09), with the server's estimate in the HTML (so it reads
+// right without JavaScript), counted down in the browser, then "Please try again later." once it
+// has run out. The fit of the message is checked on every device in responsive.e2e.ts; this runs
+// on one phone and one desktop.
 
 // eslint-disable-next-line no-empty-pattern
 test.beforeEach(({}, info) => {
@@ -33,28 +34,33 @@ test.describe('without JavaScript', () => {
       }),
     ).toBeVisible();
     await expect(message(page)).toHaveText(
-      'Please refresh the page in about 2 minutes.',
+      'Please try again in about 2 minutes.',
     );
   });
 });
 
-test('the countdown reaches “about 1 minute” and stays there while it is still restarting', async ({
+test('the countdown runs down, then says “Please try again later.”', async ({
   page,
 }) => {
   await page.clock.install();
   await page.goto('/stories/restarting');
   await expect(message(page)).toHaveText(
-    'Please refresh the page in about 2 minutes.',
+    'Please try again in about 2 minutes.',
   );
   await page.clock.fastForward('00:02');
-  await expect(message(page)).toHaveText(
-    'Please refresh the page in about 1 minute.',
-  );
-  // Long past the estimate: never 0 or negative.
+  await expect(message(page)).toHaveText('Please try again in about 1 minute.');
+  // The estimate has run out: no more minutes, never 0 or negative.
+  await page.clock.fastForward('01:00');
+  await expect(message(page)).toHaveText('Please try again later.');
   await page.clock.fastForward('10:00');
-  await expect(message(page)).toHaveText(
-    'Please refresh the page in about 1 minute.',
-  );
+  await expect(message(page)).toHaveText('Please try again later.');
+  // Still named: only the minutes go.
+  await expect(
+    page.getByRole('heading', {
+      level: 1,
+      name: 'Our compute is currently restarting',
+    }),
+  ).toBeVisible();
 });
 
 // An action answered "restarting" (here a heart, against the stub api-user): the notice fixed at

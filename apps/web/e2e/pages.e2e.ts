@@ -524,14 +524,18 @@ test.describe('behaviour', () => {
         : route.continue();
     });
     await scrollToEnd(page);
-    await expect(page.getByText('More stories couldn’t load.')).toBeVisible();
+    await expect(
+      page.getByText('Something went wrong. Please try again later.'),
+    ).toBeVisible();
     await expect(page.getByText('Loading more stories…')).toHaveCount(0);
     // At the end of the list again, nothing is asked for until the reader says so.
     await page.evaluate(() => window.scrollTo(0, 0));
     await nearEndSettled(page);
     await scrollToEnd(page);
     expect(await nearEndSettled(page)).toBe(true);
-    await expect(page.getByText('More stories couldn’t load.')).toBeVisible();
+    await expect(
+      page.getByText('Something went wrong. Please try again later.'),
+    ).toBeVisible();
     expect(posts).toBe(1);
     await page.getByRole('button', { name: 'Try again' }).click();
     await expect.poll(() => cards(page).count()).toBeGreaterThanOrEqual(30);
@@ -577,7 +581,7 @@ test.describe('story pages and failures the stub can stage', () => {
       page.getByRole('heading', { level: 1, name: /Is God Real\?/ }),
     ).toBeVisible();
     await expect(
-      page.getByText('Stories can’t be loaded right now.'),
+      page.getByText('Something went wrong. Please try again later.'),
     ).toBeVisible();
     await expectNoHorizontalOverflow(page);
 
@@ -586,7 +590,7 @@ test.describe('story pages and failures the stub can stage', () => {
       page.getByRole('heading', { level: 1, name: 'God Stories' }),
     ).toBeVisible();
     await expect(
-      page.getByText('Stories can’t be loaded right now.'),
+      page.getByText('Something went wrong. Please try again later.'),
     ).toBeVisible();
     await expectNoHorizontalOverflow(page);
   });

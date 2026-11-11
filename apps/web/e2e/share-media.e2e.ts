@@ -416,7 +416,9 @@ test.describe('behaviour', () => {
       },
     );
     await page.getByLabel('Choose a file').setInputFiles(path);
-    await expect(alert(page, 'can’t reach our server')).toBeVisible();
+    await expect(
+      alert(page, 'Something went wrong. Please try again later.'),
+    ).toBeVisible();
     expect((await me.uploads()).videos).toHaveLength(1);
 
     // Choosing it again sends the same request (same key, version and body): the same video.
@@ -483,7 +485,9 @@ test.describe('behaviour', () => {
       await page.getByLabel('Choose a file').setInputFiles(path);
       await answered;
       await expect(phase(page)).toHaveAttribute('data-upload-phase', 'idle');
-      await expect(alert(page, 'can’t reach our server')).toBeVisible();
+      await expect(
+        alert(page, 'Something went wrong. Please try again later.'),
+      ).toBeVisible();
       expect((await me.uploads()).requests).toBe(i + 1);
     }
     await page.getByLabel('Choose a file').setInputFiles(path);
@@ -636,7 +640,9 @@ test.describe('behaviour', () => {
       },
     );
     await page.getByLabel('Choose a file').setInputFiles(path);
-    await expect(alert(page, 'can’t reach our server')).toBeVisible();
+    await expect(
+      alert(page, 'Something went wrong. Please try again later.'),
+    ).toBeVisible();
     await me.agreements({ testimony: 1 });
     // Its replay is refused until they agree (a 403 that doesn't mean nothing was made).
     await page.getByLabel('Choose a file').setInputFiles(path);

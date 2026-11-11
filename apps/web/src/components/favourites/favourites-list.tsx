@@ -12,6 +12,7 @@ import { deviceHeartIds } from '@/lib/device-hearts';
 import { markHearted } from '@/lib/favourites';
 import { personalApiUser, usePersonalSession } from '@/lib/personal-session';
 import { signInHref } from '@/lib/return-path';
+import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 
 /** Cards per page. */
 const PAGE_SIZE = 24;
@@ -193,7 +194,7 @@ export function FavouritesList() {
     return (
       <Notice>
         <p className="mb-5" role="alert">
-          Your favourites couldn’t load. Try again in a moment.
+          {TRY_AGAIN_LATER}
         </p>
         <Button
           variant="outline"
@@ -298,7 +299,7 @@ function Cards({
         {more === 'failed' && (
           <>
             <p role="alert" className="text-secondary-text">
-              More favourites couldn’t load.
+              {TRY_AGAIN_LATER}
             </p>
             <Button variant="outline" className="h-11 px-5" onClick={byButton}>
               Try again
@@ -447,7 +448,7 @@ function DeviceFavourites() {
     return (
       <Notice>
         <p className="mb-5" role="alert">
-          Your favourites couldn’t load. Try again in a moment.
+          {TRY_AGAIN_LATER}
         </p>
         <Button variant="outline" className="h-11 px-5" onClick={start}>
           Try again

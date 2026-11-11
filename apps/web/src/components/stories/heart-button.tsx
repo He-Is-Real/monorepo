@@ -1,6 +1,7 @@
 'use client';
 
 import { type HeartState, useHeart } from '@/lib/favourites';
+import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 
 // The heart (M2): a person's own favourite, private to them (founder, 2026-10-25): no counts,
 // nobody else sees it. It shows for everyone, in the same place and size before and after the
@@ -9,7 +10,8 @@ import { type HeartState, useHeart } from '@/lib/favourites';
 // stays the same and `aria-pressed` says whether it's on. Without JavaScript it does nothing:
 // personal parts need JavaScript (D83).
 
-const FAILED = 'Your heart couldn’t be saved. Try again.';
+// Not saved (on our side): the heart goes back, and only the plain message (Joel, 2026-11-09).
+const FAILED = TRY_AGAIN_LATER;
 
 function HeartIcon({ on, className }: { on: boolean; className: string }) {
   return (

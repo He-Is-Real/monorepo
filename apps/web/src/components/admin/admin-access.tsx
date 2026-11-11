@@ -9,9 +9,11 @@ import {
   type ApiUser,
   ApiUserProblem,
   apiUser,
+  isSystemError,
   NotSignedIn,
 } from '@/lib/api-user';
 import { usePersonalSession } from '@/lib/personal-session';
+import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 
 type Role = Account['role'];
 /** D1's order: each role can do what the ones before it can. */
@@ -51,14 +53,17 @@ function useRole(): Role | undefined {
 export const WRAPPING_BUTTON =
   'h-auto min-h-11 w-full px-5 py-2 whitespace-normal sm:w-auto';
 
-/** What to tell an admin when api-admin refused or couldn't be reached. */
+/**
+ * What to tell an admin when api-admin refused what they sent (an input refusal's own message,
+ * `isInputRefusal`), or only `TRY_AGAIN_LATER` for anything else (Joel, 2026-11-09).
+ */
 export const problemText = (err: unknown) => {
-  if (err instanceof ApiUserProblem) {
-    const field = err.problem.errors?.[0]?.message;
-    return field ?? err.problem.detail ?? `api-admin answered ${err.status}.`;
-  }
   if (err instanceof NotSignedIn) return 'You’re signed out. Sign in again.';
-  return 'api-admin couldn’t be reached. Try again in a moment.';
+  if (err instanceof ApiUserProblem && !isSystemError(err)) {
+    const field = err.problem.errors?.[0]?.message;
+    return field ?? err.problem.detail ?? TRY_AGAIN_LATER;
+  }
+  return TRY_AGAIN_LATER;
 };
 
 /**
@@ -134,6 +139,14 @@ export function AdminAccess({
     return (
       <p className="rounded-2xl border border-border bg-card p-6">
         The admin service isn’t available on this site.
+      </p>
+    );
+  }
+  if (account.status === 'failed') {
+    // The account couldn't be read: that's on our side, not a refusal.
+    return (
+      <p role="alert" className="rounded-2xl border border-border bg-card p-6">
+        {TRY_AGAIN_LATER}
       </p>
     );
   }

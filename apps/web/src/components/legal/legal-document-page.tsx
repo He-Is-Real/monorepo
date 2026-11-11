@@ -9,6 +9,7 @@ import {
   longDate,
   type PublicDocument,
 } from '@/lib/legal-text';
+import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 
 const LINK =
   'inline-flex min-h-11 items-center font-medium underline-offset-4 hover:underline';
@@ -79,8 +80,7 @@ export function LegalDocumentPage({
           </article>
         ) : (
           <p className="text-secondary-text" data-legal-problem="unavailable">
-            The {title.toLowerCase()} can’t be shown right now. Please try again
-            in a moment.
+            {TRY_AGAIN_LATER}
           </p>
         )}
         {others.length > 0 && (

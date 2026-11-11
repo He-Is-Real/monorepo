@@ -8,11 +8,14 @@ import {
   useRef,
   useState,
 } from 'react';
+import { RestartingText } from '@/components/restarting/restarting-message';
 import {
   ApiUserProblem,
-  ApiUserUnavailable,
+  plainMessage,
+  restartWait,
   StaleVersion,
 } from '@/lib/api-user';
+import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 import type { ShareApi, StoryFormat, StoryPicture } from './share-api';
 import { formatBytes } from './upload-panel';
 import {
@@ -314,7 +317,7 @@ export function ImagePanel({
     const id = current().draftId;
     return () => !alive.current || (id !== null && current().draftId !== id);
   };
-  const [problem, setProblem] = useState<string | null>(null);
+  const [problem, setProblem] = useState<React.ReactNode>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const { begin } = useRuns();
   const agreeAgain = useContext(AgreeAgain);
@@ -443,7 +446,7 @@ export function ImagePanel({
     setPhase({ at: 'sending', picture });
     /** The story's picture as this panel showed it when the person chose to add theirs. */
     const knew = attachedRef.current;
-    const back = (onDraft: boolean, reason: string | null) => {
+    const back = (onDraft: boolean, reason: React.ReactNode) => {
       setPhase({ at: 'preview', picture, granted: onDraft });
       setProblem(reason);
     };
@@ -497,10 +500,7 @@ export function ImagePanel({
       // 412: this very file is there already (a replay of a request whose PUT went through).
       // Otherwise the request stays kept, so trying again replays it for the same path.
       if (!res || (!res.ok && res.status !== 412)) {
-        return back(
-          true,
-          `Your ${noun} couldn’t be uploaded. Your story is saved; please try again.`,
-        );
+        return back(true, `${TRY_AGAIN_LATER} Your story is saved.`);
       }
       forgetAttempt(owner, 'image-request', ready.draftId);
       held.current = null;
@@ -556,9 +556,7 @@ export function ImagePanel({
     } catch {
       if (left()) return;
       setPhase({ at: 'preview', picture, granted: false });
-      setProblem(
-        `Your story’s ${noun} was changed in another tab or window. Please try again in a moment.`,
-      );
+      setProblem(TRY_AGAIN_LATER);
       return;
     }
     if (left()) return;
@@ -603,7 +601,11 @@ export function ImagePanel({
       setProblem(
         err instanceof StaleVersion
           ? 'Your story was changed in another tab or window. Please try again.'
-          : `Your ${noun} couldn’t be changed. Your story is saved; please try again.`,
+          : plainMessage(
+              err,
+              `Your ${noun} couldn’t be changed. Your story is saved; please try again.`,
+              'Your story is saved.',
+            ),
       );
       return null;
     }
@@ -641,9 +643,7 @@ export function ImagePanel({
         now = await read(id);
       } catch {
         if (gone() || current().draftId !== id) return;
-        setProblem(
-          `We can’t check your story’s ${noun} right now. Please try again in a moment.`,
-        );
+        setProblem(TRY_AGAIN_LATER);
         return;
       }
       if (gone() || current().draftId !== id) return;
@@ -867,9 +867,11 @@ export function ImagePanel({
 }
 
 /** api-user's refusal of the picture, in plain words. */
-function refusal(err: unknown, noun: string): string {
-  if (err instanceof ApiUserUnavailable) {
-    return 'We can’t reach our server right now. Your story is saved; please try again in a moment.';
+function refusal(err: unknown, noun: string): React.ReactNode {
+  const restarting = restartWait(err);
+  if (restarting !== undefined) {
+    // The database restarting: named, with when to try again (Joel, 2026-11-09).
+    return <RestartingText seconds={restarting} kept="Your story is saved." />;
   }
   if (err instanceof StaleVersion) {
     return `Your story was changed in another tab or window. Please add your ${noun} again.`;
@@ -887,7 +889,11 @@ function refusal(err: unknown, noun: string): string {
       }).format(new Date(p.availableAt));
       return `You’ve started as many uploads as you can for now. Your story is saved: you can add your ${noun} from ${when}.`;
     }
-    if (p.detail) return p.detail;
   }
-  return `Your ${noun} couldn’t be added. Your story is saved; please try again.`;
+  // On our side: only the plain message (Joel, 2026-11-09); else the refusal's own words.
+  return plainMessage(
+    err,
+    `Your ${noun} couldn’t be added. Your story is saved; please try again.`,
+    'Your story is saved.',
+  );
 }
