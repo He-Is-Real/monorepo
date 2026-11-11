@@ -125,8 +125,8 @@ const isLastAdmin = (err: unknown) =>
 
 /**
  * The staff list and its changes, in the order G8 B sets: Clerk first (the source of truth), then
- * the `staffMember` row. If the database then refuses (the last Admin, a change that overlapped
- * another), Clerk is put back as it was, so the two agree again.
+ * the `staffMember` row. Afterwards (and if the database refuses: the last Admin, a change that
+ * overlapped another) Clerk is set again to exactly what the row says, so the two agree.
  */
 @Injectable()
 export class Staff {
@@ -175,27 +175,56 @@ export class Staff {
     const before = await this.current(email);
     if (before === role) {
       // Nothing to change here; Clerk is still made to agree (it is the source of truth).
-      await this.toClerk(email, role);
+      await this.toClerkAsTable(email);
       return 'unchanged';
     }
     // Checked before Clerk is touched, so the usual refusal changes nothing anywhere. The
     // database checks it again, in the write's own transaction.
     if (before === 'Admin' && (await this.admins()) <= 1) throw lastAdmin();
 
-    await this.toClerk(email, role);
+    try {
+      await this.toClerk(email, role);
+    } catch (err) {
+      // Clerk may have made part of the change: put it back as the table says.
+      await this.quietly(this.toClerkAsTable(email));
+      throw err;
+    }
     try {
       await retryOnConflict(() => this.write(email, role, addedBy));
     } catch (err) {
       // Put Clerk back as the table still says, then refuse.
-      await this.toClerk(email, before).catch((undo: unknown) =>
-        this.logger.error(
-          `A staff change was refused by the database and Clerk couldn't be put back: ${undo instanceof Error ? undo.message : 'error'}`,
-        ),
-      );
+      await this.quietly(this.toClerkAsTable(email));
       if (isLastAdmin(err) || isTransactionConflict(err)) throw lastAdmin();
       throw err;
     }
+    // Another change to the same person may have reached Clerk and the table in between, in
+    // either order; Clerk is set again to exactly what the table now says, so whichever change
+    // finishes last leaves the two agreeing. The change itself is done, so a failure here is
+    // logged, not answered.
+    await this.quietly(this.toClerkAsTable(email));
     return before === null ? 'added' : role === null ? 'removed' : 'changed';
+  }
+
+  /**
+   * Sets `email`'s Clerk role to exactly their row's (no row: none), reading the row again after
+   * each Clerk change and repeating (a few times) while it moved meanwhile.
+   */
+  private async toClerkAsTable(email: string): Promise<void> {
+    let role = await this.current(email);
+    for (let round = 0; round < 3; round++) {
+      await this.toClerk(email, role);
+      const now = await this.current(email);
+      if (now === role) return;
+      role = now;
+    }
+  }
+
+  private async quietly(sync: Promise<void>): Promise<void> {
+    await sync.catch((err: unknown) =>
+      this.logger.error(
+        `Clerk couldn't be made to match the staff list: ${err instanceof Error ? err.message : 'error'}`,
+      ),
+    );
   }
 
   private async toClerk(email: string, role: StaffRole | null) {

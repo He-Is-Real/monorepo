@@ -22,15 +22,17 @@ export interface StaffClerk {
   /**
    * Makes `email`'s Clerk role `role` (or none): every Clerk user with that verified email gets it in
    * `publicMetadata.role`; with no such user, a pending invitation carries it instead (an
-   * existing one with the same role is kept, any other revoked). `null` also revokes pending
-   * invitations. Throws if Clerk can't be reached or answers an error.
+   * existing one with the same role is kept; a new one is created before the old ones go, so a
+   * refusal leaves them as they were). Either way, no pending invitation for the email is left
+   * carrying another role (`null` revokes them all). Throws if Clerk can't be reached or answers
+   * an error.
    */
   setRole(email: string, role: StaffRole | null): Promise<StaffClerkChange>;
 }
 
 /** What Clerk was asked to change, for the log (no ids or emails). */
 export type StaffClerkChange =
-  | { kind: 'users'; count: number }
+  | { kind: 'users'; count: number; revoked: number }
   | { kind: 'invitation'; created: boolean; revoked: number };
 
 const API = 'https://api.clerk.com/v1';
@@ -63,53 +65,69 @@ export class ClerkStaffApi implements StaffClerk {
     const users = list(
       await this.json('GET', `/users?${query({ email_address: email })}`),
     ).filter((u) => emailsOf(u).includes(email));
-    if (users.length) {
-      for (const user of users) {
-        const id = user['id'];
-        if (typeof id !== 'string' || !CLERK_USER_ID.test(id)) {
-          throw new Error('Clerk answered a user without a valid id');
-        }
-        await this.json('PATCH', `/users/${id}/metadata`, {
-          public_metadata: { role },
-        });
+    for (const user of users) {
+      const id = user['id'];
+      if (typeof id !== 'string' || !CLERK_USER_ID.test(id)) {
+        throw new Error('Clerk answered a user without a valid id');
       }
-      return { kind: 'users', count: users.length };
+      await this.json('PATCH', `/users/${id}/metadata`, {
+        public_metadata: { role },
+      });
     }
 
+    // The email's pending invitations, with or without an account: none may carry another role.
     const pending = list(
       await this.json(
         'GET',
         `/invitations?${query({ status: 'pending', query: email })}`,
       ),
     ).filter((i) => i['email_address'] === email);
-    const keep =
+    const carries = (i: Json) =>
+      (i['public_metadata'] as Json | null)?.['role'] ?? null;
+    const stale = pending.filter((i) => role === null || carries(i) !== role);
+    // Ids checked before anything is created, so a bad answer changes nothing.
+    for (const invitation of stale) invitationId(invitation);
+
+    // The new invitation comes first: if Clerk refuses it, the old one still stands.
+    let created: string | null = null;
+    if (
+      !users.length &&
       role !== null &&
-      pending.some(
-        (i) => (i['public_metadata'] as Json | null)?.['role'] === role,
-      );
+      !pending.some((i) => carries(i) === role)
+    ) {
+      const invitation = await this.json('POST', '/invitations', {
+        email_address: email,
+        public_metadata: { role },
+        // S-2 A: no invitation email; they sign up themselves and get the role then.
+        notify: false,
+        // Lets it sit beside the old invitation until that is revoked.
+        ignore_existing: true,
+      });
+      const id = (invitation as Json | null)?.['id'];
+      created =
+        typeof id === 'string' && CLERK_INVITATION_ID.test(id) ? id : null;
+    }
     let revoked = 0;
-    for (const invitation of pending) {
-      if (keep && (invitation['public_metadata'] as Json)?.['role'] === role) {
-        continue;
+    try {
+      for (const invitation of stale) {
+        await this.json(
+          'POST',
+          `/invitations/${invitationId(invitation)}/revoke`,
+        );
+        revoked++;
       }
-      const id = invitation['id'];
-      if (typeof id !== 'string' || !CLERK_INVITATION_ID.test(id)) {
-        throw new Error('Clerk answered an invitation without a valid id');
+    } catch (err) {
+      // Withdraw the new one too, so the email's invitations are as they were (best effort).
+      if (created) {
+        await this.json('POST', `/invitations/${created}/revoke`).catch(
+          () => undefined,
+        );
       }
-      await this.json('POST', `/invitations/${id}/revoke`);
-      revoked++;
+      throw err;
     }
-    if (role === null || keep) {
-      return { kind: 'invitation', created: false, revoked };
-    }
-    await this.json('POST', '/invitations', {
-      email_address: email,
-      public_metadata: { role },
-      // S-2 A: no invitation email; they sign up themselves and get the role then.
-      notify: false,
-      ignore_existing: true,
-    });
-    return { kind: 'invitation', created: true, revoked };
+    return users.length
+      ? { kind: 'users', count: users.length, revoked }
+      : { kind: 'invitation', created: created !== null, revoked };
   }
 
   private async json(
@@ -153,6 +171,14 @@ export class ClerkStaffApi implements StaffClerk {
 
 const query = (params: Record<string, string>) =>
   new URLSearchParams(params).toString();
+
+function invitationId(invitation: Json): string {
+  const id = invitation['id'];
+  if (typeof id !== 'string' || !CLERK_INVITATION_ID.test(id)) {
+    throw new Error('Clerk answered an invitation without a valid id');
+  }
+  return id;
+}
 
 /** A list answer: a bare array, or `{ data: [...] }` (Clerk's paginated form). */
 function list(value: unknown): Json[] {

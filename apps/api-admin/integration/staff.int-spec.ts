@@ -25,10 +25,23 @@ class FakeClerk implements StaffClerk {
   readonly enabled = true;
   roles = new Map<string, StaffRole | null>();
   failing = false;
+  /** Once: after setting this email's role, wait at `gate` (a slow Clerk answer). */
+  hold: {
+    email: string;
+    role: StaffRole | null;
+    reached: () => void;
+    gate: Promise<void>;
+  } | null = null;
   async setRole(email: string, role: StaffRole | null) {
     if (this.failing) throw new Error('Clerk answered 500');
     this.roles.set(email, role);
-    return { kind: 'users' as const, count: 1 };
+    const hold = this.hold;
+    if (hold && hold.email === email && hold.role === role) {
+      this.hold = null;
+      hold.reached();
+      await hold.gate;
+    }
+    return { kind: 'users' as const, count: 1, revoked: 0 };
   }
 }
 
@@ -181,6 +194,28 @@ describe('the staff list (api-admin)', () => {
     );
     // Removing someone not on the list changes nothing.
     expect((await remove('ann@heisreal.today')).status).toBe(204);
+  });
+
+  it('a removal overlapping a promotion leaves Clerk saying what the list says', async () => {
+    const eve = 'eve@heisreal.today';
+    await put(eve, 'Moderator');
+    let reached!: () => void;
+    let release!: () => void;
+    const atClerk = new Promise<void>((r) => (reached = r));
+    fake.hold = {
+      email: eve,
+      role: null,
+      reached,
+      gate: new Promise<void>((r) => (release = r)),
+    };
+    // The removal has told Clerk "no role"; before it reaches the list, eve is made Admin.
+    const removal = remove(eve);
+    await atClerk;
+    expect((await put(eve, 'Admin')).status).toBe(200);
+    release();
+    expect((await removal).status).toBe(204);
+    expect((await table()).map((r) => r.email)).not.toContain(eve);
+    expect(fake.roles.get(eve)).toBe(null);
   });
 
   it('takes only @heisreal.today emails and the two staff roles (G7)', async () => {
