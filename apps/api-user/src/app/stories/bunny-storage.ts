@@ -5,6 +5,7 @@ import {
   presignStorageUrl,
   type StorageZone,
 } from '@heisreal/story-cards';
+import { PICTURE_START_BYTES, type PictureStart } from './picture-check';
 
 /**
  * The images storage zone for uploads (M2 plan PR 10; D68, D80): api-user signs the browser's S3
@@ -39,6 +40,12 @@ export interface ImageStore {
   /** Whether the file at that path has arrived; throws when the zone gives no clear answer. */
   exists(path: string): Promise<boolean>;
   /**
+   * The picture check at submit (picture-check.ts): the file's size and its first
+   * PICTURE_START_BYTES bytes, or null when the zone has no file there. Throws when the zone gives
+   * no clear answer, so an outage is never a pass.
+   */
+  start(path: string): Promise<PictureStart | null>;
+  /**
    * A deleted story's queued folder (pendingDeletion `image`, D40), `stories/<id>/`, always from
    * the database, which queues it when the story goes (story_picture_folder): deletes the folder
    * with every picture in it (`deleteStoryFolder`). Throws unless it's done.
@@ -47,7 +54,11 @@ export interface ImageStore {
 }
 
 export class BunnyImageStore implements ImageStore {
-  constructor(private readonly zone: StorageZone) {}
+  constructor(
+    private readonly zone: StorageZone,
+    /** The HTTP client (a stand-in zone in api-user's integration tests). */
+    private readonly fetcher: typeof fetch = fetch,
+  ) {}
 
   sign(path: string, sizeBytes: number, now = Date.now()): SignedImageUpload {
     return signImageUpload(this.zone, path, sizeBytes, now);
@@ -59,7 +70,7 @@ export class BunnyImageStore implements ImageStore {
    * arrives through its PUT (one use), so once there it's the picture the grant named.
    */
   async exists(path: string): Promise<boolean> {
-    const res = await fetch(
+    const res = await this.fetcher(
       presignStorageUrl(this.zone, {
         method: 'HEAD',
         key: path,
@@ -72,9 +83,105 @@ export class BunnyImageStore implements ImageStore {
     throw new Error(`The images zone answered ${res.status} for a picture`);
   }
 
+  /**
+   * A presigned GET with `Range: bytes=0-39` (the R3 research read a picture's first 40 bytes and
+   * its exact size this way on dev): S3 answers 206 with `Content-Range: bytes 0-39/<size>`. A 200
+   * (the range ignored) gives the size in `Content-Length`; only the first bytes are read either
+   * way. An empty file is 416. Any answer that contradicts itself (a range not from byte 0 to
+   * min(39, size - 1), a `Content-Length` that disagrees, or fewer bytes than that) throws: the
+   * check never passes on an answer it can't trust.
+   */
+  async start(path: string): Promise<PictureStart | null> {
+    const res = await this.fetcher(
+      presignStorageUrl(this.zone, { method: 'GET', key: path, expiresIn: 60 }),
+      {
+        headers: { Range: `bytes=0-${PICTURE_START_BYTES - 1}` },
+        signal: AbortSignal.timeout(5000),
+      },
+    );
+    if (res.status === 404 || res.status === 416) {
+      await res.body?.cancel();
+      return res.status === 404 ? null : { size: 0, bytes: new Uint8Array() };
+    }
+    const size = answeredSize(res);
+    if (size === null) {
+      await res.body?.cancel();
+      throw new Error(
+        `The images zone answered ${res.status} without a consistent size for a picture's first bytes`,
+      );
+    }
+    const want = Math.min(PICTURE_START_BYTES, size);
+    // A 206 is exactly the range it names; a 200 is the whole file, read only as far as needed.
+    const bytes = await firstBytes(res, want, res.status === 206);
+    if (bytes === null || bytes.length !== want) {
+      throw new Error(
+        `The images zone sent ${bytes === null ? 'more than' : bytes.length} of a picture's first ${want} bytes`,
+      );
+    }
+    return { size, bytes };
+  }
+
   deleteFolder(folder: string): Promise<void> {
     return deleteStoryFolder(this.zone, folder);
   }
+}
+
+const DIGITS = /^\d{1,15}$/;
+
+/**
+ * The whole file's size from a range answer, or null unless every header agrees: a 206's
+ * `Content-Range` is `bytes 0-<min(39, size - 1)>/<size>` (and its `Content-Length`, if sent, that
+ * range's length); a 200's `Content-Length` is the size.
+ */
+function answeredSize(res: Response): number | null {
+  const length = res.headers.get('content-length');
+  if (length !== null && !DIGITS.test(length)) return null;
+  if (res.status === 200) return length === null ? null : Number(length);
+  if (res.status !== 206) return null;
+  const range = /^bytes (\d{1,15})-(\d{1,15})\/(\d{1,15})$/.exec(
+    res.headers.get('content-range') ?? '',
+  );
+  if (!range) return null;
+  const [start, end, size] = range.slice(1).map(Number);
+  if (size === 0 || start !== 0) return null;
+  if (end !== Math.min(PICTURE_START_BYTES, size) - 1) return null;
+  if (length !== null && Number(length) !== end + 1) return null;
+  return size;
+}
+
+/**
+ * Up to `want` bytes of the answer's body; the rest is never downloaded. With `exact`, the body must
+ * end there: null once a byte past `want` arrives (Codex, #208 review).
+ */
+async function firstBytes(
+  res: Response,
+  want: number,
+  exact: boolean,
+): Promise<Uint8Array | null> {
+  const out = new Uint8Array(want);
+  let got = 0;
+  const reader = res.body?.getReader();
+  if (!reader) return out.subarray(0, 0);
+  try {
+    while (got < want) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const take = value.subarray(0, want - got);
+      out.set(take, got);
+      got += take.length;
+      if (exact && value.length > take.length) return null;
+    }
+    if (exact && got === want) {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value.length > 0) return null;
+      }
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+  return out.subarray(0, got);
 }
 
 export function signImageUpload(

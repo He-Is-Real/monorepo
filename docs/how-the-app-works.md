@@ -14,7 +14,7 @@ the limits, and what we keep and delete. Progress (what is built and what is nex
 - The bracketed codes, like (D71), point to the decision record in the `project` repo
   (`context/research/*.html`), for anyone who needs the reasoning.
 
-**Last updated:** 2026-11-06
+**Last updated:** 2026-11-09
 
 ## Needs Joel to confirm
 
@@ -44,17 +44,13 @@ code does what it does today; nobody should build on either reading.
 7. **Bunny Optimizer.** Joel chose (2026-10-30, picture checks) to add Bunny Optimizer, which
    rebuilds every picture on the way out (about $19 a month). It is off in our infrastructure
    code ("nothing that costs extra") and was never tested with signed links. Still wanted?
-8. **Checking pictures at submit.** The same decision says the server reads the start of each
-   picture at submit to check it really is a clean WebP of the recorded size, and refuses one
-   that still carries hidden data such as location. Today submit checks only that the picture
-   arrived. Should the deeper check be built?
-9. **Stripe's embedded Checkout.** The donate-button decision (2026-10-30) said Stripe's embedded
+8. **Stripe's embedded Checkout.** The donate-button decision (2026-10-30) said Stripe's embedded
    Checkout would replace the Buy Buttons in M4. Is that still the M4 plan?
-10. **Trusted submitters' hourly limit.** D94 says trusted submitters keep the hourly upload
-    limit "but raised"; today they keep the same 10 an hour. Should it be higher, and how much?
-11. **Who gives people the Moderator role.** The security review says only a Super Admin assigns
+9. **Trusted submitters' hourly limit.** D94 says trusted submitters keep the hourly upload
+   limit "but raised"; today they keep the same 10 an hour. Should it be higher, and how much?
+10. **Who gives people the Moderator role.** The security review says only a Super Admin assigns
     roles; the delivery plan says admins assign the moderator role. Which (planned, M3/M5)?
-12. **Spam and safety checks on sharing.** The security review plans a CAPTCHA on the share
+11. **Spam and safety checks on sharing.** The security review plans a CAPTCHA on the share
     form, a verified email before the first story, and virus scanning of uploads. None of these
     is in a later decision or built. Are they still planned, and for which milestone?
 
@@ -230,6 +226,17 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   their story at someone else's media. (D80, D65)
 - One video or audio file per story; replacing it deletes the old one at Bunny at once.
 - Sending for review checks that the file arrived and is within the limits.
+- **Sending a story with a picture for review checks the picture (Joel, 2026-10-30, R3 = A, with
+  its extra suggestion):** the server reads only the first 40 bytes of the stored picture. It must
+  be all there (its exact size as recorded at upload), really a WebP of the width and height
+  recorded, and without hidden metadata (EXIF, which can hold a photo's location, or XMP) or
+  animation; a picture our page made never has them, so one that does wasn't cleaned. Otherwise
+  the story stays a draft and the person is told "Your picture hasn't finished uploading. Add it
+  again, or remove it, then submit your story." If the picture storage can't be reached, the story
+  stays a draft and the person tries again later; it never passes unchecked. A colour profile and
+  transparency are allowed (Chrome adds a standard colour profile to every picture). A picture
+  that passes counts as processed, so a moderator can approve it; until M7's scanning, that check
+  and the moderator seeing every picture are what stand between an upload and the public.
 - Pictures are converted in the browser before upload, so no location or camera data leaves the
   device: WebP, at most 2048 pixels on the long side, at least 200 pixels a side, at most 5 MB,
   and no more extreme than 1:3 or 3:1. A description for screen readers is optional, on every
@@ -366,7 +373,8 @@ Built in the database (the pages and the queue are planned, M3):
   sent back) and withdraws; a moderator picks up, decides, hides and shows again; the system hides
   and shows again when media breaks and works again.
 - **A story can't be approved until every upload is processed** and its size and length are
-  known, so nothing unchecked reaches the public. (A2)
+  known, so nothing unchecked reaches the public. (A2) For a picture, "processed" means it passed
+  the picture check when the story was sent for review (Uploads, above), until M7's scanning.
 - **A moderator waits for the media before approving (decision 5 and J6, Joel 2026-11-07):** not
   while the story's video, audio file or picture could still be replaced through its upload link
   (an hour after the link was signed, or signed again for a resumed upload; 10 minutes for a

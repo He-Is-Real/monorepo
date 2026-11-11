@@ -12,7 +12,7 @@ is for) is the delivery plan in the `project` repo (`context/future/delivery-pla
 - The long dated log and the per-step build notes that used to be here are in git history
   (this file before 2026-11-04).
 
-**Last updated:** 2026-11-08
+**Last updated:** 2026-11-09
 
 Everything below runs on the **dev** site only, with made-up test stories. Nothing reaches the
 public until the "Go live" milestone; the old prototype and the Squarespace site keep running
@@ -210,8 +210,13 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   through an approval (Joel, 2026-11-08, T3). The database's clock judges the lock, and a lock
   that ran out unfinished keeps approval waiting until a later try confirms the picture; the
   nightly housekeeping re-checks any such video (Joel, 2026-11-09, T4). Before
-  it runs on dev: apply the bunny root (the new sound zone and its key), then the gcp root. Still
-  to come: the 40-byte picture check at submit.
+  it runs on dev: apply the bunny root (the new sound zone and its key), then the gcp root. Fifth
+  part built (Joel, 2026-10-30, `project/context/research/m2-remaining-decisions.html` R3 = A):
+  sending a story with a picture for review reads the picture's first 40 bytes and checks it is
+  all there, a WebP of the recorded size, and free of hidden location data or animation; a missing
+  or wrong picture keeps the story a draft and asks the person to add it again, and a picture that
+  passes counts as processed, so a moderator can approve it. No new infrastructure: the database
+  rule reaches dev with the usual schema migration.
 - **Closing M2:** a final check of this file and a "run it and try" walk-through on dev.
 
 **Dropped or moved out of M2:** the personalised home and "New for you" (replaced by the NEW

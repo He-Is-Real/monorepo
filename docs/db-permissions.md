@@ -219,7 +219,9 @@ their fence (see "Transactions").
     `thumbnailPath`, `processing`) and `checkedAt` (when the newest answer applied reached the result
     writer; it applies only later ones, in the same transaction, Joel 2026-11-07, F1; read like `processing`); api-user `renewedAt` (server time, through `fn::upload::renew`,
     which refuses unless the story still exists, is the person's, is editable and shows that file:
-    `nothing_to_resume:`); events `detachedAt`; housekeeping `removedAt` (once, not before
+    `nothing_to_resume:`); api-user a picture's `processing`, only as the picture check at submit
+    (Joel 2026-10-30, R3 = A): only to `ready`, only on a picture not marked yet, and only the one a
+    draft (or story sent back for changes) shows now (`storyFile_update`, `picture_check:`); events `detachedAt`; housekeeping `removedAt` (once, not before
     `fn::upload::links_expire_after()`, 2 h: `file_not_removable`). Housekeeping deletes the file
     at Bunny or in the images zone first (a 404 counts as done, so a placeholder's made-up id is
     fine); a picture outside the stories' folders (dev-seed's fixed pictures, which every reset
@@ -228,7 +230,8 @@ their fence (see "Transactions").
     a field its owner's story shows (`fn::story::file_view`: `format`, `thumbnailPath`, `width`,
     `height`, `lengthSeconds`, `processing`), `storyFile_update` steps the story's `version` in the
     same write (once: not again if that write hid it or showed it again), so the owner's `ETag`
-    and `If-Match` see processing.
+    and `If-Match` see processing. Not for api-user's picture check: the owner's story never shows
+    a picture's `processing`, and the submit that follows stays at the person's `If-Match`.
   - **Delete:** api-user (erasure); housekeeping a row older than 7 days whose file is removed or
     whose story is gone. Counted from these rows, so replacing a file or deleting a story frees no
     upload limit. Specs: `uploads`, `images`, api-user's `uploads`, housekeeping's suite.

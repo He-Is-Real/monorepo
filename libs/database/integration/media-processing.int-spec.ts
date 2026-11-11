@@ -215,6 +215,62 @@ describe('approval waits for media processing (A2, R12)', () => {
       });
     });
 
+    it('api-user marks only the picture a draft shows now as checked, at submit (Joel, 2026-10-30, R3 = A), and approval counts it', async () => {
+      const apiUser = await t.service('api_user');
+      const w = await written();
+      const before = await version(w);
+      // Never anything but 'ready', and never a video's row.
+      for (const state of ['processing', 'failed']) {
+        expect(
+          await setFile(w, `processing = '${state}'`, apiUser, 'image'),
+        ).toEqual({
+          ok: false,
+          error: expect.stringContaining('picture_check:'),
+        });
+      }
+      const v = await video();
+      await setFile(v, `processing = 'ready'`, apiUser);
+      expect((await fileRow(v))?.['processing']).toBeUndefined();
+      // The check at submit: marked, and the version the person's page sent still holds.
+      expect(
+        await setFile(w, `processing = 'ready'`, apiUser, 'image'),
+      ).toMatchObject({ ok: true });
+      expect((await fileRow(w, 'image'))?.['processing']).toBe('ready');
+      expect(await version(w)).toBe(before);
+      // Once marked, never again (nor back), and not a picture the story stopped showing.
+      expect(
+        await setFile(w, `processing = NONE`, apiUser, 'image'),
+      ).toMatchObject({ ok: false });
+      const old = await upload(w, 'image');
+      await upload(w, 'image');
+      expect((await fileRow(w, 'image'))?.['processing']).toBeUndefined();
+      expect(
+        await outcome(
+          apiUser,
+          `UPDATE type::record('storyFile', $key) SET processing = 'ready'`,
+          { key: old },
+        ),
+      ).toMatchObject({ ok: false });
+      // Not once the story is submitted: the mark is part of submitting, not after it.
+      expect(await submit(pat, w)).toHaveLength(1);
+      expect(
+        await setFile(w, `processing = 'ready'`, apiUser, 'image'),
+      ).toEqual({
+        ok: false,
+        error: expect.stringContaining('picture_check:'),
+      });
+      await refusedApproval(w, 'the story’s image hasn’t finished processing');
+
+      // A picture checked at submit is enough for approval's media rule.
+      const ok = await written();
+      expect(
+        await setFile(ok, `processing = 'ready'`, apiUser, 'image'),
+      ).toMatchObject({ ok: true });
+      expect(await submit(pat, ok)).toHaveLength(1);
+      await approve(admin, ok);
+      expect(await statusOf(ok)).toBe('approved');
+    });
+
     it('refuses an unknown processing state', async () => {
       const v = await video();
       expect(await setFile(v, `processing = 'done'`)).toEqual({
