@@ -71,7 +71,8 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
 - **Share your story:** written stories ([submit flow](https://github.com/He-Is-Real/monorepo/pull/118)),
   video and audio uploaded straight to Bunny with progress and resume
   ([video and audio](https://github.com/He-Is-Real/monorepo/pull/133)), and a picture on any
-  story ([pictures](https://github.com/He-Is-Real/monorepo/pull/140)); autosave; limits on
+  story ([pictures](https://github.com/He-Is-Real/monorepo/pull/140)), added as soon as it's
+  chosen, like a video; autosave; limits on
   length, themes, drafts and how often someone can submit or upload, which admins can change; the
   share page shows what's left this week before a limit is reached
   ([limits shown](https://github.com/He-Is-Real/monorepo/pull/156)).

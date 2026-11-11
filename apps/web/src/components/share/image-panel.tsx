@@ -1,6 +1,13 @@
 'use client';
 
-import { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import {
+  type MutableRefObject,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import {
   ApiUserProblem,
   ApiUserUnavailable,
@@ -28,9 +35,13 @@ import {
  * A canvas carries no metadata, so EXIF (the camera, the time, GPS) never leaves the device; the
  * photo's own orientation is applied first. It checks the shape (1:3..3:1) and size (D53) and
  * shows the result at its real shape with an optional description box (never required, Joel 2026-10-30).
- * "Add this picture" asks api-user for the upload (RequestUpload with `format: image`, the
+ * Choosing a picture adds it straight away, as a video or audio file uploads once chosen (Joel,
+ * 2026-11-09): the panel asks api-user for the upload (RequestUpload with `format: image`, the
  * same idempotent request as a video's: upload-request.ts), which puts the picture on the draft,
- * then PUTs the WebP straight to Bunny's storage with the presigned link. Replacing or removing
+ * then PUTs the WebP straight to Bunny's storage with the presigned link. A line says whether it's
+ * being prepared, uploading or added; one that failed keeps "Try again". The description is typed
+ * once the picture is shown and saved on its own when the box is left (and before the step moves
+ * on); one typed while the picture is still uploading is saved once it's added. Replacing or removing
  * it never deletes the old file (an approved copy may still show it; the clean-up sweep does).
  * The request is kept until the PUT succeeds or finds the file there (412): trying again after a
  * failed or lost PUT replays it, for the same path with a fresh link, never a new grant.
@@ -48,7 +59,7 @@ import {
  * - a picture counts as finished only once its PUT succeeded here, or the story says its file
  *   arrived (`image.uploaded`, which api-user checks at the storage). Discarding a replacement
  *   reads the story first and shows its picture as it is: one whose file never arrived stays
- *   unfinished, with "Add" to try its upload again when this tab still has it.
+ *   unfinished, with "Try again" to upload it again when this tab still has it.
  *
  * A request refused until the person agrees to a newer terms of use or testimony consent (plan
  * 4e) opens the flow's agree-again screen (`AgreeAgain`); once they agree, the picture is asked
@@ -61,7 +72,16 @@ const MIN_SIDE = 200;
 const MAX_BYTES = 5_242_880;
 const QUALITY = 0.85;
 
-export type PictureState = 'none' | 'unfinished' | 'done';
+/** `uploading`: being prepared or sent now; `unfinished`: chosen or on the story, its file not there. */
+export type PictureState = 'none' | 'uploading' | 'unfinished' | 'done';
+
+/** The description's save, for the step to wait on before it moves on. */
+export interface PictureSave {
+  /** Saves a changed description (and anything typed meanwhile); answers whether all is saved. */
+  save: () => Promise<boolean>;
+  /** Whether nothing typed is left unsaved, now. */
+  clean: () => boolean;
+}
 
 interface Prepared {
   blob: Blob;
@@ -82,6 +102,16 @@ interface Shown {
   /** Whether its file is there (its PUT succeeded, or the story says so). */
   arrived: boolean;
 }
+
+/** What the step is told about a phase. */
+const stateOf = (phase: Phase): PictureState =>
+  phase.at === 'done' && phase.arrived
+    ? 'done'
+    : phase.at === 'idle'
+      ? 'none'
+      : phase.at === 'reading' || phase.at === 'sending'
+        ? 'uploading'
+        : 'unfinished';
 
 const shownOf = (p: StoryPicture | null): Shown | null =>
   p
@@ -212,6 +242,7 @@ export function ImagePanel({
   current,
   reload,
   onState,
+  saveRef,
 }: {
   calls: ShareApi;
   owner: string;
@@ -225,9 +256,20 @@ export function ImagePanel({
   current: () => { draftId: string | null; version: number | null };
   reload: (draftId: string) => Promise<boolean>;
   onState?: (state: PictureState) => void;
+  /** Set to the description's save, for the step to wait on before it moves on. */
+  saveRef?: MutableRefObject<PictureSave | null>;
 }) {
   const noun = NOUN[format];
-  const [phase, setPhase] = useState<Phase>({ at: 'idle' });
+  const [phase, setPhaseState] = useState<Phase>({ at: 'idle' });
+  const phaseRef = useRef<Phase>(phase);
+  const onStateRef = useRef(onState);
+  onStateRef.current = onState;
+  /** The step hears of each phase as it's set, not a render later: its Continue checks it after waiting. */
+  const setPhase = (next: Phase) => {
+    phaseRef.current = next;
+    setPhaseState(next);
+    onStateRef.current?.(stateOf(next));
+  };
   /** The picture on the draft at the server, as last known: what a removal takes off. */
   const [attached, setAttachedState] = useState<Shown | null>(null);
   const attachedRef = useRef<Shown | null>(null);
@@ -237,13 +279,41 @@ export function ImagePanel({
   };
   /**
    * A picture granted (or maybe granted: no answer) whose file isn't there yet, and its path when
-   * known: what "Add" uploads again if the story still has it after a replacement is discarded.
+   * known: what "Try again" uploads again if the story still has it after a replacement is discarded.
    */
   const held = useRef<{ picture: Prepared; path: string | null } | null>(null);
   /** The picture the person chose, kept while another tab's picture is shown (replace it?). */
   const [pending, setPending] = useState<Prepared | null>(null);
-  const [alt, setAlt] = useState('');
-  const [savedAlt, setSavedAlt] = useState('');
+  const [alt, setAltState] = useState('');
+  const altRef = useRef('');
+  const setAlt = (text: string) => {
+    altRef.current = text;
+    setAltState(text);
+  };
+  /** The description the story has, as last known. */
+  const savedAlt = useRef('');
+  /** The description save under way: saves run one after another, at the draft's version. */
+  const saving = useRef<Promise<boolean>>(Promise.resolve(true));
+  /** Whether the panel is still on the page (the step, the person and the draft it was made for). */
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    // A panel mounted afresh tells the step where it starts: an earlier panel's state isn't its own (Codex #211).
+    onStateRef.current?.(stateOf(phaseRef.current));
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  /**
+   * Taken when work is queued behind a save: answers whether it's obsolete by the time it may
+   * start, because the panel left the page (Continue, sign-out) or the tab moved to another draft.
+   * Obsolete work sends nothing and keeps nothing: a PATCH or version kept after the flow
+   * left could write the cleared draft (its testimony text) back to the tab (Codex #211).
+   */
+  const queued = () => {
+    const id = current().draftId;
+    return () => !alive.current || (id !== null && current().draftId !== id);
+  };
   const [problem, setProblem] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const { begin } = useRuns();
@@ -251,6 +321,7 @@ export function ImagePanel({
   /** The blob: links this panel made, freed once nothing shows them and the draft hasn't them. */
   const blobs = useRef(new Set<string>());
   const fileInput = useRef<HTMLInputElement>(null);
+  const altId = `picture-alt-${format}`;
 
   // The picture the story already has (another tab, or before a reload).
   useEffect(() => {
@@ -258,20 +329,13 @@ export function ImagePanel({
     const shown = shownOf(earlier);
     attachedRef.current = shown;
     setAttachedState(shown);
-    setPhase((p) => (p.at === 'idle' && shown ? { at: 'done', ...shown } : p));
-    setAlt(earlier.alt ?? '');
-    setSavedAlt(earlier.alt ?? '');
+    if (phaseRef.current.at === 'idle' && shown) {
+      setPhase({ at: 'done', ...shown });
+    }
+    altRef.current = earlier.alt ?? '';
+    setAltState(altRef.current);
+    savedAlt.current = altRef.current;
   }, [earlier]);
-
-  useEffect(() => {
-    onState?.(
-      phase.at === 'done' && phase.arrived
-        ? 'done'
-        : phase.at === 'idle'
-          ? 'none'
-          : 'unfinished',
-    );
-  }, [phase, onState]);
 
   // A blob: link is freed once nothing shows it and it isn't the draft's picture (which a
   // discarded replacement goes back to).
@@ -309,7 +373,7 @@ export function ImagePanel({
     setVersion,
     onProblem: setProblem,
     // The kept request is sent again for the very same picture; a changed description is saved
-    // once it's added (Save description), not made into another grant. It's sent as it was, for
+    // once it's added (saved on its own), not made into another grant. It's sent as it was, for
     // the picture it named then: a replay of one that went through answers its own path, and one
     // that didn't is checked against the story's picture as any request is.
     reuse: useCallback(
@@ -334,7 +398,7 @@ export function ImagePanel({
     }
     if (story.image) {
       setAlt(story.image.alt ?? '');
-      setSavedAlt(story.image.alt ?? '');
+      savedAlt.current = story.image.alt ?? '';
     }
     return shownOf(story.image);
   }
@@ -344,8 +408,13 @@ export function ImagePanel({
     setProblem(null);
     setNotice(null);
     setPending(null);
-    const gone = begin();
+    // Uploading from the moment it's chosen, so a Continue already waiting won't move on without it.
     setPhase({ at: 'reading' });
+    // A description saved as its box was left finishes first (each run supersedes the last).
+    const obsolete = queued();
+    await saving.current;
+    if (obsolete()) return;
+    const gone = begin();
     const prepared = await prepare(file);
     if (gone()) return;
     if (typeof prepared === 'string') {
@@ -354,7 +423,8 @@ export function ImagePanel({
       return;
     }
     blobs.current.add(prepared.url);
-    setPhase({ at: 'preview', picture: prepared, granted: false });
+    // Added at once, no click needed (Joel, 2026-11-09); a failure stops at the preview.
+    await add(prepared, false);
   }
 
   async function add(
@@ -362,10 +432,13 @@ export function ImagePanel({
     granted: boolean,
     asked = 0,
   ): Promise<void> {
-    const description = alt.trim();
     setProblem(null);
     setNotice(null);
     setPending(null);
+    const obsolete = queued();
+    await saving.current;
+    if (obsolete()) return;
+    const description = altRef.current.trim();
     const gone = begin();
     setPhase({ at: 'sending', picture });
     /** The story's picture as this panel showed it when the person chose to add theirs. */
@@ -433,9 +506,16 @@ export function ImagePanel({
       held.current = null;
       const arrived = { ...shown, arrived: true };
       setAttached(arrived);
-      // A replay keeps the description it was first sent with; a newer one is offered to save.
-      setSavedAlt(target.sent.alt?.trim() ?? '');
+      // A replay keeps the description it was first sent with; one typed since is saved now,
+      // or when the box is left if the person is still typing.
+      savedAlt.current = target.sent.alt?.trim() ?? '';
       setPhase({ at: 'done', ...arrived });
+      if (
+        altRef.current.trim() !== savedAlt.current &&
+        document.activeElement?.id !== altId
+      ) {
+        void saveAlt();
+      }
     } catch (err) {
       if (left()) return;
       if (
@@ -530,6 +610,9 @@ export function ImagePanel({
   }
 
   async function remove() {
+    const obsolete = queued();
+    await saving.current;
+    if (obsolete()) return;
     const gone = begin();
     setProblem(null);
     setNotice(null);
@@ -538,7 +621,7 @@ export function ImagePanel({
     const cleared = (notice: string) => {
       setPhase({ at: 'idle' });
       setAlt('');
-      setSavedAlt('');
+      savedAlt.current = '';
       setNotice(notice);
     };
     const removed =
@@ -546,11 +629,13 @@ export function ImagePanel({
         ? 'Thumbnail removed. Your video shows the thumbnail our video host picks.'
         : `${noun[0].toUpperCase()}${noun.slice(1)} removed.`;
     const id = current().draftId;
+    // As the panel is now, after the wait: a save before it may have changed what it shows.
+    const was = phaseRef.current;
     // A replacement not granted is only on this device: the story keeps the picture it has. Which
     // one that is, and whether its file arrived, is read from the story, never assumed.
-    if (phase.at === 'preview' && !phase.granted) {
+    if (was.at === 'preview' && !was.granted) {
       if (!id) return cleared(removed);
-      const knew = attached;
+      const knew = attachedRef.current;
       let now: Shown | null;
       try {
         now = await read(id);
@@ -570,10 +655,10 @@ export function ImagePanel({
       }
       const unfinished = held.current;
       if (!now.arrived && unfinished && unfinished.path === now.path) {
-        // This tab's own picture whose upload didn't finish: "Add" tries it again (same path).
+        // This tab's own picture whose upload didn't finish: "Try again" uploads it (same path).
         setPhase({ at: 'preview', picture: unfinished.picture, granted: true });
         setProblem(
-          `Your earlier ${noun} didn’t finish uploading. Add it again to finish, or remove it.`,
+          `Your earlier ${noun} didn’t finish uploading. Try again to finish, or remove it.`,
         );
         return;
       }
@@ -587,7 +672,7 @@ export function ImagePanel({
     }
     // On the draft (added, or granted with its file still to arrive): taken off at the server
     // first, at the draft's version.
-    if (phase.at === 'done' || phase.at === 'preview') {
+    if (was.at === 'done' || was.at === 'preview') {
       const edited = await edit({ image: null }, gone);
       if (!edited) return;
       forgetAttempt(owner, 'image-request', edited);
@@ -597,14 +682,54 @@ export function ImagePanel({
     cleared(removed);
   }
 
-  async function saveAlt() {
-    const description = alt.trim();
-    const gone = begin();
-    if (await edit({ image: { alt: description || null } }, gone)) {
-      setSavedAlt(description);
-      setNotice('Description saved.');
-    }
+  /**
+   * Saves the description if it changed, after any save still under way; answers whether nothing
+   * is left unsaved. Only a picture on the story is described this way: one still being added is
+   * sent with the description typed when it was chosen, and the rest is saved once it's added.
+   * Text typed while a save is under way is saved too before it answers (Codex #211), so a step
+   * that moves on once it answers loses nothing typed. Queued work that's obsolete by the time it
+   * runs sends nothing.
+   */
+  function saveAlt(): Promise<boolean> {
+    const obsolete = queued();
+    const next = saving.current.then(async () => {
+      let saved = false;
+      for (;;) {
+        if (obsolete()) return false;
+        const description = altRef.current.trim();
+        if (
+          phaseRef.current.at !== 'done' ||
+          description === savedAlt.current
+        ) {
+          break;
+        }
+        const gone = begin();
+        const edited = await edit(
+          { image: { alt: description || null } },
+          () => gone() || obsolete(),
+        );
+        if (!edited) return false;
+        savedAlt.current = description;
+        saved = true;
+      }
+      if (saved) setNotice('Description saved.');
+      return true;
+    });
+    saving.current = next;
+    return next;
   }
+  useEffect(() => {
+    if (!saveRef) return;
+    saveRef.current = {
+      save: saveAlt,
+      clean: () =>
+        phaseRef.current.at !== 'done' ||
+        altRef.current.trim() === savedAlt.current,
+    };
+    return () => {
+      saveRef.current = null;
+    };
+  });
 
   const shown =
     phase.at === 'preview' || phase.at === 'sending'
@@ -617,7 +742,6 @@ export function ImagePanel({
         ? { src: phase.url, width: phase.width, height: phase.height }
         : null;
   const busy = phase.at === 'reading' || phase.at === 'sending';
-  const altId = `picture-alt-${format}`;
 
   return (
     <div data-picture-phase={phase.at} className="flex flex-col gap-3">
@@ -641,6 +765,7 @@ export function ImagePanel({
             value={alt}
             aria-describedby={`${altId}-hint`}
             onChange={(e) => setAlt(e.target.value)}
+            onBlur={() => void saveAlt()}
           />
           <p id={`${altId}-hint`} className="mt-1 text-sm text-secondary-text">
             A few words for people who can’t see it, such as “Our church at
@@ -649,16 +774,13 @@ export function ImagePanel({
         </div>
       )}
       <div className="flex flex-wrap gap-3">
-        {(phase.at === 'preview' || phase.at === 'sending') && (
+        {phase.at === 'preview' && (
           <button
             type="button"
             className={primary}
-            disabled={busy}
-            onClick={() =>
-              void add(phase.picture, phase.at === 'preview' && phase.granted)
-            }
+            onClick={() => void add(phase.picture, phase.granted)}
           >
-            {phase.at === 'sending' ? 'Adding…' : `Add this ${noun}`}
+            Try again
           </button>
         )}
         {phase.at === 'done' && pending && (
@@ -668,15 +790,6 @@ export function ImagePanel({
             onClick={() => void add(pending, false)}
           >
             Replace with my {noun}
-          </button>
-        )}
-        {phase.at === 'done' && alt.trim() !== savedAlt && (
-          <button
-            type="button"
-            className={primary}
-            onClick={() => void saveAlt()}
-          >
-            Save description
           </button>
         )}
         <label
@@ -714,6 +827,11 @@ export function ImagePanel({
           Preparing your {noun}…
         </p>
       )}
+      {phase.at === 'sending' && (
+        <p className="text-sm text-secondary-text" role="status">
+          Uploading your {noun}…
+        </p>
+      )}
       {!shown && phase.at === 'idle' && (
         <p className="text-sm text-secondary-text">
           A JPEG, PNG or WebP photo, no more than 3 times as wide as it is tall
@@ -723,8 +841,9 @@ export function ImagePanel({
       )}
       {phase.at === 'done' && !pending && phase.arrived && (
         <p className="text-sm font-semibold" role="status">
+          <span aria-hidden="true">✓ </span>
           {noun[0].toUpperCase()}
-          {noun.slice(1)} added.
+          {noun.slice(1)} added. You can continue.
         </p>
       )}
       {phase.at === 'done' && !pending && !phase.arrived && (

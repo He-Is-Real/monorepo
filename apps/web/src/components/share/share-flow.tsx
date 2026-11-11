@@ -49,7 +49,7 @@ import {
 } from './allowance';
 import { ThemePicker } from '@/components/themes/theme-picker';
 import { useDraft } from './use-draft';
-import { ImagePanel, type PictureState } from './image-panel';
+import { ImagePanel, type PictureSave, type PictureState } from './image-panel';
 import { fileLimits, type FileState, UploadPanel } from './upload-panel';
 import { AgreeAgain } from './upload-request';
 
@@ -1030,6 +1030,52 @@ function useEarlierPicture(
   return story;
 }
 
+/**
+ * The step's picture: its state as the panel last said, kept in a ref so Continue reads it again
+ * after each wait (a picture chosen meanwhile is uploading, Codex #211), and the problem shown.
+ */
+function usePictureGate(noun: string) {
+  const [problem, setProblem] = useState<string | null>(null);
+  const state = useRef<PictureState>('none');
+  const saveRef = useRef<PictureSave | null>(null);
+  // A problem about the picture is about the picture as it was: gone once it changes.
+  const onState = useCallback((next: PictureState) => {
+    if (next === state.current) return;
+    state.current = next;
+    setProblem(null);
+  }, []);
+  const blocked = () => {
+    if (state.current === 'uploading') {
+      setProblem(
+        `Your ${noun} is still uploading. Wait for it to finish, then continue.`,
+      );
+      return true;
+    }
+    if (state.current === 'unfinished') {
+      setProblem(
+        `Your ${noun} hasn’t been added yet. Try adding it again, or remove it, before you continue.`,
+      );
+      return true;
+    }
+    return false;
+  };
+  /**
+   * Whether the step may move on: the picture is added (or there's none), its description is
+   * saved and the draft flushed, checked again after every wait until nothing changed meanwhile.
+   */
+  const ready = async (flush: () => Promise<boolean>) => {
+    for (;;) {
+      if (blocked()) return false;
+      setProblem(null);
+      if (saveRef.current && !(await saveRef.current.save())) return false;
+      if (!(await flush())) return false;
+      if (blocked()) return false;
+      if (!saveRef.current || saveRef.current.clean()) return true;
+    }
+  };
+  return { problem, onState, saveRef, ready };
+}
+
 function WriteStep({
   heading,
   draft,
@@ -1047,8 +1093,12 @@ function WriteStep({
 }) {
   const limits = useLimits();
   const earlier = useEarlierPicture(calls, draft.draftId);
-  const [picture, setPicture] = useState<PictureState>('none');
-  const [pictureProblem, setPictureProblem] = useState<string | null>(null);
+  const {
+    problem: pictureProblem,
+    onState: pictureState,
+    saveRef: savePicture,
+    ready: pictureReady,
+  } = usePictureGate('picture');
   // The draft exists once it has its title and text (D53), so the picture comes after them.
   const preparePicture = async () => {
     if (!draft.fields.title.trim() || !draft.fields.body.trim()) {
@@ -1077,14 +1127,7 @@ function WriteStep({
         if (!draft.fields.body.trim()) p.body = 'Write your story here.';
         setProblems(p);
         if (p.title || p.body) return;
-        if (picture === 'unfinished') {
-          setPictureProblem(
-            'Add the picture you chose, or remove it, before you continue.',
-          );
-          return;
-        }
-        setPictureProblem(null);
-        if (await draft.flush()) onNext();
+        if (await pictureReady(draft.flush)) onNext();
       }}
     >
       <StepHeading heading={heading}>Write your story</StepHeading>
@@ -1154,7 +1197,8 @@ function WriteStep({
             setVersion={draft.setVersion}
             current={draft.current}
             reload={draft.load}
-            onState={setPicture}
+            onState={pictureState}
+            saveRef={savePicture}
           />
           {pictureProblem && (
             <p role="alert" className="mt-2 text-destructive">
@@ -1203,7 +1247,12 @@ function MediaStep({
   const [titleProblem, setTitleProblem] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [file, setFile] = useState<FileState>('none');
-  const [picture, setPicture] = useState<PictureState>('none');
+  const {
+    problem: pictureProblem,
+    onState: pictureState,
+    saveRef: savePicture,
+    ready: pictureReady,
+  } = usePictureGate(format === 'video' ? 'thumbnail' : 'picture');
   const { draftId } = draft;
   // Whether the story has a file (and a picture) from before (another tab or device).
   const story = useEarlierPicture(calls, draftId);
@@ -1242,14 +1291,8 @@ function MediaStep({
           );
           return;
         }
-        if (picture === 'unfinished') {
-          setProblem(
-            `Add the ${format === 'video' ? 'thumbnail' : 'picture'} you chose, or remove it, before you continue.`,
-          );
-          return;
-        }
         setProblem(null);
-        if (await draft.flush()) onNext();
+        if (await pictureReady(draft.flush)) onNext();
       }}
     >
       <StepHeading heading={heading}>Upload your {noun}</StepHeading>
@@ -1316,15 +1359,16 @@ function MediaStep({
               setVersion={draft.setVersion}
               current={draft.current}
               reload={draft.load}
-              onState={setPicture}
+              onState={pictureState}
+              saveRef={savePicture}
             />
           </div>
         )}
       </div>
       <SaveState draft={draft} />
-      {problem && (
+      {(problem ?? pictureProblem) && (
         <p role="alert" className="mt-2 text-destructive">
-          {problem}
+          {problem ?? pictureProblem}
         </p>
       )}
       <Actions>
