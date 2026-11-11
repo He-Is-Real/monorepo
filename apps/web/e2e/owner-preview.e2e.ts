@@ -324,9 +324,9 @@ test.describe('behaviour', () => {
     await expect(page.getByRole('alertdialog')).toHaveCount(0);
     await expect(page.getByRole('progressbar')).toHaveCount(0);
     // No message either (the page's empty announcer region aside).
-    await expect(
-      page.getByRole('alert').filter({ hasText: /\S/ }),
-    ).toHaveCount(0);
+    await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toHaveCount(
+      0,
+    );
 
     // Forward stops at the upload step until the file is chosen again.
     await stepButton(page, /^4\. Details/).click();
