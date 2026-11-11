@@ -30,11 +30,14 @@ merge. If you change one in the dashboard, copy it into `dev.json` too: `check` 
   and email work on one account.
 - **Protection:** CAPTCHA and lockout stay on. Multi-factor login and passkeys stay off, because
   they need Clerk Pro (decide at M3, D2). The instance stays on the free Hobby plan.
-- **Session token:** a 60 s lifetime, 5 s clock skew, and four custom claims:
+- **Session token:** a 60 s lifetime, 5 s clock skew, and six custom claims:
   - `ns`, `db`, `ac`: route the token to SurrealDB's `DEFINE ACCESS clerk` (D27; checked
     against the services' settings in `libs/auth`'s `clerk-instance.spec.ts`);
-  - `role`: `{{user.public_metadata.role || 'User'}}`, the role (D1). A person without
-    `publicMetadata.role` gets `User`.
+  - `role`: `{{user.public_metadata.role || 'User'}}`, the role (D1): `Moderator` or `Admin` for
+    staff (set from the Staff page, G8 B), `User` for everyone else;
+  - `email` and `email_verified`: `{{user.primary_email_address}}` and `{{user.email_verified}}`
+    (M3, staff roles). api-admin uses the email only when it is verified, to record which Admin
+    added someone to the staff list; nothing is authorized by it.
 - **No Clerk legal-consent checkbox.** Our own database is the record (plan 4e, 2026-11-01): each
   person's account points at the version of the terms of use and of the testimony consent they
   agreed to, with the time, and the versions are kept for ever. The terms step after sign-up
@@ -49,12 +52,12 @@ with it. About 900 bytes. That token, now expired, is the fixture in
 
 ## Keys
 
-| Key                  | Public? | Where                                                                                                                     |
-| -------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Issuer (`iss`)       | yes     | `infra/terraform/live/dev/gcp/main.tf` (`clerk_issuer`): api-user's and api-admin's `CLERK_ISSUER`                        |
-| JWT public key (PEM) | yes     | `infra/terraform/live/dev/cluster/clerk.auto.tfvars`: SurrealDB, and (linked into the gcp root) `CLERK_JWT_PUBLIC_KEY`    |
-| Publishable key      | yes     | `infra/terraform/live/dev/gcp/main.tf` (`clerk_publishable_key`): `web`'s `CLERK_PUBLISHABLE_KEY`                         |
-| Secret key           | **no**  | Secret Manager `clerk-secret-key` (container from the `gcp` root). Only api-user reads it: erasure deletes the Clerk user |
+| Key                  | Public? | Where                                                                                                                                             |
+| -------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Issuer (`iss`)       | yes     | `infra/terraform/live/dev/gcp/main.tf` (`clerk_issuer`): api-user's and api-admin's `CLERK_ISSUER`                                                |
+| JWT public key (PEM) | yes     | `infra/terraform/live/dev/cluster/clerk.auto.tfvars`: SurrealDB, and (linked into the gcp root) `CLERK_JWT_PUBLIC_KEY`                            |
+| Publishable key      | yes     | `infra/terraform/live/dev/gcp/main.tf` (`clerk_publishable_key`): `web`'s `CLERK_PUBLISHABLE_KEY`                                                 |
+| Secret key           | **no**  | Secret Manager `clerk-secret-key` (container from the `gcp` root). Read by api-user (erasure), housekeeping (retries) and api-admin (staff roles) |
 
 - **PEM from the JWKS** (read-only):
   `clerk api /jwks | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(require('crypto').createPublicKey({key:JSON.parse(s).keys[0],format:'jwk'}).export({type:'spki',format:'pem'})))"`
@@ -104,9 +107,9 @@ so nothing is lost. api-user reads the secret when a delivery comes and reads it
 minutes (`SECRET_MAX_AGE_MS`), so a version added, corrected or rotated later is used within five
 minutes on every instance, with no redeploy. Rotating it in the dashboard means adding the new
 secret as a new version straight away; deliveries in those few minutes may be refused (`400`)
-and Svix retries them. The same holds for `clerk-secret-key`, which api-user (erasure) and the
-nightly housekeeping (retrying a Clerk deletion that failed) read; housekeeping reads it once per
-run.
+and Svix retries them. The same holds for `clerk-secret-key`, which api-user (erasure), api-admin
+(staff roles on the Staff page, and the baseline admins on each start) and the nightly
+housekeeping (retrying a Clerk deletion that failed) read; housekeeping reads it once per run.
 
 The production instance needs a domain we own, so it waits for the domain cutover (D7). It gets
 its own `prod.json`, keys and PEM.

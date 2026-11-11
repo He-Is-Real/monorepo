@@ -11,7 +11,7 @@ brackets).
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | ------------------------------------------------ |
 | `api-public-read` | Anonymous public queries: published stories, themes and the four legal texts (terms of use, testimony consent, sharing consent, privacy notice), every version | None                                | Its own login; sees only public tables           |
 | `api-user`        | **Everything that needs to know who you are**: own stories, account, agreements, favourites, feed, and the person's commands; Clerk and Stripe webhooks        | Clerk JWT (webhooks: signature)     | Runs as the person, with their Clerk token (D27) |
-| `api-admin`       | Moderation, roles, themes, saving new versions of the four legal texts (plan 4e)                                                                               | Clerk JWT, role Moderator or higher | Its own login                                    |
+| `api-admin`       | Moderation, the staff list and roles, themes, saving new versions of the four legal texts (plan 4e)                                                            | Clerk JWT, role Moderator or higher | Its own login                                    |
 
 - **Anything personal goes to `api-user`; anything public goes to `api-public-read`.**
   `api-public-read` has no auth code at all.
@@ -104,7 +104,7 @@ short-lived upload credentials.
   what happens. Singletons are singular (`/account`, `/feed`, `/moderation/queue`).
 - A verb only as the last segment of a state-changing `POST` that isn't create/replace/delete:
   `/submit`, `/withdraw`, `/approve`, `/reject`, `/request-changes`, `/escalate`, `/lock`,
-  `/release`, `/assign-role`, `/publish`. Never a verb in a `GET`, never `/getStories`.
+  `/release`, `/publish`. Never a verb in a `GET`, never `/getStories`.
 - The person's relationships live under `/account` by the related item's ID, with `PUT`/`DELETE`:
   `/account/favourites/{storyId}`, `/account/helped/{storyId}`.
 - kebab-case path segments, camelCase JSON, opaque IDs. Keep `/{id}/verb` (Google's `/{id}:verb`
@@ -134,7 +134,7 @@ short-lived upload credentials.
     account settings (`notificationPrefs`) would live in Clerk `privateMetadata` (D16), written by
     `api-user` through Clerk's Backend API, and nothing is stored in SurrealDB. They are
     single-owner settings, so the last write wins. `version` is `null`.
-  - `POST /v1/admin/users/{id}/assign-role`: the role lives in Clerk (D1).
+  - `PUT`/`DELETE /v1/admin/staff/{email}` (the Staff page): the role lives in Clerk (D1, G8 B).
   - `POST /v1/account/agreements/{agreement}`: the body names the version agreed to, and the
     database refuses one that is no longer the latest (`409 agreement_version_changed`); agreeing
     again to the same version changes nothing. No `Idempotency-Key` either.
@@ -257,7 +257,7 @@ consent decorators or guard.
 
 | Extension         | Meaning                                                                     |
 | ----------------- | --------------------------------------------------------------------------- |
-| `x-required-role` | Minimum Clerk role (`User`, `Moderator`, `Admin`, `SuperAdmin`); D1         |
+| `x-required-role` | Minimum Clerk role (`User`, `Moderator`, `Admin`); D1                       |
 | `x-milestone`     | The delivery milestone that builds the operation (`M0`–`M8`); lint-enforced |
 
 `pnpm nx run contracts:lint-openapi` lints the specs (Redocly, recommended-strict); it also runs as

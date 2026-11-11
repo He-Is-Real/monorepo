@@ -51,7 +51,7 @@ export interface Problem {
 export interface Account {
   id: string;
   version: null;
-  role: 'Viewer' | 'User' | 'Moderator' | 'Admin' | 'SuperAdmin';
+  role: 'Viewer' | 'User' | 'Moderator' | 'Admin';
   createdAt: string;
   /** Plan 4e: the terms of use, agreed before the account can be used (they say 18 or over). */
   termsOfUse: AgreementState;
@@ -152,6 +152,8 @@ export const INPUT_REFUSALS: ReadonlySet<string> = new Set([
   'stale_version',
   'agreement_version_changed',
   'document_changed',
+  // The Staff page: removing or demoting the last Admin
+  'last_admin',
   // An agreement to give first
   'terms_agreement_required',
   'testimony_consent_required',
@@ -188,6 +190,7 @@ export const SYSTEM_CODES: ReadonlySet<string> = new Set([
   'uploads_unavailable',
   'upload_outcome_unknown',
   'export_unavailable',
+  'clerk_unavailable',
   'service_restarting',
 ]);
 

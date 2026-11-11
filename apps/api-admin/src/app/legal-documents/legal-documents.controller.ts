@@ -138,7 +138,7 @@ const iso = (d: string) => new Date(d).toISOString();
 
 /**
  * api-admin.yaml, tag LegalDocuments (plan 4e): the four legal texts, each a series of immutable
- * versions numbered from 0, for Admin and Super Admin at /admin/consent (D1). An admin edits the
+ * versions numbered from 0, for Admins at /admin/consent (D1). An admin edits the
  * latest version's Markdown and saves the result as the next number, in force at once. Nothing
  * here changes or deletes a version: the database refuses that anyway, whoever asks.
  */

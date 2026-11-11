@@ -80,6 +80,7 @@ DEFINE ACCESS OVERWRITE svc ON DATABASE TYPE RECORD
 --   fence:person-<user id>     anything depending on or changing a person's state
 --   fence:identity-<sha256>    a Clerk id being provisioned or erased (user_not_erased_identity)
 --   fence:theme-<theme id>     a theme being deleted or added to a story (theme_delete)
+--   fence:staff-admins         an Admin removed or demoted on the Staff page (staffMember_last_admin)
 -- Events run with elevated privileges (tested), so the fence is PERMISSIONS NONE: no session can
 -- read or write it directly, and no table's permissions had to widen. A counter, nothing else.
 DEFINE TABLE OVERWRITE fence SCHEMAFULL PERMISSIONS NONE;

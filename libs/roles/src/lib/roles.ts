@@ -5,13 +5,7 @@
  * `libs/contracts/openapi/components.yaml` (`roles.spec.ts` checks this). The order runs from
  * least to most privileged.
  */
-export const ROLES = [
-  'Viewer',
-  'User',
-  'Moderator',
-  'Admin',
-  'SuperAdmin',
-] as const;
+export const ROLES = ['Viewer', 'User', 'Moderator', 'Admin'] as const;
 
 export type Role = (typeof ROLES)[number];
 

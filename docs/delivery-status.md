@@ -25,7 +25,7 @@ until then.
 | M0 Walking skeleton               | ✅ Done        | The foundations: the code base, the cloud set-up, the database, sign-in and a first public page.                                                   |
 | M1 Browse & view                  | ✅ Done        | Anyone can read, watch and listen to stories, browse and search them, and read the information pages. Done 2026-10-24.                             |
 | M2 Accounts & submission          | 🟡 In progress | People can sign up, agree to the terms, share stories, manage them, keep favourites, download their data and delete their account. Two parts left. |
-| M3 Moderation                     | 🟡 In progress | Moderators review stories before they go public. The queue and a read-only review page are being built.                                            |
+| M3 Moderation                     | 🟡 In progress | Moderators review stories before they go public. The queue and a read-only review page are built; staff roles and the Staff page are being built.  |
 | M4 Donations                      | 🟡 In progress | Giving through Stripe works on dev in Stripe's test mode. Recording donors and Gift Aid are not started.                                           |
 | M5 Admin dashboard                | ⚪ Not started | Three admin pages already exist from M2 (limits, themes, consent texts); the dashboard itself is not started.                                      |
 | M6 Community vetting              | ⚪ Not started |                                                                                                                                                    |
@@ -237,9 +237,19 @@ player's speed menu and the story's history with past moderators' notes. Read-on
 buttons yet. Before its links work on dev, apply the bunny root (it lets api-admin read the two
 link-signing keys), then the gcp root.
 
-**Next, once Joel answers:** the person's own preview, editing a story sent back for changes,
-the page that gives people the Moderator role, picking a story up (the lock), the "your video
-couldn't be used" message, then the decision buttons with feedback, and Escalate.
+**In progress: staff and roles** (pull request 4 of the plan). The roles are now User, Moderator
+and Admin (the old Admin is now called Moderator, the old Super Admin is now Admin). Moderators
+see only Moderation; themes, limits, legal texts and every story are for Admins. A new Staff page
+(`/admin/staff`, Admins only) lists the staff and adds, changes and removes Moderators and Admins
+(`@heisreal.today` emails only): each change goes to Clerk, where roles live, then to the list.
+There is always at least one Admin, and `info@heisreal.today` and `joel@heisreal.today` are made
+Admin again on every deploy. Before it works on dev: apply the gcp root (api-admin reads Clerk's
+secret key), and apply the Clerk settings (`infra/clerk/clerk-config.mjs`, the token's new email
+claim). Until api-admin has started on the new image, accounts whose Clerk role is still
+`SuperAdmin` are refused (that role no longer exists); the baseline step fixes Joel's and info@'s.
+
+**Next:** the person's own preview, Edit and Delete, the "your video couldn't be used" message,
+then the decision buttons with feedback and the story's history.
 
 ## M4: Donations 🟡
 

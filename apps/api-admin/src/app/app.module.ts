@@ -11,6 +11,7 @@ import { SecretsModule } from '@heisreal/secrets';
 import { MediaUrlsModule } from '@heisreal/story-cards';
 import { LegalDocumentsModule } from './legal-documents/legal-documents.controller';
 import { ModerationModule } from './moderation/moderation.controller';
+import { StaffModule } from './staff/staff.controller';
 import { AllStoriesModule } from './stories/all-stories.controller';
 import { SubmissionSettingsModule } from './submission-settings/submission-settings.controller';
 import { ThemesModule } from './themes/themes.controller';
@@ -30,6 +31,7 @@ import { ThemesModule } from './themes/themes.controller';
     AllStoriesModule,
     LegalDocumentsModule,
     ModerationModule,
+    StaffModule,
     SubmissionSettingsModule,
     ThemesModule,
   ],

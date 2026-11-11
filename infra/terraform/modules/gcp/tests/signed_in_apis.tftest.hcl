@@ -76,7 +76,7 @@ run "clerk_and_cors_settings" {
   }
 }
 
-run "only_api_user_reads_the_clerk_secrets" {
+run "who_reads_the_clerk_secrets" {
   command = plan
 
   assert {
@@ -88,7 +88,15 @@ run "only_api_user_reads_the_clerk_secrets" {
       alltrue([for m in google_secret_manager_secret_iam_member.api_user_clerk :
       m.member == google_service_account.signed_in_api["api-user"].member])
     )
-    error_message = "Of the signed-in APIs, api-user alone may read Clerk's secret key and the webhook's signing secret (erasure, D81)."
+    error_message = "api-user may read Clerk's secret key and the webhook's signing secret (erasure, D81)."
+  }
+
+  assert {
+    condition = (
+      google_secret_manager_secret_iam_member.api_admin_clerk_key.secret_id == "clerk-secret-key" &&
+      google_secret_manager_secret_iam_member.api_admin_clerk_key.member == google_service_account.signed_in_api["api-admin"].member
+    )
+    error_message = "api-admin may read Clerk's secret key, and only that Clerk secret (staff roles, G8 B)."
   }
 
   assert {
@@ -99,10 +107,13 @@ run "only_api_user_reads_the_clerk_secrets" {
         CLERK_SECRET_KEY_SECRET     = "clerk-secret-key"
         CLERK_WEBHOOK_SECRET_SECRET = "clerk-webhook-signing-secret"
       } &&
-      length([for e in google_cloud_run_v2_service.signed_in_api["api-admin"].template[0].containers[0].env :
-      e if endswith(e.name, "_SECRET") && startswith(e.name, "CLERK_")]) == 0
+      { for e in google_cloud_run_v2_service.signed_in_api["api-admin"].template[0].containers[0].env :
+        e.name => e.value if startswith(e.name, "CLERK_") && endswith(e.name, "_SECRET")
+        } == {
+        CLERK_SECRET_KEY_SECRET = "clerk-secret-key"
+      }
     )
-    error_message = "api-user gets the Clerk secrets' names (never values); api-admin gets none."
+    error_message = "api-user gets both Clerk secrets' names, api-admin the secret key's name only (never values)."
   }
 }
 

@@ -16,13 +16,12 @@ import { usePersonalSession } from '@/lib/personal-session';
 import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 
 type Role = Account['role'];
-/** D1's order: each role can do what the ones before it can. */
+/** D1's order: each role can do what the ones before it can (S-1: Moderator, then Admin). */
 const RANK: Record<Role, number> = {
   Viewer: 0,
   User: 1,
   Moderator: 2,
   Admin: 3,
-  SuperAdmin: 4,
 };
 /** The lowest role a staff page is for. */
 export type StaffRole = 'Moderator' | 'Admin';
@@ -31,13 +30,14 @@ const atLeast = (role: Role | undefined, min: StaffRole) =>
 
 /**
  * The staff pages, each linking the others, each shown to its role and up: Moderation to
- * Moderators and up (M3 plan PR 1), the rest to Admins and up.
+ * Moderators and Admins (M3 plan PR 1), the rest to Admins only (G24).
  */
 const ADMIN_PAGES: { href: string; label: string; min: StaffRole }[] = [
   { href: '/moderation', label: 'Moderation', min: 'Moderator' },
   { href: '/admin/consent', label: 'Consent & legal', min: 'Admin' },
   { href: '/admin/limits', label: 'Submission limits', min: 'Admin' },
   { href: '/admin/themes', label: 'Themes', min: 'Admin' },
+  { href: '/admin/staff', label: 'Staff', min: 'Admin' },
 ];
 
 /** The signed-in person's role once api-user has told us, else `undefined`. */
@@ -81,7 +81,7 @@ export function AdminNav() {
             <Link
               href={p.href}
               aria-current={here === p.href ? 'page' : undefined}
-              className="inline-flex min-h-11 items-center text-foreground underline-offset-4 hover:underline aria-[current=page]:font-semibold"
+              className="inline-flex min-h-11 min-w-11 items-center text-foreground underline-offset-4 hover:underline aria-[current=page]:font-semibold"
             >
               {p.label}
             </Link>

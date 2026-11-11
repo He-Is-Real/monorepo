@@ -72,7 +72,7 @@ describe('a real dev-instance session token (fixtures/dev-instance-token.jwt)', 
   it('is refused for its signature once tampered with', () => {
     const [h, , s] = token.split('.');
     const forged = Buffer.from(
-      JSON.stringify({ ...payload, role: 'SuperAdmin' }),
+      JSON.stringify({ ...payload, role: 'Admin' }),
     ).toString('base64url');
     expect(() =>
       verifyClerkToken(`${h}.${forged}.${s}`, config, payload.iat + 1),

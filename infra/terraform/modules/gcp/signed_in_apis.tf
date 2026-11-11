@@ -3,7 +3,7 @@
 # SurrealDB on GKE), but every route needs a Clerk session token, verified in the app against
 # the pinned key (task 0.5, D1, D21). Each has its own runtime service account, which may read
 # only its own database password, and signs in as its own service record (D13 B). Verification
-# is offline; only api-user reads Clerk's secret key, for erasure (secrets.tf).
+# is offline. api-user reads Clerk's secret key for erasure, api-admin for staff roles (secrets.tf).
 
 locals {
   signed_in_apis = {
@@ -132,6 +132,17 @@ resource "google_cloud_run_v2_service" "signed_in_api" {
       # bunny root grant the access.
       # Moderation (M3 plan PR 1): api-admin signs moderators' one-hour player and picture
       # links with the same two token auth keys (the bunny root grants the access).
+      # Staff roles (M3, G8 B): api-admin writes them to Clerk with its secret key, named here
+      # (never the value), read when first needed; the baseline admins (S-4) on each start.
+      dynamic "env" {
+        for_each = each.key == "api-admin" ? {
+          CLERK_SECRET_KEY_SECRET = google_secret_manager_secret.clerk_secret_key.secret_id
+        } : {}
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
       dynamic "env" {
         for_each = each.key == "api-admin" && var.api_admin_media_signing ? local.api_public_read_media_env : {}
         content {
@@ -194,6 +205,7 @@ resource "google_cloud_run_v2_service" "signed_in_api" {
   depends_on = [
     google_secret_manager_secret_iam_member.signed_in_api,
     google_secret_manager_secret_iam_member.api_user_clerk,
+    google_secret_manager_secret_iam_member.api_admin_clerk_key,
   ]
 }
 

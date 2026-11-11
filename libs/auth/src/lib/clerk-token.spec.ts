@@ -37,6 +37,21 @@ describe('verifyClerkToken', () => {
     });
   });
 
+  it('carries the email, lower-case, only when the token says it is verified', () => {
+    const email = (claims: Record<string, unknown>) =>
+      verifyClerkToken(clerk.token('user_ann', claims), config).email;
+    expect(email({ email: 'Ann@HeIsReal.today', email_verified: true })).toBe(
+      'ann@heisreal.today',
+    );
+    expect(email({ email: 'ann@heisreal.today', email_verified: false })).toBe(
+      undefined,
+    );
+    expect(email({ email: 'ann@heisreal.today' })).toBe(undefined);
+    expect(email({ email: 'not an email', email_verified: true })).toBe(
+      undefined,
+    );
+  });
+
   it('refuses a token that names no Clerk session (missing or malformed sid)', () => {
     expect(refused(clerk.token('user_ann', { sid: undefined }))).toBe(
       'session',
@@ -124,7 +139,7 @@ describe('verifyClerkToken', () => {
     it('refuses a tampered payload', () => {
       const [h, payload, s] = clerk.token('user_ann').split('.');
       const claims = JSON.parse(Buffer.from(payload, 'base64url').toString());
-      const forged = b64({ ...claims, role: 'SuperAdmin' });
+      const forged = b64({ ...claims, role: 'Admin' });
       expect(refused(`${h}.${forged}.${s}`)).toBe('signature');
     });
 

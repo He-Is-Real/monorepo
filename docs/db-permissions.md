@@ -92,6 +92,16 @@ their fence (see "Transactions").
   before the delete lives 10 minutes. A story can't be created while its folder row is still
   queued (except by a system user), so an old row never deletes a new story's pictures. Specs:
   `erasure`, `images`, housekeeping's `housekeeping`.
+- **`staffMember`** (the Staff page's list; S-1 to S-4, G7, G8 B, Joel 2026-11-11): id = the
+  email, lower-case (`staffMember:⟨ann@heisreal.today⟩`); `email` (the same, `@heisreal.today` only),
+  `role` (`Moderator` or `Admin`), `addedBy` (the adding Admin's email from their token; NONE = the
+  deploy's baseline step; set once), `addedAt`. Only api-admin's login reads, creates, updates and
+  deletes (it checks the caller is an Admin); no other service sees it. Roles live in Clerk: no
+  authorization reads this table. Removing or demoting the last `Admin` row is refused
+  (`staffMember_last_admin`, `staff:last_admin`), and each such change bumps `fence:staff-admins`,
+  so of two overlapping removals of the last two Admins the second conflicts. System users are
+  exempt (wiping dev data). Staff work emails, not story data: not linked to `user`, not on the
+  erasure checklist. Specs: `staff`, api-admin's `staff`.
 
 ### Stories (`schema-04-stories.surql`)
 
@@ -146,7 +156,7 @@ their fence (see "Transactions").
     audio file or picture could still be used (its row's `at` or `renewedAt` plus the link's length,
     `fn::upload::link_lifetime`: 1 hour, a picture 10 minutes; `media_recently_uploaded:`, with the
     time it can be approved) or a media job for those files is open (`media_still_processing:`). A
-    SuperAdmin may approve anyway: api-admin sets `skippedMediaWait` (roles live in Clerk), which
+    Admin may approve anyway: api-admin sets `skippedMediaWait` (roles live in Clerk), which
     the database accepts only on a moderator's approval that the wait would refuse. The system's
     hide and show again, and system users, are never held. Specs: `approval-wait`.
   - **Delete:** erasure (api-user, api-admin); the owner, live, for `draft`, `changes_requested`,
@@ -164,7 +174,7 @@ their fence (see "Transactions").
   moderator; api-admin alone reads it), `storyVersion`, `comment`, `at` (server time),
   `publishedAt` (approved entries: the first approval's time, kept on later ones), `hiddenReason`
   (`media_unavailable`, `media_changed`), `reviewedMediaFile`/`reviewedImageFile` (approved
-  entries: the files approved), `skippedMediaWait` (a SuperAdmin's approval during the media wait;
+  entries: the files approved), `skippedMediaWait` (an Admin's approval during the media wait;
   api-admin alone reads it).
   - **Read:** the owner (never `by`) and api-admin; everyone else only an entry's `story`,
     `status` and `publishedAt`, while it is its story's current approved entry.
@@ -337,22 +347,23 @@ changedBy, changedByRole}`. Everyone reads them; only api-admin's login writes t
 Every table in the schema; `person-linked.int-spec.ts` fails if a new one isn't classified there
 and here.
 
-| Table             | Holds or links                                                                                                                          | Class  | On create/update                                                             | After erasure                                         |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------- | ----------------------------------------------------- |
-| `user`            | the person (Clerk id until erasure)                                                                                                     | root   | fence; binding and erasure rules (D37); `status` → `deleted` only by erasure | stub: id, `createdAt`, `status`                       |
-| `story`           | testimony; `submitter`                                                                                                                  | linked | submitter live; owner and agreement rules                                    | deleted                                               |
-| `storyStatusLog`  | a story's status history; `story`, `by`                                                                                                 | linked | step rules; submitter live (the pointer move)                                | deleted (cascade)                                     |
-| `storySearch`     | a published story's words; `story`                                                                                                      | linked | events only, with the write that publishes or unpublishes the story          | deleted with the story                                |
-| `storyFile`       | one uploaded file; `person`, `story`                                                                                                    | linked | created by api-user, processed by workflow, cleaned by housekeeping; live    | deleted                                               |
-| `mediaJob`        | a media job about one file; `file`                                                                                                      | linked | api-user and workflow create; file's person live; one open per file and kind | deleted with the file                                 |
-| `favourite`       | a heart; `person`, `story`                                                                                                              | linked | person and story owner live; latest terms; story public                      | deleted                                               |
-| `idempotencyKey`  | `[service, user record, key]`; `{id, version}`                                                                                          | linked | user live (webhook keys exempt); people: own keys only                       | deleted; any key deleted by housekeeping once expired |
-| `submitterLimits` | per-person limits and trusted mark; `user`, `changedBy`                                                                                 | linked | user live; `changedBy` required from api-admin; `devSeed` dev only           | deleted                                               |
-| `submissionLog`   | recent first submissions; `person`                                                                                                      | linked | written by `story_limits` only; person live                                  | deleted                                               |
-| `fence`           | counters                                                                                                                                | none   | events only; `PERMISSIONS NONE`                                              | stays (no data)                                       |
-| `erasedIdentity`  | sha256 of an erased Clerk id (D82): pseudonymous; no link, no date                                                                      | kept   | api-user creates and reads; nobody updates or deletes                        | kept for ever                                         |
-| `pendingDeletion` | Bunny ids, deleted stories' folders, a Clerk id until deleted (D40); no link                                                            | kept   | erasure and story deletes; api-user and housekeeping retry and delete        | gone once done, a folder after its final pass         |
-| reference tables  | `submissionSettings`, `themeCategory`, `theme`, `themeCatalog`, the four legal texts, `service`, `_migration*`, `_identity`, `_setting` | none   | —                                                                            | —                                                     |
+| Table             | Holds or links                                                                                                                          | Class  | On create/update                                                             | After erasure                                                 |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `user`            | the person (Clerk id until erasure)                                                                                                     | root   | fence; binding and erasure rules (D37); `status` → `deleted` only by erasure | stub: id, `createdAt`, `status`                               |
+| `story`           | testimony; `submitter`                                                                                                                  | linked | submitter live; owner and agreement rules                                    | deleted                                                       |
+| `storyStatusLog`  | a story's status history; `story`, `by`                                                                                                 | linked | step rules; submitter live (the pointer move)                                | deleted (cascade)                                             |
+| `storySearch`     | a published story's words; `story`                                                                                                      | linked | events only, with the write that publishes or unpublishes the story          | deleted with the story                                        |
+| `storyFile`       | one uploaded file; `person`, `story`                                                                                                    | linked | created by api-user, processed by workflow, cleaned by housekeeping; live    | deleted                                                       |
+| `mediaJob`        | a media job about one file; `file`                                                                                                      | linked | api-user and workflow create; file's person live; one open per file and kind | deleted with the file                                         |
+| `favourite`       | a heart; `person`, `story`                                                                                                              | linked | person and story owner live; latest terms; story public                      | deleted                                                       |
+| `idempotencyKey`  | `[service, user record, key]`; `{id, version}`                                                                                          | linked | user live (webhook keys exempt); people: own keys only                       | deleted; any key deleted by housekeeping once expired         |
+| `submitterLimits` | per-person limits and trusted mark; `user`, `changedBy`                                                                                 | linked | user live; `changedBy` required from api-admin; `devSeed` dev only           | deleted                                                       |
+| `submissionLog`   | recent first submissions; `person`                                                                                                      | linked | written by `story_limits` only; person live                                  | deleted                                                       |
+| `fence`           | counters                                                                                                                                | none   | events only; `PERMISSIONS NONE`                                              | stays (no data)                                               |
+| `erasedIdentity`  | sha256 of an erased Clerk id (D82): pseudonymous; no link, no date                                                                      | kept   | api-user creates and reads; nobody updates or deletes                        | kept for ever                                                 |
+| `pendingDeletion` | Bunny ids, deleted stories' folders, a Clerk id until deleted (D40); no link                                                            | kept   | erasure and story deletes; api-user and housekeeping retry and delete        | gone once done, a folder after its final pass                 |
+| `staffMember`     | staff emails and roles (Staff page); no user link                                                                                       | none   | api-admin only; `@heisreal.today`; never the last Admin (fenced)             | removed on the Staff page; not erased (staff, not story data) |
+| reference tables  | `submissionSettings`, `themeCategory`, `theme`, `themeCatalog`, the four legal texts, `service`, `_migration*`, `_identity`, `_setting` | none   | —                                                                            | —                                                             |
 
 - **Staff links.** `storyStatusLog.by`, the legal texts' `publishedBy` and the settings' and
   themes' `changedBy` point at staff `user` rows, which become stubs like anyone's.
@@ -544,8 +555,10 @@ OpenTofu pins the PEM (`clerk_jwt_public_key` in
 `infra/terraform/live/dev/cluster/clerk.auto.tfvars`); there's no JWKS URL. Empty, the migration
 removes `DEFINE ACCESS clerk`, so no token opens a person session.
 
-- The default session token carries `{ "ns": "heisreal", "db": "main", "ac": "clerk", "role": … }`
-  (`infra/clerk/dev.json`), so one token serves api-user's guard and SurrealDB. JWT templates were
+- The default session token carries `{ "ns": "heisreal", "db": "main", "ac": "clerk", "role": …,
+"email": …, "email_verified": … }` (`infra/clerk/dev.json`), so one token serves api-user's guard
+  and SurrealDB. `email` (only when `email_verified`) names who added a staff member; nothing is
+  authorized by it. JWT templates were
   the fallback; not needed.
 - api-user and api-admin verify the token before it reaches SurrealDB (signature,
   `exp`/`nbf`/`iat`, `iss`, `azp`, role). **SurrealDB checks neither `iss` nor `azp`:** the pinned

@@ -130,10 +130,10 @@ describe('legal texts (api-admin)', () => {
       );
     expect(await publishedBy()).toEqual(['admin']);
 
-    // A Super Admin may too.
+    // Any other Admin may too.
     const next = await save(
       { version: 2, content: 'Version 2.' },
-      as('user_superadmin', 'SuperAdmin'),
+      as('user_superadmin', 'Admin'),
     );
     expect(next.status).toBe(201);
     expect(await versions()).toEqual([0, 1, 2]);
@@ -149,7 +149,7 @@ describe('legal texts (api-admin)', () => {
     expect(await versions()).toEqual([0, 1, 2]);
   });
 
-  it('is for Admin and Super Admin only', async () => {
+  it('is for Admins only, never Moderators', async () => {
     const mod = as('user_moderator', 'Moderator');
     expect((await list(mod)).status).toBe(403);
     const res = await save({ version: 3, content: 'Not mine to save.' }, mod);

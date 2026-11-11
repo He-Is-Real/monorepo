@@ -185,7 +185,7 @@ describe('download my data', () => {
       {
         by,
         ...(feedback ? { comment: feedback } : {}),
-        // A SuperAdmin approving during the media wait (decision 5), which the file never shows.
+        // An Admin approving during the media wait (decision 5), which the file never shows.
         ...(superAdminSkip ? { skippedMediaWait: true } : {}),
       },
     );
@@ -326,7 +326,7 @@ describe('download my data', () => {
     expect(await shareStory(ann, `story:${annLive.id}`)).toHaveLength(1);
     await submit(ann, annLive.id);
     await processed(await t.service('workflow'), annLive.id);
-    // Its picture was uploaded moments ago: a SuperAdmin approves during the upload cooldown.
+    // Its picture was uploaded moments ago: an Admin approves during the upload cooldown.
     await decide(annLive.id, 'approve', undefined, { superAdminSkip: true });
     // Its picture stops being ready, then is again: the system hides it and shows it again (R6).
     await run(

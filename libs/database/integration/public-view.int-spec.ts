@@ -111,7 +111,7 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
       await step(admin, id, to, { comment: `Moderator note on ${id}` });
     }
     // Approved straight after their pictures' upload, while the links could still be used: a
-    // SuperAdmin skips that wait (and the entry's record of it is api-admin's alone to read).
+    // Admin skips that wait (and the entry's record of it is api-admin's alone to read).
     for (const id of ['ann_withdrawn', 'ann_hidden', 'ann_live']) {
       await approve(admin, id, { superAdminSkip: true });
     }
@@ -444,7 +444,7 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
       migrator,
       `SELECT VALUE publishedAt FROM storyStatusLog WHERE story = story:ann_hidden AND status = 'approved'`,
     );
-    // Its picture's upload link could still be used (just uploaded): a SuperAdmin shows it again.
+    // Its picture's upload link could still be used (just uploaded): an Admin shows it again.
     await step(admin, 'ann_hidden', 'approved', { skippedMediaWait: true });
     expect(
       await rows(

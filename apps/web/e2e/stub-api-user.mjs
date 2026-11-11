@@ -62,6 +62,10 @@
 //   same fixed queue for every session, Moderators and up only (sessions starting `moderator`
 //   are Moderators, `admin` Admins; everyone else 403 `role_required`). Its player and picture
 //   links point at the stub api-public-read's stand-in player and pictures.
+// - api-admin's staff list (M3 plan PR 4): `GET /v1/admin/staff`, `PUT`/`DELETE
+//   /v1/admin/staff/{email}`, Admins only, kept per session from two baseline admins and a
+//   Moderator; checked like the real one (@heisreal.today only, the two roles, never the last
+//   Admin: 409 `last_admin`). A session starting `admin-clerk-down` gets 502 `clerk_unavailable`.
 //
 // It accepts only the fixtures' token (account-control.tsx): `e2e.<payload>.fixture`, whose payload
 // is the fixture person (`sub`) and an optional session a test picks (localStorage
@@ -443,6 +447,96 @@ async function saveAdminThemes(req, res, session) {
   state.categories = categories;
   res.setHeader('etag', `"${state.version}"`);
   return send(res, 200, { id: 'current', version: state.version });
+}
+
+// --- api-admin: the staff list (M3 plan PR 4) -------------------------------------------------
+const STAFF_START = [
+  {
+    email: 'info@heisreal.today',
+    role: 'Admin',
+    addedBy: null,
+    addedAt: '2026-11-11T09:00:00.000Z',
+    baseline: true,
+  },
+  {
+    email: 'joel@heisreal.today',
+    role: 'Admin',
+    addedBy: null,
+    addedAt: '2026-11-11T09:00:00.000Z',
+    baseline: true,
+  },
+  {
+    email: 'mia@heisreal.today',
+    role: 'Moderator',
+    addedBy: 'joel@heisreal.today',
+    addedAt: '2026-11-11T10:30:00.000Z',
+    baseline: false,
+  },
+];
+const staffState = new Map();
+const staffFor = (session) => {
+  if (!staffState.has(session))
+    staffState.set(
+      session,
+      STAFF_START.map((m) => ({ ...m })),
+    );
+  return staffState.get(session);
+};
+const STAFF_EMAIL = /^[a-z0-9._%+-]+@heisreal\.today$/;
+
+/** `PUT`/`DELETE /v1/admin/staff/{email}`, checked like api-admin. */
+async function changeStaff(req, res, session, raw) {
+  const staff = staffFor(session);
+  const email = decodeURIComponent(raw).trim().toLowerCase();
+  if (!STAFF_EMAIL.test(email)) return invalid(res, '/email', 'staff_email');
+  let role = null;
+  if (req.method === 'PUT') {
+    const body = (await readJson(req)) ?? {};
+    role = body.role;
+    if (role !== 'Moderator' && role !== 'Admin')
+      return invalid(res, '/role', 'invalid_role');
+  }
+  if (session.startsWith('admin-clerk-down'))
+    return problem(res, 502, 'Bad gateway', 'clerk_unavailable');
+  const i = staff.findIndex((m) => m.email === email);
+  const before = i < 0 ? null : staff[i].role;
+  if (
+    before === 'Admin' &&
+    role !== 'Admin' &&
+    staff.filter((m) => m.role === 'Admin').length <= 1
+  ) {
+    res.writeHead(409, {
+      'content-type': 'application/problem+json',
+      'cache-control': 'no-store',
+    });
+    return res.end(
+      JSON.stringify({
+        type: 'about:blank',
+        title: 'Conflict',
+        status: 409,
+        code: 'last_admin',
+        detail:
+          'There must always be at least one admin. Make someone else an admin first.',
+      }),
+    );
+  }
+  if (role === null) {
+    if (i >= 0) staff.splice(i, 1);
+    res.writeHead(204);
+    return res.end();
+  }
+  if (i >= 0) staff[i].role = role;
+  else {
+    staff.push({
+      email,
+      role,
+      addedBy: 'e2e-admin@heisreal.today',
+      addedAt: new Date().toISOString(),
+      baseline: false,
+    });
+    staff.sort((a, b) => a.email.localeCompare(b.email));
+  }
+  return send(res, 200, { id: email, version: null });
 }
 
 // --- api-admin: moderation, the read side (M3 plan PR 1) ---------------------------------------
@@ -2084,6 +2178,24 @@ createServer(async (req, res) => {
     return req.method === 'GET'
       ? sendAdminThemes(res, token)
       : void saveAdminThemes(req, res, token);
+  }
+  if (path === '/v1/admin/staff' && req.method === 'GET') {
+    if (!signedIn()) return;
+    if (!token.startsWith('admin'))
+      return problem(res, 403, 'Forbidden', 'role_required');
+    return sendJson(
+      res,
+      200,
+      { data: staffFor(token) },
+      { 'cache-control': 'private, no-store' },
+    );
+  }
+  const staffMember = /^\/v1\/admin\/staff\/([^/]+)$/.exec(path);
+  if (staffMember && (req.method === 'PUT' || req.method === 'DELETE')) {
+    if (!signedIn()) return;
+    if (!token.startsWith('admin'))
+      return problem(res, 403, 'Forbidden', 'role_required');
+    return void changeStaff(req, res, token, staffMember[1]);
   }
   if (path === '/v1/moderation/queue' && req.method === 'GET') {
     if (!signedIn()) return;

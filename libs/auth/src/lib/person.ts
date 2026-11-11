@@ -38,6 +38,8 @@ export interface AuthenticatedPerson {
   readonly sessionId?: string;
   /** When `token` expires (`exp`, seconds since the epoch). */
   readonly expiresAt?: number;
+  /** Their verified primary email, lower-case, from the token (`email` claim); never authorizes. */
+  readonly email?: string;
 }
 
 export interface PersonAuthenticator {

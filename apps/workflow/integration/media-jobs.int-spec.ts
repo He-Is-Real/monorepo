@@ -250,7 +250,7 @@ describe('result writer: the worker’s answers → the job’s file row and the
       const readyAt = next();
       await answer(video, ready(story), readyAt);
       await submit(pat, story);
-      // Uploaded moments ago: a SuperAdmin approves during the upload cooldown (decision 5).
+      // Uploaded moments ago: an Admin approves during the upload cooldown (decision 5).
       await approve(admin, story, { superAdminSkip: true });
       const goneAt = next();
       await answer(video, { outcome: 'gone' }, goneAt);
@@ -356,7 +356,7 @@ describe('result writer: the worker’s answers → the job’s file row and the
     const { story, video } = await videoStory();
     await answer(video, ready(story));
     await submit(pat, story);
-    // Uploaded moments ago: a SuperAdmin approves during the upload cooldown (decision 5).
+    // Uploaded moments ago: an Admin approves during the upload cooldown (decision 5).
     await approve(admin, story, { superAdminSkip: true });
     expect(await isPublic(story)).toBe(true);
 

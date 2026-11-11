@@ -29,6 +29,12 @@ export interface VerifiedClerkToken {
   clerkUserId: string;
   /** The {@link ROLE_CLAIM} claim (D1). */
   role: Role;
+  /**
+   * The person's primary email, lower-case, from the `email` claim, only when the token says it is
+   * verified (`email_verified`, infra/clerk/dev.json). The Staff page names who added someone with
+   * it (S-1 to S-4); nothing is authorized by it. Undefined otherwise.
+   */
+  email?: string;
   /** `sid`: the Clerk session it belongs to (api-user asks Clerk for a fresh pass for it). */
   sessionId: string;
   /** `exp`, seconds since the epoch. */
@@ -138,5 +144,21 @@ export function verifyClerkToken(
   const role = claims[ROLE_CLAIM];
   if (!isRole(role)) throw new ClerkTokenError('role');
 
-  return { clerkUserId: sub, role, token, sessionId: sid, expiresAt: exp };
+  const email = claims['email'];
+  const verifiedEmail =
+    claims['email_verified'] === true &&
+    typeof email === 'string' &&
+    email.length <= 254 &&
+    /^[^\s@]+@[^\s@]+$/.test(email)
+      ? email.toLowerCase()
+      : undefined;
+
+  return {
+    clerkUserId: sub,
+    role,
+    token,
+    sessionId: sid,
+    expiresAt: exp,
+    ...(verifiedEmail ? { email: verifiedEmail } : {}),
+  };
 }

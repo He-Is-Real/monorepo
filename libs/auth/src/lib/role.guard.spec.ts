@@ -27,7 +27,7 @@ class StaffController {
   }
 
   @Get('legal-versions')
-  @RequiresRole('SuperAdmin')
+  @RequiresRole('Admin')
   legalVersions() {
     return { ok: 'legal-versions' };
   }
@@ -96,8 +96,8 @@ describe('RoleGuard', () => {
 
     it('lets the minimum role and above through', async () => {
       expect((await get('/v1/queue', 'Moderator')).status).toBe(200);
-      expect((await get('/v1/queue', 'SuperAdmin')).status).toBe(200);
-      expect((await get('/v1/legal-versions', 'SuperAdmin')).status).toBe(200);
+      expect((await get('/v1/queue', 'Admin')).status).toBe(200);
+      expect((await get('/v1/legal-versions', 'Admin')).status).toBe(200);
     });
 
     it('answers 403 role_required below it', async () => {
@@ -107,7 +107,7 @@ describe('RoleGuard', () => {
         code: 'role_required',
         requiredRole: 'Moderator',
       });
-      expect((await get('/v1/legal-versions', 'Admin')).status).toBe(403);
+      expect((await get('/v1/legal-versions', 'Moderator')).status).toBe(403);
     });
 
     it('answers 403 for an unknown or missing role claim, 401 when not signed in', async () => {

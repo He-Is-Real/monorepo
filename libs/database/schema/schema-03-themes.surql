@@ -68,7 +68,7 @@ DEFINE TABLE OVERWRITE themeCatalog SCHEMAFULL PERMISSIONS     -- id = themeCata
 DEFINE FIELD OVERWRITE version       ON themeCatalog TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };
 DEFINE FIELD OVERWRITE changedBy     ON themeCatalog TYPE option<record<user>>;
 DEFINE FIELD OVERWRITE changedByRole ON themeCatalog TYPE option<string>
-  ASSERT $value = NONE OR $value IN ['Admin', 'SuperAdmin'];
+  ASSERT $value = NONE OR $value = 'Admin';
 DEFINE FIELD OVERWRITE updatedAt     ON themeCatalog TYPE datetime VALUE time::now();
 DEFINE EVENT OVERWRITE themeCatalog_check ON themeCatalog
   WHEN $event IN ['CREATE', 'UPDATE']

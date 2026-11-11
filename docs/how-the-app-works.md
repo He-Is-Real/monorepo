@@ -48,9 +48,7 @@ code does what it does today; nobody should build on either reading.
    Checkout would replace the Buy Buttons in M4. Is that still the M4 plan?
 9. **Trusted submitters' hourly limit.** D94 says trusted submitters keep the hourly upload
    limit "but raised"; today they keep the same 10 an hour. Should it be higher, and how much?
-10. **Who gives people the Moderator role.** The security review says only a Super Admin assigns
-    roles; the delivery plan says admins assign the moderator role. Which (planned, M3/M5)?
-11. **Spam and safety checks on sharing.** The security review plans a CAPTCHA on the share
+10. **Spam and safety checks on sharing.** The security review plans a CAPTCHA on the share
     form, a verified email before the first story, and virus scanning of uploads. None of these
     is in a later decision or built. Are they still planned, and for which milestone?
 
@@ -71,8 +69,28 @@ code does what it does today; nobody should build on either reading.
   only a link to their Clerk account. Clerk is hosted in the US, which is accepted. (D16, D6)
 - People change their name, email and password in Clerk's own account panel, opened from My
   profile. There is no country, display name or notification setting. (D81)
-- Roles, lowest to highest: Viewer, User, Moderator, Admin, Super Admin. Roles are set in Clerk;
-  someone without one is a User. (D1)
+- Roles, lowest to highest: Viewer (not signed in), User, Moderator, Admin (Joel, 2026-11-11:
+  the old Admin became Moderator, the old Super Admin became Admin). Roles are set in Clerk, on the
+  person's account (`publicMetadata.role`), and travel in their sign-in token, which api-admin reads
+  on every request; someone without one is a User. (D1, G8 B)
+
+  | Role      | Can do (G24, Joel 2026-11-11)                                                                                                                                        |
+  | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | User      | Share stories, hearts, their own account                                                                                                                             |
+  | Moderator | The moderation queue: approve, send back, reject, hide and show again (today: read the queue and each story; the decisions come with M3)                             |
+  | Admin     | Everything a Moderator can, plus themes, submission limits, legal texts, "approve anyway", reading drafts (every story), the block list (planned) and the Staff page |
+
+- **Staff (S-1 to S-4, G7, G8 B; Joel 2026-11-11):** Admins add, change and remove Moderators and
+  Admins on the Staff page (`/admin/staff`). Only `@heisreal.today` emails can be staff (G7). Each
+  change goes to Clerk first (the person's role, or, for someone with no account yet, a Clerk
+  invitation carrying it, with no invitation email), then to the staff list in our database. A
+  change takes effect within about a minute (the sign-in token's lifetime). There is always at least
+  one Admin: removing or demoting the last one is refused.
+- **Baseline admins (S-4):** `info@heisreal.today` and `joel@heisreal.today`, listed in
+  `apps/api-admin/src/app/staff/baseline-admins.json`. Each time api-admin starts (every deploy,
+  and after it has been idle), it makes both Admin in Clerk and on the list, adding them back if
+  missing; it never removes anyone. So removing one on the Staff page lasts only until then, which
+  the page says.
 - The parts of a page that are about the signed-in person (hearts, their stories, their profile)
   are filled in by the browser, with space kept so nothing jumps. Pages for signed-in people
   need JavaScript. (D83)
@@ -119,7 +137,7 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 - Published stories stay up when a text changes.
 - A person can only agree to the latest version, and only to the version the page showed them.
   The time recorded is the database's.
-- **Admins and Super Admins publish new versions** at the consent admin page: a text box, the
+- **Admins publish new versions** at the consent admin page: a text box, the
   changes against the current version, a preview, then confirm. A saved version is in force at
   once, and records which admin published it.
 - **Withdrawing:** deleting the account withdraws everything; withdrawing or deleting a story
@@ -128,9 +146,9 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   reviewed before go-live"). Everyone who had an account when plan 4e arrived on dev was recorded
   as agreeing to version 0 of the terms of use and the testimony consent. The testimony consent
   and the privacy notice say who sees a story before it is public: while it's a draft, the person
-  and a small number of super admins (for support and safety); while it's waiting for review, the
-  person and our moderators. (Joel, 2026-11-05; the super admins' view is in api-admin, R15, with
-  no admin page yet.)
+  and a small number of admins (for support and safety; version 0's words still say "super
+  admins", the old name of today's Admins); while it's waiting for review, the person and our
+  moderators. (Joel, 2026-11-05; the admins' view is in api-admin, R15, with no admin page yet.)
 - **Cookies:** the site uses only essential cookies and storage (sign-in, the light or dark
   choice, the video player's own settings), so there is no cookie banner, only a footer note
   linking to the privacy notice. Anything non-essential later (analytics, error replay) needs the
@@ -163,7 +181,7 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
     lock running out or the check giving up after 5 failures never does. The nightly housekeeping
     opens a check of any video left unfinished with no check open, and the 18:00 resend sends it, so
     it is retried rather than stuck. What people see: such a story's moderator gets "can't approve
-    yet: still processing" until a try succeeds; a SuperAdmin can still approve anyway, as with any
+    yet: still processing" until a try succeeds; an Admin can still approve anyway, as with any
     open job. So a picture the person removed can't go public through a moderator approving in
     between.
 - **An audio story becomes a picture video (Joel, 2026-11-07, audio-picture-video.html):** once
@@ -385,7 +403,7 @@ Built in the database (the decisions and their pages are planned, M3):
   picture), so what they watched is what gets published; they are told the time from which they
   can approve. And not while a media job for those files is still open (for example an audio
   story's new picture video still being made), so they never approve the old picture: "media
-  still being processed". A SuperAdmin may approve anyway, and the approval records that they
+  still being processed". An Admin may approve anyway, and the approval records that they
   skipped the wait. This holds for a moderator's "show again" too; the system hiding a story and
   showing it again when its media breaks and works again never waits.
 - **Media ready (M2 plan item 13; D76, D78; Joel 2026-11-07, media-worker-final.html):** when
@@ -430,8 +448,8 @@ Built in the database (the decisions and their pages are planned, M3):
 
 Built, read-only (M3 plan, pull request 1; Joel, 2026-11-09):
 
-- **Who:** Moderators, Admins and Super Admins. The staff menu shows "Moderation" to them; the
-  other staff pages stay Admins and up. The database knows moderators only as api-admin's login,
+- **Who:** Moderators and Admins. The staff menu shows "Moderation" to both; the other staff
+  pages are for Admins only (G24). The database knows moderators only as api-admin's login,
   so api-admin checks the role on every moderation request and refuses anyone below Moderator.
 - **The queue** (`/moderation`): the stories waiting for review, the one sent longest ago first
   (a story sent again after changes goes to the back), 20 at a time with "Show more". Each shows
@@ -466,24 +484,27 @@ Planned (M3):
 
 ## Admin pages
 
-- **Limits** (Admin and above): the submission limits in plain words with their units; Save
+- **Limits** (Admins): the submission limits in plain words with their units; Save
   lists the changes and asks to confirm. If another admin saved meanwhile, the page asks to
   reload. The settings keep the name and role of the admin who changed them last; there is no
   history of changes (no audit log, see Moderation).
 - **Themes**: categories and themes on one page (drag on desktop, tap or keyboard on phones),
   delete confirmed by typing "delete <name>", and one Save for the whole picture. Deleting a theme
   removes it from every story. If someone else saved meanwhile, the page asks to reload.
-- **Consent texts** (Admins and Super Admins): publish the next version of any of the four texts
+- **Consent texts** (Admins): publish the next version of any of the four texts
   (see "Consent, privacy and terms").
 - The database can list stories hidden because their media broke or changed; there is no admin
   page for it yet.
-- **All stories** (Super Admins only, R15, Joel 2026-11-05): a read-only list of every story in
-  every status, drafts included, and each story with its status log and files. Moderators and
-  admins see stories from "waiting for review" on, through moderation. Built in api-admin; there
+- **All stories** (Admins only, R15, Joel 2026-11-05): a read-only list of every story in
+  every status, drafts included, and each story with its status log and files. Moderators see
+  stories from "waiting for review" on, through moderation. Built in api-admin; there
   is no admin page for it yet.
 - Theme and category names are tidied (trimmed, single spaces, capital first letter); a
   duplicate name is refused. Deleting a category moves its themes to "Other", not highlighted.
-- Planned (M5): the dashboard, the user list and role management.
+- **Staff** (Admins): the staff list (email, role, who added them and when, baseline admins
+  marked); add an `@heisreal.today` email as a Moderator or an Admin, change a role, remove someone
+  (after "Remove …? They become a User."). See "Staff" under Accounts and sign-in.
+- Planned (M5): the dashboard and the user list.
 
 ## Data kept and deleted
 
