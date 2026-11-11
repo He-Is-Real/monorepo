@@ -32,7 +32,7 @@ import type { ScaleState } from './global-setup';
  * the list, a theme's list (a popular and a rare theme), a format's list, related stories,
  * search (a common and a rare word, theme names), and a story page. And the favourites list
  * (api-user's query, in the person's own session) with and without the favourite_unique index,
- * the super admins' list of every story (api-admin's query), and a theme rename. Each read is
+ * the admins' list of every story (api-admin's query), and a theme rename. Each read is
  * run once to warm up, then RUNS times; the table prints the median and the slowest. The test
  * leaves the data as it found it (renames and the index are put back).
  *
@@ -237,11 +237,11 @@ describe(`scale: ${STORIES} stories`, () => {
       admin,
       `UPDATE theme:t0_0 SET name = 'Topicaa'; UPDATE theme:t7_7 SET name = 'Topichh';`,
     );
-    // The super admins' list of every story (R15; api-admin's own query and login), newest
+    // The admins' list of every story (R15; api-admin's own query and login), newest
     // created first: page 1 and 50 pages in.
     const allStories = (after?: [string, string]) =>
       run(admin, ALL_STORIES_LIST_SQL, { after, take: 21 });
-    await time('super admins: every story, page 1', () => allStories());
+    await time('admins: every story, page 1', () => allStories());
     let after: [string, string] | undefined;
     for (let i = 0; i < 50; i++) {
       const page = (await allStories(after)).at(-1) as {
@@ -251,7 +251,7 @@ describe(`scale: ${STORIES} stories`, () => {
       const last = page[19];
       after = [last.createdAt, last.id];
     }
-    await time('super admins: every story, page 51', () => allStories(after));
+    await time('admins: every story, page 51', () => allStories(after));
     const slug = publicIds[Math.floor(publicIds.length / 2)].replace('_', '-');
     await time('story page (by slug)', () => get(`/v1/stories/${slug}`));
     await time('related stories (story page sidebar)', () =>

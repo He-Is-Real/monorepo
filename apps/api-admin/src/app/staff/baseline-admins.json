@@ -1,0 +1,4 @@
+{
+  "$comment": "Baseline admins (S-4, Joel 2026-11-11). Every deploy makes sure each is Admin in Clerk and on the Staff page list, adding them back if missing and never removing anyone else, so we can't lock ourselves out. Lower-case @heisreal.today emails only.",
+  "admins": ["info@heisreal.today", "joel@heisreal.today"]
+}

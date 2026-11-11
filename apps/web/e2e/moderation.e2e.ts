@@ -184,6 +184,7 @@ test.describe('moderation', () => {
       'Consent & legal',
       'Submission limits',
       'Themes',
+      'Staff',
     ]);
   });
 });

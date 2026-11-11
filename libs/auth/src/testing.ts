@@ -21,7 +21,11 @@ export interface TestClerk {
   authorizedParty: string;
   publicKeyPem: string;
   privateKey: KeyObject;
-  /** Signs a session token for `sub`; `claims` override or add (`undefined` removes one). */
+  /**
+   * Signs a session token for `sub`; `claims` override or add (`undefined` removes one). Like a
+   * real staff member's, a Moderator or Admin token carries a verified `<sub>@heisreal.today`
+   * email unless `claims` names `email` (S-5 A: without one the role counts as User).
+   */
   token(sub: string, claims?: Record<string, unknown>): string;
 }
 
@@ -85,6 +89,13 @@ export function newTestClerk(
         role: 'User',
         ...claims,
       };
+      if (
+        (all['role'] === 'Moderator' || all['role'] === 'Admin') &&
+        !('email' in claims)
+      ) {
+        all['email'] = `${sub.replace(/^user_/, '')}@heisreal.today`;
+        all['email_verified'] = true;
+      }
       for (const [k, v] of Object.entries(all))
         if (v === undefined) delete all[k];
       return signRs256(all, pair.privateKey);

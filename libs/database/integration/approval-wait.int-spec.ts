@@ -17,7 +17,7 @@ import { draft, processed, step, submit } from './support/world';
  *   or picture could still replace it (an hour for video and audio, 10 minutes for a picture,
  *   from the row's `at` or a resume's `renewedAt`); the refusal says when it can be approved;
  * - an open media job: not while a check or render for those files hasn't ended.
- * A SuperAdmin may approve anyway, and the approval records it. Neither rule touches the system
+ * An Admin may approve anyway, and the approval records it. Neither rule touches the system
  * hiding or showing again an approved story when its files change.
  */
 describe('a moderator’s approval waits for the media (decision 5, J6)', () => {
@@ -299,7 +299,7 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
       // with no job open.
       await lock('time::now() - 1s');
       expect(await approve(id)).toEqual(waits);
-      // A SuperAdmin may approve anyway, as with an open job.
+      // An Admin may approve anyway, as with an open job.
       expect(await approve(id, { skippedMediaWait: true })).toMatchObject({
         ok: true,
       });
@@ -397,7 +397,7 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
     });
   });
 
-  describe('a SuperAdmin may skip the wait', () => {
+  describe('an Admin may skip the wait', () => {
     it('approves during the cooldown with a job open, and the entry records it for api-admin only', async () => {
       const id = await inReview({ video: '5m' });
       await openJob(`${id}-media`);

@@ -15,12 +15,12 @@ import { AppModule } from '../src/app/app.module';
 import { useBodyParser } from '../src/app/body-parser';
 
 /**
- * R15 (Joel, 2026-11-05): super admins' read-only view of every story, through api-admin's real
+ * R15 (Joel, 2026-11-05): admins' read-only view of every story, through api-admin's real
  * AppModule on its own login. Every id its list gives out opens the story and pages on (Codex,
  * B1 round 1: dev-seed's `seed_v01` ids answered 404 and their cursors 400). Every answer is
  * checked against api-admin.yaml.
  */
-describe('every story, for super admins (api-admin)', () => {
+describe('every story, for admins (api-admin)', () => {
   const contract = new Contract('api-admin.yaml');
   let t: TestDatabase;
   let clerk: TestClerk;
@@ -30,7 +30,7 @@ describe('every story, for super admins (api-admin)', () => {
   async function get(path: string) {
     const res = await fetch(`${url}${path}`, {
       headers: {
-        authorization: `Bearer ${clerk.token('user_super', { role: 'SuperAdmin' })}`,
+        authorization: `Bearer ${clerk.token('user_super', { role: 'Admin' })}`,
       },
     });
     expect(await contract.check('GET', res), path).toEqual([]);

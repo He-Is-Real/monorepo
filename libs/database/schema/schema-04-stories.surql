@@ -290,7 +290,7 @@ DEFINE FUNCTION OVERWRITE fn::story::approval_problem($s: any) {
 --   writer recorded empties it. Here, not in approval_problem: like an open job it is a moment of
 --   the review, not the files being unfit to show, so it must never hide an approved story or stop
 --   one coming back (check_files, restorable).
--- A SuperAdmin may approve anyway, and the entry records it (storyStatusLog.skippedMediaWait).
+-- An Admin may approve anyway, and the entry records it (storyStatusLog.skippedMediaWait).
 -- Messages start with a code for api-admin (409). $now: the time to judge at (the approval's).
 -- Runs elevated from the event (only the services read mediaJob).
 DEFINE FUNCTION OVERWRITE fn::story::approval_wait($s: any, $now: datetime) {
@@ -843,10 +843,10 @@ DEFINE FIELD OVERWRITE reviewedMediaFile ON storyStatusLog TYPE option<record<st
 DEFINE FIELD OVERWRITE reviewedImageFile ON storyStatusLog TYPE option<record<storyFile>> READONLY
   VALUE IF $this.status = 'approved' { $this.story.image.file }
   PERMISSIONS FOR select WHERE story.submitter = $auth OR $auth = service:api_admin;
--- On a moderator's approved entry: true when a SuperAdmin approved while the media wait (the
+-- On a moderator's approved entry: true when an Admin approved while the media wait (the
 -- upload cooldown or an open media job, fn::story::approval_wait) would have refused it (Joel,
--- 2026-11-07: decision 5 and J6, "a SuperAdmin may skip both; the approval records that it did").
--- Roles live in Clerk (D1), so api-admin sets it, only for a SuperAdmin (as it names the
+-- 2026-11-07: decision 5 and J6, "an Admin may skip both; the approval records that it did").
+-- Roles live in Clerk (D1), so api-admin sets it, only for an Admin (as it names the
 -- moderator in `by`); the database refuses it on any other entry, or when there was nothing to
 -- skip, so it is true exactly when the wait was skipped. api-admin's alone to read.
 DEFINE FIELD OVERWRITE skippedMediaWait ON storyStatusLog TYPE option<bool> READONLY
@@ -897,7 +897,7 @@ DEFINE EVENT OVERWRITE storyStatusLog_step ON storyStatusLog
       THROW 'status_step: only a hidden entry has a reason';
     };
     -- A moderator's approval waits for the media (decision 5, J6): refused while
-    -- fn::story::approval_wait says so, unless a SuperAdmin skips it (skippedMediaWait). System
+    -- fn::story::approval_wait says so, unless an Admin skips it (skippedMediaWait). System
     -- users (the migrator, dev-seed) load approved stories as given.
     LET $wait = IF $to = 'approved' AND $after.actor = 'moderator' AND $auth != NONE {
       fn::story::approval_wait($s, time::now())

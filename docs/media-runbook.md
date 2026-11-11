@@ -330,7 +330,7 @@ runs there. Jobs carry ids only, never a person's name or words. A job is delete
 
 While a story's file could still be replaced through its upload link (an hour after the link was
 signed; 10 minutes for a picture), or one of its files' jobs is open, a moderator can't approve it
-(`media_recently_uploaded`, with the time it can be; `media_still_processing`). A SuperAdmin can.
+(`media_recently_uploaded`, with the time it can be; `media_still_processing`). An Admin can.
 
 ### Processing is stalled
 

@@ -146,9 +146,9 @@ function toSummary(r: SummaryRow) {
 }
 
 /**
- * api-admin.yaml, tag AllStories (R15, Joel 2026-11-05): super admins see every story in every
+ * api-admin.yaml, tag AllStories (R15, Joel 2026-11-05): admins see every story in every
  * status, drafts included, with its status log (R6) and files, read-only. api-admin's login
- * reads every story (docs/db-permissions.md); the SuperAdmin role is checked here (D1), as every
+ * reads every story (docs/db-permissions.md); the Admin role is checked here (D1), as every
  * api-admin route's role is. Moderators and admins see stories from `pending` on, through
  * moderation, never here. No route here writes.
  */
@@ -157,7 +157,7 @@ export class AllStoriesController {
   constructor(@Inject(SURREAL) private readonly db: Surreal) {}
 
   @Get()
-  @RequiresRole('SuperAdmin')
+  @RequiresRole('Admin')
   async listAllStories(
     @Res({ passthrough: true }) res: Response,
     @Query('limit') limit?: string,
@@ -184,7 +184,7 @@ export class AllStoriesController {
   }
 
   @Get(':id')
-  @RequiresRole('SuperAdmin')
+  @RequiresRole('Admin')
   async getAnyStory(
     @Param('id') id: string,
     @Res({ passthrough: true }) res: Response,

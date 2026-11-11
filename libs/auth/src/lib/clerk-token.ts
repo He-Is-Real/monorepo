@@ -1,6 +1,6 @@
 import { verify } from 'node:crypto';
 import type { ClerkConfig } from './clerk-config';
-import { isRole, type Role, ROLE_CLAIM } from '@heisreal/roles';
+import { effectiveRole, isRole, type Role, ROLE_CLAIM } from '@heisreal/roles';
 
 /** Why a token was refused (logged, never sent to the caller). */
 export type ClerkTokenFailure =
@@ -27,8 +27,18 @@ export class ClerkTokenError extends Error {
 export interface VerifiedClerkToken {
   /** `sub`: the Clerk user id. */
   clerkUserId: string;
-  /** The {@link ROLE_CLAIM} claim (D1). */
+  /**
+   * The {@link ROLE_CLAIM} claim (D1) as it counts: a Moderator or Admin claim without a verified
+   * `@heisreal.today` email is a User (S-5 A, `effectiveRole`).
+   */
   role: Role;
+  /**
+   * The person's primary email, lower-case, from the `email` claim, only when the token says it is
+   * verified (`email_verified`, infra/clerk/dev.json). The Staff page names who added someone with
+   * it (S-1 to S-4), and a staff role counts only when it is `@heisreal.today` (S-5 A). Undefined
+   * otherwise.
+   */
+  email?: string;
   /** `sid`: the Clerk session it belongs to (api-user asks Clerk for a fresh pass for it). */
   sessionId: string;
   /** `exp`, seconds since the epoch. */
@@ -70,7 +80,8 @@ const isNumber = (v: unknown): v is number =>
  * - `iss` must be the configured instance, `azp` one of the allowed origins (SurrealDB checks
  *   neither), `sub` a Clerk user id, `sid` a Clerk session id, a pending session (`sts` other
  *   than `active`) is refused;
- * - the role claim must be one of {@link ROLES}.
+ * - the role claim must be one of {@link ROLES}; a staff role counts only with a verified
+ *   `@heisreal.today` email (S-5 A), else it is returned as User.
  *
  * Throws {@link ClerkTokenError} on any failure. SurrealDB verifies the same signature and
  * `exp`/`nbf` again when the token opens a person session.
@@ -138,5 +149,21 @@ export function verifyClerkToken(
   const role = claims[ROLE_CLAIM];
   if (!isRole(role)) throw new ClerkTokenError('role');
 
-  return { clerkUserId: sub, role, token, sessionId: sid, expiresAt: exp };
+  const email = claims['email'];
+  const verifiedEmail =
+    claims['email_verified'] === true &&
+    typeof email === 'string' &&
+    email.length <= 254 &&
+    /^[^\s@]+@[^\s@]+$/.test(email)
+      ? email.toLowerCase()
+      : undefined;
+
+  return {
+    clerkUserId: sub,
+    role: effectiveRole(role, verifiedEmail),
+    token,
+    sessionId: sid,
+    expiresAt: exp,
+    ...(verifiedEmail ? { email: verifiedEmail } : {}),
+  };
 }

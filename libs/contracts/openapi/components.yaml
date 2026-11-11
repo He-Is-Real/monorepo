@@ -354,8 +354,10 @@ components:
 
     Role:
       type: string
-      description: Viewer(0) < User(1) < Moderator(2) < Admin(3) < SuperAdmin(4). Held in Clerk `publicMetadata.role` (D1).
-      enum: [Viewer, User, Moderator, Admin, SuperAdmin]
+      description: |
+        Viewer(0) < User(1) < Moderator(2) < Admin(3) (S-1, Joel 2026-11-11: the old Admin is now Moderator, the old
+        SuperAdmin is now Admin). Held in Clerk `publicMetadata.role` (D1, G8 B); set on the Staff page.
+      enum: [Viewer, User, Moderator, Admin]
 
     StoryStatus:
       type: string
@@ -1288,12 +1290,45 @@ components:
           type: string
           maxLength: 1000
 
-    AssignRole:
+    SetStaffRole:
       type: object
+      additionalProperties: false
       required: [role]
       properties:
         role:
-          $ref: '#/components/schemas/Role'
+          type: string
+          enum: [Moderator, Admin]
+
+    StaffMember:
+      type: object
+      description: One person on the Staff page's list (`staffMember`). Their role in Clerk is the one that counts (G8 B).
+      required: [email, role, addedBy, addedAt, baseline]
+      properties:
+        email:
+          type: string
+          format: email
+          description: Lower-case, `@heisreal.today` (G7).
+        role:
+          type: string
+          enum: [Moderator, Admin]
+        addedBy:
+          type: [string, 'null']
+          description: The email of the Admin who added them; `null` when the deploy's baseline step did.
+        addedAt:
+          type: string
+          format: date-time
+        baseline:
+          type: boolean
+          description: A baseline admin (S-4); each deploy makes them Admin again.
+
+    StaffList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/StaffMember'
 
     SiteVideoKey:
       type: string
@@ -2304,7 +2339,7 @@ components:
 
     StoryAnyStatus:
       type: object
-      description: R15. A story in the super admins' list, in any status. Never public.
+      description: R15. A story in the admins' list, in any status. Never public.
       required:
         [
           id,

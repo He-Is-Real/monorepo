@@ -41,7 +41,9 @@
       "ns": "heisreal",
       "db": "main",
       "ac": "clerk",
-      "role": "{{user.public_metadata.role || 'User'}}"
+      "role": "{{user.public_metadata.role || 'User'}}",
+      "email": "{{user.primary_email_address}}",
+      "email_verified": "{{user.email_verified}}"
     }
   }
 }

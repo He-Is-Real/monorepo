@@ -98,7 +98,7 @@ DEFINE FIELD OVERWRITE changedBy     ON submissionSettings TYPE option<record<us
 -- The admin's role when they made the change (a snapshot of the Clerk claim, D1); api-admin sets
 -- it with changedBy.
 DEFINE FIELD OVERWRITE changedByRole ON submissionSettings TYPE option<string>
-  ASSERT $value = NONE OR $value IN ['Admin', 'SuperAdmin'];
+  ASSERT $value = NONE OR $value = 'Admin';
 DEFINE FIELD OVERWRITE version       ON submissionSettings TYPE int VALUE IF $before = NONE { 1 } ELSE { $before + 1 };   -- D29
 DEFINE FIELD OVERWRITE updatedAt     ON submissionSettings TYPE datetime VALUE time::now();
 DEFINE EVENT OVERWRITE submissionSettings_check ON submissionSettings

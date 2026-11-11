@@ -36,6 +36,9 @@ const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
   storySearch: 'linked', // story → submitter (search option A: a published story's words)
   mediaJob: 'linked', // file → person (media ready, J1: a job about one of their files)
   submissionSettings: 'none', // the limits an admin sets (W3, D112)
+  // The Staff page's list (G8 B): staff work emails and roles, no link to `user`; not story
+  // data, so erasure doesn't touch it (removed on the Staff page instead).
+  staffMember: 'none',
   // D82: the sha256 of an erased Clerk id, so it never gets a row again; no link, no date.
   erasedIdentity: 'kept',
   // D40: Bunny ids and image paths (and, until Clerk confirms, the Clerk id) erasure still has

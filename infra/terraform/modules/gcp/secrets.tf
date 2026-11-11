@@ -66,10 +66,11 @@ resource "google_service_account_iam_member" "surrealdb_secrets_wi" {
 # Clerk's Backend API secret key (decisions 4 and 13). Terraform owns the
 # container; the value is human-supplied from the Clerk CLI as a new version
 # (runbook: infra/clerk/README.md). api-user and api-admin verify session tokens
-# without the network against the pinned public key. Only api-user reads it, to
-# delete an erased person's Clerk account (M2 plan PR 11, D39, D81), and the
-# nightly housekeeping, to retry such a deletion that failed (housekeeping.tf);
-# M3's role assignment adds api-admin then.
+# without the network against the pinned public key. Three read it: api-user, to
+# delete an erased person's Clerk account (M2 plan PR 11, D39, D81); the nightly
+# housekeeping, to retry such a deletion that failed (housekeeping.tf); and
+# api-admin, to set staff roles from the Staff page and put the baseline admins
+# back on each start (M3, G8 B and S-4, Joel 2026-11-11).
 resource "google_secret_manager_secret" "clerk_secret_key" {
   project   = var.project_id
   secret_id = "clerk-secret-key"
@@ -103,8 +104,8 @@ resource "google_secret_manager_secret" "clerk_webhook_signing_secret" {
   }
 }
 
-# api-user alone reads both Clerk secrets (erasure, D81: account deletion is one
-# of the three server jobs that may use Clerk's secret key).
+# api-user reads both Clerk secrets (erasure, D81: account deletion is one of the
+# server jobs that may use Clerk's secret key).
 resource "google_secret_manager_secret_iam_member" "api_user_clerk" {
   for_each = {
     key     = google_secret_manager_secret.clerk_secret_key.secret_id
@@ -115,4 +116,15 @@ resource "google_secret_manager_secret_iam_member" "api_user_clerk" {
   secret_id = each.value
   role      = "roles/secretmanager.secretAccessor"
   member    = google_service_account.signed_in_api["api-user"].member
+}
+
+# api-admin reads Clerk's secret key only (never the webhook's signing secret):
+# staff roles live on the Clerk user's publicMetadata.role, and the Staff page
+# writes them there first (G8 B, Joel 2026-11-11: "just code in the api service
+# to hit clerk and update the db on change").
+resource "google_secret_manager_secret_iam_member" "api_admin_clerk_key" {
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.clerk_secret_key.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = google_service_account.signed_in_api["api-admin"].member
 }

@@ -3,12 +3,12 @@ info:
   title: He Is Real Today — api-admin
   version: 1.0.0-draft
   description: |
-    **Moderation and admin.** The moderation queue and decisions, flag triage, role assignment, theme
+    **Moderation and admin.** The moderation queue and decisions, flag triage, the staff list and roles, theme
     curation, and new versions of the four legal texts (plan 4e). Its own service and database login (D13, D33). No featured or
     pinned stories (Joel, 2026-10-23: unfair to everyone else).
 
     - Clerk JWT on every route, with a minimum role (`x-required-role`) checked on each one
-      (Moderator for moderation; Admin / SuperAdmin for the rest). Called directly by the browser (D31).
+      (Moderator for the moderation queue; Admin for everything else, G24). Called directly by the browser (D31).
       The role is the session token's `role` claim (Clerk `publicMetadata.role`, D1); below the minimum
       is `403` with code `role_required`. api-admin never creates `user` records (D13): a person
       without one (no api-user call yet) gets `403` with code `unknown_person`.
@@ -41,7 +41,9 @@ tags:
   - name: Moderation
     description: 'The queue, pick-up lock, decisions and flags.'
   - name: Admin
-    description: 'Users and roles.'
+    description: 'Users (M5).'
+  - name: Staff
+    description: 'The staff list and staff roles, at /admin/staff (Admins only; S-1 to S-4, G8 B).'
   - name: Themes
     description: 'Theme categories and themes (themes plan v3).'
   - name: LegalDocuments
@@ -49,7 +51,7 @@ tags:
   - name: SubmissionSettings
     description: 'The submission limits everyone submits under (W3, D94, D112, D113), adjusted at /admin/limits.'
   - name: AllStories
-    description: 'Every story in every status, drafts included, read-only, for super admins (R15).'
+    description: 'Every story in every status, drafts included, read-only, for admins (R15).'
 
 paths:
   /health:
@@ -236,7 +238,7 @@ paths:
           picture). `availableAt`: when it can be approved.
         - `code: media_still_processing`: a media job for the story's files is still open (e.g. an
           audio story's picture video is being made).
-        A SuperAdmin may approve despite both; the approval's status entry records that the wait
+        An Admin may approve despite both; the approval's status entry records that the wait
         was skipped. The same holds for showing a hidden story again.
       x-required-role: Moderator
       x-milestone: M3
@@ -469,33 +471,73 @@ paths:
         '503':
           $ref: './components.yaml#/components/responses/ServiceRestarting'
 
-  /v1/admin/users/{id}/assign-role:
-    post:
-      tags: [Admin]
-      operationId: assignRole
-      summary: Assign a user's role
+  /v1/admin/staff:
+    get:
+      tags: [Staff]
+      operationId: listStaff
+      summary: The staff list (the Staff page)
       description: |
-        Command `AssignRole`. Clerk is the source of truth for roles (D1): this writes Clerk
-        `publicMetadata.role`. Clerk holds no version, so there is no
-        `If-Match` and the result's `version` is `null`.
-      x-required-role: SuperAdmin
+        Every staff member on the list (`staffMember`), A–Z by email: their email, role, who added them
+        (the Admin's email; `null` when the deploy's baseline step added them) and when. `baseline` marks
+        the baseline admins (S-4, `apps/api-admin/src/app/staff/baseline-admins.json`): each deploy makes
+        sure they are Admin again. Roles live in Clerk (G8 B); this is the list Admins keep.
+      x-required-role: Admin
       x-milestone: M3
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: User ID (opaque).
-          schema:
-            type: string
+      responses:
+        '200':
+          description: The staff list.
+          headers:
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPrivate'
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/StaffList'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+
+  /v1/admin/staff/{email}:
+    parameters:
+      - name: email
+        in: path
+        required: true
+        description: The staff member's email, `@heisreal.today` only (G7); compared lower-case.
+        schema:
+          type: string
+          maxLength: 254
+    put:
+      tags: [Staff]
+      operationId: setStaffRole
+      summary: Add someone to the staff list with a role, or change their role
+      description: |
+        Command `SetStaffRole` (S-1 to S-3, G8 B). api-admin first writes the role to Clerk, the source of
+        truth: `publicMetadata.role` on the Clerk user with that verified email. There are no invitations
+        (S-7): the person creates an account with that email first, and with no such account the change
+        is refused (`400`, nothing changed). Then it adds or updates the list. The role counts only while
+        their sign-in token carries that verified `@heisreal.today` email (S-5 A). Clerk holds no version, so there is no `If-Match` and `version` is
+        `null`; setting the same role again changes nothing. Takes effect when the person's session token
+        is next renewed, within about a minute. `400` for an email outside `@heisreal.today`, an email
+        no Clerk account has verified, or a role other than Moderator or Admin; `409 last_admin` for demoting the last Admin (the database refuses
+        it too, and Clerk is put back); `502 clerk_unavailable` if Clerk couldn't make the change
+        (nothing changed), or couldn't be confirmed to agree with the list afterwards (the list may
+        have changed; saving the person again puts Clerk in step).
+      x-required-role: Admin
+      x-milestone: M3
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: './components.yaml#/components/schemas/AssignRole'
+              $ref: './components.yaml#/components/schemas/SetStaffRole'
       responses:
         '200':
-          description: Role assigned.
+          description: The role is set, in Clerk and on the list.
           content:
             application/json:
               schema:
@@ -506,23 +548,51 @@ paths:
           $ref: './components.yaml#/components/responses/Unauthorized'
         '403':
           $ref: './components.yaml#/components/responses/Forbidden'
-        '404':
-          $ref: './components.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './components.yaml#/components/responses/Conflict'
         '503':
           $ref: './components.yaml#/components/responses/ServiceRestarting'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+    delete:
+      tags: [Staff]
+      operationId: removeStaffMember
+      summary: Remove someone from the staff list
+      description: |
+        Command `RemoveStaffMember`. Clerk first: the person's role goes back to none (a User), on any
+        account with that verified email (with none, nothing changes there); then the list. Removing someone not on the list changes nothing.
+        `409 last_admin` for the last Admin; `502 clerk_unavailable` as for `PUT`. A baseline admin
+        removed here is added back on the next deploy.
+      x-required-role: Admin
+      x-milestone: M3
+      responses:
+        '204':
+          description: Removed (or wasn't on the list).
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '409':
+          $ref: './components.yaml#/components/responses/Conflict'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
 
   # ------------------------------------------------------------------ themes (plan v3)
   /v1/admin/stories:
     get:
       tags: [AllStories]
       operationId: listAllStories
-      summary: Every story, any status, drafts included (super admins)
+      summary: Every story, any status, drafts included (admins)
       description: |
         R15 (Joel, 2026-11-05): a read-only list of every story in every status (draft, pending,
         in review, approved, changes requested, rejected, withdrawn, hidden), newest first (by
-        creation, then id). SuperAdmin only: moderators and admins see stories from `pending` on,
+        creation, then id). Admin only: moderators see stories from `pending` on,
         through moderation. No command changes a story from here.
-      x-required-role: SuperAdmin
+      x-required-role: Admin
       x-milestone: M2
       parameters:
         - $ref: './components.yaml#/components/parameters/limit'
@@ -557,12 +627,12 @@ paths:
     get:
       tags: [AllStories]
       operationId: getAnyStory
-      summary: One story in any status, with its status log and files (super admins)
+      summary: One story in any status, with its status log and files (admins)
       description: |
         R15: the story as stored (its words, who submitted it, its consent and its media and
         picture with their processing state) and its whole status log (R6), oldest first, with who
-        added each entry. Read-only; SuperAdmin only.
-      x-required-role: SuperAdmin
+        added each entry. Read-only; Admin only.
+      x-required-role: Admin
       x-milestone: M2
       parameters:
         - $ref: './components.yaml#/components/parameters/storyId'
@@ -659,7 +729,7 @@ paths:
       operationId: listAdminLegalDocumentVersions
       summary: Every version of one legal text, and the latest with its words
       description: |
-        For `/admin/consent` (Admin and Super Admin): the latest version's Markdown, which the editor
+        For `/admin/consent` (Admins): the latest version's Markdown, which the editor
         starts from and the redline compares against, and every version, newest first. Read-only: no
         route edits or deletes a version.
       x-required-role: Admin

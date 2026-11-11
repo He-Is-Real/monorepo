@@ -486,3 +486,70 @@ test('the stub api-admin’s legal texts fit the contract', async ({
   ).toBe(403);
   expect((await call('GET', path, { headers: {} })).status).toBe(401);
 });
+
+// M3 plan PR 4: the stub api-admin's staff list (/admin/staff) answers as api-admin.yaml says.
+test('the stub api-admin’s staff list fits the contract', async ({
+  request,
+}) => {
+  const admin = {
+    authorization: `Bearer ${fixtureToken(`admin-contract${Date.now()}`)}`,
+  };
+  const call = async (
+    method: 'GET' | 'PUT' | 'DELETE',
+    path: string,
+    { data, headers = admin }: { data?: unknown; headers?: object } = {},
+  ) => {
+    const res = await request.fetch(`${STUB_USER_URL}${path}`, {
+      method,
+      headers: headers as Record<string, string>,
+      data,
+    });
+    const text = await res.text();
+    const body = text === '' ? undefined : JSON.parse(text);
+    expect(
+      adminContract.problems({
+        method,
+        path,
+        status: res.status(),
+        contentType: res.headers()['content-type'] ?? null,
+        body,
+      }),
+      `${method} ${path} ${res.status()}`,
+    ).toEqual([]);
+    return { status: res.status(), body };
+  };
+  expect((await call('GET', '/v1/admin/staff')).status).toBe(200);
+  const ann = '/v1/admin/staff/ann%40heisreal.today';
+  expect((await call('PUT', ann, { data: { role: 'Moderator' } })).status).toBe(
+    200,
+  );
+  expect((await call('PUT', ann, { data: { role: 'User' } })).status).toBe(400);
+  expect(
+    (
+      await call('PUT', '/v1/admin/staff/ann%40example.com', {
+        data: { role: 'Admin' },
+      })
+    ).status,
+  ).toBe(400);
+  expect(
+    (
+      await call('PUT', '/v1/admin/staff/nobody%40heisreal.today', {
+        data: { role: 'Moderator' },
+      })
+    ).status,
+  ).toBe(400);
+  expect((await call('DELETE', ann)).status).toBe(204);
+  expect(
+    (await call('DELETE', '/v1/admin/staff/info%40heisreal.today')).status,
+  ).toBe(204);
+  expect(
+    (await call('DELETE', '/v1/admin/staff/joel%40heisreal.today')).body.code,
+  ).toBe('last_admin');
+  expect(
+    (
+      await call('GET', '/v1/admin/staff', {
+        headers: { authorization: `Bearer ${fixtureToken('contract')}` },
+      })
+    ).status,
+  ).toBe(403);
+});

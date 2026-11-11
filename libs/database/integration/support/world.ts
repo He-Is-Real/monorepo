@@ -207,7 +207,7 @@ export async function answered(
 /**
  * A moderator picks a pending story up and approves it (R6: in_review, then approved), as
  * api-admin will (M3). The approval publishes it: the public rules read its newest entry (R11).
- * `superAdminSkip`: a SuperAdmin approves while the media wait (a file's upload link still
+ * `superAdminSkip`: an Admin approves while the media wait (a file's upload link still
  * usable, or an open media job) would refuse it, and the entry records that (skippedMediaWait).
  */
 export async function approve(

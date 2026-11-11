@@ -19,7 +19,7 @@
 -- never learns who saved a version). NONE only for a system user's version (data/0009's
 -- version 0). A saved version is in force at
 -- once (no "takes effect on" date): the latest is the highest id. Only api-admin's login (an
--- Admin or Super Admin publishing at /admin/consent) and the migrator (data/0009 seeds version
+-- an Admin publishing at /admin/consent) and the migrator (data/0009 seeds version
 -- 0 of each) create versions, each the next number. Nobody changes or deletes one, system
 -- users included: a mistake is fixed by saving another version.
 

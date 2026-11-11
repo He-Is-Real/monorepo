@@ -281,5 +281,43 @@ DEFINE FUNCTION OVERWRITE fn::account::erase($clerkUserId: string, $reason: stri
   RETURN [$u, array::concat($pending, $folders)];
 };
 
+-- ---------------------------------------------------------------- staffMember (Staff page; Joel 2026-11-11)
+-- The list of staff the Admins see and edit on the Staff page (S-1 to S-4, G7, G8 B). Clerk is
+-- the source of truth for roles: each staff member's role is on their Clerk account
+-- (publicMetadata.role) and travels in their session token, so no authorization reads this
+-- table. api-admin writes the role to Clerk first, then this row. One row per email; the id is
+-- the email, lower-case (staffMember:`ann@heisreal.today`).
+--   email: lower-case, @heisreal.today only (G7, "just enforce @heisreal.today domain emails");
+--   role: 'Moderator' or 'Admin' (the Clerk role it was given);
+--   addedBy: the email of the Admin who added them (from their session token), NONE when the
+--     deploy's baseline step added them (S-4); addedAt: when they were added.
+-- Only api-admin's login reads or writes it, and only for an Admin (it checks the role, D1);
+-- the migrator as a system user. Not personal story data: staff work emails, not on the
+-- erasure checklist.
+-- Never the last Admin: removing or demoting the last row with role 'Admin' is refused, and
+-- each such change bumps fence:staff-admins, so two overlapping ones can't each remove "the
+-- other" Admin (the second to commit conflicts and its retry sees the first). System users (the
+-- migrator, an operator wiping dev data) aren't held to it.
+DEFINE TABLE OVERWRITE staffMember SCHEMAFULL PERMISSIONS
+  FOR select, create, update, delete WHERE $auth = service:api_admin;
+DEFINE FIELD OVERWRITE email ON staffMember TYPE string
+  ASSERT string::len($value) <= 254 AND string::is_email($value)
+    AND $value = string::lowercase($value)
+    AND string::ends_with($value, '@heisreal.today')
+    AND $value = record::id($this.id);
+DEFINE FIELD OVERWRITE role ON staffMember TYPE string ASSERT $value IN ['Moderator', 'Admin'];
+DEFINE FIELD OVERWRITE addedBy ON staffMember TYPE option<string> READONLY
+  ASSERT $value = NONE OR (string::len($value) <= 254 AND string::is_email($value));
+DEFINE FIELD OVERWRITE addedAt ON staffMember TYPE datetime VALUE $before OR time::now() READONLY;
+DEFINE INDEX OVERWRITE staffMember_email ON staffMember FIELDS email UNIQUE;
+DEFINE EVENT OVERWRITE staffMember_last_admin ON staffMember
+  WHEN $auth != NONE AND $before.role = 'Admin' AND ($event = 'DELETE' OR $after.role != 'Admin')
+  THEN {
+    fn::fence::touch('staff', 'admins');
+    IF count(SELECT VALUE id FROM staffMember WHERE role = 'Admin') = 0 {
+      THROW 'staff:last_admin';
+    };
+  };
+
 -- Later milestones add (same file): seen edges (dropped, D72), donor/donation (M4),
 -- helped/concern edges + trust/quality fields (M6), embedOrigin (M8).
