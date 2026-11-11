@@ -41,6 +41,7 @@ import {
   type MyStory,
   shareApi,
   type StoryFormat,
+  type StoryPicture,
   type SubmissionLimits,
   type ThemeCategory,
 } from './share-api';
@@ -270,6 +271,8 @@ function SignedInFlow({
   });
   /** An earlier step chosen at the top while an upload is under way: asked first. */
   const [leaving, setLeaving] = useState<Step | null>(null);
+  /** A step chosen at the top couldn't be checked (the story couldn't be read). */
+  const [navProblem, setNavProblem] = useState<string | null>(null);
   const [missingDraft, setMissingDraft] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const moved = useRef(false);
@@ -288,6 +291,7 @@ function SignedInFlow({
 
   const go = useCallback((next: Step) => {
     moved.current = true;
+    setNavProblem(null);
     setStep(next);
   }, []);
 
@@ -298,7 +302,8 @@ function SignedInFlow({
   }, [draft.status, go]);
 
   // A picture chosen on the upload step but not added goes with the step (its panel is gone; a
-  // panel shown again says where it starts).
+  // panel shown again says where it starts). One on the story still counts: the steps at the top
+  // read it again before going on past the step (`picture.stored`).
   const { reset: resetPicture } = picture;
   useEffect(() => {
     if (step !== 'write') resetPicture();
@@ -582,6 +587,7 @@ function SignedInFlow({
    */
   const goTo = async (target: Step) => {
     if (agreeing || target === step) return;
+    setNavProblem(null);
     const mine = ++chosen.current;
     const origin = { step, generation: draft.generation };
     const from = at(step);
@@ -614,6 +620,19 @@ function SignedInFlow({
     } else if (passed.includes('details')) {
       if (!(await draft.flush())) return;
     }
+    // Past the upload step from another one, its panel isn't here to say what its picture is:
+    // the story's own is read (one whose file never arrived still holds the step back; one only
+    // chosen on this device went with the step).
+    let stored: StoryPicture | null | undefined;
+    let unread = false;
+    const id = draft.current().draftId;
+    if (step !== 'write' && passed.includes('write') && id) {
+      try {
+        stored = (await calls.story(id)).image;
+      } catch {
+        unread = true;
+      }
+    }
     // While it saved, the person may have chosen another file, changed a step, moved on or
     // chosen another step: the choice is dropped, or decided again from what's on screen now.
     const now = live.current;
@@ -624,6 +643,11 @@ function SignedInFlow({
       now.generation !== origin.generation
     )
       return;
+    if (unread) {
+      setNavProblem(TRY_AGAIN_LATER);
+      return;
+    }
+    if (stored !== undefined) picture.stored(stored);
     const then = decide(now.complete);
     if (!then) return;
     const { stuck, next } = then;
@@ -663,6 +687,11 @@ function SignedInFlow({
               })}
             </ol>
           </nav>
+        )}
+        {navProblem && (
+          <p role="alert" className="mb-6 text-center text-destructive">
+            {navProblem}
+          </p>
         )}
         {leaving && (
           <div
@@ -1264,6 +1293,14 @@ function usePictureGate(noun: string) {
     state.current = 'none';
     setProblem(null);
   }, []);
+  /** The story's own picture, as read while the step's panel isn't on the page. */
+  const stored = useCallback(
+    (image: StoryPicture | null) =>
+      onState(
+        !image ? 'none' : image.uploaded === false ? 'unfinished' : 'done',
+      ),
+    [onState],
+  );
   /** Whether the picture still holds the step back, now (nothing shown). */
   const pending = () =>
     state.current === 'uploading' || state.current === 'unfinished';
@@ -1297,7 +1334,7 @@ function usePictureGate(noun: string) {
       if (!saveRef.current || saveRef.current.clean()) return true;
     }
   };
-  return { problem, onState, saveRef, reset, pending, blocked, ready };
+  return { problem, onState, saveRef, reset, stored, pending, blocked, ready };
 }
 type PictureGate = ReturnType<typeof usePictureGate>;
 

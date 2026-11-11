@@ -88,6 +88,21 @@ const hasItsFile = (page: Page) =>
   expect(
     page.getByText(/^This story already has an? (video|audio file)\./),
   ).toBeVisible();
+/** A PNG of that size, drawn in the page. */
+async function drawn(page: Page, width: number, height: number) {
+  const bytes = await page.evaluate(
+    async ([w, h]) => {
+      const c = new OffscreenCanvas(w, h);
+      const ctx = c.getContext('2d') as OffscreenCanvasRenderingContext2D;
+      ctx.fillStyle = '#4e9ba0';
+      ctx.fillRect(0, 0, w, h);
+      const blob = await c.convertToBlob({ type: 'image/png' });
+      return [...new Uint8Array(await blob.arrayBuffer())];
+    },
+    [width, height],
+  );
+  return Buffer.from(bytes);
+}
 const preview = (page: Page) =>
   page.getByRole('link', { name: /See your story as others will/ });
 
@@ -325,6 +340,100 @@ test.describe('behaviour', () => {
       .getByRole('button', { name: 'Leave this step' })
       .click();
     await step(page, 'Prepare your story');
+  });
+
+  // A picture on the story whose file never arrived holds the Write or Upload step back even
+  // when the person left that step and goes forward from an earlier one (Codex #212 rebase, 1).
+  for (const format of ['written', 'audio'] as const) {
+    const write =
+      format === 'written' ? 'Write your story' : 'Upload your audio file';
+    const label = format === 'written' ? /^3\. Write/ : /^3\. Upload/;
+    test(`going back and then forward past ${format === 'written' ? 'Write' : 'Upload'} stops there while the story’s picture hasn’t finished uploading`, async ({
+      page,
+      request,
+    }) => {
+      await person(page, request, {
+        testimony: 3,
+        stories: [
+          {
+            id: 'p1',
+            title: 'Found',
+            primaryFormat: format,
+            body: format === 'written' ? TEXT : null,
+            themeIds: ['healing'],
+            ...(format === 'audio'
+              ? { videoId: VIDEO_ID, uploaded: true }
+              : {}),
+            // Granted, but its file never reached the storage.
+            image: {
+              url: null,
+              width: 900,
+              height: 1200,
+              alt: null,
+              path: 'stories/p1/picture.webp',
+            },
+          },
+        ],
+      });
+      await page.goto(`${SHARE}?draft=p1`);
+      await shown(page, write);
+      await expect(page.getByText('didn’t finish uploading')).toBeVisible();
+      await stepButton(page, /^4\. Details/).click();
+      await expect(alert(page, 'hasn’t been added yet')).toBeVisible();
+
+      await stepButton(page, /^2\. Prepare/).click();
+      await page
+        .getByRole('alertdialog')
+        .getByRole('button', { name: 'Leave this step' })
+        .click();
+      await step(page, 'Prepare your story');
+      // Forward from Prepare: the story still has that picture, so it stops at its step.
+      await stepButton(page, /^5\. Review/).click();
+      await step(page, write);
+      await expect(page.getByText('didn’t finish uploading')).toBeVisible();
+      await expect(stepButton(page, label)).toHaveAttribute(
+        'aria-current',
+        'step',
+      );
+    });
+  }
+
+  test('a picture chosen but never added goes with the step it was chosen on, so going forward again passes it', async ({
+    page,
+    request,
+  }) => {
+    await person(page, request, {
+      testimony: 3,
+      stories: [
+        {
+          id: 'p2',
+          title: 'Found',
+          primaryFormat: 'written',
+          body: TEXT,
+          themeIds: ['healing'],
+        },
+      ],
+    });
+    await page.goto(`${SHARE}?draft=p2`);
+    await shown(page, 'Write your story');
+    // Without a title the picture can't be added: it stays on this device only.
+    await page.getByLabel('Title').fill('');
+    await page.getByLabel('Choose a picture').setInputFiles({
+      name: 'photo.png',
+      mimeType: 'image/png',
+      buffer: await drawn(page, 900, 1200),
+    });
+    await expect(
+      alert(page, 'Write your title and your story first'),
+    ).toBeVisible();
+    await page.getByLabel('Title').fill('Found');
+    await stepButton(page, /^2\. Prepare/).click();
+    const ask = page.getByRole('alertdialog');
+    await expect(ask).toContainText('you’ll need to choose it again');
+    await ask.getByRole('button', { name: 'Leave this step' }).click();
+    await step(page, 'Prepare your story');
+    await stepButton(page, /^5\. Review/).click();
+    await step(page, 'Review and submit');
   });
 
   test('a later step chosen while the story saves stays put if another file is chosen meanwhile (Codex #212, 1)', async ({
