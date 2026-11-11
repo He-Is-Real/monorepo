@@ -48,15 +48,31 @@ export interface MyStory {
   body: string | null;
   bylineName: string | null;
   primaryFormat: StoryFormat;
-  /** A video or audio story's file, once one was uploaded to it (M2 plan PR 7). */
-  media: { format: string; processing: string | null }[];
+  /**
+   * A video or audio story's file, once one was uploaded to it (M2 plan PR 7). Read one at a time
+   * (GetStory), its player and thumbnail links are the person's own preview, signed for an hour
+   * once Bunny has processed it (M3 plan PR 2); null before, and always in the list.
+   */
+  media: OwnMedia[];
   /** A written story's image or an audio story's picture (M2 plan PR 10), signed for its owner. */
   image: StoryPicture | null;
   themes: ThemeRef[];
   submittedAt: string | null;
+  approvedAt?: string | null;
   updatedAt: string;
   /** Plan 4e: the social media sharing consent ticked for this story, or null. */
   socialMediaSharingConsent?: Agreement | null;
+}
+
+/** The contract's `MediaPlayback` as api-user gives the person their own file. */
+export interface OwnMedia {
+  format: 'video' | 'audio';
+  playbackUrl?: string | null;
+  thumbnailUrl?: string | null;
+  width?: number | null;
+  height?: number | null;
+  durationSeconds?: number | null;
+  processing: string | null;
 }
 
 /** The contract's `StoryMineImage`: the person's own picture on their draft. */

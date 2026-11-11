@@ -437,7 +437,8 @@ components:
         Playback-safe media info (no internal storage keys). URLs are Bunny.net links signed with
         token authentication (D52): Bunny refuses them without their `token` and `expires`, and after
         `expires`. Public views sign only published stories; links last at least 6 hours, longer than
-        any cached response may be served. Never store them; fetch the story again for fresh ones.
+        any cached response may be served. The owner's own preview (`StoryMine` on GetStory) lasts one
+        hour. Never store them; fetch the story again for fresh ones.
       properties:
         format:
           type: string
@@ -689,9 +690,11 @@ components:
         The submitter's own view (read as the person, D27), including lifecycle and moderation feedback.
         The person's own agreements are on `GET /v1/account`; the one agreement made per story, the social
         media sharing consent (plan 4e), is `socialMediaSharingConsent`. A video or audio story's `media` holds its uploaded file once
-        `/upload-url` has put one on it (M2 plan PR 7), but isn't signed for the person yet
-        (`playbackUrl` and `thumbnailUrl` are `null`; a preview of your own upload comes later),
-        and a written story's `image` is `null` until images.
+        `/upload-url` has put one on it (M2 plan PR 7). Its `playbackUrl` and `thumbnailUrl` are the
+        person's own preview (M3 plan PR 2, P1b-2): signed on `GET /v1/account/stories/{id}` only, for
+        one hour, once Bunny has processed the file (`processing` is `ready`), in any status; `null`
+        while it is still processing, and always `null` in the list. On that route the `image` link
+        lasts one hour too.
       required:
         [id, version, status, title, primaryFormat, createdAt, updatedAt]
       properties:

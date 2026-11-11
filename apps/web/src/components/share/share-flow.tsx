@@ -52,10 +52,11 @@ import {
   uploadsState,
 } from './allowance';
 import { ThemePicker } from '@/components/themes/theme-picker';
-import { useDraft } from './use-draft';
+import { type SubmitAttempt, useDraft } from './use-draft';
 import { ImagePanel, type PictureSave, type PictureState } from './image-panel';
 import { fileLimits, type FileState, UploadPanel } from './upload-panel';
 import { AgreeAgain } from './upload-request';
+import { OwnMediaPreview, previewHref } from './own-media';
 
 /**
  * The submit flow for written stories (M2 plan PR 4), from the mockup authenticated/submit.html,
@@ -117,6 +118,51 @@ const NOUN: Record<StoryFormat, string> = {
   video: 'video',
   audio: 'audio file',
 };
+
+/**
+ * Each step's Continue checks, as the step shows them (one place: the step's own Continue and the
+ * steps at the top, which go forward only past steps whose checks pass). Empty: nothing missing.
+ * The picture's are the picture gate's (`usePictureGate`), checked after these.
+ */
+interface WriteProblems {
+  title?: string;
+  body?: string;
+}
+function writeProblems(fields: { title: string; body: string }): WriteProblems {
+  const p: WriteProblems = {};
+  if (!fields.title.trim()) p.title = 'Give your story a title.';
+  if (!fields.body.trim()) p.body = 'Write your story here.';
+  return p;
+}
+interface MediaProblems {
+  title?: string;
+  problem?: string;
+}
+function mediaProblems(
+  title: string,
+  format: 'video' | 'audio',
+  file: FileState,
+): MediaProblems {
+  const noun = NOUN[format];
+  if (!title.trim()) return { title: 'Give your story a title.' };
+  if (file === 'none') return { problem: `Choose your ${noun} to upload.` };
+  if (file === 'unfinished') {
+    return {
+      problem: `Your ${noun} hasn’t finished uploading. Wait for it to finish, or pause it and come back later: your story is saved.`,
+    };
+  }
+  return {};
+}
+/** The rule submitting checks (themes plan v3), said before the review step. */
+function detailsProblem(
+  themeIds: string[],
+  { min, max }: SubmissionLimits['themes'],
+): string | null {
+  return themeIds.length < min || themeIds.length > max
+    ? `${themeRule(min, max)}.`
+    : null;
+}
+const isEmpty = (o: object) => Object.keys(o).length === 0;
 
 /** The terms of use step (plan 4e), coming back to Share. */
 export const TERMS_HREF = withReturn(TERMS_AGREEMENT_PATH, '/share');
@@ -209,9 +255,36 @@ function SignedInFlow({
   const [step, setStep] = useState<Step>('choose');
   /** Where to go back to after the consent step, when a save or submission asked for it. */
   const resumeAt = useRef<Step | null>(null);
+  /** A story is under way (started, or a draft carried on): the steps after Choose can open. */
+  const [started, setStarted] = useState(false);
+  // The upload step's file and picture, kept here so the steps at the top can tell whether that
+  // step is complete while another one is showing (its panels report them).
+  const [file, setFile] = useState<FileState>('none');
+  const picture = usePictureGate(
+    draft.format === 'video' ? 'thumbnail' : 'picture',
+  );
+  /** A step to show its Continue checks' messages (the steps at the top stopped there). */
+  const [checks, setChecks] = useState<{ step: Step; n: number }>({
+    step: 'choose',
+    n: 0,
+  });
+  /** An earlier step chosen at the top while an upload is under way: asked first. */
+  const [leaving, setLeaving] = useState<Step | null>(null);
   const [missingDraft, setMissingDraft] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const moved = useRef(false);
+  /**
+   * The step showing, the draft and each step's checks as of the latest render: a step chosen at
+   * the top decides again from these after waiting for a save, as the person may have chosen
+   * another file or moved on meanwhile.
+   */
+  const live = useRef<{
+    step: Step;
+    generation: number;
+    complete: (s: Step) => boolean;
+  } | null>(null);
+  /** Counts the steps chosen at the top: a newer choice drops an older one still waiting. */
+  const chosen = useRef(0);
 
   const go = useCallback((next: Step) => {
     moved.current = true;
@@ -223,6 +296,13 @@ function SignedInFlow({
   useEffect(() => {
     if (draft.status === 'submitted') go('done');
   }, [draft.status, go]);
+
+  // A picture chosen on the upload step but not added goes with the step (its panel is gone; a
+  // panel shown again says where it starts).
+  const { reset: resetPicture } = picture;
+  useEffect(() => {
+    if (step !== 'write') resetPicture();
+  }, [step, resetPicture]);
 
   // Each step's heading takes focus, so keyboard and screen-reader users start at its top.
   useEffect(() => {
@@ -257,6 +337,7 @@ function SignedInFlow({
         else {
           try {
             // Already submitted (a lost answer that went through): say so.
+            setStarted(true);
             setStep((await draft.load(id)) ? 'write' : 'done');
           } catch (err) {
             // Not theirs, or gone: nothing to retry; offer a new story instead.
@@ -467,34 +548,156 @@ function SignedInFlow({
     const i = steps.indexOf(s as Exclude<Step, 'done'>);
     return steps[Math.max(0, i - 1)];
   };
+  const at = (s: Step) => steps.indexOf(s as Exclude<Step, 'done'>);
+  /** A new story or another draft: nothing of the last one's upload step carries over. */
+  const startStory = () => {
+    setStarted(true);
+    setFile('none');
+    picture.reset();
+  };
+  /** Whether a step's Continue would go on now (its own checks, never rules of the nav's). */
+  const complete = (s: Step): boolean => {
+    if (s === 'choose') return started;
+    if (s === 'consent') return account.testimonyConsent.upToDate;
+    if (s === 'write') {
+      return draft.format === 'written'
+        ? isEmpty(writeProblems(draft.fields)) && !picture.pending()
+        : isEmpty(
+            mediaProblems(
+              draft.fields.title,
+              draft.format === 'audio' ? 'audio' : 'video',
+              file,
+            ),
+          ) && !picture.pending();
+    }
+    if (s === 'details')
+      return !detailsProblem(draft.fields.themeIds, limits.themes);
+    return true;
+  };
+  live.current = { step, generation: draft.generation, complete };
+  /**
+   * A step chosen at the top (Joel, 2026-11-10): any earlier one at once (drafts already save),
+   * except that leaving an upload under way asks first; a later one only past steps whose
+   * Continue checks pass, else the first that still needs something, with its usual message.
+   */
+  const goTo = async (target: Step) => {
+    if (agreeing || target === step) return;
+    const mine = ++chosen.current;
+    const origin = { step, generation: draft.generation };
+    const from = at(step);
+    const to = at(target);
+    if (to < from) {
+      if (step === 'write' && (file === 'unfinished' || picture.pending())) {
+        setLeaving(target);
+        return;
+      }
+      go(target);
+      return;
+    }
+    const between = steps.slice(from, to);
+    /** Where the steps' checks stop now (the latest render's), or null to stay with a message. */
+    const decide = (check: (s: Step) => boolean) => {
+      const stuck = between.find((s) => !check(s));
+      if (stuck === step) {
+        setChecks((c) => ({ step, n: c.n + 1 }));
+        return null;
+      }
+      return { stuck, next: stuck ?? target };
+    };
+    const first = decide(complete);
+    if (!first) return;
+    // As each step's Continue does: the draft is saved before going on past it, and past the
+    // upload step only once its picture is added and its description saved (#211's rules).
+    const passed = steps.slice(from, at(first.next));
+    if (passed.includes('write')) {
+      if (!(await picture.ready(draft.flush))) return;
+    } else if (passed.includes('details')) {
+      if (!(await draft.flush())) return;
+    }
+    // While it saved, the person may have chosen another file, changed a step, moved on or
+    // chosen another step: the choice is dropped, or decided again from what's on screen now.
+    const now = live.current;
+    if (
+      mine !== chosen.current ||
+      !now ||
+      now.step !== origin.step ||
+      now.generation !== origin.generation
+    )
+      return;
+    const then = decide(now.complete);
+    if (!then) return;
+    const { stuck, next } = then;
+    if (stuck) setChecks((c) => ({ step: stuck, n: c.n + 1 }));
+    go(next);
+  };
+  const checksFor = (s: Step) => (checks.step === s ? checks.n : 0);
   return (
     <Limits.Provider value={limits}>
       <div>
         {step !== 'done' && (
           <nav aria-label="Steps" className="mb-8">
-            <ol className="flex flex-wrap justify-center gap-x-4 gap-y-2 text-sm">
+            <ol className="flex flex-wrap justify-center gap-x-1 gap-y-1 text-sm">
               {steps.map((s, i) => {
                 const current = s === step;
                 const done = steps.indexOf(step as Exclude<Step, 'done'>) > i;
                 return (
-                  <li
-                    key={s}
-                    aria-current={current ? 'step' : undefined}
-                    className={
-                      current
-                        ? 'font-semibold text-foreground'
-                        : done
-                          ? 'text-link'
-                          : 'text-secondary-text'
-                    }
-                  >
-                    {i + 1}. {stepLabel(s, draft.format)}
-                    {done && <span className="sr-only"> (done)</span>}
+                  <li key={s}>
+                    <button
+                      type="button"
+                      aria-current={current ? 'step' : undefined}
+                      disabled={!!agreeing}
+                      onClick={() => void goTo(s)}
+                      className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-md px-3 underline-offset-4 hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none disabled:no-underline ${
+                        current
+                          ? 'font-semibold text-foreground underline decoration-2 decoration-teal'
+                          : done
+                            ? 'text-link'
+                            : 'text-secondary-text'
+                      }`}
+                    >
+                      {i + 1}. {stepLabel(s, draft.format)}
+                      {done && <span className="sr-only"> (done)</span>}
+                    </button>
                   </li>
                 );
               })}
             </ol>
           </nav>
+        )}
+        {leaving && (
+          <div
+            role="alertdialog"
+            aria-labelledby="leaving-upload"
+            data-leaving-upload=""
+            className="mb-6 rounded-xl border border-border-hover bg-card p-4"
+          >
+            <p id="leaving-upload" className="mb-3">
+              {file === 'unfinished'
+                ? `Your ${NOUN[draft.format]} hasn’t finished uploading. If you leave this step now, the upload stops. Your story is saved, and you can carry on from where it stopped by choosing the same file again.`
+                : `The ${draft.format === 'video' ? 'thumbnail' : 'picture'} you chose hasn’t been added yet. If you leave this step now, you’ll need to choose it again.`}
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                className={primary}
+                autoFocus
+                onClick={() => setLeaving(null)}
+              >
+                Stay on this step
+              </button>
+              <button
+                type="button"
+                className={secondary}
+                onClick={() => {
+                  const target = leaving;
+                  setLeaving(null);
+                  go(target);
+                }}
+              >
+                Leave this step
+              </button>
+            </div>
+          </div>
         )}
         <Card className="p-[16px] sm:p-8">
           {agreeing && (
@@ -538,9 +741,11 @@ function SignedInFlow({
                   drafts={drafts}
                   onStart={(format) => {
                     draft.setFormat(format);
+                    startStory();
                     go(after('choose'));
                   }}
                   onContinue={async (id) => {
+                    startStory();
                     if (askConsent) {
                       window.history.replaceState(
                         null,
@@ -614,6 +819,10 @@ function SignedInFlow({
                   draft={draft}
                   calls={calls}
                   owner={owner}
+                  file={file}
+                  setFile={setFile}
+                  picture={picture}
+                  checks={checksFor('write')}
                   refreshLimits={refreshLimits}
                   onNext={() => go(after('write'))}
                   onBack={() => go(before('write'))}
@@ -625,6 +834,8 @@ function SignedInFlow({
                   draft={draft}
                   calls={calls}
                   owner={owner}
+                  picture={picture}
+                  checks={checksFor('write')}
                   onNext={() => go(after('write'))}
                   onBack={() => go(before('write'))}
                 />
@@ -634,6 +845,7 @@ function SignedInFlow({
                   heading={heading}
                   draft={draft}
                   themes={themes}
+                  checks={checksFor('details')}
                   onNext={() => go(after('details'))}
                   onBack={() => go(before('details'))}
                 />
@@ -1033,8 +1245,9 @@ function useEarlierPicture(
 }
 
 /**
- * The step's picture: its state as the panel last said, kept in a ref so Continue reads it again
- * after each wait (a picture chosen meanwhile is uploading, Codex #211), and the problem shown.
+ * The upload step's picture: its state as the panel last said, kept in a ref so Continue reads it
+ * again after each wait (a picture chosen meanwhile is uploading, Codex #211), and the problem
+ * shown. Kept by the flow, not the step, so the steps at the top check it as Continue does.
  */
 function usePictureGate(noun: string) {
   const [problem, setProblem] = useState<string | null>(null);
@@ -1046,6 +1259,15 @@ function usePictureGate(noun: string) {
     state.current = next;
     setProblem(null);
   }, []);
+  /** Forgets the picture (another story, or its panel left the page). */
+  const reset = useCallback(() => {
+    state.current = 'none';
+    setProblem(null);
+  }, []);
+  /** Whether the picture still holds the step back, now (nothing shown). */
+  const pending = () =>
+    state.current === 'uploading' || state.current === 'unfinished';
+  /** Whether the picture holds the step back, saying why. */
   const blocked = () => {
     if (state.current === 'uploading') {
       setProblem(
@@ -1075,14 +1297,17 @@ function usePictureGate(noun: string) {
       if (!saveRef.current || saveRef.current.clean()) return true;
     }
   };
-  return { problem, onState, saveRef, ready };
+  return { problem, onState, saveRef, reset, pending, blocked, ready };
 }
+type PictureGate = ReturnType<typeof usePictureGate>;
 
 function WriteStep({
   heading,
   draft,
   calls,
   owner,
+  picture,
+  checks,
   onNext,
   onBack,
 }: {
@@ -1090,17 +1315,14 @@ function WriteStep({
   draft: DraftState;
   calls: ReturnType<typeof shareApi>;
   owner: string;
+  picture: PictureGate;
+  /** Changes when the steps at the top stopped here: show what's missing. */
+  checks: number;
   onNext: () => void;
   onBack: () => void;
 }) {
   const limits = useLimits();
   const earlier = useEarlierPicture(calls, draft.draftId);
-  const {
-    problem: pictureProblem,
-    onState: pictureState,
-    saveRef: savePicture,
-    ready: pictureReady,
-  } = usePictureGate('picture');
   // The draft exists once it has its title and text (D53), so the picture comes after them.
   const preparePicture = async () => {
     if (!draft.fields.title.trim() || !draft.fields.body.trim()) {
@@ -1116,6 +1338,16 @@ function WriteStep({
   const [problems, setProblems] = useState<{ title?: string; body?: string }>(
     {},
   );
+  /** The step's Continue checks, shown; true if nothing is missing. */
+  const check = () => {
+    const p = writeProblems(draft.fields);
+    setProblems(p);
+    return isEmpty(p) && !picture.blocked();
+  };
+  useEffect(() => {
+    if (checks > 0) check();
+    // Only when the steps at the top ask (`checks` changes), with the values of that moment.
+  }, [checks]);
   const length = [...draft.fields.body.trim()].length;
   // The maximum counts the whole text, as the database does.
   const fullLength = [...draft.fields.body].length;
@@ -1124,12 +1356,8 @@ function WriteStep({
       noValidate
       onSubmit={async (e) => {
         e.preventDefault();
-        const p: typeof problems = {};
-        if (!draft.fields.title.trim()) p.title = 'Give your story a title.';
-        if (!draft.fields.body.trim()) p.body = 'Write your story here.';
-        setProblems(p);
-        if (p.title || p.body) return;
-        if (await pictureReady(draft.flush)) onNext();
+        if (!check()) return;
+        if (await picture.ready(draft.flush)) onNext();
       }}
     >
       <StepHeading heading={heading}>Write your story</StepHeading>
@@ -1199,12 +1427,12 @@ function WriteStep({
             setVersion={draft.setVersion}
             current={draft.current}
             reload={draft.load}
-            onState={pictureState}
-            saveRef={savePicture}
+            onState={picture.onState}
+            saveRef={picture.saveRef}
           />
-          {pictureProblem && (
+          {picture.problem && (
             <p role="alert" className="mt-2 text-destructive">
-              {pictureProblem}
+              {picture.problem}
             </p>
           )}
         </div>
@@ -1231,6 +1459,10 @@ function MediaStep({
   draft,
   calls,
   owner,
+  file,
+  setFile,
+  picture,
+  checks,
   refreshLimits,
   onNext,
   onBack,
@@ -1239,6 +1471,11 @@ function MediaStep({
   draft: DraftState;
   calls: ReturnType<typeof shareApi>;
   owner: string;
+  file: FileState;
+  setFile: (state: FileState) => void;
+  picture: PictureGate;
+  /** Changes when the steps at the top stopped here: show what's missing. */
+  checks: number;
   refreshLimits: () => void;
   onNext: () => void;
   onBack: () => void;
@@ -1248,14 +1485,18 @@ function MediaStep({
   const noun = NOUN[format];
   const [titleProblem, setTitleProblem] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
-  const [file, setFile] = useState<FileState>('none');
-  const {
-    problem: pictureProblem,
-    onState: pictureState,
-    saveRef: savePicture,
-    ready: pictureReady,
-  } = usePictureGate(format === 'video' ? 'thumbnail' : 'picture');
   const { draftId } = draft;
+  /** The step's Continue checks, shown; true if nothing is missing. */
+  const check = () => {
+    const p = mediaProblems(draft.fields.title, format, file);
+    setTitleProblem(p.title ?? null);
+    if (!p.title) setProblem(p.problem ?? null);
+    return isEmpty(p) && !picture.blocked();
+  };
+  useEffect(() => {
+    if (checks > 0) check();
+    // Only when the steps at the top ask (`checks` changes), with the values of that moment.
+  }, [checks]);
   // Whether the story has a file (and a picture) from before (another tab or device).
   const story = useEarlierPicture(calls, draftId);
   const earlier = (story?.media.length ?? 0) > 0;
@@ -1279,22 +1520,8 @@ function MediaStep({
       noValidate
       onSubmit={async (e) => {
         e.preventDefault();
-        if (!draft.fields.title.trim()) {
-          setTitleProblem('Give your story a title.');
-          return;
-        }
-        if (file === 'none') {
-          setProblem(`Choose your ${noun} to upload.`);
-          return;
-        }
-        if (file === 'unfinished') {
-          setProblem(
-            `Your ${noun} hasn’t finished uploading. Wait for it to finish, or pause it and come back later: your story is saved.`,
-          );
-          return;
-        }
-        setProblem(null);
-        if (await pictureReady(draft.flush)) onNext();
+        if (!check()) return;
+        if (await picture.ready(draft.flush)) onNext();
       }}
     >
       <StepHeading heading={heading}>Upload your {noun}</StepHeading>
@@ -1361,16 +1588,16 @@ function MediaStep({
               setVersion={draft.setVersion}
               current={draft.current}
               reload={draft.load}
-              onState={pictureState}
-              saveRef={savePicture}
+              onState={picture.onState}
+              saveRef={picture.saveRef}
             />
           </div>
         )}
       </div>
       <SaveState draft={draft} />
-      {(problem ?? pictureProblem) && (
+      {(problem ?? picture.problem) && (
         <p role="alert" className="mt-2 text-destructive">
-          {problem ?? pictureProblem}
+          {problem ?? picture.problem}
         </p>
       )}
       <Actions>
@@ -1393,12 +1620,15 @@ function DetailsStep({
   heading,
   draft,
   themes,
+  checks,
   onNext,
   onBack,
 }: {
   heading: HeadingRef;
   draft: DraftState;
   themes: ThemeCategory[];
+  /** Changes when the steps at the top stopped here: show what's missing. */
+  checks: number;
   onNext: () => void;
   onBack: () => void;
 }) {
@@ -1406,17 +1636,22 @@ function DetailsStep({
   const [problem, setProblem] = useState<string | null>(null);
   const chosen = draft.fields.themeIds;
   const { min, max } = limits.themes;
+  /** The step's Continue check, shown; true if nothing is missing. */
+  const check = () => {
+    const p = detailsProblem(chosen, limits.themes);
+    setProblem(p);
+    return !p;
+  };
+  useEffect(() => {
+    if (checks > 0) check();
+    // Only when the steps at the top ask (`checks` changes), with the values of that moment.
+  }, [checks]);
   return (
     <form
       noValidate
       onSubmit={async (e) => {
         e.preventDefault();
-        // The rule submitting checks (themes plan v3), said before the review step.
-        if (chosen.length < min || chosen.length > max) {
-          setProblem(`${themeRule(min, max)}.`);
-          return;
-        }
-        setProblem(null);
+        if (!check()) return;
         if (await draft.flush()) onNext();
       }}
     >
@@ -1596,9 +1831,13 @@ export function ReviewStep({
   const [social, setSocial] = useState(() => !!kept?.share);
   const [problem, setProblem] = useState<React.ReactNode>(null);
   const [busy, setBusy] = useState(false);
+  const [savedAsDraft, setSavedAsDraft] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
   const f = draft.fields;
-  // The picture as the story has it now (M2 plan PR 10).
-  const picture = useEarlierPicture(calls, draft.draftId)?.image ?? null;
+  // The story as api-user has it now: the picture (M2 plan PR 10) and the person's own video or
+  // audio, signed for them once Bunny has processed it (M3 plan PR 2).
+  const own = useEarlierPicture(calls, draft.draftId);
+  const picture = own?.image ?? null;
   const themeNames = f.themeIds
     .flatMap((id) => themes.flatMap((c) => c.themes).filter((t) => t.id === id))
     .map((t) => t.name);
@@ -1619,6 +1858,83 @@ export function ReviewStep({
         </button>
       </>,
     );
+  }
+
+  /** A failure on our side (#206): the database restarting, named, else only the plain message. */
+  function failure(err: unknown, kept: string): React.ReactNode {
+    const restarting = restartWait(err);
+    return restarting !== undefined ? (
+      <RestartingText seconds={restarting} kept={kept} />
+    ) : (
+      `${TRY_AGAIN_LATER} ${kept}`
+    );
+  }
+
+  /**
+   * A submission whose outcome is unknown, sent again with its own Idempotency-Key: the person
+   * already asked to send it, and api-user may still be working on it (Codex #212 round 2), so
+   * reading the story's status can't tell. True once it's sent; false if it was refused (nothing
+   * sent). Throws while the outcome is still unknown.
+   */
+  async function resolveKept(tried: SubmitAttempt): Promise<boolean> {
+    try {
+      const result = await calls.submit(
+        tried.draftId,
+        tried.version,
+        tried.key,
+        tried.share,
+      );
+      draft.settleSubmit(tried.draftId);
+      draft.setVersion(result.version);
+      draft.forget();
+      return true;
+    } catch (err) {
+      if (
+        err instanceof ApiUserUnavailable ||
+        (err instanceof ApiUserProblem && err.status >= 500)
+      )
+        throw err;
+      // Refused because the story moved on: sent another way (a retry with another key) unless
+      // it still reads as a draft. Kept until the story's status is read (Codex #212 round 3):
+      // if that read fails, the outcome is still unknown, and the next try settles it.
+      const changed =
+        err instanceof StaleVersion ||
+        (err instanceof ApiUserProblem &&
+          (err.code === 'story_not_submittable' ||
+            err.code === 'story_locked'));
+      const sent = changed && !(await draft.load(tried.draftId));
+      draft.settleSubmit(tried.draftId);
+      setKept(null);
+      return sent;
+    }
+  }
+
+  /**
+   * Nothing waits on Bunny (Joel, 2026-11-10): the draft is kept as it is, to come back to (it's
+   * saved as the person goes; this makes sure of it). Not while a submission's outcome is unknown:
+   * that submission is settled first, and if it went through, it's "Thank you", not a draft; if
+   * it can't be settled yet, nothing is confirmed.
+   */
+  async function saveAsDraft() {
+    setSavedAsDraft(false);
+    setProblem(null);
+    setSavingDraft(true);
+    try {
+      const { draftId, version } = draft.current();
+      const unresolved =
+        draftId && version ? draft.keptSubmit(draftId, version) : null;
+      if (unresolved && (await resolveKept(unresolved))) {
+        onDone();
+        return;
+      }
+      if (await draft.flush()) setSavedAsDraft(true);
+      else
+        setProblem('Your latest changes aren’t saved yet. Please try again.');
+    } catch (err) {
+      setProblem(failure(err, 'Your story is kept on this device.'));
+    } finally {
+      setSavingDraft(false);
+    }
   }
 
   async function submit() {
@@ -1661,16 +1977,16 @@ export function ReviewStep({
         err instanceof ApiUserUnavailable ||
         (err instanceof ApiUserProblem && err.status >= 500);
       const { draftId } = draft.current();
-      if (!unknown && draftId) {
-        // Refused: nothing was submitted or shared; the box is the person's again.
-        draft.settleSubmit(draftId);
-        setKept(null);
-      }
       const changed =
         err instanceof StaleVersion ||
         (err instanceof ApiUserProblem &&
           (err.code === 'story_not_submittable' ||
             err.code === 'story_locked'));
+      if (!unknown && !changed && draftId) {
+        // Refused: nothing was submitted or shared; the box is the person's again.
+        draft.settleSubmit(draftId);
+        setKept(null);
+      }
       const restarting = restartWait(err);
       if (
         err instanceof ApiUserProblem &&
@@ -1707,8 +2023,18 @@ export function ReviewStep({
         );
       } else if (changed && draftId) {
         // Already submitted (a submission whose answer was lost, then retried with another
-        // key): "Thank you", not an error. Otherwise it changed elsewhere: check it again.
-        if (!(await draft.load(draftId))) {
+        // key): "Thank you", not an error. Otherwise it changed elsewhere: check it again. The
+        // submission stays kept until that read answers: if it fails, the outcome is unknown.
+        const editable = await draft
+          .load(draftId)
+          .catch((e: unknown) => ({ failed: e }));
+        if (typeof editable !== 'boolean') {
+          setProblem(failure(editable.failed, 'Your story is saved.'));
+          return;
+        }
+        draft.settleSubmit(draftId);
+        setKept(null);
+        if (!editable) {
           onDone();
           return;
         }
@@ -1882,7 +2208,11 @@ export function ReviewStep({
               </p>,
               'write',
             )
-          : row(`Your ${NOUN[draft.format]}`, 'Uploaded', 'write')}
+          : row(
+              `Your ${NOUN[draft.format]}`,
+              own ? <OwnMediaPreview story={own} /> : 'Uploaded',
+              'write',
+            )}
         {picture &&
           row(
             draft.format === 'video' ? 'Thumbnail' : 'Picture',
@@ -1905,6 +2235,18 @@ export function ReviewStep({
             'write',
           )}
       </dl>
+      {storyId && (
+        <p className="mt-4">
+          <a
+            href={previewHref(storyId)}
+            target="_blank"
+            rel="noopener"
+            className="inline-flex min-h-11 items-center font-semibold"
+          >
+            See your story as others will (opens in a new tab)
+          </a>
+        </p>
+      )}
       <div className="mt-6 flex flex-col gap-3">
         <p className="text-sm text-secondary-text">
           You’ve agreed to your stories being published on heisreal.today once a
@@ -1973,6 +2315,19 @@ export function ReviewStep({
           {problem}
         </p>
       )}
+      <p role="status" data-saved-draft="" className="mt-4 empty:hidden">
+        {savedAsDraft && (
+          <>
+            Saved as a draft. Carry on whenever you like.{' '}
+            <a
+              href="/account"
+              className="inline-flex min-h-11 items-center font-semibold"
+            >
+              Go to My submissions
+            </a>
+          </>
+        )}
+      </p>
       <Actions>
         <button
           type="button"
@@ -1981,14 +2336,24 @@ export function ReviewStep({
         >
           Back
         </button>
-        <button
-          type="submit"
-          className={primary}
-          disabled={busy || waiting}
-          aria-describedby={waiting ? 'submit-waiting' : undefined}
-        >
-          {busy ? 'Submitting…' : 'Submit for review'}
-        </button>
+        <div className="flex flex-col-reverse gap-3 sm:flex-row">
+          <button
+            type="button"
+            className={secondary}
+            disabled={busy || savingDraft}
+            onClick={() => void saveAsDraft()}
+          >
+            Save as draft
+          </button>
+          <button
+            type="submit"
+            className={primary}
+            disabled={busy || waiting || savingDraft}
+            aria-describedby={waiting ? 'submit-waiting' : undefined}
+          >
+            {busy ? 'Submitting…' : 'Submit for review'}
+          </button>
+        </div>
       </Actions>
       <p className="mt-4 text-sm text-secondary-text">
         Our team reads every story before it’s published.

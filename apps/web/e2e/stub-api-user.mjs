@@ -34,7 +34,10 @@
 // - The profile (M2 plan PR 8): `POST /v1/stories/{id}/withdraw` and `DELETE /v1/stories/{id}`,
 //   with api-user's status rules. A seeded story may carry its `status`, `slug`, moderator's
 //   `rejectionFeedback` and its `socialMediaSharingConsent` (plan 4e: recorded with the submission,
-//   from submit's optional body, in the same idempotent command; never withdrawn). Erasure (PR 11):
+//   from submit's optional body, in the same idempotent command; never withdrawn). A seeded video
+//   or audio story has its `videoId`, `uploaded: true` if its file arrived, and `processing:
+//   'ready'` once Bunny has processed it: then `GET` of that one story signs the owner's preview
+//   (M3 plan PR 2). Erasure (PR 11):
 //   `DELETE /v1/account` erases the session: its token gets 401 afterwards.
 //   The database's "agree first" (plan 4e) applies to story writes, uploads and hearts: 403
 //   `terms_agreement_required` / `testimony_consent_required`.
@@ -938,6 +941,15 @@ function newSession(id, seed = {}) {
   };
   for (const story of seed.stories ?? []) {
     const now = new Date().toISOString();
+    // `uploaded`: its video or audio file arrived at Bunny (submit checks it).
+    if (story.videoId && story.uploaded)
+      s.videos.set(story.videoId, {
+        story: story.id,
+        length: 1,
+        received: 1,
+        done: true,
+        deleted: false,
+      });
     s.stories.set(story.id, {
       version: 1,
       status: 'draft',
@@ -1003,8 +1015,13 @@ const readJson = (req) =>
   });
 const trimmed = (t) => [...(t ?? '').trim()].length;
 
-/** `uploaded`: whether the picture's file arrived, checked only when one story is read. */
-function storyMine(s, id, st, uploaded = () => null) {
+/**
+ * `uploaded`: whether the picture's file arrived, checked only when one story is read. One story
+ * read (GetStory) also carries the owner's own player link once its file is processed (M3 plan
+ * PR 2: a seeded story's `processing: 'ready'`), to the stub api-public-read's stand-in player.
+ */
+function storyMine(s, id, st, uploaded = () => null, own = false) {
+  const ready = own && st.processing === 'ready';
   return {
     id,
     version: st.version,
@@ -1019,12 +1036,14 @@ function storyMine(s, id, st, uploaded = () => null) {
       ? [
           {
             format: st.primaryFormat,
-            playbackUrl: null,
+            playbackUrl: ready
+              ? `${publicUrl}/embed/1/${st.videoId}?token=stub&expires=${Math.floor(Date.now() / 1000) + 3600}`
+              : null,
             thumbnailUrl: null,
-            width: null,
-            height: null,
-            durationSeconds: null,
-            processing: null,
+            width: ready && st.primaryFormat === 'video' ? 1920 : null,
+            height: ready && st.primaryFormat === 'video' ? 1080 : null,
+            durationSeconds: ready ? 30 : null,
+            processing: st.processing ?? null,
           },
         ]
       : [],
@@ -1358,7 +1377,9 @@ async function handleShare(req, res, path, url, s) {
       (!st.image || arrived(st.image.path))
     )
       return sendJson(res, 304, undefined, { etag });
-    return sendJson(res, 200, storyMine(s, mine[1], st, arrived), { etag });
+    return sendJson(res, 200, storyMine(s, mine[1], st, arrived, true), {
+      etag,
+    });
   }
   if (path === '/v1/stories' && req.method === 'POST') {
     // Plan 4e: the latest terms of use and testimony consent first (the database's rule).

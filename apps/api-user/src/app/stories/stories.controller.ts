@@ -80,6 +80,12 @@ const STATUSES = [
   'changes_requested',
   'withdrawn',
 ];
+/**
+ * GetStory's links to the person's own video, audio and picture (M3 plan PR 2, P1b-2: Joel,
+ * 2026-11-10): one hour, not rounded, never cached (`no-store`).
+ */
+const OWN_LINK_SECONDS = 60 * 60;
+
 function storyId(id: string): string {
   if (!isStoryId(id)) throw new NotFoundException();
   return id;
@@ -230,15 +236,22 @@ export class StoriesController {
     return this.collection(res, limits, ifNoneMatch);
   }
 
+  // Library-specific response (Nest's documented `@Res()` mode): this route answers its own
+  // condition, so Express's automatic freshness check (req.fresh, which would turn an answer in
+  // full into a 304) never sees a body to drop (Codex #212 rounds 2 and 3). Errors are still
+  // thrown, so ProblemFilter and the interceptors answer them as on every other route.
   @Get('v1/account/stories/:id')
   async getMyStory(
     @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
+    @Res() res: Response,
     @Param('id') id: string,
     @Headers('if-none-match') ifNoneMatch?: string,
-  ): Promise<StoryMine | undefined> {
+  ): Promise<void> {
+    // The owner's own links last an hour (P1b-2; Go live: unpublished media an hour or less);
+    // a reload gets fresh ones.
+    const ownLinks = this.urls.expiringIn(OWN_LINK_SECONDS);
     const story = await this.people.run(req, ({ session }) =>
-      new StoryStore(session, this.urls).get(storyId(id)),
+      new StoryStore(session, ownLinks).get(storyId(id)),
     );
     if (!story) throw new NotFoundException();
     // Whether the picture's file arrived: a fact from the storage zone, what the page counts as
@@ -247,14 +260,27 @@ export class StoriesController {
     if (story.image) {
       story.image.uploaded = await this.uploads.imageArrived(story.image.path);
     }
+    // The version's ETag stays for If-Match, but an answer carrying signed links is never 304:
+    // the copy the page holds may have links that have expired since (Codex #212 round 1).
+    const signed =
+      !!story.image?.url ||
+      story.media.some((m) => m.playbackUrl || m.thumbnailUrl);
     const etag = `"${story.version}"`;
     res.setHeader('Cache-Control', 'private, no-store');
     res.setHeader('ETag', etag);
-    if (ifNoneMatches(ifNoneMatch, etag) && story.image?.uploaded !== false) {
-      res.status(HttpStatus.NOT_MODIFIED);
-      return undefined;
+    if (
+      ifNoneMatches(ifNoneMatch, etag) &&
+      story.image?.uploaded !== false &&
+      !signed
+    ) {
+      res.status(HttpStatus.NOT_MODIFIED).end();
+      return;
     }
-    return story;
+    // In full, sent as it is: res.json/res.send would check req.fresh and drop the body.
+    res
+      .status(HttpStatus.OK)
+      .type('json')
+      .end(JSON.stringify(story satisfies StoryMine));
   }
 
   @Post('v1/stories')

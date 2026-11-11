@@ -322,6 +322,56 @@ test.describe('behaviour', () => {
     await step(page, 'Add some details');
   });
 
+  test('the steps at the top keep a picture’s rules: forward waits while it uploads, back asks first', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request);
+    await written(page);
+    const stepButton = (name: RegExp) =>
+      page
+        .getByRole('navigation', { name: 'Steps' })
+        .getByRole('button', { name });
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    await page.route(`${STUB_USER_URL}/__s3/**`, async (route) => {
+      if (route.request().method() !== 'PUT') return route.fallback();
+      await held;
+      return route.fallback();
+    });
+    await choose(page, 900, 1200);
+    await expect(page.getByText('Uploading your picture…')).toBeVisible();
+
+    // Forward: the step's own rule, as Continue says it.
+    await stepButton(/^6\. Review/).click();
+    await expect(
+      alert(page, 'Your picture is still uploading. Wait for it to finish'),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('heading', { level: 2, name: 'Write your story' }),
+    ).toBeVisible();
+
+    // Back: the upload can't go on once the step is gone, so it asks first.
+    await stepButton(/^3\. Prepare/).click();
+    const ask = page.getByRole('alertdialog');
+    await expect(ask).toContainText(
+      'The picture you chose hasn’t been added yet.',
+    );
+    await ask.getByRole('button', { name: 'Stay on this step' }).click();
+    await expect(ask).toHaveCount(0);
+
+    release();
+    await expect(
+      page
+        .getByRole('status')
+        .filter({ hasText: 'Picture added. You can continue.' }),
+    ).toBeVisible();
+    expect((await me.uploads()).images).toHaveLength(1);
+    // Added: forward goes on, past Details only if its theme is chosen.
+    await stepButton(/^6\. Review/).click();
+    await step(page, 'Add some details');
+  });
+
   test('Continue saves a description typed while its save is under way, and waits for a picture chosen meanwhile (Codex #211, 2 and 3)', async ({
     page,
     request,

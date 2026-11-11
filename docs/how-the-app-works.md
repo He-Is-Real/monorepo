@@ -211,6 +211,30 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 - The share page goes: choose the type → the testimony consent (only if not yet agreed to the
   latest) → preparation prompts (never stored) → write, or upload the file → details (optional
   first name, themes) → review (with the optional social media box) → "waiting for review".
+- **The steps at the top are buttons** (Joel, 2026-11-10): any earlier step opens at once, with
+  nothing lost (drafts save as the person goes). A later step opens only once every step before it
+  would pass its own Continue; otherwise the page stops at the first step that still needs
+  something and shows that step's usual message. The later steps open once a story is started or
+  a draft is carried on. Leaving the upload step backwards while a video, audio file or picture is
+  still uploading asks first ("Stay on this step" / "Leave this step"): leaving stops the upload,
+  which carries on from where it stopped when the person chooses the same file again. The step's
+  own Back button leaves without asking, as before. A later step chosen while the story is saving
+  is decided again once it has saved, from what's on screen then: if the person chose another file
+  meanwhile, they stay on the upload step with its usual message.
+- **Seeing your own upload** (Joel, 2026-11-10, part 1b; P1b-1 C, P1b-2): once Bunny has
+  processed the video or audio file, the review step plays it in Bunny's player, beside the
+  picture. Until then it says "Check back later for your video preview." ("…your audio preview."
+  for audio), with no waiting or checking again: the person can still send the story, or press
+  "Save as draft" and come back later (after a submission whose answer was lost, "Save as draft"
+  first sends that same submission again, since the person already asked to send it and our server
+  may still be working on it: if it went through it shows "Thank you"; if that can't be known yet
+  it confirms nothing and asks them to try again). The review step also links to "See your story as others
+  will" (`/account/stories/{id}/preview`, a new tab): the public story page's own parts, with a
+  banner "Only you can see this preview", and no heart, share or related stories. My submissions
+  links every story that isn't on the site to the same page. Only the story's owner can open it.
+  The links to the person's own video, audio and picture are signed only when that one story is
+  read (never in the list, never publicly) and last one hour; reloading gets fresh ones (an answer
+  carrying links is never "not modified", so the page never keeps expired ones).
 - **Autosave:** the draft is saved once it has a title and text, then after each pause. If the
   same draft is open in two tabs, each keeps its own changes, and the person is asked only when
   both changed the same thing. Text stays in the tab until the server has it, through reloads and
@@ -288,6 +312,8 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 - **My submissions** lists the person's stories, each with its status in plain words and any
   feedback from a moderator.
 - **Drafts:** continue or delete. Each draft says when it will be deleted if nobody touches it.
+- **Preview:** every story that isn't on the site has "Preview", the person's own "see it as others
+  will" page (see Sharing a story, Steps); a published one has "View" instead.
 - **Withdraw:** a story waiting for review, in review, sent back for changes or published
   (including one hidden while its media is fixed) can be withdrawn; it leaves the public site at
   once.

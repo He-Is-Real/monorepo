@@ -145,15 +145,15 @@ test.describe('behaviour', () => {
     };
     expect(await offers('My draft')).toEqual({
       status: 'Draft',
-      actions: ['Continue', 'Delete'],
+      actions: ['Continue', 'Preview', 'Delete'],
     });
     expect(await offers('Waiting one')).toEqual({
       status: 'Waiting for review',
-      actions: ['Withdraw'],
+      actions: ['Preview', 'Withdraw'],
     });
     expect(await offers('In review one')).toEqual({
       status: 'In review',
-      actions: ['Withdraw'],
+      actions: ['Preview', 'Withdraw'],
     });
     expect(await offers('Published one')).toEqual({
       status: 'Published',
@@ -161,15 +161,15 @@ test.describe('behaviour', () => {
     });
     expect(await offers('Sent back one')).toEqual({
       status: 'Changes requested',
-      actions: ['Withdraw', 'Delete'],
+      actions: ['Preview', 'Withdraw', 'Delete'],
     });
     expect(await offers('Not accepted one')).toEqual({
       status: 'Not published',
-      actions: ['Delete'],
+      actions: ['Preview', 'Delete'],
     });
     expect(await offers('Withdrawn one')).toEqual({
       status: 'Withdrawn',
-      actions: ['Delete'],
+      actions: ['Preview', 'Delete'],
     });
     await expect(
       row(page, 'Sent back one').locator('[data-feedback]'),
@@ -187,6 +187,10 @@ test.describe('behaviour', () => {
     await expect(
       row(page, 'My draft').getByRole('link', { name: 'Continue' }),
     ).toHaveAttribute('href', '/share?draft=s_draft');
+    // Anything not on the site is previewed as others would see it (M3 plan PR 2).
+    await expect(
+      row(page, 'Waiting one').getByRole('link', { name: 'Preview' }),
+    ).toHaveAttribute('href', '/account/stories/s_pending/preview');
   });
 
   test('download my data: a file of everything of mine, and nobody else’s', async ({
