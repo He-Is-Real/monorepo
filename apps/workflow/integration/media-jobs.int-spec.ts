@@ -24,6 +24,7 @@ import {
   answerVars,
   failJob,
   MediaJobNotFound,
+  MediaJobWrongVideo,
   parseFailure,
   parseMediaAnswer,
   REENCODED,
@@ -474,6 +475,32 @@ describe('result writer: the worker’s answers → the job’s file row and the
       expect(await job(id)).toMatchObject({ failures: 0, done: false });
     });
 
+    it('asks Bunny nothing for a job that isn’t an open check of the video', async () => {
+      const { video } = await videoStory();
+      const other = (await videoStory()).video;
+      const id = await queue(video);
+      const bunny = fakeBunny('failed');
+      await expect(
+        answerFailed(workflow, bunny, id, other, next()),
+      ).rejects.toThrow(MediaJobWrongVideo);
+      await expect(
+        answerFailed(
+          workflow,
+          bunny,
+          '01KAAAAAAAAAAAAAAAAAAAAAAA',
+          video,
+          next(),
+        ),
+      ).rejects.toThrow(MediaJobNotFound);
+      await failJob(workflow, id, video, 'bunny_unreachable');
+      await writeAnswer(workflow, id, video, { outcome: 'encoding' }, next());
+      expect(
+        await answerFailed(workflow, bunny, id, video, next()),
+      ).toMatchObject({ outcome: 'stale' });
+      expect(bunny.calls).toEqual([]);
+      expect(await file(other)).toEqual({});
+    });
+
     it('a waiting story: one re-encode, then Bunny’s second failure sends it back (file_unusable)', async () => {
       const { story, video } = await videoStory();
       await submit(pat, story);
@@ -689,6 +716,8 @@ describe('result writer: the worker’s answers → the job’s file row and the
       {},
       { code: 'Bunny said: <file contents>' },
       { code: 'x'.repeat(65) },
+      // Part 1a: the writer's own re-encode marker is never a worker's code.
+      { code: REENCODED },
     ]) {
       expect(() => parseFailure(bad)).toThrow(InvalidMediaJobCall);
     }

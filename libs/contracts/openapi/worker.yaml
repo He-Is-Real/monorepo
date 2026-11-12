@@ -622,7 +622,10 @@ components:
         code:
           type: string
           pattern: '^[a-z][a-z0-9_]{0,63}$'
-          description: A short reason code, e.g. `bunny_unreachable`. Never file contents or personal details.
+          description: >-
+            A short reason code, e.g. `bunny_unreachable`. Never file contents or personal details.
+            `bunny_encode_failed` is refused (400): it is the result writer's own marker of the one
+            automatic re-encode (Part 1a).
     WorkflowJob:
       type: object
       description: Payload of a `workflow` job.

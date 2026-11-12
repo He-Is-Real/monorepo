@@ -199,6 +199,10 @@ export function parseFailure(input: unknown): string {
   if (typeof code !== 'string' || !ERROR_CODE.test(code)) {
     throw new InvalidMediaJobCall('a failure needs a short code');
   }
+  // The writer's own marker of a re-encode ({@link REENCODED}) is never a worker's code.
+  if (code === REENCODED) {
+    throw new InvalidMediaJobCall('that code is the writer’s own');
+  }
   return code;
 }
 
@@ -401,10 +405,22 @@ export async function answerJob(
   });
 }
 
-/** Whether a check of the video has already ended with Bunny's first failure ({@link REENCODED}). */
-const REENCODED_SQL = `SELECT VALUE id FROM mediaJob
-  WHERE file = type::record('storyFile', $videoId) AND kind = 'check'
-    AND doneAt != NONE AND lastError = $reencoded LIMIT 1`;
+/**
+ * Checked before the writer calls Bunny about a "failed" answer, so nothing reaches Bunny for a
+ * job that isn't an open check of this video: the job (as {@link ANSWER_SQL} checks it), whether
+ * it is still open, and whether a check of the video already ended with Bunny's first failure
+ * ({@link REENCODED}: only the writer's own `reencoding` answer ends a job applied with it).
+ */
+const BEFORE_FAILED_SQL = `
+  LET $j = (SELECT kind, file, doneAt FROM ONLY type::record('mediaJob', $job));
+  IF $j = NONE { THROW 'media_job_not_found' };
+  IF <string> record::id($j.file) != $videoId { THROW 'media_job_wrong_video' };
+  IF $j.kind != 'check' { THROW 'media_job_not_a_check' };
+  {
+    open: $j.doneAt = NONE,
+    reencoded: (SELECT VALUE id FROM mediaJob WHERE file = $j.file AND kind = 'check'
+      AND doneAt != NONE AND outcome = 'applied' AND lastError = $reencoded LIMIT 1) != []
+  };`;
 
 /**
  * What the writer does with a worker's "failed" answer (Part 1a; Joel, 2026-11-10): it doesn't
@@ -426,13 +442,21 @@ export async function answerFailed(
   arrivedAt: string,
 ): Promise<AnswerResult | FailureReply> {
   try {
-    if ((await bunny.videoStatus(video)) !== 'failed') return { retry: true };
-    const [found] = (await runQuery(db, REENCODED_SQL, {
+    const results = await runQuery(db, BEFORE_FAILED_SQL, {
+      job,
       videoId: video,
       reencoded: REENCODED,
-    })) as [unknown[]];
-    const final = (found ?? []).length > 0;
-    if (!final) await bunny.reencode(video);
+    }).catch(notFound);
+    const { open, reencoded } = results[results.length - 1] as {
+      open: boolean;
+      reencoded: boolean;
+    };
+    // A job already ended: the answer is stale, recorded without asking Bunny anything.
+    if (open) {
+      if ((await bunny.videoStatus(video)) !== 'failed') return { retry: true };
+      if (!reencoded) await bunny.reencode(video);
+    }
+    const final = reencoded;
     return await answerJob(
       db,
       job,
