@@ -638,7 +638,12 @@ describe('result writer: the worker’s answers → the job’s file row and the
       ).toEqual({ retry: true });
       expect(bunny.calls).toEqual([`status ${video}`, `reencode ${video}`]);
       expect((await file(video))['processing']).toBe('processing');
-      expect(await job(followUp)).toMatchObject({ done: false });
+      // Counted, so a worker repeating "failed" can't make the writer ask Bunny without end.
+      expect(await job(followUp)).toMatchObject({
+        failures: 2,
+        lastError: 'bunny_reencode_pending',
+        done: false,
+      });
       expect(await storyRow(story)).toMatchObject({
         current: { status: 'pending' },
       });

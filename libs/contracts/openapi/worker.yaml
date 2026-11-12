@@ -125,7 +125,8 @@ paths:
           automatic re-encode). Bunny's notice when that ends joins the follow-up (or opens a check).
           A confirmed failure before Bunny's own "failed" notice reached a check job opened after the
           request isn't final yet (Bunny may still show the first failure): the writer asks Bunny for
-          the re-encode again and replies `retry: true`. After that notice it is final: `processing`
+          the re-encode again and counts a failure on the job (`bunny_reencode_pending`; reply as
+          `/failed`'s). After that notice it is final: `processing`
           is set to `failed` and the job ends `gave_up` with `errorType` `file_unusable`, together, and
           the database sends a story waiting for review, published or off the site back to its
           owner. A failed call to Bunny counts as the job's failure (reply as `/failed`'s). `gone`

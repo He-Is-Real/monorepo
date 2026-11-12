@@ -108,6 +108,12 @@ export function errorTypeOf(code: string): Exclude<ErrorType, 'file_unusable'> {
  */
 export const REENCODED = 'bunny_encode_failed';
 
+/**
+ * The failure the writer counts on a check that saw Bunny's failure after the re-encode was asked
+ * for, but before Bunny's own notice that the re-encode failed ({@link answerFailed}).
+ */
+export const REENCODE_PENDING = 'bunny_reencode_pending';
+
 /** mediaJob:<ulid> (fn::media::queue_job). */
 export const JOB_ID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 /** A Bunny video id (a GUID): the job's file is storyFile:<video id>. */
@@ -455,7 +461,8 @@ const BEFORE_FAILED_SQL = `
  *   finding 1). If asking Bunny fails, that counts on the follow-up, which asks again;
  * - after that request, but before Bunny's own "failed" notice came for a check opened since: not
  *   yet known to be the re-encode's failure (Bunny may still show the first one). The writer asks
- *   Bunny for the re-encode again (in case the request was lost) and sets the answer aside, the
+ *   Bunny for the re-encode again (in case the request was lost) and counts a failure on the job
+ *   ({@link REENCODE_PENDING}; "try again later" until it gives up at {@link MAX_FAILURES}), the
  *   job open for Bunny's notice to join (G2: no timer, Bunny's real status);
  * - after Bunny's notice that the re-encode failed: the file can't be used (`unusable`): failed,
  *   the job given up with errorType file_unusable, and the story sent back by the database.
@@ -487,7 +494,9 @@ export async function answerFailed(
     if (reencodeFailed) return await failed(true);
     if (reencoded) {
       await bunny.reencode(video);
-      return { retry: true };
+      // Counted as the job's failure, so a worker repeating "failed" can't make the writer ask
+      // Bunny without end: the job gives up after MAX_FAILURES (then housekeeping's nightly retry).
+      return await failJob(db, job, video, REENCODE_PENDING);
     }
     const result = await failed(false);
     if (result.followUp) {
