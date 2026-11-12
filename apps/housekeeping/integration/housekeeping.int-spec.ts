@@ -561,7 +561,12 @@ describe('housekeeping: old rejected and abandoned stories', () => {
       'pending',
     ]);
     for (const entry of entries) {
-      expect(Object.keys(entry).sort()).toEqual(['at', 'id', 'status', 'story']);
+      expect(Object.keys(entry).sort()).toEqual([
+        'at',
+        'id',
+        'status',
+        'story',
+      ]);
     }
   });
 
