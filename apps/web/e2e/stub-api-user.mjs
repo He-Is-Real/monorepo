@@ -1419,7 +1419,12 @@ function myDataOf(s, token, mine) {
       lastActiveAt: null,
     },
     stories: [...s.stories].reverse().map(([id, st]) => {
-      const { version: _v, media, ...rest } = storyMine(s, id, st);
+      const {
+        version: _v,
+        takenDown: _t,
+        media,
+        ...rest
+      } = storyMine(s, id, st);
       return {
         ...rest,
         onSiteNow: st.status === 'approved',
