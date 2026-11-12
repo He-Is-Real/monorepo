@@ -214,11 +214,14 @@ test.describe('moderation', () => {
     await page.getByRole('button', { name: 'Approve anyway' }).click();
     await expect(notice(page)).toHaveText('Approved. It’s on the site now.');
 
-    // …but not while the upload link could still replace the file (G11 B).
+    // …but not while the upload link could still replace the file (G11 B). The browser's clock is
+    // fixed on the deadline's day, so the message names the time only, rounded up to the minute
+    // (the stub's deadline is 14:05:59).
+    await page.clock.setFixedTime(new Date('2026-11-01T13:30:00.000Z'));
     await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_cooldown`);
     await decisions(page).getByRole('button', { name: 'Approve' }).click();
     await expect(refused).toHaveText(
-      'The video is still being processed. You can approve it from 1 November 2026 at 14:05.',
+      'The video is still being processed. You can approve it from 14:06.',
     );
     await expect(
       page.getByRole('button', { name: 'Approve anyway' }),

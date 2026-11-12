@@ -73,9 +73,12 @@ const ukDay = new Intl.DateTimeFormat('en-GB', {
   dateStyle: 'short',
   timeZone: 'Europe/London',
 });
-/** "14:05" today, else "13 November 2026 at 14:05" (UK time). */
+/**
+ * "14:05" today, else "13 November 2026 at 14:05" (UK time). Rounded up to the next whole minute,
+ * so it never names a time before the database's deadline (14:05:59 reads "from 14:06").
+ */
 function fromTime(iso: string, now = new Date()): string {
-  const at = new Date(iso);
+  const at = new Date(Math.ceil(Date.parse(iso) / 60_000) * 60_000);
   return ukDay.format(at) === ukDay.format(now)
     ? timeOnly.format(at)
     : sentAt(iso);
