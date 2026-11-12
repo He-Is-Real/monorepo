@@ -95,12 +95,12 @@ How a video or audio file becomes `ready` (M2 plan item 13; D78, D126, D129; des
    the job ends `applied` with `lastError` `bunny_encode_failed`, the marker that the one
    automatic re-encode was asked for, and a follow-up check job opens with reason `resent`), then
    asks Bunny to re-encode it (`POST …/videos/<id>/reencode`; a failed request counts on the
-   follow-up). Bunny's notice when the re-encode ends joins the follow-up (or opens a check). A
+   follow-up, and it is never asked again: one re-encode request per file). Bunny's notice when the re-encode ends joins the follow-up (or opens a check). A
    later confirmed failure is final only once Bunny's own "failed" notice (reason `bunny_failed`)
    reached a check job opened after the marker: then the file becomes `failed`, the job
    `gave_up` with `errorType` `file_unusable`, and the database sends the story back to its owner
    ("Needs a new file"). Before that notice, Bunny may still be showing the first failure: the
-   writer asks Bunny for the re-encode again and counts a failure on the job (`bunny_reencode_pending`, so it gives up after 5 like any job), replying "try again later" with the job left open. A
+   writer only reads Bunny's status (no second re-encode request) and counts a failure on the job (`bunny_reencode_pending`, so it gives up after 5 like any job, as ours: `bunny_unavailable`), replying "try again later" with the job left open. A
    `gone` answer (Bunny has no such video) leaves the file `processing` and ends the job
    `gave_up` with `errorType` `other`. Its log is one JSON line per call, ids only:
    `gcloud logging read 'resource.labels.service_name="workflow"' --limit 20`.

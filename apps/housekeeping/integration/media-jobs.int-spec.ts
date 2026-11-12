@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   agreeAll,
+  approve,
   createPeople,
   grantUpload,
   rows,
@@ -118,7 +119,7 @@ describe('housekeeping: media jobs', () => {
     migrator = await t.migrator();
     apiUser = await t.service('api_user');
     housekeeping = await t.service('housekeeping');
-    await createPeople(t, { pat: 'user_pat' });
+    await createPeople(t, { pat: 'user_pat', moderator: 'user_mod' });
     await trustSubmitters(t, 'pat');
     // More drafts and uploads than a person may have at once (D94, D113): not what's tested here.
     await run(
@@ -345,20 +346,6 @@ describe('housekeeping: media jobs', () => {
 
     const ours = await waiting();
     await ended(ours.job, 'gave_up');
-    // What housekeeping reads of the status log: an entry's story, status and time, nothing else
-    // (never who, what was said, the action, the files or publishedAt).
-    const seen = await rows<Record<string, unknown>>(
-      housekeeping,
-      `SELECT * FROM storyStatusLog WHERE story = type::record('story', $story)`,
-      { story: ours.story },
-    );
-    expect(seen).toHaveLength(1);
-    expect(Object.keys(seen[0]).sort()).toEqual([
-      'at',
-      'id',
-      'status',
-      'story',
-    ]);
     // Not retried: a draft, a story whose job is still open, and one Bunny failed for good.
     const draftJob = await openJob();
     await ended(draftJob.job, 'gave_up');
@@ -395,6 +382,50 @@ describe('housekeeping: media jobs', () => {
         { video: ours.video },
       ),
     ).toEqual([{ retry: false, ours: true }]);
+  });
+
+  it('housekeeping reads only an entry’s story, status and time from the status log (never publishedAt)', async () => {
+    const { story, video } = await openJob();
+    // As the result writer marks it ready (only a system user may), so it can be approved.
+    await run(
+      migrator,
+      `UPDATE type::record('storyFile', $video) SET processing = 'ready', width = 1920,
+         height = 1080, lengthSeconds = 60`,
+      { video },
+    );
+    await run(
+      pat,
+      `CREATE storyStatusLog CONTENT { story: type::record('story', $story), action: 'sent' }`,
+      { story },
+    );
+    await approve(await t.service('api_admin'), story, {
+      superAdminSkip: true,
+    });
+    // The approval entry carries publishedAt (a privileged read shows it)…
+    const full = await rows<Record<string, unknown>>(
+      migrator,
+      `SELECT * FROM storyStatusLog WHERE story = type::record('story', $story)
+         AND action = 'approved'`,
+      { story },
+    );
+    expect(full).toHaveLength(1);
+    expect(full[0]['publishedAt']).toBeDefined();
+    // …but housekeeping's SELECT * sees only story, status and time (never who, what was said,
+    // the action, the files or publishedAt).
+    const seen = await rows<Record<string, unknown>>(
+      housekeeping,
+      `SELECT * FROM storyStatusLog WHERE story = type::record('story', $story)`,
+      { story },
+    );
+    expect(seen).toHaveLength(2);
+    for (const entry of seen) {
+      expect(Object.keys(entry).sort()).toEqual([
+        'at',
+        'id',
+        'status',
+        'story',
+      ]);
+    }
   });
 
   it('a run is the nightly one unless it says media-resend, which needs the topic', () => {

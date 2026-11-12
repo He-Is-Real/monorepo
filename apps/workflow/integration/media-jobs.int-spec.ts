@@ -624,7 +624,7 @@ describe('result writer: the worker’s answers → the job’s file row and the
       ).toMatchObject({ outcome: 'applied' });
 
       // The follow-up is sent again (18:00 resend) while Bunny still shows the first failure:
-      // the writer asks for the re-encode again and waits, writing nothing final.
+      // the writer only reads Bunny's status (never a second re-encode) and waits.
       const followUp = await queue(video, 'resent');
       expect(followUp).not.toBe(first);
       expect(await job(followUp)).toMatchObject({
@@ -636,9 +636,9 @@ describe('result writer: the worker’s answers → the job’s file row and the
       expect(
         await answerFailed(workflow, bunny, followUp, video, next()),
       ).toEqual({ retry: true });
-      expect(bunny.calls).toEqual([`status ${video}`, `reencode ${video}`]);
+      expect(bunny.calls).toEqual([`status ${video}`]);
       expect((await file(video))['processing']).toBe('processing');
-      // Counted, so a worker repeating "failed" can't make the writer ask Bunny without end.
+      // Counted, so the wait ends (as ours) if Bunny's notice never comes.
       expect(await job(followUp)).toMatchObject({
         failures: 2,
         lastError: 'bunny_reencode_pending',
@@ -660,6 +660,36 @@ describe('result writer: the worker’s answers → the job’s file row and the
       });
       expect(await storyRow(story)).toMatchObject({
         current: { status: 'editing', actor: 'system' },
+      });
+    });
+
+    it('Bunny is asked to re-encode a file once only: with no notice, the follow-up gives up as ours (Codex r2)', async () => {
+      const { story, video } = await videoStory();
+      await submit(pat, story);
+      const first = await queue(video, 'bunny_failed');
+      const bunny = fakeBunny('failed');
+      const result = await answerFailed(workflow, bunny, first, video, next());
+      const followUp = (result as { followUp?: string }).followUp as string;
+      expect(followUp).toBeDefined();
+
+      // Bunny's notice never comes; the worker keeps reporting "failed" for the follow-up.
+      for (let n = 1; n < MAX_FAILURES; n++) {
+        expect(
+          await answerFailed(workflow, bunny, followUp, video, next()),
+        ).toEqual({ retry: true });
+      }
+      expect(
+        await answerFailed(workflow, bunny, followUp, video, next()),
+      ).toEqual({ retry: false, outcome: 'gave_up' });
+      expect(bunny.calls.filter((c) => c.startsWith('reencode'))).toEqual([
+        `reencode ${video}`,
+      ]);
+      expect(await job(followUp)).toMatchObject({
+        errorType: 'bunny_unavailable',
+      });
+      expect((await file(video))['processing']).toBe('processing');
+      expect(await storyRow(story)).toMatchObject({
+        current: { status: 'pending' },
       });
     });
 

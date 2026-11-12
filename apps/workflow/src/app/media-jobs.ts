@@ -303,7 +303,7 @@ export const ANSWER_SQL = `
   };
   -- Part 1a (Codex review r1, findings 1 and 2): the re-encode's follow-up check, opened with the
   -- marker and before Bunny is asked, so Bunny's notice when the re-encode ends always finds (or
-  -- opens) a job after the marker, and a failed or lost request is asked again.
+  -- opens) a job after the marker. Bunny is asked for the re-encode only once per file.
   LET $followUp = IF $outcome = 'applied' AND $failure = 'reencoding' {
     fn::media::queue_job($f.id, 'check', 'resent').job
   };
@@ -458,12 +458,13 @@ const BEFORE_FAILED_SQL = `
  *   ends marked {@link REENCODED}, and a follow-up check job opens), then asks Bunny to encode it
  *   again (the one automatic re-encode). Bunny's notice when that ends joins the follow-up (or
  *   opens a check, if the follow-up has ended), so its result is always checked (Codex review r1,
- *   finding 1). If asking Bunny fails, that counts on the follow-up, which asks again;
+ *   finding 1). If asking Bunny fails, that counts on the follow-up; it is never asked again;
  * - after that request, but before Bunny's own "failed" notice came for a check opened since: not
- *   yet known to be the re-encode's failure (Bunny may still show the first one). The writer asks
- *   Bunny for the re-encode again (in case the request was lost) and counts a failure on the job
- *   ({@link REENCODE_PENDING}; "try again later" until it gives up at {@link MAX_FAILURES}), the
- *   job open for Bunny's notice to join (G2: no timer, Bunny's real status);
+ *   yet known to be the re-encode's failure (Bunny may still show the first one). The writer only
+ *   reads Bunny's status (never a second re-encode request: one per file, Codex review r2) and
+ *   counts a failure on the job ({@link REENCODE_PENDING}; "try again later" until it gives up at
+ *   {@link MAX_FAILURES} as ours, bunny_unavailable), the job open for Bunny's notice to join
+ *   (G2: no timer, Bunny's real status);
  * - after Bunny's notice that the re-encode failed: the file can't be used (`unusable`): failed,
  *   the job given up with errorType file_unusable, and the story sent back by the database.
  * A Bunny call that fails is the job's failure, as on the render routes ({@link failJob}).
@@ -493,9 +494,9 @@ export async function answerFailed(
     if ((await bunny.videoStatus(video)) !== 'failed') return { retry: true };
     if (reencodeFailed) return await failed(true);
     if (reencoded) {
-      await bunny.reencode(video);
-      // Counted as the job's failure, so a worker repeating "failed" can't make the writer ask
-      // Bunny without end: the job gives up after MAX_FAILURES (then housekeeping's nightly retry).
+      // The one automatic re-encode was already asked for: never again (Joel's rule). Only
+      // Bunny's status was read; the wait counts as the job's failure, so it gives up after
+      // MAX_FAILURES as ours (bunny_unavailable) if Bunny's notice never comes.
       return await failJob(db, job, video, REENCODE_PENDING);
     }
     const result = await failed(false);
