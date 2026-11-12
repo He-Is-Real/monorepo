@@ -22,6 +22,34 @@ export class ErasedIdentityError extends Error {
   override name = 'ErasedIdentityError';
 }
 
+/**
+ * The block list (G21 D, Joel 2026-11-11): the email is blocked, so it can't create an account
+ * (on our side: its `user` row is never made). A person who already has a row isn't refused here;
+ * a blocked email can't send a story either (api-user checks at submit).
+ */
+export class BlockedEmailError extends Error {
+  override name = 'BlockedEmailError';
+}
+
+/**
+ * Whether `value` is on the block list's `table` (`blockedEmail` or `blockedIp`). api-user's login
+ * may read only the one row the query names in `$blockCheck`, never the list
+ * (docs/db-permissions.md). Values are compared exactly; callers pass them lower-case.
+ */
+export async function isBlocked(
+  db: SurrealQueryable,
+  table: 'blockedEmail' | 'blockedIp',
+  value: string | undefined,
+): Promise<boolean> {
+  if (!value) return false;
+  const [ids] = (await runQuery(
+    db,
+    `SELECT VALUE id FROM type::record($table, $blockCheck)`,
+    { table, blockCheck: value },
+  )) as [unknown[]];
+  return ids.length > 0;
+}
+
 const isErasedIdentity = (err: unknown) =>
   /identity_erased/.test(err instanceof Error ? err.message : String(err));
 
@@ -43,15 +71,20 @@ export async function findPerson(
  * api-user only: the person's `user` id, creating the row on first use. Concurrent first
  * requests are safe: the `user_clerk` unique index lets one create win, and the loser reads
  * the winner's row. A fence conflict (`user_fence`) is retried. An erased Clerk id is refused
- * by the database: {@link ErasedIdentityError}.
+ * by the database: {@link ErasedIdentityError}. A new row isn't made for a blocked `email` (the
+ * token's verified email, when it has one): {@link BlockedEmailError}.
  */
 export async function provisionPerson(
   db: SurrealQueryable,
   clerkUserId: string,
+  { email }: { email?: string } = {},
 ): Promise<string> {
   return retryOnConflict(async () => {
     const existing = await findPerson(db, clerkUserId);
     if (existing) return existing;
+    if (await isBlocked(db, 'blockedEmail', email)) {
+      throw new BlockedEmailError();
+    }
     try {
       const [created] = (await runQuery(db, CREATE, { clerkUserId })) as [
         string[],

@@ -39,6 +39,12 @@ const CLASSIFICATION: Record<string, 'linked' | 'root' | 'kept' | 'none'> = {
   // The Staff page's list (G8 B): staff work emails and roles, no link to `user`; not story
   // data, so erasure doesn't touch it (removed on the Staff page instead).
   staffMember: 'none',
+  // The block list (G21 D, Joel 2026-11-11): emails and IP addresses an Admin types in, with no
+  // link to `user`. Kept on purpose after the person deletes their account ("blacklist
+  // permanently"), until an Admin removes them; the privacy notice says so. Erasure never
+  // touches them.
+  blockedEmail: 'none',
+  blockedIp: 'none',
   // D82: the sha256 of an erased Clerk id, so it never gets a row again; no link, no date.
   erasedIdentity: 'kept',
   // D40: Bunny ids and image paths (and, until Clerk confirms, the Clerk id) erasure still has

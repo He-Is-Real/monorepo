@@ -44,6 +44,8 @@ tags:
     description: 'Users (M5).'
   - name: Staff
     description: 'The staff list and staff roles, at /admin/staff (Admins only; S-1 to S-4, G8 B).'
+  - name: BlockList
+    description: 'Blocked emails and IP addresses, at /admin/block-list (Admins only; G21 D, G24).'
   - name: Themes
     description: 'Theme categories and themes (themes plan v3).'
   - name: LegalDocuments
@@ -483,6 +485,158 @@ paths:
           $ref: './components.yaml#/components/responses/Forbidden'
         '409':
           $ref: './components.yaml#/components/responses/Conflict'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+
+  /v1/admin/block-list:
+    get:
+      tags: [BlockList]
+      operationId: getBlockList
+      summary: The block list (the Block list page)
+      description: |
+        G21 D (Joel, 2026-11-11): every blocked email and IP address, newest first, with the Admin who
+        added it (their email) and when. A blocked email can't create an account or send a story; a
+        blocked IP address can't send a story (api-user enforces both, `403 blocked`); reading the site
+        is never blocked. Entries stay until an Admin removes them, even after the person deletes their
+        account. No reason text is kept.
+      x-required-role: Admin
+      x-milestone: M3
+      responses:
+        '200':
+          description: The block list.
+          headers:
+            Cache-Control:
+              $ref: './components.yaml#/components/headers/CacheControlPrivate'
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/BlockList'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+
+  /v1/admin/block-list/emails/{email}:
+    parameters:
+      - name: email
+        in: path
+        required: true
+        description: The email; compared lower-case.
+        schema:
+          type: string
+          maxLength: 254
+    put:
+      tags: [BlockList]
+      operationId: blockEmail
+      summary: Block an email
+      description: |
+        Command `BlockEmail`: from now on the email can't create an account or send a story, until an
+        Admin removes it. Someone who already has an account keeps it (and can still read, edit and
+        delete their own things), but can't send a story. Adding an email already on the list changes
+        nothing (it keeps who added it first). No `If-Match` (nothing to change on an entry); `version`
+        is `null`. `400` for something that isn't an email address.
+      x-required-role: Admin
+      x-milestone: M3
+      responses:
+        '200':
+          description: The email is on the block list.
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/CommandResult'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+    delete:
+      tags: [BlockList]
+      operationId: unblockEmail
+      summary: Remove an email from the block list
+      description: Command `UnblockEmail`. Removing an email that isn't on the list changes nothing.
+      x-required-role: Admin
+      x-milestone: M3
+      responses:
+        '204':
+          description: Removed (or wasn't on the list).
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+
+  /v1/admin/block-list/ips/{ip}:
+    parameters:
+      - name: ip
+        in: path
+        required: true
+        description: |
+          The IP address, IPv4 or IPv6 (URL-encoded); stored in one form (IPv6 short and lower-case, an
+          IPv4-mapped IPv6 address as IPv4), so the same address always matches.
+        schema:
+          type: string
+          maxLength: 45
+    put:
+      tags: [BlockList]
+      operationId: blockIp
+      summary: Block an IP address
+      description: |
+        Command `BlockIp`: from now on no story can be sent from this exact address, until an Admin
+        removes it (reading and accounts aren't affected). An Admin finds a recent sender's address on
+        the story's moderation view (`senderIp`, kept 30 days). Adding an address already on the list
+        changes nothing. `version` is `null`. `400` for something that isn't an IP address. The answer's
+        `id` is the address as stored.
+      x-required-role: Admin
+      x-milestone: M3
+      responses:
+        '200':
+          description: The address is on the block list.
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/CommandResult'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+    delete:
+      tags: [BlockList]
+      operationId: unblockIp
+      summary: Remove an IP address from the block list
+      description: Command `UnblockIp`. Removing an address that isn't on the list changes nothing.
+      x-required-role: Admin
+      x-milestone: M3
+      responses:
+        '204':
+          description: Removed (or wasn't on the list).
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
         '503':
           $ref: './components.yaml#/components/responses/ServiceRestarting'
         '5XX':

@@ -621,6 +621,57 @@ describe('the submit flow for written stories', () => {
     );
   });
 
+  it('a blocked email or IP address can’t send a story; the address it was sent from is kept for Admins (block list, G21 D)', async () => {
+    const admin = await t.service('api_admin');
+    await run(
+      admin,
+      `CREATE blockedEmail:⟨blocked@example.com⟩ SET email = 'blocked@example.com', addedBy = 'joel@heisreal.today';
+       CREATE blockedIp:⟨203.0.113.66⟩ SET ip = '203.0.113.66', addedBy = 'joel@heisreal.today';`,
+    );
+    const sendAs = async (
+      who: string,
+      email: string,
+      forwardedFor: string,
+    ) => {
+      await person(who);
+      const { id, version } = (await create(who, { themeIds: ['healing'] }))
+        .body;
+      const res = await fetch(`${url}/v1/stories/${id}/submit`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${clerk.token(`user_${who}`, { email, email_verified: true })}`,
+          'if-match': `"${version}"`,
+          'idempotency-key': key(),
+          // The client's own entry first; Google's front end appends the address it saw.
+          'x-forwarded-for': `198.51.100.250, ${forwardedFor}`,
+        },
+      });
+      expect(await contract.check('POST', res)).toEqual([]);
+      return { res, id };
+    };
+    const sentIp = (id: string) =>
+      rows(
+        admin,
+        `SELECT VALUE senderIp FROM storyStatusLog WHERE story = type::record('story', $id) AND status = 'pending'`,
+        { id },
+      );
+
+    const byEmail = await sendAs('blke', 'blocked@example.com', '203.0.113.1');
+    expect(byEmail.res.status).toBe(403);
+    expect(await byEmail.res.json()).toMatchObject({ code: 'blocked' });
+    expect(await storiesOf('blke')).toEqual(['draft']);
+
+    const byIp = await sendAs('blki', 'fine@example.com', '203.0.113.66');
+    expect(byIp.res.status).toBe(403);
+    expect(await storiesOf('blki')).toEqual(['draft']);
+
+    // Anyone else sends as usual, and the entry keeps the address Google saw, not the client's.
+    const fine = await sendAs('blkok', 'fine@example.com', '203.0.113.2');
+    expect(fine.res.status).toBe(200);
+    expect(await storiesOf('blkok')).toEqual(['pending']);
+    expect(await sentIp(fine.id)).toEqual(['203.0.113.2']);
+  });
+
   it('refuses a missing or forged token', async () => {
     expect(
       (

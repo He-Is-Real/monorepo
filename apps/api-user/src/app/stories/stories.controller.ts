@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Global,
   Headers,
@@ -21,7 +22,7 @@ import {
   Res,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { PersonSessions } from '@heisreal/auth';
+import { isBlocked, PersonSessions } from '@heisreal/auth';
 import {
   IdempotencyKeyReusedError,
   requestHash,
@@ -49,6 +50,7 @@ import {
   createBunnyStream,
 } from './bunny-stream';
 import { mergePatchBody } from './merge-patch-body';
+import { senderIp } from './sender-ip';
 import {
   parseCreate,
   parseIfMatch,
@@ -335,6 +337,19 @@ export class StoriesController {
     const version = ifMatchOf(ifMatch);
     const idempotencyKey = parseIdempotencyKey(key);
     const { socialMediaSharingConsent: share } = parseSubmit(body);
+    // The block list (G21 D): a blocked email (the token's verified one) or IP address can't send
+    // a story. The address is kept on the sent entry for 30 days, for Admins only.
+    const ip = senderIp(req);
+    const { email } = await this.people.authenticate(req);
+    if (
+      (await isBlocked(this.service, 'blockedEmail', email)) ||
+      (await isBlocked(this.service, 'blockedIp', ip))
+    ) {
+      throw new ForbiddenException({
+        code: 'blocked',
+        message: 'This story can’t be sent',
+      });
+    }
     const result = await this.people
       .run(
         req,
@@ -356,6 +371,7 @@ export class StoriesController {
             // Plan 4e: the sharing box ticked at the end of the upload is recorded in the
             // submission's own write, or neither is.
             share?.version,
+            ip,
           ),
         // Waits on Bunny for the file (decision T): a fresh pass, and a deadline for retries.
         'slow',
