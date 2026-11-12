@@ -43,6 +43,8 @@ import {
 class FakeStream implements BunnyStream {
   readonly videos = new Map<string, StreamVideo>();
   asked = 0;
+  /** Runs while api-user waits on Bunny for a video (a seam for what happens meanwhile). */
+  whileAsked?: () => Promise<void>;
   async createVideo() {
     const id = randomUUID();
     this.videos.set(id, { status: 0, length: 0, mp4Height: null });
@@ -50,6 +52,7 @@ class FakeStream implements BunnyStream {
   }
   async video(id: string) {
     this.asked++;
+    await this.whileAsked?.();
     return this.videos.get(id) ?? null;
   }
   async deleteVideo(id: string) {
@@ -280,6 +283,7 @@ describe('a person’s request outlives their own pass (decision T, option B)', 
     );
   });
   beforeEach(() => {
+    bunny.whileAsked = undefined;
     clerkApi.asked.length = 0;
     clerkApi.down = false;
   });
@@ -304,6 +308,28 @@ describe('a person’s request outlives their own pass (decision T, option B)', 
     expect(clerkApi.asked).toEqual([
       { sessionId: late.sessionId, seconds: 360 },
     ]);
+  });
+
+  it('an email blocked while api-user waits on Bunny for the file can’t send the story: 403, nothing submitted (block list, G21 D)', async () => {
+    const id = await readyVideo('blkd');
+    const { sessionId } = pass('blkd');
+    const token = clerk.token('user_blkd', {
+      sid: sessionId,
+      exp: Math.floor(Date.now() / 1000) + 60,
+      email: 'blkd@example.com',
+      email_verified: true,
+    });
+    bunny.whileAsked = async () => {
+      await run(
+        migrator,
+        `UPSERT blockedEmail:⟨blkd@example.com⟩ SET email = 'blkd@example.com', addedBy = 'joel@heisreal.today'`,
+      );
+    };
+
+    const refused = await submit(id, token);
+
+    expect([refused.status, refused.body.code]).toEqual([403, 'blocked']);
+    expect(await statusOf(id)).toBe('draft');
   });
 
   it('a session that has ended (signed out, revoked, blocked or deleted) stops the request: 401, nothing submitted', async () => {

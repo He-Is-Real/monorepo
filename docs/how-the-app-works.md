@@ -117,7 +117,9 @@ code does what it does today; nobody should build on either reading.
     but can't send a story. Clerk itself still lets them sign in (no Clerk setting is used).
   - **Sending a story:** api-user refuses it if the token's verified email or the IP address it
     comes from is blocked. Either way the person sees only the generic "Something went wrong.
-    Please try again later." (no codes; Joel 2026-11-09).
+    Please try again later." (no codes; Joel 2026-11-09). The check runs just before the story is
+    written (after the file checks at Bunny), so a block added meanwhile counts; a retry of a send
+    that already went through (same Idempotency-Key) still gets its success back.
   - **The address a story was sent from:** api-user keeps it on the story's "sent" status entry for
     30 days, readable only by Admins, so an Admin can block a recent abuser's address; the nightly
     clean-up clears it after that. An Admin sees it on the story's moderation view, with a link

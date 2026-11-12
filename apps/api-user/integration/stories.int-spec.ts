@@ -668,6 +668,38 @@ describe('the submit flow for written stories', () => {
     expect(await sentIp(fine.id)).toEqual(['203.0.113.2']);
   });
 
+  it('a send that went through replays its success with the same Idempotency-Key, even after the sender was blocked', async () => {
+    const admin = await t.service('api_admin');
+    await person('blkr');
+    const { id, version } = (await create('blkr', { themeIds: ['healing'] }))
+      .body;
+    const sendKey = key();
+    const send = () =>
+      fetch(`${url}/v1/stories/${id}/submit`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${clerk.token('user_blkr', { email: 'replay@example.com', email_verified: true })}`,
+          'if-match': `"${version}"`,
+          'idempotency-key': sendKey,
+          'x-forwarded-for': '203.0.113.77',
+        },
+      });
+    const first = await send();
+    expect(first.status).toBe(200);
+    const sent = await first.json();
+    // The answer was lost; meanwhile an Admin blocks the email and the address.
+    await run(
+      admin,
+      `CREATE blockedEmail:⟨replay@example.com⟩ SET email = 'replay@example.com', addedBy = 'joel@heisreal.today';
+       CREATE blockedIp:⟨203.0.113.77⟩ SET ip = '203.0.113.77', addedBy = 'joel@heisreal.today';`,
+    );
+    const retry = await send();
+    expect(await contract.check('POST', retry)).toEqual([]);
+    expect(retry.status).toBe(200);
+    expect(await retry.json()).toEqual(sent);
+    expect(await storiesOf('blkr')).toEqual(['pending']);
+  });
+
   it('refuses a missing or forged token', async () => {
     expect(
       (

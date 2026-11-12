@@ -341,15 +341,20 @@ export class StoriesController {
     // a story. The address is kept on the sent entry for 30 days, for Admins only.
     const ip = senderIp(req);
     const { email } = await this.people.authenticate(req);
-    if (
-      (await isBlocked(this.service, 'blockedEmail', email)) ||
-      (await isBlocked(this.service, 'blockedIp', ip))
-    ) {
-      throw new ForbiddenException({
-        code: 'blocked',
-        message: 'This story can’t be sent',
-      });
-    }
+    // Checked in each fresh attempt, after the media checks (which may wait on Bunny), so a block
+    // added meanwhile is seen; never before the stored answer for this Idempotency-Key, so a send
+    // that went through replays its success even after the sender was blocked.
+    const checkNotBlocked = async () => {
+      if (
+        (await isBlocked(this.service, 'blockedEmail', email)) ||
+        (await isBlocked(this.service, 'blockedIp', ip))
+      ) {
+        throw new ForbiddenException({
+          code: 'blocked',
+          message: 'This story can’t be sent',
+        });
+      }
+    };
     const result = await this.people
       .run(
         req,
@@ -367,7 +372,10 @@ export class StoriesController {
                   : ['POST', 'submit', sid, version],
               ),
             },
-            () => this.uploads.checkBeforeSubmit(session, sid),
+            async () => {
+              await this.uploads.checkBeforeSubmit(session, sid);
+              await checkNotBlocked();
+            },
             // Plan 4e: the sharing box ticked at the end of the upload is recorded in the
             // submission's own write, or neither is.
             share?.version,
