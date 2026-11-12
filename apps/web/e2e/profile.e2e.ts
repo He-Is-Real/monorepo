@@ -77,6 +77,13 @@ const EVERY_STATUS = [
     submittedAt: SENT,
   },
   {
+    id: 's_taken_down',
+    status: 'hidden',
+    title: 'Taken down one',
+    submittedAt: SENT,
+    takenDown: true,
+  },
+  {
     id: 's_rejected',
     status: 'rejected',
     title: 'Not accepted one',
@@ -162,7 +169,7 @@ test.describe('behaviour', () => {
     await page.getByRole('button', { name: /^Account: / }).click();
     await page.getByRole('link', { name: 'My profile' }).click();
     await expect(page).toHaveURL(PROFILE);
-    await expect(page.locator('[data-submission]')).toHaveCount(7);
+    await expect(page.locator('[data-submission]')).toHaveCount(8);
 
     const offers = async (title: string) => {
       const r = row(page, title);
@@ -196,6 +203,11 @@ test.describe('behaviour', () => {
     // G2: a hidden story shows as it is.
     expect(await offers('Hidden one')).toEqual({
       status: 'Not on the site right now',
+      actions: ['Preview', 'Edit', 'Delete'],
+    });
+    // G5: one a moderator took down says so.
+    expect(await offers('Taken down one')).toEqual({
+      status: 'Taken down by our team',
       actions: ['Preview', 'Edit', 'Delete'],
     });
     // Rejected stories can only be deleted.
@@ -657,7 +669,7 @@ for (const scheme of ['light', 'dark'] as const) {
         })),
       });
       await page.goto(PROFILE);
-      await expect(page.locator('[data-submission]')).toHaveCount(7);
+      await expect(page.locator('[data-submission]')).toHaveCount(8);
       await expect(page.locator('[data-shared-on-social]')).toBeVisible();
       // Open one confirmation too: it's part of the page someone sees.
       await page
@@ -690,6 +702,6 @@ test('200% text on the smallest phone: My profile still fits', async ({
     })),
   });
   await page.goto(PROFILE);
-  await expect(page.locator('[data-submission]')).toHaveCount(7);
+  await expect(page.locator('[data-submission]')).toHaveCount(8);
   await expectNoHorizontalOverflow(page);
 });
