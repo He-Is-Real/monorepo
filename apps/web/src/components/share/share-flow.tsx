@@ -288,6 +288,10 @@ function SignedInFlow({
   const chosen = useRef(0);
 
   const go = useCallback((next: Step) => {
+    // Any step change (Continue, Back, a step at the top) drops a step chosen at the top that is
+    // still waiting: coming back to the same step mustn't let its old answer through (Codex #212,
+    // round 3).
+    chosen.current += 1;
     moved.current = true;
     setNavProblem(null);
     setStep(next);

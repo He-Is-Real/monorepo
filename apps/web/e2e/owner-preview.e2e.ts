@@ -392,6 +392,56 @@ test.describe('behaviour', () => {
     });
   }
 
+  test('a later step chosen at the top is dropped once the person changes step meanwhile, even back to the same one (Codex #212, round 3)', async ({
+    page,
+    request,
+  }) => {
+    await person(page, request, {
+      testimony: 3,
+      stories: [
+        {
+          id: 'p3',
+          title: 'Found',
+          primaryFormat: 'written',
+          body: TEXT,
+          themeIds: ['healing'],
+        },
+      ],
+    });
+    await page.goto(`${SHARE}?draft=p3`);
+    await shown(page, 'Write your story');
+    await stepButton(page, /^2\. Prepare/).click();
+    await step(page, 'Prepare your story');
+    // The story read that a forward choice makes waits until the test lets it go.
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    let arrived!: () => void;
+    const reading = new Promise<void>((r) => (arrived = r));
+    await page.route(
+      `${STUB_USER_URL}/v1/account/stories/p3`,
+      async (route) => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        arrived();
+        await held;
+        return route.fallback();
+      },
+    );
+    await stepButton(page, /^5\. Review/).click();
+    await reading;
+    // Meanwhile: on to Write and back to Prepare again.
+    await page.getByRole('button', { name: 'Start writing' }).click();
+    await step(page, 'Write your story');
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await step(page, 'Prepare your story');
+    release();
+    // The old choice doesn't take them on to Review.
+    await page.waitForLoadState('networkidle');
+    await expect(stepButton(page, /^2\. Prepare/)).toHaveAttribute(
+      'aria-current',
+      'step',
+    );
+  });
+
   test('a picture chosen but never added goes with the step it was chosen on, so going forward again passes it', async ({
     page,
     request,
