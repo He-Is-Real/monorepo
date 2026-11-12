@@ -32,7 +32,10 @@ export interface MyStoryRow {
   /** When it was first sent for review; null for a story never sent (a "Draft"). */
   submittedAt?: string | null;
   createdAt: string;
-  /** A draft's deletion date if nobody touches it (api-user's rule; never recomputed here). */
+  /**
+   * When the nightly clean-up deletes it (api-user's rule; never recomputed here): a draft or a
+   * story being edited after it was sent, if nobody touches it; a rejected story (G3 B).
+   */
   draftExpiresAt?: string | null;
   /**
    * Plan 4e: the social media sharing consent ticked for this story at the end of its upload, or
@@ -82,7 +85,7 @@ const DATE = new Intl.DateTimeFormat('en-GB', {
   month: 'short',
   year: 'numeric',
 });
-/** The day a draft goes, as the UK sees it (where the site and its nightly clean-up run). */
+/** The day a story goes, as the UK sees it (where the site and its nightly clean-up run). */
 const LONG_DATE = new Intl.DateTimeFormat('en-GB', {
   day: 'numeric',
   month: 'long',
@@ -338,6 +341,21 @@ function StoryRow({
           We’ll keep this draft until{' '}
           {LONG_DATE.format(new Date(story.draftExpiresAt))}. If you don’t
           change it before then, it will be deleted.
+        </p>
+      )}
+      {(label === 'sent_back' || label === 'editing') &&
+        story.draftExpiresAt && (
+          <p data-draft-expiry="" className="mb-3 text-sm text-secondary-text">
+            We’ll keep this story until{' '}
+            {LONG_DATE.format(new Date(story.draftExpiresAt))}. If you don’t
+            change it before then, it will be deleted.
+          </p>
+        )}
+      {label === 'rejected' && story.draftExpiresAt && (
+        <p data-draft-expiry="" className="mb-3 text-sm text-secondary-text">
+          We’ll delete this story on{' '}
+          {LONG_DATE.format(new Date(story.draftExpiresAt))}. To keep our team’s
+          note, download your data before then.
         </p>
       )}
       {label === 'editing' && (

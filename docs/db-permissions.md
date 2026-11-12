@@ -160,10 +160,13 @@ their fence (see "Transactions").
     the database accepts only on a moderator's approval that the wait would refuse. The system's
     hide and show again, and system users, are never held. Specs: `approval-wait`.
   - **Delete:** erasure (api-user, api-admin); the owner, live, in any state (ED-3, Joel
-    2026-11-11; D71); housekeeping only for `fn::story::draft_expired(id)`: a draft (never sent)
-    untouched for 186 days
-    (`fn::story::draft_retention`) since the later of `updatedAt` and its files' `renewedAt`. The
-    owner's page shows the same `fn::story::draft_expires_at`. A delete takes the status log and
+    2026-11-11; D71); housekeeping only for `fn::story::deletion_due(id)`, past
+    `fn::story::deletes_at`: a draft (never sent) untouched for 186 days
+    (`fn::story::draft_retention`) since the later of `updatedAt` and its files' `renewedAt`; a
+    story in editing after it was sent, untouched by the same clock for the settings'
+    `editingRetentionDays`; a rejected story the settings' `rejectedRetentionDays` after its status
+    entry's `at` (G3 B, Joel 2026-11-11). The owner's page shows the same `fn::story::deletes_at`
+    (api-user's `draftExpiresAt`). A delete takes the status log and
     others' hearts (`story_erasure_cascade`) and the search row (`story_search`), and queues the
     picture folder; its `storyFile` rows stay for the upload limits. Specs: `person-session`, api-user's `my-stories`, housekeeping's suite.
   - `themeIds` (text copies of `themeRefs`, computed) exists for the element index (gotchas).
@@ -179,8 +182,10 @@ their fence (see "Transactions").
   (`media_unavailable`, `media_changed`), `reviewedMediaFile`/`reviewedImageFile` (approved
   entries: the files approved), `skippedMediaWait` (an Admin's approval during the media wait;
   api-admin alone reads it).
-  - **Read:** the owner (never `by`) and api-admin; everyone else only an entry's `story`,
-    `status` and `publishedAt`, while it is its story's current approved entry.
+  - **Read:** the owner (never `by`) and api-admin; housekeeping every entry's `story`, `status`
+    and `at` only, never who, what was said, the action, the files or `publishedAt` (G3 B: to find
+    the stories due for deletion); everyone else only an entry's `story`, `status` and
+    `publishedAt`, while it is its story's current approved entry.
   - **Create:** the owner, live, only `sent` and `editStarted`; api-admin only a moderator's
     actions. System and history-only entries come only from the database's own events (elevated),
     never from a direct write. `storyStatusLog_step` checks who may take which
@@ -329,6 +334,8 @@ changedBy, changedByRole}`. Everyone reads them; only api-admin's login writes t
 
 - **`submissionSettings:current`**: everyone reads; only api-admin's login writes (with
   `changedBy`, `changedByRole`); nobody deletes; min ≤ max checked (`submissionSettings_check`).
+  It also holds housekeeping's two deletion times, `rejectedRetentionDays` and
+  `editingRetentionDays` (7 to 3,650 days; G3 B).
   `fn::settings::submission()` fills defaults; `fn::settings::upload_ceilings()` caps uploads
   (10 GiB video, 2 GiB audio, 3 h), which is also what trusted people get.
 - **`submitterLimits:<user id>`** (D112): `trusted` and optional overrides. The person reads their

@@ -47,11 +47,13 @@ const EVERY_STATUS = [
     title: 'Waiting one',
     submittedAt: SENT,
   },
+  // Sent, then taken down to edit; last changed 1 November 2026: kept 186 days (G3 B).
   {
     id: 's_editing',
     status: 'editing',
     title: 'Being edited one',
     submittedAt: SENT,
+    updatedAt: '2026-11-01T12:00:00.000Z',
   },
   {
     id: 's_live',
@@ -66,6 +68,7 @@ const EVERY_STATUS = [
     title: 'Sent back one',
     submittedAt: SENT,
     rejectionFeedback: FEEDBACK,
+    updatedAt: '2026-11-02T12:00:00.000Z',
   },
   {
     id: 's_hidden',
@@ -79,6 +82,8 @@ const EVERY_STATUS = [
     title: 'Not accepted one',
     submittedAt: SENT,
     rejectionFeedback: FEEDBACK,
+    // Rejected 3 November 2026: deleted 90 days later (G3 B).
+    decidedAt: '2026-11-03T12:00:00.000Z',
   },
 ].map((s, i) => ({
   ...s,
@@ -205,13 +210,29 @@ test.describe('behaviour', () => {
       );
     }
     await expect(page.locator('[data-feedback]')).toHaveCount(2);
-    // Only a draft says when it goes if nobody touches it.
+    // A draft or a story being edited says when it goes if nobody touches it, and a rejected
+    // story when it goes (G3 B); nothing waiting, published or hidden does.
     await expect(
       row(page, 'My draft').locator('[data-draft-expiry]'),
     ).toHaveText(
       'We’ll keep this draft until 3 May 2027. If you don’t change it before then, it will be deleted.',
     );
-    await expect(page.locator('[data-draft-expiry]')).toHaveCount(1);
+    await expect(
+      row(page, 'Being edited one').locator('[data-draft-expiry]'),
+    ).toHaveText(
+      'We’ll keep this story until 6 May 2027. If you don’t change it before then, it will be deleted.',
+    );
+    await expect(
+      row(page, 'Sent back one').locator('[data-draft-expiry]'),
+    ).toHaveText(
+      'We’ll keep this story until 7 May 2027. If you don’t change it before then, it will be deleted.',
+    );
+    await expect(
+      row(page, 'Not accepted one').locator('[data-draft-expiry]'),
+    ).toHaveText(
+      'We’ll delete this story on 1 February 2027. To keep our team’s note, download your data before then.',
+    );
+    await expect(page.locator('[data-draft-expiry]')).toHaveCount(4);
     await expect(
       row(page, 'Published one').getByRole('link', { name: 'View' }),
     ).toHaveAttribute('href', '/stories/published-one');

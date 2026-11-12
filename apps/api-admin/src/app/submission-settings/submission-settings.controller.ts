@@ -46,6 +46,10 @@ export const BOUNDS = {
   videoMaxBytes: { min: MIB, max: 10_737_418_240 }, // 10 GiB
   audioMaxBytes: { min: MIB, max: 2_147_483_648 }, // 2 GiB
   mediaMaxSeconds: { min: 60, max: 10_800 }, // 3 hours
+  // G3 B (Joel, 2026-11-11): days until the nightly housekeeping deletes a rejected story, and a
+  // story left in editing after it was sent (fn::story::deletes_at).
+  rejectedRetentionDays: { min: 7, max: 3650 },
+  editingRetentionDays: { min: 7, max: 3650 },
 } as const;
 type Field = keyof typeof BOUNDS;
 const FIELDS = Object.keys(BOUNDS) as Field[];
@@ -154,10 +158,13 @@ export class SubmissionSettingsController {
     @Res({ passthrough: true }) res: Response,
     @Headers('if-none-match') ifNoneMatch?: string,
   ) {
-    const [row] = (await runQuery(
+    // The values in force come from fn::settings::submission, so a field the record predates
+    // (a setting added later) reads as its default, as everywhere else.
+    const [row, values] = (await runQuery(
       this.db,
-      `SELECT * OMIT id, changedByRole FROM ONLY submissionSettings:current;`,
-    )) as [Record<string, unknown> | null];
+      `SELECT version, updatedAt, changedBy FROM ONLY submissionSettings:current;
+       RETURN fn::settings::submission();`,
+    )) as [Record<string, unknown> | null, Record<string, unknown>];
     if (!row) throw missing();
     const etag = `"${Number(row['version'])}"`;
     res.setHeader('Cache-Control', 'private, no-store');
@@ -173,7 +180,7 @@ export class SubmissionSettingsController {
       // Their user record's id (Clerk holds names, D16).
       changedBy: changedBy ? changedBy.slice(changedBy.indexOf(':') + 1) : null,
       settings: Object.fromEntries(
-        FIELDS.map((f) => [f, Number(row[f])]),
+        FIELDS.map((f) => [f, Number(values[f])]),
       ) as SubmissionSettings,
       bounds: BOUNDS,
     };

@@ -38,7 +38,9 @@ export default async function AdminLimitsPage() {
           How much people can share, and how often. A change applies to everyone
           from their next step, including stories they have already started.
           Trusted submitters skip the draft, weekly and upload-count limits, and
-          get the largest file sizes and lengths.
+          get the largest file sizes and lengths. The last two say how long we
+          keep a story that was sent but won’t be published: the nightly
+          clean-up then deletes it, files included.
         </p>
         <noscript>
           <p className="mb-6 rounded-2xl border border-border bg-card p-6">

@@ -29,8 +29,9 @@ import {
  * database is the behaviour: which steps a story may take is its status log's rule, and a delete
  * reaches every copy
  * (story_erasure_cascade). Bunny Stream is an in-memory stand-in that records deletes. Every
- * answer is checked against api-user.yaml. The list also says when each draft will be deleted
- * (fn::story::draft_expires_at, the rule housekeeping deletes by).
+ * answer is checked against api-user.yaml. The list also says when each draft, story being edited
+ * after it was sent, and rejected story will be deleted (fn::story::deletes_at, the rule
+ * housekeeping deletes by).
  */
 class FakeStream implements BunnyStream {
   readonly deleted: string[] = [];
@@ -378,7 +379,7 @@ describe('my stories: edit and delete', () => {
     expect(bunny.deleted).toContain(videoId);
   });
 
-  it('tells the owner when each draft will be deleted: 186 days after its last edit or resumed upload', async () => {
+  it('tells the owner when each draft, story being edited after it was sent, and rejected story will be deleted', async () => {
     const DAY = 864e5;
     const written = await create('ann');
     const video = await create('ann', 'video');
@@ -399,6 +400,17 @@ describe('my stories: edit and delete', () => {
     expect(upload.status).toBe(200);
     const submitted = await create('ann');
     expect((await submit('ann', submitted, 1)).status).toBe(200);
+    // G3 B: sent back for changes, the Limits page's 186 days after it was last touched (the
+    // drafts' clock); rejected, its 90 days after the rejection.
+    const sentBack = await create('ann');
+    await moderate(sentBack, 'changesRequested');
+    const rejected = await create('ann');
+    await moderate(rejected, 'rejected');
+    const [rejectedAt] = await rows<string>(
+      migrator,
+      `SELECT VALUE <string> currentStatus.at FROM type::record('story', $id)`,
+      { id: rejected },
+    );
     // The upload is resumed later (api-user renews its grant): that counts as activity.
     const [renewedAt] = await rows<string>(
       migrator,
@@ -420,6 +432,13 @@ describe('my stories: edit and delete', () => {
       Date.parse(renewedAt) + 186 * DAY,
     );
     expect(byId.get(submitted).draftExpiresAt).toBeNull();
+    const back = byId.get(sentBack);
+    expect(Date.parse(back.draftExpiresAt)).toBe(
+      Date.parse(back.updatedAt) + 186 * DAY,
+    );
+    expect(Date.parse(byId.get(rejected).draftExpiresAt)).toBe(
+      Date.parse(rejectedAt) + 90 * DAY,
+    );
   });
 
   it('deletes a story in every state, never someone else’s; Edit only from waiting, published or hidden', async () => {

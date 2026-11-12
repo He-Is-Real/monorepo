@@ -68,6 +68,12 @@ test.describe('/admin/limits', () => {
     await expect(page.getByLabel('Longest video or audio')).toHaveValue('15');
     const weekly = page.getByLabel('Stories one person can send for review');
     await expect(weekly).toHaveValue('1');
+    // G3 B: how long the nightly clean-up keeps stories that won't be published.
+    const rejected = page.getByLabel('Keep a story we didn’t accept for');
+    await expect(rejected).toHaveValue('90');
+    await expect(
+      page.getByLabel('Keep a sent-back or edited story nobody touches for'),
+    ).toHaveValue('186');
 
     // A value out of bounds is marked on its field, and nothing is asked.
     await video.fill('99999');
@@ -79,9 +85,13 @@ test.describe('/admin/limits', () => {
 
     await video.fill('2048');
     await weekly.fill('2');
+    await rejected.fill('60');
     await page.getByRole('button', { name: 'Save' }).click();
     const confirm = page.getByRole('alertdialog');
     await expect(confirm).toContainText('apply to everyone');
+    await expect(confirm).toContainText(
+      'Keep a story we didn’t accept for: 90 days after the decision → 60 days after the decision',
+    );
     await expect(confirm).toContainText(
       'Largest video file: 4,096 MB → 2,048 MB',
     );
@@ -97,6 +107,9 @@ test.describe('/admin/limits', () => {
     await expect(
       page.getByLabel('Stories one person can send for review'),
     ).toHaveValue('2');
+    await expect(
+      page.getByLabel('Keep a story we didn’t accept for'),
+    ).toHaveValue('60');
   });
 
   test('a stale save (another admin saved meanwhile) is refused and asks to reload', async ({

@@ -777,11 +777,14 @@ components:
           type: [string, 'null']
           format: date-time
           description: |
-            A draft's deletion date if nobody touches it again (D71, R5): the nightly housekeeping
-            Job deletes it after this. The database's one rule (`fn::story::draft_expires_at`): 6
-            months (186 days) after the draft's last edit or the last time an upload link was
-            signed for it again. `null` for anything that isn't a draft (never sent). Clients show it as it is;
-            they never recompute it. Sent by api-user only.
+            When the nightly housekeeping Job deletes this story (D71, R5; G3 B, Joel 2026-11-11).
+            The database's one rule (`fn::story::deletes_at`): a draft (never sent), 6 months (186
+            days) after its last edit or the last time an upload link was signed for it again; a
+            story being edited after it was sent, the Limits page's days (186 by default) after
+            the same; a rejected story, the Limits page's days (90 by default) after its
+            rejection. `null` for a pending, approved or hidden story. Clients show it as it is;
+            they never recompute it. Sent by api-user only. (The name predates G3: it is kept so
+            the field stays one.)
         socialMediaSharingConsent:
           description: |
             Plan 4e: the version of the social media sharing consent ticked for this story at the end of
@@ -1563,6 +1566,8 @@ components:
           videoMaxBytes,
           audioMaxBytes,
           mediaMaxSeconds,
+          rejectedRetentionDays,
+          editingRetentionDays,
         ]
       additionalProperties: false
       properties:
@@ -1599,6 +1604,16 @@ components:
         mediaMaxSeconds:
           type: integer
           description: 'One recording at most (seconds).'
+        rejectedRetentionDays:
+          type: integer
+          description: |
+            G3 B (Joel, 2026-11-11): days after its rejection that the nightly housekeeping deletes
+            a rejected story (90 by default).
+        editingRetentionDays:
+          type: integer
+          description: |
+            G3 B (Joel, 2026-11-11): days after it was last touched that the nightly housekeeping
+            deletes a story left in editing after it was sent at least once (186 by default).
 
     AdminThemes:
       type: object
@@ -1724,6 +1739,8 @@ components:
               videoMaxBytes,
               audioMaxBytes,
               mediaMaxSeconds,
+              rejectedRetentionDays,
+              editingRetentionDays,
             ]
           additionalProperties: false
           properties:
@@ -1748,6 +1765,10 @@ components:
             audioMaxBytes:
               $ref: '#/components/schemas/SettingBounds'
             mediaMaxSeconds:
+              $ref: '#/components/schemas/SettingBounds'
+            rejectedRetentionDays:
+              $ref: '#/components/schemas/SettingBounds'
+            editingRetentionDays:
               $ref: '#/components/schemas/SettingBounds'
 
     PublishLegalDocument:

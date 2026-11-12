@@ -255,6 +255,12 @@ team said"), Waiting for review, Published, Not on the site right now and Not ac
 legal texts say Edit instead of Withdraw, and "admins" instead of "super admins". Dev's database
 is wiped and rebuilt for it (a new reset name in the dev cluster root, so apply that root).
 
+**In progress: deleting old rejected and abandoned stories.** The nightly clean-up deletes a
+rejected story 90 days after the decision, and a story left in editing after it was sent once
+nobody has touched it for 186 days, files included. Admins change both times on the Limits page,
+and My submissions shows each such story's date. Built on top of Edit and Delete, so it merges
+after it.
+
 **Still to come:**
 
 - "Your video couldn't be used" (part 1a): a video Bunny can't use sends the story back to the
@@ -262,8 +268,6 @@ is wiped and rebuilt for it (a new reset name in the dev cluster root, so apply 
 - The moderators' decisions (approve, send back, reject), the story's history shown as a timeline
   including file changes, and hide and show again.
 - The block list (emails and IP addresses, permanent) and the matching wording in the legal texts.
-- The automatic deletion times (90 days for a rejected story, 186 days for one left while
-  editing) as settings on the admin Limits page.
 
 **Deferred:** two-step verification and Google-only sign-in for staff, until we are happy to pay
 for them.

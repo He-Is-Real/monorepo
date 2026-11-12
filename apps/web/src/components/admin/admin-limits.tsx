@@ -21,7 +21,9 @@ type Field =
   | 'uploadRequestsPerHour'
   | 'videoMaxBytes'
   | 'audioMaxBytes'
-  | 'mediaMaxSeconds';
+  | 'mediaMaxSeconds'
+  | 'rejectedRetentionDays'
+  | 'editingRetentionDays';
 type Values = Record<Field, number>;
 
 /** The contract's `AdminSubmissionSettings`. */
@@ -106,6 +108,22 @@ const GROUPS: {
         label: 'Longest video or audio',
         unit: 'minutes',
         per: 60,
+      },
+    ],
+  },
+  {
+    // G3 B (Joel, 2026-11-11): the nightly clean-up's deletion times.
+    title: 'Deleting old stories',
+    fields: [
+      {
+        field: 'rejectedRetentionDays',
+        label: 'Keep a story we didn’t accept for',
+        unit: 'days after the decision',
+      },
+      {
+        field: 'editingRetentionDays',
+        label: 'Keep a sent-back or edited story nobody touches for',
+        unit: 'days',
       },
     ],
   },

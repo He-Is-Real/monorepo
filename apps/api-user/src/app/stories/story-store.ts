@@ -89,7 +89,7 @@ export interface StoryMine {
   approvedAt: string | null;
   createdAt: string;
   updatedAt: string;
-  /** A draft's deletion date if nobody touches it (D71; fn::story::draft_expires_at). */
+  /** When housekeeping deletes it: a draft, a story being edited after it was sent, or a rejected story (D71, G3 B; fn::story::deletes_at). */
   draftExpiresAt: string | null;
   /**
    * Plan 4e: the social media sharing consent ticked for this story at the end of its upload
@@ -223,7 +223,7 @@ export const OWNER_STATUS_FIELDS = `
 const STORY_FIELDS = `version, slug, title,
   description, body, bylineName, primaryFormat, themeRefs.map(|$t| <string> $t) AS themeRefs,
   ${OWNER_FILE_FIELDS}, ${OWNER_STATUS_FIELDS},
-  createdAt, updatedAt, fn::story::draft_expires_at(id) AS draftExpiresAt,
+  createdAt, updatedAt, fn::story::deletes_at(id) AS draftExpiresAt,
   IF socialMediaSharingConsent != NONE { record::id(socialMediaSharingConsent) } AS sharingVersion,
   socialMediaSharingConsentAgreedAt AS sharingAt,
   <string> id AS storyRef`;

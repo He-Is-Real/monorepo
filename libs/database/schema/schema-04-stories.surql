@@ -20,7 +20,8 @@
 -- scope is silently dropped (field PERMISSIONS or VALUE), so check the stored state.
 DEFINE TABLE OVERWRITE story SCHEMAFULL PERMISSIONS               -- id = story:<ulid>
   -- housekeeping reads every story's status pointer, dates and file pointers (never its words: the
-  -- content fields below refuse it) to find abandoned drafts and orphaned Bunny videos.
+  -- content fields below refuse it) to find abandoned drafts and stories, rejected stories and
+  -- orphaned Bunny videos.
   -- Everyone else: their own stories, and any story whose newest status entry says approved
   -- (R11's row rule; the status log's own rule lets them read that entry, and only that one).
   FOR select WHERE submitter = $auth
@@ -34,10 +35,12 @@ DEFINE TABLE OVERWRITE story SCHEMAFULL PERMISSIONS               -- id = story:
     -- ED-3 (Joel, 2026-11-11): the owner deletes their own story in every state, straight away
     -- (DeleteStory).
     OR (submitter = $auth AND $auth.status != 'deleted')
-    -- D71: the nightly housekeeping Job deletes a draft (never sent) nobody has touched for as long as the
-    -- retention says (fn::story::draft_expired), and nothing else; the same delete as a
-    -- person's own (events and cascade included).
-    OR ($auth = service:housekeeping AND fn::story::draft_expired(id));
+    -- D71 and G3 B (Joel, 2026-11-11): the nightly housekeeping Job deletes a story past its
+    -- deletion date (fn::story::deletes_at: a draft nobody has touched for 186 days, a rejected
+    -- story the settings' days after its rejection, a story left in editing after it was sent the
+    -- settings' days after it was last touched), and nothing else; the same delete as a person's
+    -- own (events and cascade included).
+    OR ($auth = service:housekeeping AND fn::story::deletion_due(id));
 -- Private (R11's field rule): the owner and the services that need it, never everyone else.
 -- api-user's login reads it only on an erased person's stories, which fn::account::erase deletes
 -- in the same transaction as it marks them erased (its DELETE ... WHERE submitter: a WHERE sees
@@ -858,7 +861,10 @@ DEFINE EVENT OVERWRITE storySearch_theme_renamed ON theme
 -- names and reasons never. The owner reads their own story's entries, never who wrote them; only
 -- api-admin reads `by`.
 DEFINE TABLE OVERWRITE storyStatusLog SCHEMAFULL PERMISSIONS        -- id = storyStatusLog:<ulid>
-  FOR select WHERE story.submitter = $auth OR $auth = service:api_admin
+  -- housekeeping (G3 B, Joel 2026-11-11): every entry's story, status and time, to find rejected
+  -- stories and stories left in editing that are due for deletion (fn::story::deletes_at); every
+  -- other field refuses it (who, what was said, the action, the files, publishedAt).
+  FOR select WHERE story.submitter = $auth OR $auth IN [service:api_admin, service:housekeeping]
     OR (status = 'approved' AND story.currentStatus = id),
   FOR create WHERE (story.submitter = $auth AND $auth.status != 'deleted'
       AND action IN ['sent', 'editStarted'])
@@ -909,7 +915,8 @@ DEFINE FIELD OVERWRITE comment      ON storyStatusLog TYPE option<string> READON
 -- When, set by the database. A system user may supply it (dev-seed's history), never anyone else.
 DEFINE FIELD OVERWRITE at           ON storyStatusLog TYPE datetime READONLY
   VALUE IF $auth = NONE AND $value != NONE { $value } ELSE { time::now() }
-  PERMISSIONS FOR select WHERE story.submitter = $auth OR $auth = service:api_admin;
+  PERMISSIONS FOR select WHERE story.submitter = $auth
+    OR $auth IN [service:api_admin, service:housekeeping];
 -- On approved entries: when the story was first published (the first approval's time, kept on
 -- later approvals, after an edit too: "newest first" on the website). A system user may supply
 -- the first one (dev-seed's dates).
@@ -923,7 +930,9 @@ DEFINE FIELD OVERWRITE publishedAt  ON storyStatusLog TYPE option<datetime> READ
       array::min(SELECT VALUE publishedAt FROM storyStatusLog WITH INDEX storyStatusLog_story
         WHERE story = $story AND status = 'approved' AND publishedAt != NONE)
         ?? (IF $auth = NONE AND $value != NONE { $value } ELSE { $this.at })
-    };
+    }
+  -- Everyone the table lets read the entry, except housekeeping (G3 B: story, status, at only).
+  PERMISSIONS FOR select WHERE $auth != service:housekeeping;
 -- On the system's hiddenBySystem entries: why (media_unavailable or media_changed; a moderator's
 -- own words go in `comment`).
 DEFINE FIELD OVERWRITE hiddenReason ON storyStatusLog TYPE option<string> READONLY
@@ -1050,6 +1059,40 @@ DEFINE FUNCTION OVERWRITE fn::story::draft_expires_at($story: record<story>) {
     WHERE story = $story AND renewedAt != NONE);
   LET $last = IF $renewed != NONE AND $renewed > $s.updatedAt { $renewed } ELSE { $s.updatedAt };
   RETURN $last + fn::story::draft_retention();
+};
+-- G3 B (Joel, 2026-11-11, "More M3 answers"): when the nightly housekeeping deletes `$story`, or
+-- NONE if it never does. One rule, which housekeeping deletes by (deletion_due) and the person
+-- sees on My submissions (api-user's StoryMine.draftExpiresAt):
+--   a draft (never sent): fn::story::draft_expires_at (D71: 186 days after it was last touched);
+--   rejected: the settings' rejectedRetentionDays (90) after its rejection (its status entry's
+--     time; it can't change after that);
+--   editing after being sent at least once (sent back, its file unusable, or taken down to edit):
+--     the settings' editingRetentionDays (186) after it was last touched, by the drafts' clock
+--     (the later of its last write, updatedAt, which moving it to editing also sets, and the last
+--     upload link signed for it again);
+--   pending, approved or hidden: never.
+-- The settings in force now: changing them moves every date at once.
+DEFINE FUNCTION OVERWRITE fn::story::deletes_at($story: record<story>) {
+  LET $s = (SELECT currentStatus, currentStatus.status AS status, currentStatus.at AS at,
+    updatedAt FROM ONLY $story);
+  IF $s = NONE { RETURN NONE };
+  IF $s.currentStatus = NONE { RETURN fn::story::draft_expires_at($story) };
+  LET $set = fn::settings::submission();
+  IF $s.status = 'rejected' {
+    RETURN $s.at + type::duration(string::concat($set.rejectedRetentionDays, 'd'));
+  };
+  IF $s.status != 'editing' { RETURN NONE };
+  LET $renewed = array::max(SELECT VALUE renewedAt FROM storyFile
+    WHERE story = $story AND renewedAt != NONE);
+  LET $last = IF $renewed != NONE AND $renewed > $s.updatedAt { $renewed } ELSE { $s.updatedAt };
+  RETURN $last + type::duration(string::concat($set.editingRetentionDays, 'd'));
+};
+-- G3 B: whether `$story` is past fn::story::deletes_at. story FOR delete (housekeeping) and the
+-- chores ask this. Both writes fence the person, so an edit or resume racing the delete
+-- conflicts and one of them loses.
+DEFINE FUNCTION OVERWRITE fn::story::deletion_due($story: record<story>) {
+  LET $at = fn::story::deletes_at($story);
+  RETURN $at != NONE AND $at < time::now();
 };
 -- D71: whether `$story` is a draft past fn::story::draft_expires_at, i.e. nobody has touched it
 -- since fn::story::drafts_expire_before(). story FOR delete (housekeeping) and the chore both
