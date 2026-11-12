@@ -84,7 +84,7 @@ code does what it does today; nobody should build on either reading.
   | Role      | Can do (G24, Joel 2026-11-11)                                                                                                                              |
   | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
   | User      | Share stories, hearts, their own account                                                                                                                   |
-  | Moderator | The moderation queue: approve, send back, reject, hide and show again (today: read the queue and each story; the decisions come with M3)                   |
+  | Moderator | The moderation queue: approve, send back, reject, hide and show again                                                                                      |
   | Admin     | Everything a Moderator can, plus themes, submission limits, legal texts, "approve anyway", reading drafts (every story), the block list and the Staff page |
 
 - **Staff (S-1 to S-4, G7, G8 B; Joel 2026-11-11):** Admins add, change and remove Moderators and
@@ -350,9 +350,9 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 - **My submissions** lists the person's stories, each with its status in plain words (Story
   states, Joel 2026-11-11): **Draft** (never sent), **Being edited** (taken down with Edit),
   **Sent back** (a moderator asked for changes; their note shows under "What our team said"),
-  **Waiting for review**, **Published**, **Not on the site right now** (hidden: by the site while
-  its media is fixed, or by a moderator; G2, the owner sees it as it is) and **Not accepted** (with
-  the moderator's note).
+  **Waiting for review**, **Published**, **Not on the site right now** (hidden by the site while
+  its media is fixed; G2, the owner sees it as it is), **Taken down by our team** (hidden by a
+  moderator, G5) and **Not accepted** (with the moderator's note).
 - **Drafts and stories being edited or sent back:** continue ("Continue editing" once it was sent
   before). Each says the date after which the nightly clean-up deletes it if nobody touches it
   ("Data kept and deleted", below).
@@ -490,8 +490,8 @@ Built in the database (the decisions and their pages are planned, M3):
   entry per round of editing, however many saves, and none if nothing changed. A never-sent draft
   has no history entries.
 - **The first decision wins (D-1):** if two moderators decide the same story at once, the second
-  is refused because the story is no longer waiting. (The decision buttons and the "Another
-  moderator has already decided this story" message come with the decision pages.)
+  is refused because the story is no longer waiting; their page says "Another moderator has
+  already decided this story" and refreshes.
 - **A story can't be approved until every upload is processed** and its size and length are
   known, so nothing unchecked reaches the public. (A2) For a picture, "processed" means it passed
   the picture check when the story was sent for review (Uploads, above), until M7's scanning.
@@ -501,7 +501,8 @@ Built in the database (the decisions and their pages are planned, M3):
   picture), so what they watched is what gets published; they are told the time from which they
   can approve. And not while a media job for those files is still open (for example an audio
   story's new picture video still being made), so they never approve the old picture: "media
-  still being processed". An Admin may approve anyway, and the approval records that they
+  still being processed". An Admin may approve anyway while the media is still being processed,
+  never within the upload link's time (G11 B, Joel 2026-11-11), and the approval records that they
   skipped the wait. This holds for a moderator's "show again" too; the system hiding a story and
   showing it again when its media breaks and works again never waits.
 - **Media ready (M2 plan item 13; D76, D78; Joel 2026-11-07, media-worker-final.html):** when
@@ -544,7 +545,7 @@ Built in the database (the decisions and their pages are planned, M3):
 - A person can read moderators' decisions and feedback on their own stories, never who made them.
 - The status log is the moderation history; there is no separate audit log (Joel, 2026-11-05).
 
-Built, read-only (M3 plan, pull request 1; Joel, 2026-11-09):
+Built (M3 plan, pull requests 1 and 6; Joel, 2026-11-09 and 2026-11-11):
 
 - **Who:** Moderators and Admins. The staff menu shows "Moderation" to both; the other staff
   pages are for Admins only (G24). The database knows moderators only as api-admin's login,
@@ -554,9 +555,26 @@ Built, read-only (M3 plan, pull request 1; Joel, 2026-11-09):
   its title, kind (video, audio, written) and when it was sent.
 - **The review page** (`/moderation/{id}`): the story as the public would see it, built from the
   public story page's own parts (player or picture, title, byline, themes, words), with the
-  player's playback-speed menu on; then its history, oldest first: each step, whether the person,
-  a moderator or the system made it, when, and any note a moderator left the person. Only a
-  story waiting for review opens; any other says it isn't waiting for review.
+  player's playback-speed menu on; then what the moderator can do with it; then its history as a
+  timeline, oldest first (M3-7): each step (sent, sent again, sent back with the note, taken down
+  to edit, approved, rejected, taken down with the reason, shown again, a new file or picture,
+  words changed, a file that can't be used), whether the person, a moderator or the system made
+  it, when, and any note a moderator left. A story waiting for review, published or hidden opens;
+  any other says it isn't waiting for review.
+- **Decisions (M3 basics, Joel 2026-11-11):** on a waiting story, Approve, Send back or Reject.
+  Send back and Reject need a note of 1 to 2,000 characters, written pastorally: the person reads
+  it as "What our team said". Moderators and admins may decide on their own stories. On a
+  published story, Take down with a reason (G5), which the person can read in Download my data;
+  their profile says "Taken down by our team", and only a moderator shows it again (Show again,
+  on the hidden story). The page confirms each decision and shows the story as it now is.
+- **Approve anyway is Admin only (G24)**, offered after an approval was refused because the media
+  is still being processed; never during the upload link's time (G11 B).
+- **Refusals in plain words** (Joel, 2026-11-09: never codes): for example "The video is still
+  being processed. You can approve it from 14:05." A story that moved on since the page opened
+  (another moderator decided first, or the person pressed Edit) says so and refreshes.
+- **A decision is about what the moderator saw (G14 B):** it names the story's newest status
+  entry and the files the page showed, not its edit number, so background work on a file doesn't
+  refuse it, and a story whose files changed since is refused.
 - **Least about the person:** moderators see the byline the person chose, never their name,
   email, account id or join date, and never which moderator made a step.
 - **Links last one hour:** the player and picture links are signed for one hour from when the
@@ -565,9 +583,6 @@ Built, read-only (M3 plan, pull request 1; Joel, 2026-11-09):
 
 Planned (M3):
 
-- Approve, Send back and Reject on the review page; Reject and Send back need a note, written
-  pastorally, which the person sees on their profile. Moderators can also hide a published story
-  and show it again (G5). If two moderators decide on the same story, the first decision wins (D-1).
 - **No pick-up locking, escalation or assignment** (Joel, 2026-11-11): any moderator can decide on
   any story in the queue. How assignment should look is for later, once the basics are visible.
 - **No appeal process** (G20, Joel 2026-11-11): the rejection message points the person to

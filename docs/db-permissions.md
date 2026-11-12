@@ -168,9 +168,11 @@ their fence (see "Transactions").
     review, or "show again" from hidden) is refused while an upload link for the story's video,
     audio file or picture could still be used (its row's `at` or `renewedAt` plus the link's length,
     `fn::upload::link_lifetime`: 1 hour, a picture 10 minutes; `media_recently_uploaded:`, with the
-    time it can be approved) or a media job for those files is open (`media_still_processing:`). A
-    Admin may approve anyway: api-admin sets `skippedMediaWait` (roles live in Clerk), which
-    the database accepts only on a moderator's approval that the wait would refuse. The system's
+    time it can be approved) or a media job for those files is open (`media_still_processing:`). An
+    Admin may approve anyway while the media is still being processed: api-admin sets
+    `skippedMediaWait` (roles live in Clerk), which the database accepts only on a moderator's
+    approval that the wait would refuse, and never for the upload cooldown (G11 B, Joel
+    2026-11-11: `media_recently_uploaded:` stands). The system's
     hide and show again, and system users, are never held. Specs: `approval-wait`.
   - **Delete:** erasure (api-user, api-admin); the owner, live, in any state (ED-3, Joel
     2026-11-11; D71); housekeeping only for `fn::story::deletion_due(id)`, past

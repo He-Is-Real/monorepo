@@ -41,8 +41,12 @@ brackets).
 - **Moderation (M3):** the browser's staff pages call api-admin's `GET /v1/moderation/queue` and
   `GET /v1/moderation/stories/{id}` (Moderator and up). The review answer signs the story's
   player and picture for one hour from that answer (M3 plan concern C6), so it carries a weak
-  `ETag` of the answer itself, not the story's version (later commands take `version` in
-  `If-Match`). It names nobody: no account id, and no user id on its status log.
+  `ETag` of the answer itself, not the story's version. Its decisions (POST
+  `/v1/moderation/stories/{id}/approve`, `request-changes`, `reject`, `hide`, `show`) take the
+  answer's `reviewTag` in `If-Match` instead of a version (G14 B): it stands for the story's
+  newest status entry and the files the page showed, so background work that only bumps the
+  version doesn't refuse a decision. It names nobody: no account id, and no user id on its status
+  log.
 - **The account bootstrap:** web's header calls `GET /v1/account` once each time a page loads
   signed in. The first call creates the person's `user` row (so staff can use `api-admin`), and
   `termsOfUse` and `testimonyConsent` say which version the person agreed to and whether it is the

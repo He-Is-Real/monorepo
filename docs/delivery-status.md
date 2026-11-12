@@ -277,12 +277,21 @@ notice (version 0, edited in place on dev) now say this, and that AI tools may b
 transcripts, captions and summaries. Before it works on dev: dev's database is wiped and rebuilt
 once (the legal texts changed), when the cluster root is applied.
 
+**In progress: the moderators' decisions** (built on Edit and Delete). On the review page a
+moderator approves, sends back or rejects a waiting story (a kind note to the person for the last
+two, which they read as "What our team said"), takes a published story down with a reason and
+shows it again; the person sees "Taken down by our team". If two moderators decide the same story,
+the first wins and the second is told so. Refusals are plain ("The video is still being processed.
+You can approve it from 14:05."); an Admin may approve anyway while a file is still being
+processed, never within the hour its upload link still works. The page's history now also shows
+when the person changed the words, alongside new files and pictures.
+
 **Still to come:**
 
 - "Your video couldn't be used" (part 1a): a video Bunny can't use sends the story back to the
   person with a plain message.
-- The moderators' decisions (approve, send back, reject), the story's history shown as a timeline
-  including file changes, and hide and show again.
+- How moderators find a published story to take down (today they reach it by its review page's
+  address); a question for Joel.
 
 **Deferred:** two-step verification and Google-only sign-in for staff, until we are happy to pay
 for them.
