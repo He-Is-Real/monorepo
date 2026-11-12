@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useRef, useState } from 'react';
+import { previewHref } from '@/components/share/own-media';
 import { Button } from '@/components/ui/button';
 import {
   type Agreement,
@@ -100,7 +101,8 @@ type Command = 'withdraw' | 'delete';
 
 /**
  * "My submissions" (M2 plan PR 8): the person's stories with their status, a moderator's
- * feedback when there is some, and what they can do with each: continue or delete a draft (and
+ * feedback when there is some, and what they can do with each: preview it as others will see it
+ * (M3 plan PR 2; a published one is viewed on the site instead), continue or delete a draft (and
  * see when it goes if left untouched), withdraw a story waiting for review or published, delete
  * one sent back for changes, withdrawn or not published (D71); and whether the person allowed it
  * to be shared on social media (plan 4e: chosen once, at the end of its upload; read only here).
@@ -378,6 +380,17 @@ function StoryRow({
                 aria-describedby={titleId}
               >
                 Continue
+              </Link>
+            </Button>
+          )}
+          {!onSite && (
+            <Button
+              asChild
+              variant="outline"
+              className="h-auto min-h-11 px-5 py-2 whitespace-normal"
+            >
+              <Link href={previewHref(story.id)} aria-describedby={titleId}>
+                Preview
               </Link>
             </Button>
           )}

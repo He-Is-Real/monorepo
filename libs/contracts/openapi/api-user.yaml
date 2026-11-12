@@ -144,6 +144,9 @@ paths:
           description: |
             My story. The strong `ETag` is its `version`, for the next `If-Match` (D29). With a picture,
             api-user checks whether its file arrived (`image.uploaded`); never `304` while it hasn't.
+            The person's own video or audio, its thumbnail and their picture are signed for one hour
+            (M3 plan PR 2, P1b-2), the media once Bunny has processed it (`null` before). An answer
+            carrying any signed link is never `304`, so a conditional read always gets fresh links.
           headers:
             ETag:
               $ref: './components.yaml#/components/headers/ETag'

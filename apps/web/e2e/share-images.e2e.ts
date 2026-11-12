@@ -322,6 +322,54 @@ test.describe('behaviour', () => {
     await step(page, 'Add some details');
   });
 
+  test('the steps at the top keep a picture’s rules: forward waits while it uploads, back just goes and stops it (V-2)', async ({
+    page,
+    request,
+  }) => {
+    await person(page, request);
+    await written(page);
+    const stepButton = (name: RegExp) =>
+      page
+        .getByRole('navigation', { name: 'Steps' })
+        .getByRole('button', { name });
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    await page.route(`${STUB_USER_URL}/__s3/**`, async (route) => {
+      if (route.request().method() !== 'PUT') return route.fallback();
+      await held;
+      // Stopped by the browser meanwhile: there's nothing left to send.
+      return route.fallback().catch(() => undefined);
+    });
+    await choose(page, 900, 1200);
+    await expect(page.getByText('Uploading your picture…')).toBeVisible();
+
+    // Forward: the step's own rule, as Continue says it.
+    await stepButton(/^6\. Review/).click();
+    await expect(
+      alert(page, 'Your picture is still uploading. Wait for it to finish'),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('heading', { level: 2, name: 'Write your story' }),
+    ).toBeVisible();
+
+    // Back: no question; the step changes and the picture's upload stops with it.
+    const stopped = page.waitForEvent(
+      'requestfailed',
+      (r) => r.method() === 'PUT' && r.url().includes('/__s3/'),
+    );
+    await stepButton(/^3\. Prepare/).click();
+    await step(page, 'Prepare your story');
+    await expect(page.getByRole('alertdialog')).toHaveCount(0);
+    await expect(page.getByText('Uploading your picture…')).toHaveCount(0);
+    await stopped;
+    release();
+
+    // The story has that picture without its file: forward stops at its step until it's added.
+    await stepButton(/^6\. Review/).click();
+    await step(page, 'Write your story');
+    await expect(page.getByText('didn’t finish uploading')).toBeVisible();
+  });
+
   test('Continue saves a description typed while its save is under way, and waits for a picture chosen meanwhile (Codex #211, 2 and 3)', async ({
     page,
     request,

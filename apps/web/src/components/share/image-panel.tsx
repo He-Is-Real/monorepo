@@ -299,12 +299,15 @@ export function ImagePanel({
   const saving = useRef<Promise<boolean>>(Promise.resolve(true));
   /** Whether the panel is still on the page (the step, the person and the draft it was made for). */
   const alive = useRef(true);
+  /** Stops the picture's file on its way up when the panel leaves the page (Joel's V-2 answer). */
+  const sending = useRef<AbortController | null>(null);
   useEffect(() => {
     alive.current = true;
     // A panel mounted afresh tells the step where it starts: an earlier panel's state isn't its own (Codex #211).
     onStateRef.current?.(stateOf(phaseRef.current));
     return () => {
       alive.current = false;
+      sending.current?.abort();
     };
   }, []);
   /**
@@ -487,15 +490,22 @@ export function ImagePanel({
       };
       setAttached(shown);
       held.current = { picture, path: shown.path };
+      const controller = new AbortController();
+      sending.current = controller;
       const res = await fetch(target.uploadUrl, {
         method: target.method,
+        signal: controller.signal,
         // Exactly the two headers the link was signed for (the browser sets the length).
         headers: {
           'Content-Type': target.signed['Content-Type'] ?? '',
           'If-None-Match': target.signed['If-None-Match'] ?? '',
         },
         body: picture.blob,
-      }).catch(() => null);
+      })
+        .catch(() => null)
+        .finally(() => {
+          if (sending.current === controller) sending.current = null;
+        });
       if (left()) return;
       // 412: this very file is there already (a replay of a request whose PUT went through).
       // Otherwise the request stays kept, so trying again replays it for the same path.

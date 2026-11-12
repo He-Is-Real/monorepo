@@ -61,8 +61,9 @@ export interface StoryMine {
   primaryFormat: string;
   media: {
     format: string;
-    playbackUrl: null;
-    thumbnailUrl: null;
+    /** The owner's own player link, on GetStory only, once Bunny has processed the file. */
+    playbackUrl: string | null;
+    thumbnailUrl: string | null;
     width: number | null;
     height: number | null;
     durationSeconds: number | null;
@@ -186,6 +187,8 @@ interface RawStory {
   themeRefs: string[];
   media?: {
     format: string;
+    bunnyVideoId?: string | null;
+    thumbnailPath?: string | null;
     width?: number | null;
     height?: number | null;
     durationSeconds?: number | null;
@@ -255,8 +258,14 @@ const iso = (d: string | null | undefined) =>
 export class StoryStore {
   constructor(
     private readonly person: SurrealQueryable,
-    /** Signs the draft's image for its owner (D52); its URL is null without it. */
-    private readonly urls?: Pick<MediaUrls, 'imageUrl'>,
+    /**
+     * Signs the draft's image for its owner (D52); its URL is null without it. GetStory's also
+     * signs the owner's own video or audio and its thumbnail ({@link get}).
+     */
+    private readonly urls?: Pick<
+      MediaUrls,
+      'imageUrl' | 'playbackUrl' | 'thumbnailUrl'
+    >,
   ) {}
 
   /** Every category and its themes, highlighted or not (themes plan v3), in their order. */
@@ -268,8 +277,12 @@ export class StoryStore {
     return groupThemes(categories, themes);
   }
 
+  /**
+   * GetStory: with the owner's own player and thumbnail links once Bunny has processed the file
+   * (M3 plan PR 2, P1b-2: their preview), never in the list; null while it's still processing.
+   */
   async get(id: string): Promise<StoryMine | undefined> {
-    const story = await this.read(id);
+    const story = await this.read(id, true);
     if (!story) return undefined;
     const { themeRefCount: _, ...mine } = story;
     return mine;
@@ -282,6 +295,7 @@ export class StoryStore {
    */
   private async read(
     id: string,
+    ownMedia = false,
   ): Promise<(StoryMine & { themeRefCount: number }) | undefined> {
     const [rows] = (await runQuery(
       this.person,
@@ -289,7 +303,7 @@ export class StoryStore {
       { id },
     )) as [RawStory[]];
     if (!rows.length) return undefined;
-    return (await this.withThemes(rows))[0];
+    return (await this.withThemes(rows, ownMedia))[0];
   }
 
   /** Newest first (by creation, then id); `cursor` = the last row's position. */
@@ -742,6 +756,7 @@ export class StoryStore {
   /** The themes of the stories' themeRefs, in each story's order (a deleted one left out). */
   private async withThemes(
     rows: RawStory[],
+    ownMedia = false,
   ): Promise<(StoryMine & { themeRefCount: number })[]> {
     const refs = [...new Set(rows.flatMap((r) => r.themeRefs))];
     const [themes] = refs.length
@@ -765,15 +780,23 @@ export class StoryStore {
       body: r.body ?? null,
       bylineName: r.bylineName ?? null,
       primaryFormat: r.primaryFormat,
-      media: (r.media ?? []).map((m) => ({
-        format: m.format,
-        playbackUrl: null,
-        thumbnailUrl: null,
-        width: m.width ?? null,
-        height: m.height ?? null,
-        durationSeconds: m.durationSeconds ?? null,
-        processing: m.processing ?? null,
-      })),
+      media: (r.media ?? []).map((m) => {
+        // The story points only at its own file (story_files), so this signs nobody else's.
+        const signed = ownMedia && m.processing === 'ready';
+        return {
+          format: m.format,
+          playbackUrl: signed
+            ? (this.urls?.playbackUrl(m.bunnyVideoId) ?? null)
+            : null,
+          thumbnailUrl: signed
+            ? (this.urls?.thumbnailUrl(m.bunnyVideoId, m.thumbnailPath) ?? null)
+            : null,
+          width: m.width ?? null,
+          height: m.height ?? null,
+          durationSeconds: m.durationSeconds ?? null,
+          processing: m.processing ?? null,
+        };
+      }),
       image: r.image
         ? {
             url: this.urls?.imageUrl(r.image.path) ?? null,

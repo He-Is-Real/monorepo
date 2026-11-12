@@ -71,6 +71,12 @@ interface Conflict {
 
 export interface Draft {
   draftId: string | null;
+  /**
+   * Steps on only when another draft is opened (`load` with another id), never when this draft's
+   * first save gives it its id: work waiting on this draft can tell the two apart (Codex #212
+   * round 2).
+   */
+  generation: number;
   version: number | null;
   /** Written, video or audio: chosen at the start, or the loaded draft's. */
   format: StoryFormat;
@@ -245,6 +251,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
    * nothing written to this tab's storage for a person who has left (Codex #118 round 4).
    */
   const alive = useRef(true);
+  const generation = useRef(0);
 
   const commit = useCallback(
     (next: Stored) => {
@@ -452,6 +459,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
   const load = useCallback(
     async (id: string): Promise<boolean> => {
       if (!api) return false;
+      if (id !== state.current.draftId) generation.current++;
       const story = await api.story(id);
       if (!alive.current) return false;
       if (!['draft', 'changes_requested'].includes(story.status)) {
@@ -612,6 +620,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
 
   return {
     draftId: state.current.draftId,
+    generation: generation.current,
     version: state.current.version,
     format: state.current.format ?? 'written',
     setFormat,

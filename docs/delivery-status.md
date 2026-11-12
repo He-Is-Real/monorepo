@@ -171,6 +171,13 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   is ready, the result writer tells Bunny to show the story's picture (or its own frame again once
   the picture is taken off). The old video bundle
   ([#160](https://github.com/He-Is-Real/monorepo/pull/160)) is closed.
+- **Seeing your own upload (part 1b, Joel 2026-11-10):** the share flow's review step plays the
+  person's own video or audio in Bunny's player once Bunny has processed it, or says "Check back
+  later for your video preview" (they can still send it or save it as a draft); a "see your story
+  as others will" page (`/account/stories/{id}/preview`, owner only), linked from the review step
+  and My submissions. api-user signs the owner's links for one hour on the single-story read only.
+  The steps at the top of the share flow become buttons: back at any time, forward as far as the
+  steps are complete. Built (`project/context/research/m3-plan-and-m2-extras.html`, Part 1b).
 
 **Left in the M2 plan:**
 
