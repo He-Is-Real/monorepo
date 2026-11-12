@@ -179,6 +179,8 @@ DEFINE FUNCTION OVERWRITE fn::story::history_only($action: string) {
 };
 -- Who may take which action from which state (the log-entry table of "Story states"; Joel,
 -- 2026-11-11). $from: the story's state before the entry.
+-- A history-only entry's actor is whoever's write caused it (a person's own edit is 'person'), but
+-- only the database's events write one: the storyStatusLog create permission refuses it directly.
 DEFINE FUNCTION OVERWRITE fn::story::step_allowed($actor: string, $action: string, $from: string) {
   IF fn::story::history_only($action) {
     RETURN $actor IN ['person', 'system'] AND $from = 'editing';
@@ -845,6 +847,9 @@ DEFINE EVENT OVERWRITE storySearch_theme_renamed ON theme
 --     (written by storyFile_attach when a story that was sent before gets a new file) and
 --     wordsChanged (written by story_words_changed, once per round of editing, when its words or
 --     themes change); only while the story is being edited.
+-- Directly, a person's session creates only its own steps (sent, editStarted) and api-admin only a
+-- moderator's; the system's entries and the history-only ones are written by the database's own
+-- events (which run elevated, past these permissions), never directly by anyone.
 -- The database sets each entry's status, time, who wrote it and, on approval, publishedAt; refuses
 -- a step the current status doesn't allow; and moves the pointer, in the same write. No session can
 -- move the pointer, or change or delete an entry; entries go only with their story.
@@ -855,8 +860,10 @@ DEFINE EVENT OVERWRITE storySearch_theme_renamed ON theme
 DEFINE TABLE OVERWRITE storyStatusLog SCHEMAFULL PERMISSIONS        -- id = storyStatusLog:<ulid>
   FOR select WHERE story.submitter = $auth OR $auth = service:api_admin
     OR (status = 'approved' AND story.currentStatus = id),
-  FOR create WHERE (story.submitter = $auth AND $auth.status != 'deleted')
-    OR $auth = service:api_admin,
+  FOR create WHERE (story.submitter = $auth AND $auth.status != 'deleted'
+      AND action IN ['sent', 'editStarted'])
+    OR ($auth = service:api_admin AND action IN ['approved', 'changesRequested', 'rejected',
+      'hiddenByModerator', 'shownByModerator']),
   FOR update, delete NONE;
 DEFINE FIELD OVERWRITE story        ON storyStatusLog TYPE record<story> READONLY;
 -- What happened (the log-entry table of "Story states"). Defined before `status`, which follows

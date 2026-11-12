@@ -560,7 +560,7 @@ describe('approval waits for media processing (A2, R12)', () => {
              hiddenReason: 'media_unavailable' }`,
           { id },
         ),
-      ).toMatchObject({ ok: false });
+      ).toEqual({ ok: true, result: [] }); // refused by the permissions: nothing written
       await setFile(id, `processing = 'failed'`);
       expect(
         await outcome(

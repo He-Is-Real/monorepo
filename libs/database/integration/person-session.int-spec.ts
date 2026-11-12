@@ -19,6 +19,7 @@ import {
   draft,
   ERASE,
   grantImage,
+  grantUpload,
   statusOf,
   step,
   submit,
@@ -326,10 +327,13 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
         `CREATE storyStatusLog CONTENT { story: story:ann_draft, action: $action }`,
         { action },
       );
-      expect(result).toEqual({
-        ok: false,
-        error: expect.stringContaining('status_step'),
-      });
+      // Only their own steps pass the permissions (and editStarted's needs a sent story); the
+      // rest write nothing.
+      expect(result).toEqual(
+        action === 'editStarted'
+          ? { ok: false, error: expect.stringContaining('status_step') }
+          : { ok: true, result: [] },
+      );
       expect(await statusOf(migrator, 'ann_draft')).toBe('editing');
     });
 
@@ -646,6 +650,74 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
         'sent',
       ]);
       expect(await statusOf(migrator, 'ann_words')).toBe('pending');
+    });
+
+    it('nobody writes a history-only or system entry directly: only the database’s own events do', async () => {
+      const apiUser = await t.service('api_user');
+      const log = (id: string) =>
+        truth<{ action: string; actor: string }>(
+          `SELECT action, actor, at FROM storyStatusLog
+             WHERE story = type::record('story', $id) ORDER BY at`,
+          { id },
+        ).then((r) => r.map(({ action, actor }) => ({ action, actor })));
+      const forge = async (who: Surreal, id: string, action: string) => {
+        const before = await log(id);
+        // The permissions refuse it: nothing is written.
+        expect(await outcome(who, forgeSql, { id, action })).toEqual({
+          ok: true,
+          result: [],
+        });
+        expect(await log(id)).toEqual(before);
+      };
+      const forgeSql = `CREATE type::record('storyStatusLog', rand::ulid()) CONTENT {
+         story: type::record('story', $id), action: $action, actor: 'system',
+         by: IF $auth = service:api_admin { user:moderator } }`;
+      const HISTORY = ['fileReplaced', 'pictureReplaced', 'wordsChanged'];
+      const SYSTEM = ['hiddenBySystem', 'shownBySystem', 'fileUnusable'];
+      // A never-sent draft: refused, so it can't suppress a later real entry.
+      await draft(ann, 'ann_forge');
+      for (const action of [...HISTORY, ...SYSTEM]) {
+        await forge(ann, 'ann_forge', action);
+      }
+      await submit(ann, 'ann_forge');
+      await edit(ann, 'ann_forge');
+      // While editing a story sent before: the person and api-admin can't write history either.
+      for (const action of HISTORY) {
+        await forge(ann, 'ann_forge', action);
+        await forge(admin, 'ann_forge', action);
+      }
+      for (const action of SYSTEM) await forge(admin, 'ann_forge', action);
+      // The database's own entries still appear: changed words, a new picture, a new file.
+      await run(ann, `UPDATE story:ann_forge SET title = 'Forged no more'`);
+      const version = async () =>
+        (await truth<number>('SELECT VALUE version FROM story:ann_forge'))[0];
+      expect(
+        await grantImage(apiUser, {
+          story: 'ann_forge',
+          person: 'ann',
+          version: await version(),
+          name: '3'.repeat(32),
+        }),
+      ).toMatchObject({ ok: true });
+      await run(migrator, `UPDATE story:ann_forge SET primaryFormat = 'video'`);
+      expect(
+        await grantUpload(apiUser, {
+          video: 'ann_forge_video',
+          story: 'ann_forge',
+          person: 'ann',
+          version: await version(),
+        }),
+      ).toMatchObject({ ok: true });
+      expect(await log('ann_forge')).toEqual([
+        { action: 'sent', actor: 'person' },
+        { action: 'editStarted', actor: 'person' },
+        { action: 'wordsChanged', actor: 'person' },
+        { action: 'pictureReplaced', actor: 'system' },
+        { action: 'fileReplaced', actor: 'system' },
+      ]);
+      expect(
+        await truth('SELECT VALUE currentStatus.action FROM story:ann_forge'),
+      ).toEqual(['editStarted']);
     });
 
     it('a rejected story can only be deleted: no Edit, no send', async () => {
