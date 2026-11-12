@@ -1,4 +1,4 @@
-import type { Surreal } from 'surrealdb';
+import { RecordId, type Surreal } from 'surrealdb';
 import {
   createPeople,
   outcome,
@@ -7,7 +7,6 @@ import {
   TestDatabase,
 } from './support/harness';
 import {
-  approve,
   buildWorld,
   draft,
   grantImage,
@@ -67,6 +66,13 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
     'removedAt',
   ];
 
+  /** A moderator's entry, loaded as given by the migrator (a system user: no media wait). */
+  const asModerator = (id: string, action: string) =>
+    step(migrator, id, action, {
+      actor: 'moderator',
+      by: new RecordId('user', 'moderator'),
+    });
+
   beforeAll(async () => {
     t = await TestDatabase.create();
     ({ admin, ann } = await buildWorld(t));
@@ -112,10 +118,10 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
     ]) {
       await step(admin, id, to, { comment: `Moderator note on ${id}` });
     }
-    // Approved straight after their pictures' upload, while the links could still be used: a
-    // Admin skips that wait (and the entry's record of it is api-admin's alone to read).
+    // Approved straight after their pictures' upload, while the links could still be used: no
+    // moderator may skip that wait (G11 B), so the migrator loads the approvals as given.
     for (const id of ['ann_editing', 'ann_hidden', 'ann_live']) {
-      await approve(admin, id, { superAdminSkip: true });
+      await asModerator(id, 'approved');
     }
     await edit(ann, 'ann_editing');
     await step(admin, 'ann_hidden', 'hiddenByModerator', {
@@ -446,10 +452,9 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
       migrator,
       `SELECT VALUE publishedAt FROM storyStatusLog WHERE story = story:ann_hidden AND status = 'approved'`,
     );
-    // Its picture's upload link could still be used (just uploaded): an Admin shows it again.
-    await step(admin, 'ann_hidden', 'shownByModerator', {
-      skippedMediaWait: true,
-    });
+    // Its picture's upload link could still be used (just uploaded), which no moderator may skip
+    // (G11 B): the migrator loads the moderator's "show again" as given.
+    await asModerator('ann_hidden', 'shownByModerator');
     expect(
       await rows(
         reader,
