@@ -85,7 +85,10 @@ export function parseReviewTag(
  * the files the moderator reviewed (G14 B), then the entry, which the database checks and which
  * moves the story. Two moderators at once write the same fence (the story's owner's), so the second
  * conflicts at commit; its retry finds the story's entry changed: "already decided" (D-1). Answers
- * the story's version and what the next decision names.
+ * the story's version and what the next decision names. The table's permissions let api-admin
+ * create only the five moderator actions; a refused create writes nothing and answers empty (no
+ * error), so an empty answer is thrown as `moderation_cmd:not_written`: a fault in this service
+ * (it only ever sends those five), so a plain 500, never one of the moderator's refusals.
  */
 const DECIDE_SQL = `BEGIN TRANSACTION;
   LET $story = type::record('story', $id);
@@ -100,9 +103,10 @@ const DECIDE_SQL = `BEGIN TRANSACTION;
     OR $s.imageFile != (IF $image != NONE { type::record('storyFile', $image) }) {
     THROW 'moderation_cmd:changed';
   };
-  CREATE type::record('storyStatusLog', rand::ulid()) CONTENT {
+  LET $e = (CREATE ONLY type::record('storyStatusLog', rand::ulid()) CONTENT {
     story: $story, action: $action, by: $by, comment: $comment, skippedMediaWait: $skip
-  } RETURN NONE;
+  } RETURN id);
+  IF $e = NONE { THROW 'moderation_cmd:not_written' };
   SELECT version, record::id(currentStatus) AS entry,
     IF mediaFile != NONE { record::id(mediaFile) } AS media,
     IF image != NONE { record::id(image.file) } AS image

@@ -947,7 +947,7 @@ async function decideStory(req, res, token, id, route) {
           title: 'Conflict',
           status: 409,
           code: 'media_recently_uploaded',
-          availableAt: '2026-11-01T14:05:00.000Z',
+          availableAt: '2026-11-01T14:05:59.000Z',
         }),
       );
     }
