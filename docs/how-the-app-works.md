@@ -511,9 +511,9 @@ Built, read-only (M3 plan, pull request 1; Joel, 2026-11-09):
 
 Planned (M3):
 
-- Approve, Send back and Reject on the review page; Reject and Send back need a note, which the
-  person sees on their profile. Moderators can also hide a published story and show it again (G5).
-  If two moderators decide on the same story, the first decision wins (D-1).
+- Approve, Send back and Reject on the review page; Reject and Send back need a note, written
+  pastorally, which the person sees on their profile. Moderators can also hide a published story
+  and show it again (G5). If two moderators decide on the same story, the first decision wins (D-1).
 - **No pick-up locking, escalation or assignment** (Joel, 2026-11-11): any moderator can decide on
   any story in the queue. How assignment should look is for later, once the basics are visible.
 - **No appeal process** (G20, Joel 2026-11-11): the rejection message points the person to

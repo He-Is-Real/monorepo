@@ -222,7 +222,7 @@ export function datasetProblems(data: Dataset, media: BunnyMedia): string[] {
         (r.decision === 'reject' || r.decision === 'request_changes') &&
         !r.feedback
       ) {
-        p(`${r.decision} needs feedback`);
+        p(`${r.decision} needs pastoral feedback`);
       }
     }
 
