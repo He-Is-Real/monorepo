@@ -7,12 +7,7 @@ import type { ClipId, ImageId } from '../media';
  * (sent back, being edited) or `rejected`.
  */
 export type StoryStatus =
-  | 'draft'
-  | 'pending'
-  | 'approved'
-  | 'rejected'
-  | 'sent_back'
-  | 'editing';
+  'draft' | 'pending' | 'approved' | 'rejected' | 'sent_back' | 'editing';
 
 export type StoryFormat = 'video' | 'audio' | 'written';
 

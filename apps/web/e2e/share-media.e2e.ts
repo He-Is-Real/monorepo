@@ -285,7 +285,7 @@ test.describe('behaviour', () => {
       .setInputFiles(clip(info.outputPath('clip.mp4')));
     await expect(alert(page, 'The upload stopped')).toBeVisible();
     expect(await me.stories()).toMatchObject([
-      { status: 'draft', primaryFormat: 'video' },
+      { status: 'editing', primaryFormat: 'video' },
     ]);
     await page.getByRole('button', { name: 'Try again' }).click();
     await expect(page.getByText(/^Uploaded: clip\.mp4/)).toBeVisible();
@@ -310,7 +310,7 @@ test.describe('behaviour', () => {
     await expect(page.getByText(/^Upload cancelled\./)).toBeVisible();
     await expect(page.getByRole('progressbar')).toHaveCount(0);
     expect((await me.uploads()).videos).toMatchObject([{ done: false }]);
-    expect(await me.stories()).toMatchObject([{ status: 'draft' }]);
+    expect(await me.stories()).toMatchObject([{ status: 'editing' }]);
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await expect(alert(page, 'Choose your video to upload.')).toBeVisible();
   });

@@ -106,7 +106,7 @@ their fence (see "Transactions").
 ### Stories (`schema-04-stories.surql`)
 
 - **`story`: one table (R11), its content only.** `currentStatus` points at its newest status
-  entry (none = draft); `image: {file, alt}` and `mediaFile` point at its `storyFile` rows.
+  entry that moved it (none = a draft, never sent); `image: {file, alt}` and `mediaFile` point at its `storyFile` rows.
   - **Read:** the owner; api-admin, workflow, housekeeping all rows; everyone else (the public,
     api-user's login, other people) only stories whose current entry is `approved`, and only the
     published fields. Private fields (`submitter`, the sharing consent and its date, `createdAt`)
@@ -116,7 +116,7 @@ their fence (see "Transactions").
   - **Create:** the person's own draft, live, after agreeing to the latest terms of use and
     testimony consent (`story_agreements`). `version` and `createdAt` are the server's.
   - **Write scope (D41), dropped silently outside it:** content fields only by the person, and
-    only while `draft` or `changes_requested` (`story_owner_content_lock`); never api-admin or
+    only while `editing` (`story_owner_content_lock`); never api-admin or
     workflow. File pointers only through a new `storyFile` row (`storyFile_attach`, api-user's
     login), except that the person may take their picture off or change its description, and
     that workflow may move `mediaFile` from an audio file to that file's own picture video
@@ -125,7 +125,7 @@ their fence (see "Transactions").
     `version` (`$renderMove`, set by the result writer only; Joel 2026-11-07,
     audio-picture-video.html 1B).
   - **Media jobs from the story (event `story_media_jobs`, elevated):** a video or audio story
-    entering `pending` from `draft` or `changes_requested` writes a check of its file (reason
+    entering `pending` from `editing` writes a check of its file (reason
     `submitted`); an editable audio story whose picture changes, with the same file, writes a
     `render` job (reason `picture_changed`). api-user sends them after the person's write.
     `currentStatus` only through the status log's event. `submitter` is `READONLY` (an error).
@@ -159,18 +159,21 @@ their fence (see "Transactions").
     Admin may approve anyway: api-admin sets `skippedMediaWait` (roles live in Clerk), which
     the database accepts only on a moderator's approval that the wait would refuse. The system's
     hide and show again, and system users, are never held. Specs: `approval-wait`.
-  - **Delete:** erasure (api-user, api-admin); the owner, live, for `draft`, `changes_requested`,
-    `withdrawn` or `rejected` (D71; never pending, in review, approved or hidden); housekeeping
-    only for `fn::story::draft_expired(id)`: a draft untouched for 186 days
+  - **Delete:** erasure (api-user, api-admin); the owner, live, in any state (ED-3, Joel
+    2026-11-11; D71); housekeeping only for `fn::story::draft_expired(id)`: a draft (never sent)
+    untouched for 186 days
     (`fn::story::draft_retention`) since the later of `updatedAt` and its files' `renewedAt`. The
     owner's page shows the same `fn::story::draft_expires_at`. A delete takes the status log and
     others' hearts (`story_erasure_cascade`) and the search row (`story_search`), and queues the
     picture folder; its `storyFile` rows stay for the upload limits. Specs: `person-session`, api-user's `my-stories`, housekeeping's suite.
   - `themeIds` (text copies of `themeRefs`, computed) exists for the element index (gotchas).
     `slugHistory` keeps old slugs for a 301 (D30); only system users write it.
-- **`storyStatusLog` (R6): one entry per change of status, append-only.** Fields: `story`,
-  `status` (`pending`, `in_review`, `approved`, `changes_requested`, `rejected`, `withdrawn`,
-  `hidden`), `actor` (set by the database: `person`, `moderator`, `system`), `by` (the person or
+- **`storyStatusLog` (R6): one entry per step, append-only (Story states, Joel 2026-11-11).**
+  Fields: `story`, `action` (what happened: `sent`, `editStarted`, `changesRequested`,
+  `fileUnusable` (reserved), `approved`, `rejected`, `hiddenBySystem`, `shownBySystem`,
+  `hiddenByModerator`, `shownByModerator`, and the history-only `fileReplaced`, `pictureReplaced`
+  and `wordsChanged` (reserved)), `status` (computed from the action: `editing`, `pending`,
+  `approved`, `hidden`, `rejected`; a history-only entry keeps the story's), `actor` (set by the database: `person`, `moderator`, `system`), `by` (the person or
   moderator; api-admin alone reads it), `storyVersion`, `comment`, `at` (server time),
   `publishedAt` (approved entries: the first approval's time, kept on later ones), `hiddenReason`
   (`media_unavailable`, `media_changed`), `reviewedMediaFile`/`reviewedImageFile` (approved
@@ -179,12 +182,16 @@ their fence (see "Transactions").
   - **Read:** the owner (never `by`) and api-admin; everyone else only an entry's `story`,
     `status` and `publishedAt`, while it is its story's current approved entry.
   - **Create:** the owner, live, or api-admin. `storyStatusLog_step` checks who may take which
-    step: the owner submits (from draft or changes requested) and withdraws (from anything but
-    withdrawn); a moderator (api-admin, naming `by`) picks up, decides, hides and shows again; the
-    system hides and shows again for media. The same write moves `story.currentStatus`, so the
+    step (`fn::story::step_allowed`): the owner sends (from editing) and starts editing (Edit, from
+    pending, approved or hidden); a moderator (api-admin, naming `by`) approves, sends back or
+    rejects (from pending only, so of two decisions the first wins, D-1), hides (from approved, with
+    a note) and shows again (from hidden); the system hides and shows again for media
+    (`hiddenBySystem` needs a `hiddenReason`). Sending back and rejecting need a note. History-only
+    entries (written by `storyFile_attach` while editing a story sent before, actor `system`) never
+    move the pointer; every other entry moves `story.currentStatus` in the same write, so the
     story's own events (shape, limits, agreements, approval gate) check the step too. No update;
     no delete while its story exists. Specs: `person-session`, `write-scope`, `public-view`.
-  - `fn::story::status_of($s)` (`currentStatus.status ?? 'draft'`) is the status every rule and
+  - `fn::story::status_of($s)` (`currentStatus.status ?? 'editing'`) is the status every rule and
     event asks. App code uses `STORY_STATUS`, `IS_DRAFT` and `isPublished` from `libs/database`
     (`story-status.ts`), never the convention itself.
 - **Hiding for media (Joel, 2026-10-23; `fn::story::check_files`).** Whenever a story's file row or

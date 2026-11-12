@@ -50,7 +50,7 @@ export const FAQ_GROUPS: FaqGroup[] = [
         id: 'edit-remove',
         question: 'Can I edit or remove my story?',
         answer:
-          'Yes. You can edit the details or withdraw your story at any time from your profile page.',
+          'Yes. You can edit or delete your story at any time from your profile page. A published story you edit comes off the site until our team has approved it again.',
       },
     ],
   },

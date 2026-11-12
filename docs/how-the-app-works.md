@@ -31,26 +31,19 @@ code does what it does today; nobody should build on either reading.
    is withdrawn we take the story off our own channels and stop paid promotion within 30 days.
    Plan 4e's sharing text says sharing can't be withdrawn and a takedown is "on request, with
    care". Which applies before the first post? (delivery-status.md lists the takedown as a gate.)
-4. **Publishing a withdrawn story again.** D61 says giving consent again doesn't republish a
-   story, and planned a "publish my story again" option. Plan 4e removed consent withdrawal, so
-   this is about withdrawn stories only. Is "publish my story again" still wanted?
-5. **Editing a published story.** Today a person can edit only a draft or a story sent back for
-   changes. Older decisions say "a story changed after it went public needs approving again",
-   which suggests published stories could be edited. Can a person edit a published story (and so
-   send it back for review), or only withdraw it?
-6. **A notice when the privacy notice changes.** Plan 4e (8b) says changes that matter are
+4. **A notice when the privacy notice changes.** Plan 4e (8b) says changes that matter are
    announced with a banner on the next visit (and later by email). Only the testimony-consent
    banner is built. Is a privacy-notice banner wanted before Go live?
-7. **Bunny Optimizer.** Answered (Joel, 2026-11-11): the question waits for the production
+5. **Bunny Optimizer.** Answered (Joel, 2026-11-11): the question waits for the production
    rollout. Bunny Optimizer (it rebuilds every picture on the way out, about $19 a month) stays
    off on dev; whether production has it is decided when production is built.
-8. **Stripe's embedded Checkout.** The donate-button decision (2026-10-30) said Stripe's embedded
+6. **Stripe's embedded Checkout.** The donate-button decision (2026-10-30) said Stripe's embedded
    Checkout would replace the Buy Buttons in M4. Is that still the M4 plan?
-9. **Trusted submitters' hourly limit.** D94 says trusted submitters keep the hourly upload
+7. **Trusted submitters' hourly limit.** D94 says trusted submitters keep the hourly upload
    limit "but raised"; today they keep the same 10 an hour. Should it be higher, and how much?
-10. **Spam and safety checks on sharing.** The security review plans a CAPTCHA on the share
-    form, a verified email before the first story, and virus scanning of uploads. None of these
-    is in a later decision or built. Are they still planned, and for which milestone?
+8. **Spam and safety checks on sharing.** The security review plans a CAPTCHA on the share
+   form, a verified email before the first story, and virus scanning of uploads. None of these
+   is in a later decision or built. Are they still planned, and for which milestone?
 
 ## Accounts and sign-in
 
@@ -127,8 +120,8 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   account. Agreeing to a newer version covers their earlier stories too. (D85)
 - **At the end of sharing a story:** an optional, unticked box to let us share that story on
   social media, naming every platform. It is chosen per story. It can't be withdrawn on its own:
-  withdrawing or deleting the story stops any further sharing, but copies already posted can't
-  be recalled.
+  taking the story down to edit or deleting it stops any further sharing, but copies already
+  posted can't be recalled.
 - **The privacy notice** is shown and linked next to every box. Nobody ticks it, and nobody is
   recorded as having read it. It is called "privacy notice" everywhere.
 - Boxes are never ticked in advance.
@@ -154,15 +147,16 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 - **Admins publish new versions** at the consent admin page: a text box, the
   changes against the current version, a preview, then confirm. A saved version is in force at
   once, and records which admin published it.
-- **Withdrawing:** deleting the account withdraws everything; withdrawing or deleting a story
-  withdraws it for that story. There is no other withdrawal.
+- **Withdrawing:** deleting the account withdraws everything; deleting a story withdraws it for
+  that story, and taking it down to edit stops its use until it is approved again. There is no
+  other withdrawal.
 - Version 0 of each text is a draft written from how the system works today ("Draft, to be
   reviewed before go-live"). Everyone who had an account when plan 4e arrived on dev was recorded
   as agreeing to version 0 of the terms of use and the testimony consent. The testimony consent
   and the privacy notice say who sees a story before it is public: while it's a draft, the person
-  and a small number of admins (for support and safety; version 0's words still say "super
-  admins", the old name of today's Admins); while it's waiting for review, the person and our
-  moderators. (Joel, 2026-11-05; the admins' view is in api-admin, R15, with no admin page yet.)
+  and a small number of admins (for support and safety); while it's waiting for review, the
+  person and our moderators. Version 0's words were edited in place for M3 (LT-1, Joel
+  2026-11-11: Edit instead of Withdraw, and "super admins" became "admins"; dev only, rebuilt). (Joel, 2026-11-05; the admins' view is in api-admin, R15, with no admin page yet.)
 - **Cookies:** the site uses only essential cookies and storage (sign-in, the light or dark
   choice, the video player's own settings), so there is no cookie banner, only a footer note
   linking to the privacy notice. Anything non-essential later (analytics, error replay) needs the
@@ -258,7 +252,7 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 | Video and audio stories' text | no minimum, at most 10,000      |
 | Title                         | at most 140 characters          |
 | Themes on a story             | 1 to 5, counted when submitting |
-| Open drafts per person        | 3                               |
+| Open drafts per person        | 3 (never-sent stories only)     |
 | Stories sent for review       | 1 in any 7 days                 |
 | Video and audio uploads       | 5 in any 7 days                 |
 | Upload requests (any file)    | 10 an hour                      |
@@ -312,22 +306,30 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   London); pictures are stored in London. (D89)
 - Nothing personal is stored at Bunny: a video's title there is just the story's id. (D69)
 
-## My profile, withdraw and delete
+## My profile, edit and delete
 
-- **My submissions** lists the person's stories, each with its status in plain words and any
-  feedback from a moderator.
-- **Drafts:** continue or delete. Each draft says when it will be deleted if nobody touches it.
+- **My submissions** lists the person's stories, each with its status in plain words (Story
+  states, Joel 2026-11-11): **Draft** (never sent), **Being edited** (taken down with Edit),
+  **Sent back** (a moderator asked for changes; their note shows under "What our team said"),
+  **Waiting for review**, **Published**, **Not on the site right now** (hidden: by the site while
+  its media is fixed, or by a moderator; G2, the owner sees it as it is) and **Not accepted** (with
+  the moderator's note).
+- **Drafts and stories being edited or sent back:** continue ("Continue editing" once it was sent
+  before). Only a draft says when it will be deleted if nobody touches it.
 - **Preview:** every story that isn't on the site has "Preview", the person's own "see it as others
   will" page (see Sharing a story, Steps); a published one has "View" instead.
-- **Withdraw:** a story waiting for review, in review, sent back for changes or published
-  (including one hidden while its media is fixed) can be withdrawn; it leaves the public site at
-  once.
-- A story hidden because its media broke shows to its owner as published, as before: they can't
-  act on it, and it comes back by itself.
-- **Delete:** a person can delete their own draft, a story sent back for changes, a withdrawn
-  story or a rejected one. A story waiting for review, in review or published must be withdrawn
-  first. Deleting a story also deletes its videos and pictures and everyone's hearts on it. (D71)
-- Editing a story that was sent back for changes comes with moderation (planned, M3).
+- **Edit (ED-1 to ED-4; it replaced Withdraw):** a story waiting for review, published or not on
+  the site right now can be edited. Pressing Edit takes it down at once (a published one asks
+  first, as it leaves the public site) and opens it in the share flow, where everything can
+  change: words, themes, video or audio, picture (M3-6 A, G15). It goes back to moderators only
+  when the person sends it again, and back on the site only once a moderator approves it. Its
+  hearts, its first publication date and its address are kept. A story sent back is edited the
+  same way. A rejected story can't be edited, only deleted.
+- **The address follows the title until the story is first approved (SL-1 A):** after that,
+  changing the title keeps the address.
+- **Delete (ED-3):** a person can delete their own story in any state, after one "This can't be
+  undone" question. Deleting a story also deletes its videos and pictures and everyone's hearts on
+  it, and takes it off the site at once. (D71)
 - **Delete my account** is the one account-wide withdrawal. The page says what goes and what
   stays and asks the person to type "delete". It deletes their stories, videos, pictures, hearts,
   limits and records, deletes them at Clerk (which signs them out everywhere), and keeps a
@@ -335,8 +337,8 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   marked deleted, with no date and no reason. Deleting the person in Clerk's dashboard does the
   same. (D82, D88, O4)
 - **Download my data** gives one file of everything we hold about the person, explained in plain
-  words: their stories in every status, each story's whole status history (their own submits and
-  withdrawals, moderators' decisions with their comments, signed "moderator" and never who made
+  words: their stories in every status, each story's whole status history (their own sends and
+  edits, moderators' decisions with their comments, signed "moderator" and never who made
   them, and the site's own hides and shows while a video can't play; R6, Joel 2026-11-05), what
   they agreed to and when, their hearts, their limits and their sign-in details from Clerk. Videos,
   audio and pictures come as links that last 7 days (B, Joel 2026-11-06), in dev and in
@@ -409,7 +411,7 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 - Video, audio and pictures load only through signed links that expire (6 to 7 hours on dev).
   (D52, D64)
 - **Public pages may show a change up to 60 seconds late.** The public API keeps recent answers
-  in memory for a minute, so a story that is withdrawn, deleted or hidden, or a new or edited one,
+  in memory for a minute, so a story that is taken down to edit, deleted or hidden, or a new or edited one,
   can take up to 60 seconds to disappear or appear. Browsers and any future CDN may keep an
   answer only for the part of the minute it has left. Nothing personal is kept this way. (R13,
   Joel 2026-11-05)
@@ -428,16 +430,25 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 
 Built in the database (the decisions and their pages are planned, M3):
 
-- A story's statuses: draft, waiting for review, in review, approved, sent back for changes,
-  rejected, withdrawn, and hidden (approved, but off the site while its media is fixed, or
-  hidden by a moderator).
-- **Each story has a status log (R6, Joel 2026-11-04/05):** every change of status is a new
-  entry, never edited or deleted while the story exists, saying who made it (the person, a
-  moderator or the system), when, and which edit of the story it was about. A moderator's entry
-  can carry a note to the person. The story's status is its newest entry; a story with none is a
-  draft. Who may add which status is fixed in the database: the person submits (from draft or
-  sent back) and withdraws; a moderator picks up, decides, hides and shows again; the system hides
-  and shows again when media breaks and works again.
+- **A story is in one of five states (Story states, Joel 2026-11-11):** editing (including a
+  draft never sent, and one sent back), pending (waiting for review), approved, hidden (approved,
+  but off the site while its media is fixed, or hidden by a moderator) and rejected. There is no
+  "in review" step: moderators decide straight from pending.
+- **Each story has a status log (R6, Joel 2026-11-04/05):** every step is a new entry, never
+  edited or deleted while the story exists, saying what happened (its action), the state it left
+  the story in, who made it (the person, a moderator or the system), when, and which edit of the
+  story it was about. A moderator's entry can carry a note to the person. The story's state is that
+  of its newest entry that moved it; a story with none is a draft. Who may take which step is
+  fixed in the database: the person sends (from editing) and starts editing (Edit, from pending,
+  approved or hidden); a moderator approves, sends back or rejects (from pending), hides (from
+  approved) and shows again (from hidden); the system hides and shows again when media breaks and
+  works again. Sending back, rejecting and a moderator's hide need a note.
+- **History-only entries:** once a story has been sent, a new video or audio file or a new
+  picture while it is being edited adds an entry that doesn't change its state, so moderators see
+  what changed. (A changed-words entry is reserved but not written yet.)
+- **The first decision wins (D-1):** if two moderators decide the same story at once, the second
+  is refused because the story is no longer waiting. (The decision buttons and the "Another
+  moderator has already decided this story" message come with the decision pages.)
 - **A story can't be approved until every upload is processed** and its size and length are
   known, so nothing unchecked reaches the public. (A2) For a picture, "processed" means it passed
   the picture check when the story was sent for review (Uploads, above), until M7's scanning.
@@ -502,7 +513,7 @@ Built, read-only (M3 plan, pull request 1; Joel, 2026-11-09):
   public story page's own parts (player or picture, title, byline, themes, words), with the
   player's playback-speed menu on; then its history, oldest first: each step, whether the person,
   a moderator or the system made it, when, and any note a moderator left the person. Only a
-  story waiting for review or in review opens; any other says it isn't waiting for review.
+  story waiting for review opens; any other says it isn't waiting for review.
 - **Least about the person:** moderators see the byline the person chose, never their name,
   email, account id or join date, and never which moderator made a step.
 - **Links last one hour:** the player and picture links are signed for one hour from when the
@@ -559,8 +570,8 @@ Planned (M3):
 
 ## Data kept and deleted
 
-- **Abandoned drafts:** a draft nobody has touched (no edit, no resumed upload) for 186 days
-  (about 6 months) is deleted, with its files, by the nightly clean-up at 03:30 London time.
+- **Abandoned drafts:** a draft (a story never sent for review) nobody has touched (no edit, no
+  resumed upload) for 186 days (about 6 months) is deleted, with its files, by the nightly clean-up at 03:30 London time.
   (D71) The emailed warning before that comes with the Emails milestone.
 - **Leftover videos** at Bunny that no story uses, older than 48 hours, are deleted by the same
   nightly clean-up. It deletes at most 50 of each kind a night. It started in "report only" mode

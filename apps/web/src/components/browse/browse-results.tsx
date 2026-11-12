@@ -35,7 +35,7 @@ interface Loaded {
  *
  * Every server render is the truth (D51: stories are read fresh): `snapshot` is new each time
  * the server renders the page, and the list starts again from that render's cards, so a story
- * hidden or withdrawn since the last render never stays on screen. It then reloads up to the
+ * hidden, taken down to edit or deleted since the last render never stays on screen. It then reloads up to the
  * URL's page count, from the API.
  */
 export function BrowseResults(props: ListProps & { snapshot: string }) {

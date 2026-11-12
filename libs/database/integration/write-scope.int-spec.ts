@@ -72,7 +72,12 @@ describe('write scope on story fields (D41)', () => {
     );
 
     it('cannot approve, reject or change status: no status entry, no pointer (R6)', async () => {
-      for (const action of ['approved', 'rejected', 'changesRequested', 'fileUnusable']) {
+      for (const action of [
+        'approved',
+        'rejected',
+        'changesRequested',
+        'fileUnusable',
+      ]) {
         await run(
           workflow,
           `CREATE storyStatusLog CONTENT { story: story:bob_pending, action: $action }`,

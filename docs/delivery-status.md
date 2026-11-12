@@ -245,8 +245,15 @@ basic for now: no pick-up locking, escalation or assignment of stories to modera
   ([#214](https://github.com/He-Is-Real/monorepo/pull/214)). Before it works on dev: apply the gcp
   root and the Clerk settings (`infra/clerk/clerk-config.mjs`).
 
-**In progress:** Edit and Delete. Withdraw becomes Edit: pressing it takes the story off the site
-until it is approved again; Delete works on every story after one "This can't be undone" question.
+**In progress: story states, Edit and Delete.** A story is now in one of five states (being
+edited, waiting for review, published, not on the site right now, not accepted), and each step in
+its history says what happened. "Withdraw" is gone: Edit takes a story waiting for review,
+published or hidden down to edit, and everything in it can change before it is sent again; its
+hearts, first publication date and address are kept. Delete works in every state after one "This
+can't be undone" question. My submissions shows Draft, Being edited, Sent back (with "What our
+team said"), Waiting for review, Published, Not on the site right now and Not accepted. The draft
+legal texts say Edit instead of Withdraw, and "admins" instead of "super admins". Dev's database
+is wiped and rebuilt for it (a new reset name in the dev cluster root, so apply that root).
 
 **Still to come:**
 

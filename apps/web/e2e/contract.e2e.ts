@@ -183,7 +183,8 @@ test('the stub api-user’s account bootstrap fits the contract', async ({
       stories: [
         {
           id: 'e1',
-          status: 'changes_requested',
+          status: 'editing',
+          submittedAt: '2026-10-20T12:00:00.000Z',
           title: 'Mine',
           themeIds: ['healing'],
           rejectionFeedback: 'A little more, please.',
@@ -355,7 +356,7 @@ test('the stub api-user’s submit flow answers fit the contract', async ({
   const created = await create();
   expect(created.status).toBe(201);
   const id = created.body.id;
-  expect((await call('GET', '/v1/account/stories?status=draft')).status).toBe(
+  expect((await call('GET', '/v1/account/stories?status=editing')).status).toBe(
     200,
   );
   expect((await call('GET', `/v1/account/stories/${id}`)).status).toBe(200);
@@ -375,14 +376,22 @@ test('the stub api-user’s submit flow answers fit the contract', async ({
     },
   });
   expect(submitted.status).toBe(200);
-  const withdrawn = await call('POST', `/v1/stories/${id}/withdraw`, {
+  const editing = await call('POST', `/v1/stories/${id}/edit`, {
     headers: { 'if-match': `"${submitted.body.version}"` },
   });
-  expect(withdrawn.status).toBe(200);
+  expect(editing.status).toBe(200);
+  // Being edited already: only a story waiting, published or hidden can be taken down to edit.
+  expect(
+    (
+      await call('POST', `/v1/stories/${id}/edit`, {
+        headers: { 'if-match': `"${editing.body.version}"` },
+      })
+    ).status,
+  ).toBe(409);
   expect(
     (
       await call('DELETE', `/v1/stories/${id}`, {
-        headers: { 'if-match': `"${withdrawn.body.version}"` },
+        headers: { 'if-match': `"${editing.body.version}"` },
       })
     ).status,
   ).toBe(204);

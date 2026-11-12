@@ -305,7 +305,7 @@ test.describe('behaviour', () => {
     await saved(page);
     expect(await me.stories()).toMatchObject([
       {
-        status: 'draft',
+        status: 'editing',
         title: 'Found',
         body: TEXT,
         bylineName: 'Sam',
@@ -336,7 +336,7 @@ test.describe('behaviour', () => {
     );
     await page.getByRole('button', { name: 'Keep writing' }).click();
     await step(page, 'Write your story');
-    expect((await me.stories())[0].status).toBe('draft');
+    expect((await me.stories())[0].status).toBe('editing');
   });
 
   test('the page shows and applies the admin’s limits, not numbers of its own (W3)', async ({
@@ -455,7 +455,7 @@ test.describe('behaviour', () => {
     await expect(
       themes.getByRole('checkbox', { name: 'Hope' }),
     ).not.toBeChecked();
-    expect((await me.stories())[0].status).toBe('draft');
+    expect((await me.stories())[0].status).toBe('editing');
   });
 
   test('a draft resumes after a reload, and the drafts list offers it', async ({
@@ -1257,7 +1257,7 @@ test.describe('behaviour', () => {
     await expect(box.getByRole('checkbox')).not.toBeChecked();
     expect(await me.stories()).toMatchObject([
       {
-        status: 'draft',
+        status: 'editing',
         title: 'Almost there',
         socialMediaSharingConsent: null,
       },

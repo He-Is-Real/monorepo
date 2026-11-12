@@ -522,7 +522,10 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
           ann,
           `CREATE storyStatusLog CONTENT { story: story:ann_live, action: 'editStarted' }`,
         ),
-      ).toMatchObject({ ok: false, error: expect.stringContaining('status_step') });
+      ).toMatchObject({
+        ok: false,
+        error: expect.stringContaining('status_step'),
+      });
       // Everything may change while editing (M3-6 A), and it goes back for review.
       await run(
         ann,
@@ -541,16 +544,14 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
     it('Edit works on a story waiting for review too (ED-4), and its log records a new picture without moving it', async () => {
       const apiUser = await t.service('api_user');
       const version = async () =>
-        (
-          await truth<number>(
-            'SELECT VALUE version FROM story:ann_hist',
-          )
-        )[0];
+        (await truth<number>('SELECT VALUE version FROM story:ann_hist'))[0];
       const log = () =>
         truth<{ action: string; status: string; actor: string }>(
           `SELECT action, status, actor, at FROM storyStatusLog WHERE story = story:ann_hist
              ORDER BY at`,
-        ).then((r) => r.map(({ action, status, actor }) => ({ action, status, actor })));
+        ).then((r) =>
+          r.map(({ action, status, actor }) => ({ action, status, actor })),
+        );
       await draft(ann, 'ann_hist');
       // A draft's pictures are no history: it was never sent.
       expect(
@@ -589,7 +590,10 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
           `UPDATE story:ann_hist SET currentStatus = (SELECT VALUE id FROM storyStatusLog
              WHERE story = story:ann_hist AND action = 'pictureReplaced')[0]`,
         ),
-      ).toMatchObject({ ok: false, error: expect.stringContaining('moved it') });
+      ).toMatchObject({
+        ok: false,
+        error: expect.stringContaining('moved it'),
+      });
     });
 
     it('a rejected story can only be deleted: no Edit, no send', async () => {
@@ -603,7 +607,10 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
             `CREATE storyStatusLog CONTENT { story: story:ann_rejected, action: $action }`,
             { action },
           ),
-        ).toMatchObject({ ok: false, error: expect.stringContaining('status_step') });
+        ).toMatchObject({
+          ok: false,
+          error: expect.stringContaining('status_step'),
+        });
       }
       expect(await statusOf(migrator, 'ann_rejected')).toBe('rejected');
     });

@@ -20,17 +20,23 @@ type Loaded =
 
 const STATUS_LABEL: Record<string, string> = {
   pending: 'Waiting for review',
-  in_review: 'In review',
 };
 
+/** Each status log entry by what happened (its action). */
 const STEP_LABEL: Record<string, string> = {
-  pending: 'Sent for review',
-  in_review: 'Picked up for review',
+  sent: 'Sent for review',
+  editStarted: 'Taken down to edit',
+  changesRequested: 'Sent back for changes',
+  fileUnusable: 'Sent back: the file can’t be used',
   approved: 'Approved',
-  changes_requested: 'Sent back for changes',
   rejected: 'Rejected',
-  withdrawn: 'Withdrawn',
-  hidden: 'Hidden',
+  hiddenBySystem: 'Hidden',
+  shownBySystem: 'Shown again',
+  hiddenByModerator: 'Hidden',
+  shownByModerator: 'Shown again',
+  fileReplaced: 'Video or audio replaced',
+  pictureReplaced: 'Picture replaced',
+  wordsChanged: 'Words changed',
 };
 
 const ACTOR_LABEL: Record<StatusEntry['actor'], string> = {
@@ -40,7 +46,7 @@ const ACTOR_LABEL: Record<StatusEntry['actor'], string> = {
 };
 
 /**
- * /moderation/{id} (M3 task 3.2): one story waiting for review or in review, read-only, for
+ * /moderation/{id} (M3 task 3.2): one story waiting for review, read-only, for
  * Moderators and up (api-admin checks it too, M3 plan concern C2). The story shows as the public
  * would see it, through the story page's own parts, with the player's speed menu on; then its
  * history, with moderators' past notes to the person. No decision buttons yet (a later PR).
@@ -171,11 +177,11 @@ function History({ entries }: { entries: StatusEntry[] }) {
           <li
             key={`${e.at}-${i}`}
             className="border-l-[3px] border-border pl-4"
-            data-history-entry={e.status}
+            data-history-entry={e.action}
           >
             <p>
               <span className="font-semibold">
-                {STEP_LABEL[e.status] ?? e.status}
+                {STEP_LABEL[e.action] ?? e.action}
               </span>{' '}
               {ACTOR_LABEL[e.actor]}
             </p>

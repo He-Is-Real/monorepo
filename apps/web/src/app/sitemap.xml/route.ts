@@ -9,7 +9,7 @@ import {
 // Per request: the switch is the deployment's (OpenTofu), and stories change.
 export const dynamic = 'force-dynamic';
 
-// D51: nothing that lists stories is cached, so a withdrawn story's URL doesn't linger here.
+// D51: nothing that lists stories is cached, so a story taken off the site doesn't linger here.
 // Caching at Go live is the front door's question (D56).
 const NO_STORE = { 'Cache-Control': 'no-store' };
 

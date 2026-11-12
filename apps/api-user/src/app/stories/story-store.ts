@@ -515,8 +515,7 @@ export class StoryStore {
           if (!EDITABLE.includes(current.status)) {
             throw new ConflictException({
               code: 'story_not_submittable',
-              message:
-                'Only a story being edited can be sent',
+              message: 'Only a story being edited can be sent',
             });
           }
           const set = await this.settings();

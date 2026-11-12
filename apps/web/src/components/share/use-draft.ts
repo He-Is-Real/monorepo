@@ -85,8 +85,8 @@ export interface Draft {
   fields: StoryFields;
   status: SaveStatus;
   /**
-   * The loaded story went for review before (sent back for changes, or withdrawn): submitting it
-   * again doesn't count against the weekly limit (D94, D113).
+   * The loaded story went for review before (sent back for changes, or taken down with Edit):
+   * sending it again doesn't count against the weekly limit (D94, D113).
    */
   submittedBefore: boolean;
   error: string | null;
@@ -348,7 +348,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
           // there is nothing left to save here: say so (the flow shows "Thank you").
           const story = await api.story(s.draftId);
           if (!alive.current) return false;
-          if (!['draft', 'changes_requested'].includes(story.status)) {
+          if (story.status !== 'editing') {
             removeStored(owner, s.draftId);
             try {
               window.sessionStorage.removeItem(SUBMIT_KEY(owner, s.draftId));
@@ -462,7 +462,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
       if (id !== state.current.draftId) generation.current++;
       const story = await api.story(id);
       if (!alive.current) return false;
-      if (!['draft', 'changes_requested'].includes(story.status)) {
+      if (story.status !== 'editing') {
         removeStored(owner, id);
         try {
           window.sessionStorage.removeItem(SUBMIT_KEY(owner, id));

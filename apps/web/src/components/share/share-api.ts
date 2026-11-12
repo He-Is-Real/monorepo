@@ -295,12 +295,17 @@ export function shareApi(api: ApiUser) {
     themes: async () =>
       ((await api.get<{ data: ThemeCategory[] }>('/v1/themes')).data?.data ??
         []) as ThemeCategory[],
+    // Drafts are the stories being edited that were never sent (Story states): a story sent back
+    // or taken down with Edit is continued from My submissions instead. 50, the most a page holds,
+    // so those never crowd the drafts out (the open-drafts limit is far lower).
     openDrafts: async () =>
-      ((
-        await api.get<{ data: MyStory[] }>(
-          '/v1/account/stories?status=draft&limit=10',
-        )
-      ).data?.data ?? []) as MyStory[],
+      (
+        ((
+          await api.get<{ data: MyStory[] }>(
+            '/v1/account/stories?status=editing&limit=50',
+          )
+        ).data?.data ?? []) as MyStory[]
+      ).filter((s) => !s.submittedAt),
     story: async (id: string) =>
       (await api.get<MyStory>(`/v1/account/stories/${encodeURIComponent(id)}`))
         .data as MyStory,

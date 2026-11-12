@@ -75,7 +75,7 @@ brackets).
   its current approved status entry). Never the submitter, consent, raw
   transcript, moderation data or quality signal, which only the owner and the services that need
   them can read ([db-permissions.md](db-permissions.md)).
-- Approving publishes it, withdrawal or a hide takes it off at once, and erasure (which is how a
+- Approving publishes it, Edit or a hide takes it off at once, and erasure (which is how a
   person withdraws their consent) deletes it with its status log: one write each, nothing to
   copy. Theme renames need nothing (themes are fetched by reference, D15); deleting a theme
   removes it from every story in the same transaction (`theme_delete` event).
@@ -103,8 +103,7 @@ short-lived upload credentials.
 - Collections are plural nouns (`/stories`, `/themes`, `/concerns`); the method says
   what happens. Singletons are singular (`/account`, `/feed`, `/moderation/queue`).
 - A verb only as the last segment of a state-changing `POST` that isn't create/replace/delete:
-  `/submit`, `/withdraw`, `/approve`, `/reject`, `/request-changes`, `/escalate`, `/lock`,
-  `/release`, `/publish`. Never a verb in a `GET`, never `/getStories`.
+  `/submit`, `/edit`, `/approve`, `/reject`, `/request-changes`, `/publish`. Never a verb in a `GET`, never `/getStories`.
 - The person's relationships live under `/account` by the related item's ID, with `PUT`/`DELETE`:
   `/account/favourites/{storyId}`, `/account/helped/{storyId}`.
 - kebab-case path segments, camelCase JSON, opaque IDs. Keep `/{id}/verb` (Google's `/{id}:verb`

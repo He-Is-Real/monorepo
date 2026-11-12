@@ -207,7 +207,11 @@ describe('the submit flow for written stories', () => {
         })
       ).status,
     ).toBe(304);
-    const drafts = await call('GET', '/v1/account/stories?status=editing', 'ann');
+    const drafts = await call(
+      'GET',
+      '/v1/account/stories?status=editing',
+      'ann',
+    );
     expect(drafts.body).toMatchObject({ data: [{ id }], nextCursor: null });
 
     const sent = await submit('ann', id, 2);

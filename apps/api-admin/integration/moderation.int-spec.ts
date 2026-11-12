@@ -245,7 +245,12 @@ describe('moderation, the read side (api-admin)', () => {
   });
 
   it('only stories waiting for review: a draft, one taken down to edit, a published story or no story is not found', async () => {
-    for (const id of ['ann_draft', 'ann_editing', 'bob_live', 'no_such_story']) {
+    for (const id of [
+      'ann_draft',
+      'ann_editing',
+      'bob_live',
+      'no_such_story',
+    ]) {
       expect((await get(`/v1/moderation/stories/${id}`)).status, id).toBe(404);
     }
   });

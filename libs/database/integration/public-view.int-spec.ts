@@ -1,5 +1,11 @@
 import type { Surreal } from 'surrealdb';
-import { createPeople, outcome, rows, run, TestDatabase } from './support/harness';
+import {
+  createPeople,
+  outcome,
+  rows,
+  run,
+  TestDatabase,
+} from './support/harness';
 import {
   approve,
   buildWorld,
@@ -86,7 +92,7 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
     };
     await picture('ann_draft', 1, 1);
     for (const id of [
-        'ann_changes',
+      'ann_changes',
       'ann_rejected',
       'ann_editing',
       'ann_hidden',
@@ -463,7 +469,13 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
   });
 
   it('a story taken down to edit can’t be published or hidden by a moderator: only the person sends it again', async () => {
-    for (const action of ['approved', 'rejected', 'changesRequested', 'hiddenByModerator', 'shownByModerator']) {
+    for (const action of [
+      'approved',
+      'rejected',
+      'changesRequested',
+      'hiddenByModerator',
+      'shownByModerator',
+    ]) {
       expect(
         await outcome(
           admin,
@@ -471,7 +483,10 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
              comment: 'A note', by: user:moderator }`,
           { action },
         ),
-      ).toMatchObject({ ok: false, error: expect.stringContaining('status_step') });
+      ).toMatchObject({
+        ok: false,
+        error: expect.stringContaining('status_step'),
+      });
     }
     expect(await statusOf(migrator, 'ann_editing')).toBe('editing');
   });

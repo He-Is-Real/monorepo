@@ -259,7 +259,8 @@ const STORIES: StoryFixture[] = [
     id: 'seed_v11',
     slug: 'test-video-being-edited',
     title: 'Test video: taken down by its author to edit',
-    description: 'Dummy video story its author took down to edit after sending it.',
+    description:
+      'Dummy video story its author took down to edit after sending it.',
     bylineName: 'Ruth (test)',
     submitter: 'seed_ruth',
     format: 'video',

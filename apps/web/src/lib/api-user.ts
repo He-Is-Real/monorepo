@@ -146,8 +146,7 @@ export const INPUT_REFUSALS: ReadonlySet<string> = new Set([
   // Their story's state
   'story_locked',
   'story_not_submittable',
-  'story_not_withdrawable',
-  'story_not_deletable',
+  'story_not_editable',
   // Changed meanwhile (another tab, another admin)
   'stale_version',
   'agreement_version_changed',
