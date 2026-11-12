@@ -22,8 +22,11 @@ import { isCursorTime } from '../cursor-time';
 /** Moderators' links last one hour (M3 plan concern C6), counted from each answer. */
 export const MODERATION_LINK_SECONDS = 60 * 60;
 
-/** The statuses a story under moderation can have; any other is not found here. */
-const UNDER_MODERATION = ['pending', 'in_review'];
+/**
+ * The state a story under moderation has (Story states, Joel 2026-11-11: moderators decide
+ * straight from pending, no pick-up); any other is not found here.
+ */
+const UNDER_MODERATION = ['pending'];
 
 /**
  * The queue (task 3.1): stories whose current status entry is `pending`, oldest sent first, on
@@ -60,7 +63,7 @@ const STORY_SQL = `
         { path: record::id(image.file), alt: image.alt })
     } AS image
   FROM $s;
-  SELECT id, status, actor, comment, at FROM storyStatusLog WITH INDEX storyStatusLog_story
+  SELECT id, action, status, actor, comment, at FROM storyStatusLog WITH INDEX storyStatusLog_story
     WHERE story = $s ORDER BY at ASC, id ASC;`;
 
 type Opt<T> = T | null | undefined;
@@ -104,6 +107,7 @@ interface StoryRow {
 }
 
 interface EntryRow {
+  action: string;
   status: string;
   actor: string;
   comment?: Opt<string>;
@@ -176,8 +180,8 @@ function conditional<T>(
  * api-admin.yaml, tag Moderation, the read side (M3 plan PR 1; tasks 3.1 and 3.2): the queue and
  * one story under review, read-only. Moderator and above on both: the database knows moderators
  * only as api-admin's login (M3 plan concern C2), so this role check is the one gate, and the
- * integration tests refuse a User on each route. Nothing here writes; picking up, deciding and
- * the lock come in later PRs.
+ * integration tests refuse a User on each route. Nothing here writes yet; deciding comes in a
+ * later PR.
  */
 @Controller('v1/moderation')
 export class ModerationController {
@@ -233,8 +237,8 @@ export class ModerationController {
     if (!s || !UNDER_MODERATION.includes(s.status)) {
       throw new NotFoundException();
     }
-    const sent = log.filter((e) => e.status === 'pending').at(-1);
-    if (!sent) throw new NotFoundException(); // never: pending and in review follow a send
+    const sent = log.filter((e) => e.action === 'sent').at(-1);
+    if (!sent) throw new NotFoundException(); // never: pending follows a send
     const urls = this.links.expiringIn(MODERATION_LINK_SECONDS);
     return conditional(
       res,
@@ -277,6 +281,7 @@ export class ModerationController {
         ),
         submittedAt: iso(sent.at),
         statusLog: log.map((e) => ({
+          action: e.action,
           status: e.status,
           actor: e.actor,
           comment: or(e.comment),

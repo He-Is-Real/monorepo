@@ -71,15 +71,7 @@ import {
   sendStoryJobs,
 } from '../media/bunny-webhook';
 
-const STATUSES = [
-  'draft',
-  'pending',
-  'in_review',
-  'approved',
-  'rejected',
-  'changes_requested',
-  'withdrawn',
-];
+const STATUSES = ['editing', 'pending', 'approved', 'hidden', 'rejected'];
 /**
  * GetStory's links to the person's own video, audio and picture (M3 plan PR 2, P1b-2: Joel,
  * 2026-11-10): one hour, not rounded, never cached (`no-store`).
@@ -378,8 +370,8 @@ export class StoriesController {
     return result;
   }
 
-  @Post('v1/stories/:id/withdraw')
-  async withdrawStory(
+  @Post('v1/stories/:id/edit')
+  async startEditingStory(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
     @Param('id') id: string,
@@ -388,7 +380,7 @@ export class StoriesController {
     const sid = storyId(id);
     const version = ifMatchOf(ifMatch);
     const result = await this.people.run(req, ({ session }) =>
-      new StoryStore(session).withdraw(sid, version),
+      new StoryStore(session).startEditing(sid, version),
     );
     res.status(HttpStatus.OK);
     res.setHeader('ETag', `"${result.version}"`);

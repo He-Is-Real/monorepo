@@ -39,7 +39,7 @@ tags:
   - name: Health
     description: 'Liveness and readiness.'
   - name: Moderation
-    description: 'The queue, pick-up lock, decisions and flags.'
+    description: 'The queue, decisions and flags.'
   - name: Admin
     description: 'Users (M5).'
   - name: Staff
@@ -121,7 +121,7 @@ paths:
       operationId: getModerationStory
       summary: A story under moderation
       description: |
-        M3 (task 3.2): one story waiting for review or in review, read-only, with one-hour
+        M3 (task 3.2): one story waiting for review (`pending`), read-only, with one-hour
         signed links to its player and picture (M3 plan concern C6). Any other status, or no such
         story, is `404`. Moderator and above (D1, M3 plan concern C2). The links change on every
         answer, so the `ETag` is a hash of this answer, not the story's version; commands take
@@ -154,67 +154,6 @@ paths:
         '503':
           $ref: './components.yaml#/components/responses/ServiceRestarting'
 
-  /v1/moderation/stories/{id}/lock:
-    post:
-      tags: [Moderation]
-      operationId: lockStory
-      summary: Pick up (lock) a story for review
-      description: |
-        Command. A transaction-guarded update; on a RocksDB optimistic-transaction conflict the handler
-        retries. `409` if another moderator holds the lock. Where the lock lives (and so
-        `StoryModeration.lockedByUserId` and `lockedAt`) is still to be decided (M3 plan question
-        M3-1); nothing records a lock yet.
-      x-required-role: Moderator
-      x-milestone: M3
-      parameters:
-        - $ref: './components.yaml#/components/parameters/storyId'
-        - $ref: './components.yaml#/components/parameters/ifMatch'
-      responses:
-        '200':
-          $ref: './components.yaml#/components/responses/CommandApplied'
-        '401':
-          $ref: './components.yaml#/components/responses/Unauthorized'
-        '403':
-          $ref: './components.yaml#/components/responses/Forbidden'
-        '404':
-          $ref: './components.yaml#/components/responses/NotFound'
-        '409':
-          $ref: './components.yaml#/components/responses/Conflict'
-        '412':
-          $ref: './components.yaml#/components/responses/PreconditionFailed'
-        '428':
-          $ref: './components.yaml#/components/responses/PreconditionRequired'
-        '503':
-          $ref: './components.yaml#/components/responses/ServiceRestarting'
-
-  /v1/moderation/stories/{id}/release:
-    post:
-      tags: [Moderation]
-      operationId: releaseStory
-      summary: Release my lock back to the queue
-      x-required-role: Moderator
-      x-milestone: M3
-      parameters:
-        - $ref: './components.yaml#/components/parameters/storyId'
-        - $ref: './components.yaml#/components/parameters/ifMatch'
-      responses:
-        '200':
-          $ref: './components.yaml#/components/responses/CommandApplied'
-        '401':
-          $ref: './components.yaml#/components/responses/Unauthorized'
-        '403':
-          $ref: './components.yaml#/components/responses/Forbidden'
-        '404':
-          $ref: './components.yaml#/components/responses/NotFound'
-        '409':
-          $ref: './components.yaml#/components/responses/Conflict'
-        '412':
-          $ref: './components.yaml#/components/responses/PreconditionFailed'
-        '428':
-          $ref: './components.yaml#/components/responses/PreconditionRequired'
-        '503':
-          $ref: './components.yaml#/components/responses/ServiceRestarting'
-
   /v1/moderation/stories/{id}/approve:
     post:
       tags: [Moderation]
@@ -223,9 +162,11 @@ paths:
       description: |
         Command `ApproveStory`. The database checks the submitter has the testimony consent (plan 4e;
         any version: it covers every story they submit), then adds an `approved` entry to the
-        story's status log (R6), which publishes it (one `story` table, R11): one write. The
-        caller must hold the lock (`409`). Moderation emails come after Go live; until then the
-        submitter sees the outcome on "My submissions".
+        story's status log (R6), which publishes it (one `story` table, R11): one write. Straight
+        from `pending` (no pick-up; Joel, 2026-11-11). Two moderators deciding the same story: the
+        first decision wins, and the second answers `409` (D-1); the web says "Another moderator has
+        already decided this story" and refreshes. Moderation emails come after Go live; until then
+        the submitter sees the outcome on "My submissions".
 
         Approval waits for processing (A2): every video, audio file and image must be `ready`, and a
         video must have its width, height and duration, an audio file its duration. Otherwise `409`
@@ -274,7 +215,9 @@ paths:
       tags: [Moderation]
       operationId: rejectStory
       summary: Reject a story
-      description: Command `RejectStory`. Feedback to the submitter is required. The caller must hold the lock.
+      description: |
+        Command `RejectStory` (→ `rejected`, final: the person can only delete it). Feedback to the
+        submitter is required. Straight from `pending`; the first decision wins (`409` otherwise, D-1).
       x-required-role: Moderator
       x-milestone: M3
       parameters:
@@ -311,7 +254,10 @@ paths:
       tags: [Moderation]
       operationId: requestStoryChanges
       summary: Send a story back to its submitter for changes
-      description: Command `RequestStoryChanges` (→ `changes_requested`). Feedback is required. The caller must hold the lock.
+      description: |
+        Command `RequestStoryChanges` (→ `editing`, a `changesRequested` entry with the note; the
+        person sees "Sent back" and "What our team said"). Feedback is required. Straight from
+        `pending`; the first decision wins (`409` otherwise, D-1).
       x-required-role: Moderator
       x-milestone: M3
       parameters:
@@ -328,45 +274,6 @@ paths:
           $ref: './components.yaml#/components/responses/CommandApplied'
         '400':
           $ref: './components.yaml#/components/responses/BadRequest'
-        '401':
-          $ref: './components.yaml#/components/responses/Unauthorized'
-        '403':
-          $ref: './components.yaml#/components/responses/Forbidden'
-        '404':
-          $ref: './components.yaml#/components/responses/NotFound'
-        '409':
-          $ref: './components.yaml#/components/responses/Conflict'
-        '412':
-          $ref: './components.yaml#/components/responses/PreconditionFailed'
-        '428':
-          $ref: './components.yaml#/components/responses/PreconditionRequired'
-        '503':
-          $ref: './components.yaml#/components/responses/ServiceRestarting'
-
-  /v1/moderation/stories/{id}/escalate:
-    post:
-      tags: [Moderation]
-      operationId: escalateStory
-      summary: Escalate a story to a senior moderator
-      description: Command `EscalateStory`. Optional internal note; nothing is sent to the submitter.
-      x-required-role: Moderator
-      x-milestone: M3
-      parameters:
-        - $ref: './components.yaml#/components/parameters/storyId'
-        - $ref: './components.yaml#/components/parameters/ifMatch'
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                note:
-                  type: string
-                  maxLength: 2000
-      responses:
-        '200':
-          $ref: './components.yaml#/components/responses/CommandApplied'
         '401':
           $ref: './components.yaml#/components/responses/Unauthorized'
         '403':
@@ -588,8 +495,8 @@ paths:
       operationId: listAllStories
       summary: Every story, any status, drafts included (admins)
       description: |
-        R15 (Joel, 2026-11-05): a read-only list of every story in every status (draft, pending,
-        in review, approved, changes requested, rejected, withdrawn, hidden), newest first (by
+        R15 (Joel, 2026-11-05): a read-only list of every story in every state (editing, drafts
+        included, pending, approved, hidden, rejected), newest first (by
         creation, then id). Admin only: moderators see stories from `pending` on,
         through moderation. No command changes a story from here.
       x-required-role: Admin

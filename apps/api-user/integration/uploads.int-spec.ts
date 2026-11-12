@@ -797,7 +797,7 @@ describe('video and audio uploads', () => {
       zone.down = false;
     }
     expect(await checked()).toBeNull();
-    expect(await status()).toBe('draft');
+    expect(await status()).toBe('editing');
 
     // A good picture: submitted at the version the page sent, and marked checked.
     const sent = await submit('pam', id, 2);
@@ -956,7 +956,7 @@ describe('video and audio uploads', () => {
       }
       expect(
         (await call('GET', `/v1/account/stories/${id}`, 'rho')).body.status,
-      ).toBe('draft');
+      ).toBe('editing');
       // The range ignored: the whole file, its size in Content-Length.
       zone.reply = (f) =>
         answer(200, f, { 'content-length': String(f.length) });
@@ -997,12 +997,14 @@ describe('video and audio uploads', () => {
       // Back for changes and sent again: checked again, still fine.
       await run(
         admin,
-        `CREATE storyStatusLog CONTENT { story: type::record('story', $id), status: 'in_review', by: user:upadmin };
-         CREATE storyStatusLog CONTENT { story: type::record('story', $id), action: 'changesRequested', comment: 'A note', by: user:upadmin, comment: 'A little more' };`,
+        `CREATE storyStatusLog CONTENT { story: type::record('story', $id), action: 'changesRequested', by: user:upadmin, comment: 'A little more' };`,
         { id },
       );
       const back = await call('GET', `/v1/account/stories/${id}`, who);
-      expect(back.body.status).toBe('changes_requested');
+      expect(back.body).toMatchObject({
+        status: 'editing',
+        rejectionFeedback: 'A little more',
+      });
       expect((await submit(who, id, back.body.version)).status, what).toBe(200);
     }
   });

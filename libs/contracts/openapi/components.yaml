@@ -109,7 +109,7 @@ components:
     CacheControlPublic:
       description: |
         Public queries (D30). The service answers a repeated request from memory for up to 60
-        seconds (R13), so a hidden, withdrawn or erased story disappears within a minute.
+        seconds (R13), so a hidden, edited, deleted or erased story disappears within a minute.
         `no-store` unless shared caching is turned on (`PUBLIC_RESPONSE_CACHING=on`; D51: never in
         dev). When on: `public, max-age=N`, where N is the seconds the answer has left of its 60
         (counted from when the database was asked, so a slow read leaves less; `no-store` when none
@@ -152,7 +152,7 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
     Conflict:
-      description: The resource's state doesn't allow this command (e.g. not a draft, locked by another moderator).
+      description: The resource's state doesn't allow this command (e.g. not being edited, or already decided by another moderator).
       content:
         application/problem+json:
           schema:
@@ -362,20 +362,41 @@ components:
     StoryStatus:
       type: string
       description: |
-        `draft` = saved, not submitted (created before upload); `pending` = submitted, in the moderation
-        queue; then `in_review` / `approved` / `rejected` / `changes_requested` / `withdrawn`.
-        The status log has one more, `hidden` (`StoryStatusLogged`: an approved story off the site
-        while its media is fixed, or hidden by a moderator). The person's own views show a hidden
-        story as `approved`, so this list, which they read and filter by, leaves it out.
+        Story states (Joel, 2026-11-11): `editing` = the person can change it and send it (a draft
+        never sent, one sent back for changes, or one they took down with Edit); `pending` = sent,
+        waiting for a moderator; `approved` = on the site; `hidden` = approved but off the site (while
+        its video can't play, or hidden by a moderator); `rejected` = final, it can only be deleted.
+        Why a story is in its state is the `action` of its status log entry (`StoryStatusAction`).
+        A story's owner sees the real state (G2).
+      enum: [editing, pending, approved, hidden, rejected]
+
+    StoryStatusAction:
+      type: string
+      description: |
+        What a status log entry records (Story states, Joel 2026-11-11; ED-2 B): `sent` (the person,
+        editing → pending), `editStarted` (the person pressed Edit: pending, approved or hidden →
+        editing), `changesRequested` (a moderator sent it back, with a note: pending → editing),
+        `fileUnusable` (the system: its file can't be used, → editing; not written yet),
+        `approved` and `rejected` (a moderator, from pending; rejected with a note),
+        `hiddenBySystem` / `shownBySystem` (approved ↔ hidden while its video can't play),
+        `hiddenByModerator` / `shownByModerator` (a moderator, with a reason when hiding; not written
+        yet), and the history-only `fileReplaced`, `pictureReplaced` and `wordsChanged` (no change of
+        state; `wordsChanged` is not written yet).
       enum:
         [
-          draft,
-          pending,
-          in_review,
+          sent,
+          editStarted,
+          changesRequested,
+          fileUnusable,
           approved,
           rejected,
-          changes_requested,
-          withdrawn,
+          hiddenBySystem,
+          shownBySystem,
+          hiddenByModerator,
+          shownByModerator,
+          fileReplaced,
+          pictureReplaced,
+          wordsChanged,
         ]
 
     Format:
@@ -734,10 +755,15 @@ components:
             $ref: '#/components/schemas/ThemeRef'
         rejectionFeedback:
           type: [string, 'null']
-          description: Pastoral feedback after reject or request-changes.
+          description: |
+            "What our team said": the moderator's pastoral feedback while the story is sent back
+            for changes (`editing` after `changesRequested`) or rejected; `null` otherwise.
         submittedAt:
           type: [string, 'null']
           format: date-time
+          description: |
+            When it was first sent for review; `null` for a story never sent, which the person sees
+            as a "Draft".
         approvedAt:
           type: [string, 'null']
           format: date-time
@@ -754,13 +780,13 @@ components:
             A draft's deletion date if nobody touches it again (D71, R5): the nightly housekeeping
             Job deletes it after this. The database's one rule (`fn::story::draft_expires_at`): 6
             months (186 days) after the draft's last edit or the last time an upload link was
-            signed for it again. `null` for anything that isn't a draft. Clients show it as it is;
+            signed for it again. `null` for anything that isn't a draft (never sent). Clients show it as it is;
             they never recompute it. Sent by api-user only.
         socialMediaSharingConsent:
           description: |
             Plan 4e: the version of the social media sharing consent ticked for this story at the end of
-            its upload, and when; `null` if the box wasn't ticked. It can't be withdrawn: withdrawing or
-            deleting the story stops any future use.
+            its upload, and when; `null` if the box wasn't ticked. It can't be withdrawn: deleting the
+            story stops any future use.
           oneOf:
             - $ref: '#/components/schemas/Agreement'
             - type: 'null'
@@ -785,12 +811,12 @@ components:
         submittedAt:
           type: string
           format: date-time
-          description: When it was sent for review (its newest `pending` status entry); the queue's order.
+          description: When it was sent for review (its newest `sent` status entry); the queue's order.
 
     StoryModeration:
       type: object
       description: |
-        M3 (task 3.2): the moderator's view of a story waiting for review or in review, read-only:
+        M3 (task 3.2): the moderator's view of a story waiting for review, read-only:
         what the public would see (words, themes, picture, player, byline) plus its processing
         state and its status log with past moderators' notes. Testimonies are Art 9 data, so it
         carries the least about the person: no account id, join date, email or name (Clerk's),
@@ -850,29 +876,23 @@ components:
         submittedAt:
           type: string
           format: date-time
-          description: When it was last sent for review (its newest `pending` status entry).
+          description: When it was last sent for review (its newest `sent` status entry).
         statusLog:
           type: array
           description: Oldest first (R6). Who added each entry by kind only, never by id.
           items:
             $ref: '#/components/schemas/ModerationStatusEntry'
-        lockedByUserId:
-          type: [string, 'null']
-          description: |
-            Who has the story picked up for review. Not built yet: where the pick-up lock lives
-            is still to be decided (M3 plan question M3-1), so it isn't sent until then.
-        lockedAt:
-          type: [string, 'null']
-          format: date-time
-          description: Since when it has been picked up. Not sent yet (see `lockedByUserId`).
 
     ModerationStatusEntry:
       type: object
       description: |
-        R6: one entry of a story's status log, as moderators read it: what happened, who added it
-        by kind (the person, a moderator, the system), the moderator's note to the person, and when.
-      required: [status, actor, comment, at]
+        R6: one entry of a story's status log, as moderators read it: what happened (`action`), the
+        state it left the story in, who added it by kind (the person, a moderator, the system), the
+        moderator's note to the person, and when.
+      required: [action, status, actor, comment, at]
       properties:
+        action:
+          $ref: '#/components/schemas/StoryStatusAction'
         status:
           $ref: '#/components/schemas/StoryStatusLogged'
         actor:
@@ -2085,14 +2105,15 @@ components:
                 type: array
                 description: |
                   R6 ("Download my data includes the log"): every entry of the story's status log, oldest
-                  first: the person's own (submit, withdraw), the moderators' (with their comment to the
+                  first: the person's own (sent, Edit), the moderators' (with their comment to the
                   person, never who made it) and the system's (hidden while its media can't play, shown
-                  again once it can).
+                  again once it can; a new file or picture added while editing).
                 items:
                   type: object
                   additionalProperties: false
                   required:
                     [
+                      action,
                       status,
                       actor,
                       comment,
@@ -2102,18 +2123,10 @@ components:
                       hiddenReason,
                     ]
                   properties:
+                    action:
+                      $ref: '#/components/schemas/StoryStatusAction'
                     status:
-                      type: string
-                      enum:
-                        [
-                          pending,
-                          in_review,
-                          approved,
-                          changes_requested,
-                          rejected,
-                          withdrawn,
-                          hidden,
-                        ]
+                      $ref: '#/components/schemas/StoryStatus'
                     actor:
                       type: string
                       enum: [person, moderator, system]
@@ -2323,22 +2336,9 @@ components:
                 format: date-time
 
     StoryStatusLogged:
-      type: string
-      description: |
-        A status as the story's status log records it (R6): `StoryStatus`, plus `hidden` (an
-        approved story off the site because its media isn't ready or changed, or a moderator hid
-        it). The story's owner sees a hidden story as `approved`.
-      enum:
-        [
-          draft,
-          pending,
-          in_review,
-          approved,
-          rejected,
-          changes_requested,
-          withdrawn,
-          hidden,
-        ]
+      description: A state as the story's status log records it (R6); the same five states.
+      allOf:
+        - $ref: '#/components/schemas/StoryStatus'
 
     StoryAnyStatus:
       type: object

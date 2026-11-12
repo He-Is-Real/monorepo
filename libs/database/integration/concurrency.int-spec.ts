@@ -29,6 +29,8 @@ describe('concurrent transactions are fenced per person', () => {
   let admin: Surreal;
   let apiUser: Surreal;
   let workflow: Surreal;
+  /** Vic, made by the video test; the decision test that follows uses them too. */
+  let vic: Surreal;
   const truth = <T = unknown>(sql: string, vars?: Record<string, unknown>) =>
     rows<T>(migrator, sql, vars);
   const begin = (db: Surreal) => db.beginTransaction();
@@ -143,7 +145,7 @@ describe('concurrent transactions are fenced per person', () => {
 
   // Db review 2, section 6 item 2: a file's processing and a status entry bump the same fence.
   it('a video failing while a moderator approves the story: one of them conflicts, and the retry sees the other', async () => {
-    const vic = await t.person('user_vic');
+    vic = await t.person('user_vic');
     await agreeAll(vic);
     await run(
       migrator,
@@ -179,6 +181,35 @@ describe('concurrent transactions are fenced per person', () => {
       ok: false,
       error: expect.stringContaining('media_not_ready'),
     });
+  });
+
+  // D-1 (Joel, 2026-11-11): two moderators deciding the same story; the first decision wins.
+  it('two moderators deciding the same story at once: the second conflicts, and its retry finds it decided', async () => {
+    await draft(vic, 'vic_twice');
+    await submit(vic, 'vic_twice');
+    const approving = await begin(admin);
+    await approving
+      .query(
+        `CREATE storyStatusLog CONTENT { story: story:vic_twice, action: 'rejected',
+           comment: 'Not for the site', by: user:moderator }`,
+      )
+      .collect();
+    // The other moderator sends it back first.
+    await step(admin, 'vic_twice', 'changesRequested');
+    expect(await commit(approving)).toMatch(CONFLICT);
+    expect(
+      await outcome(
+        admin,
+        `CREATE storyStatusLog CONTENT { story: story:vic_twice, action: 'rejected',
+           comment: 'Not for the site', by: user:moderator }`,
+      ),
+    ).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('status_step'),
+    });
+    expect(
+      await truth('SELECT VALUE currentStatus.action FROM story:vic_twice'),
+    ).toEqual(['changesRequested']);
   });
 
   // Plan 4e: agreeing (the person's pointers) racing account deletion, which clears them.

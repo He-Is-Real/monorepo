@@ -33,8 +33,8 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
          body: 'This is test text, written to check that a published story travels from the database through api-public-read to the page. Nobody shared this story and nothing in it happened. Real stories arrive with the first submissions.',
          bylineName: 'Test Person', primaryFormat: 'written', themeRefs: [theme:common]
        });
-       FOR $step IN [['pending', 'person'], ['in_review', 'moderator'], ['approved', 'moderator']] {
-         CREATE storyStatusLog CONTENT { story: $s.id, status: $step[0], actor: $step[1],
+       FOR $step IN [['sent', 'person'], ['approved', 'moderator']] {
+         CREATE storyStatusLog CONTENT { story: $s.id, action: $step[0], actor: $step[1],
            by: IF $step[1] = 'moderator' { user:dev_seed_moderator } };
        };`,
     );
@@ -60,7 +60,7 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
       media: [],
       image: null,
       themes: [{ id: 'common', name: 'Common' }],
-      version: 4, // created, then three status entries (submitted, picked up, approved)
+      version: 3, // created, then three status entries (submitted, picked up, approved)
     });
     expect(Date.parse(String(story['publishedAt']))).not.toBeNaN();
     // Nothing private or about moderation: no submitter, consent or status.
@@ -146,7 +146,7 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
          person: user:dev_seed, format: 'image', contentType: 'image/webp',
          sizeBytes: 1000, storyVersion: 1, width: 1200, height: 1600, processing: 'ready' };
        UPDATE story:dev_seed SET image = { file: storyFile:⟨dev-seed/dev-seed.webp⟩ };
-       CREATE storyStatusLog CONTENT { story: story:dev_seed, action: 'approved',
+       CREATE storyStatusLog CONTENT { story: story:dev_seed, action: 'shownByModerator',
          actor: 'moderator', by: user:dev_seed_moderator };`,
     );
     passTime(60_000); // the story page read earlier is a minute old (R13)

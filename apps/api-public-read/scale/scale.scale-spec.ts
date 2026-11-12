@@ -20,7 +20,7 @@ import type { ScaleState } from './global-setup';
  * The local scale test (database review 2, B2; R12): LOCAL ONLY, never GCP or Bunny, and not in
  * CI. A SurrealDB (the cluster's version, RocksDB) holds SCALE_STORIES stories (default 50,000)
  * with a lot of history: sent back and resubmitted, hidden and shown again by a moderator,
- * approved then withdrawn, rejected, drafts. Videos, audio and pictures are storyFile rows the
+ * approved then taken down to edit, rejected, drafts. Videos, audio and pictures are storyFile rows the
  * stories point at. One person has 5,000 hearts and 2,000 others 10 each (dataset.ts).
  *
  * The data is loaded once through the real write path and kept on a Docker volume

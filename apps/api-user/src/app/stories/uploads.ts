@@ -262,7 +262,8 @@ interface DraftMedia {
   imagePath?: string;
 }
 
-const EDITABLE = ['draft', 'changes_requested'];
+/** Story states (Joel, 2026-11-11): files change only while the story is being edited. */
+const EDITABLE = ['editing'];
 
 /** How many arrived pictures each instance remembers (GetStory skips the zone for them). */
 const ARRIVED_REMEMBERED = 10_000;

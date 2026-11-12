@@ -29,7 +29,7 @@ info:
       writes (create, edit, upload, submit) until they have also agreed to the latest testimony consent
       (`403` `testimony_consent_required`). The page then shows what changed (a redline) and asks again
       (`POST /v1/account/agreements/{agreement}`). Removing data (deleting a story or a heart,
-      withdrawing a story, deleting the account) never needs either. `x-required-role` is the minimum
+      taking a story down to edit, deleting the account) never needs either. `x-required-role` is the minimum
       Clerk role.
     - `x-milestone` on each operation is the delivery milestone that builds it.
 
@@ -55,7 +55,7 @@ tags:
   - name: My stories
     description: "The person's own stories in any status, read as the person (D27)."
   - name: Submission
-    description: 'Create a draft, upload media, submit, edit, withdraw.'
+    description: 'Create a draft, upload media, submit, edit, delete.'
   - name: Account
     description: 'Account settings, erasure, favourites and the feed.'
   - name: Agreements
@@ -87,10 +87,11 @@ paths:
       operationId: listMyStories
       summary: My submissions, any status
       description: |
-        Drafts, pending, feedback and approved, newest first (by creation), read as the person (D27).
-        `status` narrows it to one status: the submit flow lists the person's open drafts
-        (`?status=draft`) to continue one. Each draft carries `draftExpiresAt`, when it will be
-        deleted if nobody touches it (the profile shows it, R5).
+        Every story of the person's in any state, newest first (by creation), read as the person (D27).
+        `status` narrows it to one state (Story states, Joel 2026-11-11: `editing`, `pending`,
+        `approved`, `hidden`, `rejected`). A story being edited that was never sent (`submittedAt`
+        null) is a draft, and carries `draftExpiresAt`, when it will be deleted if nobody touches it
+        (the profile shows it, R5).
       x-required-role: User
       x-milestone: M2
       parameters:
@@ -436,7 +437,7 @@ paths:
       description: |
         The stories the person has hearted, as cards, newest heart first, read in the person's own
         session (D27). Hearts are private: nobody else can read them, not even the story's owner.
-        Cards come from `publicStory` (C15), so a story that has stopped being public (withdrawn,
+        Cards come from `publicStory` (C15), so a story that has stopped being public (taken down to edit,
         hidden, unpublished) isn't listed; its heart stays stored until the person removes it.
 
         **Which of these are my favourites?** With `storyId` (1 to 50 of them), the answer lists only
@@ -721,10 +722,13 @@ paths:
     patch:
       tags: [Submission]
       operationId: editStory
-      summary: Edit my story (draft or changes_requested only)
+      summary: Change my story (only while it's being edited)
       description: |
-        CRUD with JSON Merge Patch on the editable fields; never the status (D28). The database locks
-        the content once the story leaves `draft`/`changes_requested` (`409` `story_locked`). Needs
+        CRUD with JSON Merge Patch on the editable fields; never the status (D28). Only while the story
+        is `editing` (a draft, one sent back for changes, or one taken down with `/edit`; M3-6 A:
+        everything may change); the database locks the content otherwise (`409` `story_locked`). The
+        story's address (`slug`) follows a new title only until the story is first approved; after
+        that it never changes (SL-1 A, Joel 2026-11-12). Needs
         the latest terms of use and testimony consent agreed (`403`, plan 4e). A stale `If-Match` answers `412`: the client
         re-reads, re-applies its change when nothing it touched has changed, and asks the person only
         on a real clash (D70). An edit that makes the text longer beyond the settings' maximum (W3)
@@ -768,14 +772,13 @@ paths:
     delete:
       tags: [Submission]
       operationId: deleteStory
-      summary: Delete my draft, changes-requested, withdrawn or rejected story
+      summary: Delete my story, in any state
       description: |
-        Command `DeleteStory` (D71): the person deletes their own story while it's a `draft`,
-        `changes_requested` (R8: sent back for changes, no need to withdraw it first), `withdrawn`
-        or `rejected`, in their own session (D27). It goes everywhere in the same
-        transaction: the story, its status history and
-        other people's hearts on it. The database's story permission refuses any other status
-        (`pending`, `in_review`, `approved`: `409 story_not_deletable`, withdraw it first) and anyone else's story (`404`, as if it didn't exist). Needs no agreement (Art 17).
+        Command `DeleteStory` (ED-3, Joel 2026-11-11): the person deletes their own story in any state,
+        straight away (the web asks once, "This can't be undone"), in their own session (D27). It goes
+        everywhere in the same transaction: the story, its status history and other people's hearts
+        on it; a published story leaves the site on the next request. Anyone else's story answers
+        `404`, as if it didn't exist. Needs no agreement (Art 17).
 
         Its video or audio at Bunny is deleted straight after the database commits: only the videos
         api-user made for this story (its file rows, D80), never seeded or shared media. If Bunny
@@ -794,8 +797,6 @@ paths:
           $ref: './components.yaml#/components/responses/Unauthorized'
         '404':
           $ref: './components.yaml#/components/responses/NotFound'
-        '409':
-          $ref: './components.yaml#/components/responses/Conflict'
         '412':
           $ref: './components.yaml#/components/responses/PreconditionFailed'
         '428':
@@ -815,7 +816,7 @@ paths:
         (`403`, plan 4e), for a `resume` or a replayed request too: no new link or `PUT` is signed
         without them.
 
-        api-user checks the story is the caller's, still editable (`409` `story_locked`) and at
+        api-user checks the story is the caller's, being edited (`409` `story_locked`) and at
         `If-Match` (`412`), and that it's a story of that format (`400`). Then, unless `resume`: it
         creates a video at Bunny (titled with the story id only, D69), records a file row on
         its own login and, in the same database write, makes it the draft's one video or audio
@@ -895,9 +896,9 @@ paths:
     post:
       tags: [Submission]
       operationId: submitStory
-      summary: Submit my draft for moderation
+      summary: Send my story for review
       description: |
-        Command `SubmitStory`: moves `draft`/`changes_requested` → `pending` and publishes
+        Command `SubmitStory`: moves `editing` → `pending` (a `sent` entry in its status log) and publishes
         `story-submitted` for the worker tier. Needs the latest terms of use and testimony consent agreed
         (`403` `terms_agreement_required` / `testimony_consent_required`, plan 4e); the testimony
         consent covers publishing every story the person submits. A written story needs the settings' minimum of
@@ -914,9 +915,9 @@ paths:
         **Limit (D94, D112, D113):** stories submitted for review per rolling 7 days (default 1: the
         admin's setting, or their override for this person; none for a trusted submitter), counted
         from each story's first submission and kept for 7 days whatever happens to the story
-        (withdrawing or deleting it doesn't free the week; sending a story back after "changes
+        (deleting it doesn't free the week; sending a story again after an edit or "changes
         requested" isn't a new one). Otherwise `409` `weekly_submission_limit_reached` with
-        `availableAt`. The database enforces it too. A story that isn't a draft (or `changes_requested`) answers `409`
+        `availableAt`. The database enforces it too. A story that isn't being edited answers `409`
         `story_not_submittable`. Publishing `story-submitted` to the worker tier waits for the
         async lane (plan PR 9); nothing is published yet.
 
@@ -940,7 +941,7 @@ paths:
         the end of the upload, ticked, with the version the page showed: it is recorded on this story in
         the same write as the submission, with the database's time (both or neither; a replay records
         nothing again). A version that isn't the latest any more is `409` `agreement_version_changed` and
-        nothing is submitted. It can't be withdrawn: withdrawing or deleting the story stops any future
+        nothing is submitted. It can't be withdrawn: deleting the story stops any future
         use. The same key with another body is `422`.
       x-required-role: User
       x-milestone: M2
@@ -978,21 +979,22 @@ paths:
         '5XX':
           $ref: './components.yaml#/components/responses/ServerError'
 
-  /v1/stories/{id}/withdraw:
+  /v1/stories/{id}/edit:
     post:
       tags: [Submission]
-      operationId: withdrawStory
-      summary: Withdraw my story
+      operationId: startEditingStory
+      summary: Take my story down to edit it
       description: |
-        Command `WithdrawStory`: a story waiting for review, in review, sent back for changes or
-        published becomes `withdrawn`, in the person's own session (D27). Its `publicStory` row is
-        deleted in the same transaction, so it's gone from the site on the next request (D51). Its
-        content is untouched and it needs no agreement. Anything else (a draft: delete it instead; a
-        rejected or already withdrawn story) answers `409 story_not_withdrawable`. A withdrawn story
-        stays withdrawn: publishing it again comes with M3's moderation (D61). Then it can be
-        deleted (`DELETE /v1/stories/{id}`).
+        Command `Edit` (ED-1, ED-2 B, ED-4; Joel, 2026-11-11; it replaced Withdraw): a story waiting
+        for review (`pending`), published (`approved`) or not on the site right now (`hidden`) becomes
+        `editing`, with an `editStarted` entry in its status log, in the person's own session (D27).
+        A published story leaves the site at once (gone from public reads on the next request, D51).
+        Its content, hearts, first publication date and address are kept; it goes back on the site
+        only after it is sent again and a moderator approves it. It needs no agreement. A story being
+        edited already, or a rejected one (which can only be deleted), answers `409
+        story_not_editable`.
       x-required-role: User
-      x-milestone: M2
+      x-milestone: M3
       parameters:
         - $ref: './components.yaml#/components/parameters/storyId'
         - $ref: './components.yaml#/components/parameters/ifMatch'

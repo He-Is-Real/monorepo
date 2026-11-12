@@ -219,11 +219,11 @@ const STORIES: StoryFixture[] = [
     status: 'pending',
   },
   {
-    // A moderator has it open.
+    // Waiting for review (moderators decide straight from pending).
     id: 'seed_v09',
-    slug: 'test-video-in-review',
-    title: 'Test video: being reviewed',
-    description: 'Dummy video story a moderator is reviewing.',
+    slug: 'test-video-waiting-for-review',
+    title: 'Test video: waiting for review',
+    description: 'Dummy video story waiting for a moderator.',
     bylineName: 'Daniel (test)',
     submitter: 'seed_daniel',
     format: 'video',
@@ -233,7 +233,7 @@ const STORIES: StoryFixture[] = [
       processing: 'ready',
       placeholder: '00000000-0000-0000-0000-00000000a009',
     },
-    status: 'in_review',
+    status: 'pending',
   },
   {
     id: 'seed_v10',
@@ -251,15 +251,15 @@ const STORIES: StoryFixture[] = [
       processing: 'ready',
       placeholder: '00000000-0000-0000-0000-00000000a010',
     },
-    status: 'changes_requested',
+    status: 'sent_back',
     reviews: [{ decision: 'request_changes', feedback: FEEDBACK_CHANGES }],
   },
   {
-    // Submitted, then withdrawn by its author.
+    // Sent, then taken down by its author to edit (Edit, ED-4).
     id: 'seed_v11',
-    slug: 'test-video-withdrawn',
-    title: 'Test video: withdrawn by its author',
-    description: 'Dummy video story its author withdrew after submitting.',
+    slug: 'test-video-being-edited',
+    title: 'Test video: taken down by its author to edit',
+    description: 'Dummy video story its author took down to edit after sending it.',
     bylineName: 'Ruth (test)',
     submitter: 'seed_ruth',
     format: 'video',
@@ -269,7 +269,7 @@ const STORIES: StoryFixture[] = [
       processing: 'ready',
       placeholder: '00000000-0000-0000-0000-00000000a011',
     },
-    status: 'withdrawn',
+    status: 'editing',
   },
   {
     // A draft saved before its upload (A1): no video yet.
@@ -352,7 +352,7 @@ const STORIES: StoryFixture[] = [
     publishedDaysAgo: 1,
   },
   {
-    // Being reviewed: a short story with a landscape image and no alt text (neutral default).
+    // Waiting for review: a short story with a landscape image and no alt text (neutral default).
     id: 'seed_w02',
     slug: 'test-written-landscape-image',
     title: 'Test written story with a landscape picture',
@@ -364,7 +364,7 @@ const STORIES: StoryFixture[] = [
     format: 'written',
     themes: ['relationships', 'forgiveness'],
     image: { file: 'image-02', processing: 'ready' },
-    status: 'in_review',
+    status: 'pending',
   },
   {
     // The 140-character title.
@@ -495,7 +495,7 @@ const STORIES: StoryFixture[] = [
     submitter: 'seed_amara',
     format: 'written',
     themes: ['addiction'],
-    status: 'changes_requested',
+    status: 'sent_back',
     reviews: [{ decision: 'request_changes', feedback: FEEDBACK_CHANGES }],
   },
   {

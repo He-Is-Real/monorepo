@@ -643,7 +643,7 @@ describe('browse API over the dev dataset', () => {
       await run(
         await t.service('api_admin'),
         `CREATE storyStatusLog CONTENT {
-           story: story:seed_v03, status: 'approved', by: user:seed_moderator
+           story: story:seed_v03, action: 'shownByModerator', by: user:seed_moderator
          }`,
       );
       // One clock for the links and the answer cache (R13), as in production.
@@ -723,7 +723,8 @@ describe('browse API over the dev dataset', () => {
       await run(
         await t.service('api_admin'),
         `CREATE storyStatusLog CONTENT {
-           story: type::record('story', $id), status: 'hidden', by: user:seed_moderator
+           story: type::record('story', $id), action: 'hiddenByModerator', comment: 'Checking',
+           by: user:seed_moderator
          }`,
         { id },
       );

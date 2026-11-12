@@ -11,7 +11,7 @@ import {
   submit,
   TestDatabase,
   trustSubmitters,
-  withdraw,
+  edit,
 } from '@heisreal/database/integration-testing';
 import type { Surreal, SurrealTransaction } from 'surrealdb';
 import { CHORES } from '../src/app/chores';
@@ -200,15 +200,16 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
     ).not.toHaveProperty('error');
     await media('young_draft', V.youngRef);
     await touched('young_draft', 184);
-    // Never a draft: submitted 200 days ago, and withdrawn 200 days ago.
+    // Never a draft: sent 200 days ago, and sent then taken down to edit 200 days ago (only a
+    // story never sent expires, Story states 2026-11-11).
     await draft(bob, 'old_pending', 'video');
     await media('old_pending', V.pendingRef);
     await submit(bob, 'old_pending');
     await touched('old_pending', 200);
-    await draft(bob, 'old_withdrawn', 'written');
-    await submit(bob, 'old_withdrawn');
-    await withdraw(bob, 'old_withdrawn');
-    await touched('old_withdrawn', 200);
+    await draft(bob, 'old_editing', 'written');
+    await submit(bob, 'old_editing');
+    await edit(bob, 'old_editing');
+    await touched('old_editing', 200);
     // RequestUpload twice on Bob's video draft: the first video is replaced, its row recent.
     await draft(bob, 'bob_video', 'video');
     for (const k of ['replaced', 'current']) {
@@ -275,7 +276,7 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
   it('refuses its delete of a draft touched in the last 6 months, or of any non-draft, and any other write', async () => {
     await run(
       housekeeping,
-      `DELETE story:young_draft; DELETE story:old_pending; DELETE story:old_withdrawn`,
+      `DELETE story:young_draft; DELETE story:old_pending; DELETE story:old_editing`,
     );
     await run(
       housekeeping,
@@ -292,7 +293,7 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
     expect(await queued()).toEqual([]);
     expect(await exists('young_draft')).toBe(true);
     expect(await exists('old_pending')).toBe(true);
-    expect(await exists('old_withdrawn')).toBe(true);
+    expect(await exists('old_editing')).toBe(true);
     expect(await rows(migrator, `SELECT id FROM storyFile`)).toHaveLength(7);
     const [young] = await rows<{ days: number }>(
       migrator,
@@ -353,7 +354,7 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
     for (const id of [
       'young_draft',
       'old_pending',
-      'old_withdrawn',
+      'old_editing',
       'bob_video',
     ]) {
       expect(await exists(id)).toBe(true);

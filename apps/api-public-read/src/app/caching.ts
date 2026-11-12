@@ -5,7 +5,7 @@ import type { Response } from 'express';
 export const PUBLIC_MAX_AGE_SECONDS = 60;
 
 /**
- * D51: API responses are `no-store` in dev, so a story that is hidden, withdrawn or erased
+ * D51: API responses are `no-store` in dev, so a story that is hidden, taken down to edit, deleted or erased
  * disappears from browsers and CDNs at once (this service's own memory keeps it at most a minute,
  * R13). Shared caching needs `PUBLIC_RESPONSE_CACHING=on`, which no environment sets yet (Go
  * live's front door decides it, D56). Anything else fails safe. When on, a public query may be

@@ -19,7 +19,7 @@ import { API_USER_URL } from './playwright.config';
 // a trusted submitter on dev (dev-seed's testAccounts, D112), so the weekly limit doesn't stop a
 // second run; until a reset has marked it, it may submit once a week, and the test says so
 // before uploading anything.
-// What's left behind: nothing of the story. The test withdraws and deletes it as the person
+// What's left behind: nothing of the story. The test deletes it as the person
 // would (D71), which deletes its video at Bunny, and deletes the video itself if anything failed
 // before that. A Stream video has no storage folder to remove (the empty-folder finding is the
 // images zone's). Its agreements stay on its account, as anyone's would.
@@ -269,8 +269,8 @@ test('a test user shares a 2-second video: it reaches Bunny, and the story is pe
       media: [{ format: 'video' }],
     });
   } finally {
-    // D50: nothing stays, pass or fail. As the person would: withdraw it if it was submitted,
-    // then delete it, which deletes its video at Bunny (D71). The video goes directly too, in
+    // D50: nothing stays, pass or fail. As the person would: delete it (in any state, ED-3),
+    // which deletes its video at Bunny (D71). The video goes directly too, in
     // case the story never got it or the delete failed.
     // A cleanup error is reported on its own (soft), so it never hides the test's own failure.
     const cleanupErrors: string[] = [];
@@ -299,18 +299,10 @@ test('a test user shares a 2-second video: it reaches Bunny, and the story is pe
   }
 });
 
-/** Withdraws the story if it was submitted, then deletes it, as the person would (D71). */
+/** Deletes the story, in whatever state it is, as the person would (ED-3). */
 async function removeStory(page: Page, storyId: string) {
   const id = encodeURIComponent(storyId);
-  let mine = await asPerson(page, `/v1/account/stories/${id}`);
-  if (mine.status === 200 && mine.body.status === 'pending') {
-    const withdrawn = await asPerson(page, `/v1/stories/${id}/withdraw`, {
-      method: 'POST',
-      headers: { 'if-match': `"${mine.body.version}"` },
-    });
-    expect.soft(withdrawn.status, 'withdraw the story').toBe(200);
-    mine = await asPerson(page, `/v1/account/stories/${id}`);
-  }
+  const mine = await asPerson(page, `/v1/account/stories/${id}`);
   if (mine.status === 200) {
     const deleted = await asPerson(page, `/v1/stories/${id}`, {
       method: 'DELETE',

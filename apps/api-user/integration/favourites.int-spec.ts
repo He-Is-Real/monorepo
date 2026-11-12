@@ -12,7 +12,7 @@ import {
   draft,
   submit,
   TestDatabase,
-  withdraw,
+  edit,
 } from '@heisreal/database/integration-testing';
 import { SECRET_MANAGER_CLIENT, SECRETS_PROJECT } from '@heisreal/secrets';
 import { AppModule } from '../src/app/app.module';
@@ -148,8 +148,8 @@ describe('hearts: /v1/account/favourites', () => {
       (await among('user_ann', ['bob_two', 'bob_draft', 'ann_draft', 'zzz']))
         .ids,
     ).toEqual(['bob_two']);
-    // A story withdrawn after the heart drops out of the list and the lookup (C15).
-    await withdraw(await t.person('user_bob'), 'bob_two');
+    // A story taken down to edit after the heart drops out of the list and the lookup (C15).
+    await edit(await t.person('user_bob'), 'bob_two');
     expect((await listed('user_ann')).ids).toEqual(['bob_three', 'bob_live']);
     expect(
       (await among('user_ann', ['bob_two', 'bob_three', 'bob_live'])).ids,

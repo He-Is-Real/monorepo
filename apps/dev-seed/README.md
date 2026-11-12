@@ -34,8 +34,8 @@ the real schema on every PR.
 
 ## The dataset (D47)
 
-`src/app/dataset/index.ts`. 12 video, 3 audio and 11 written stories; 16 approved, 2 pending,
-2 in review, 2 sent back with feedback, 1 rejected, 1 withdrawn, 2 drafts. Edge cases: anonymous
+`src/app/dataset/index.ts`. 12 video, 3 audio and 11 written stories; 16 approved, 4 waiting for
+review, 2 sent back with feedback, 1 rejected, 1 taken down by its author to edit, 2 drafts. Edge cases: anonymous
 byline, a 140-character title, 1 and 5 themes, a theme only one story has, a highlighted theme
 with no story, non-Latin text, a long description, written text at
 exactly 200 and 10,000 characters, and a short draft. `dataset.spec.ts` keeps it covering D47 as it
