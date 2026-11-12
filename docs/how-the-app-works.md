@@ -31,19 +31,25 @@ code does what it does today; nobody should build on either reading.
    is withdrawn we take the story off our own channels and stop paid promotion within 30 days.
    Plan 4e's sharing text says sharing can't be withdrawn and a takedown is "on request, with
    care". Which applies before the first post? (delivery-status.md lists the takedown as a gate.)
-4. **A notice when the privacy notice changes.** Plan 4e (8b) says changes that matter are
+4. **Publishing a withdrawn story again.** Answered by Edit instead of Withdraw (Joel,
+   2026-11-11): Withdraw is gone; a person takes a story down with Edit and it goes back on the
+   site once it is sent again and approved (My profile, edit and delete).
+5. **Editing a published story.** Answered (Edit, ED-1 to ED-4, Joel 2026-11-11): a published
+   story can be edited; Edit takes it off the site until a moderator approves it again (My
+   profile, edit and delete).
+6. **A notice when the privacy notice changes.** Plan 4e (8b) says changes that matter are
    announced with a banner on the next visit (and later by email). Only the testimony-consent
    banner is built. Is a privacy-notice banner wanted before Go live?
-5. **Bunny Optimizer.** Answered (Joel, 2026-11-11): the question waits for the production
+7. **Bunny Optimizer.** Answered (Joel, 2026-11-11): the question waits for the production
    rollout. Bunny Optimizer (it rebuilds every picture on the way out, about $19 a month) stays
    off on dev; whether production has it is decided when production is built.
-6. **Stripe's embedded Checkout.** The donate-button decision (2026-10-30) said Stripe's embedded
+8. **Stripe's embedded Checkout.** The donate-button decision (2026-10-30) said Stripe's embedded
    Checkout would replace the Buy Buttons in M4. Is that still the M4 plan?
-7. **Trusted submitters' hourly limit.** D94 says trusted submitters keep the hourly upload
+9. **Trusted submitters' hourly limit.** D94 says trusted submitters keep the hourly upload
    limit "but raised"; today they keep the same 10 an hour. Should it be higher, and how much?
-8. **Spam and safety checks on sharing.** The security review plans a CAPTCHA on the share
-   form, a verified email before the first story, and virus scanning of uploads. None of these
-   is in a later decision or built. Are they still planned, and for which milestone?
+10. **Spam and safety checks on sharing.** The security review plans a CAPTCHA on the share
+    form, a verified email before the first story, and virus scanning of uploads. None of these
+    is in a later decision or built. Are they still planned, and for which milestone?
 
 ## Accounts and sign-in
 
