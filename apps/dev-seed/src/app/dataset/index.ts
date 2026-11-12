@@ -239,8 +239,7 @@ const STORIES: StoryFixture[] = [
     id: 'seed_v10',
     slug: 'test-video-changes-requested',
     title: 'Test video: sent back with feedback',
-    description:
-      'Dummy video story returned to its author with pastoral feedback.',
+    description: 'Dummy video story returned to its author with feedback.',
     body: dummyText(350, 6),
     bylineName: 'Joon (test)',
     submitter: 'seed_joon',
@@ -475,7 +474,7 @@ const STORIES: StoryFixture[] = [
     id: 'seed_w09',
     slug: 'test-written-rejected',
     title: 'Test written story that was not published',
-    description: 'Dummy written story rejected with pastoral feedback.',
+    description: 'Dummy written story rejected with feedback.',
     body: dummyText(600, 1),
     bylineName: 'Ruth (test)',
     submitter: 'seed_ruth',
@@ -488,8 +487,7 @@ const STORIES: StoryFixture[] = [
     id: 'seed_w10',
     slug: 'test-written-changes-requested',
     title: 'Test written story sent back with feedback',
-    description:
-      'Dummy written story returned to its author with pastoral feedback.',
+    description: 'Dummy written story returned to its author with feedback.',
     body: dummyText(380, 2),
     bylineName: 'Amara (test)',
     submitter: 'seed_amara',

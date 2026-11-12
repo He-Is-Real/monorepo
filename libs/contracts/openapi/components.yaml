@@ -734,7 +734,7 @@ components:
             $ref: '#/components/schemas/ThemeRef'
         rejectionFeedback:
           type: [string, 'null']
-          description: Pastoral feedback after reject or request-changes.
+          description: The moderator's note after reject or request-changes.
         submittedAt:
           type: [string, 'null']
           format: date-time
@@ -1269,7 +1269,7 @@ components:
         feedbackToSubmitter:
           type: string
           maxLength: 2000
-          description: Shown to the submitter. Pastoral tone expected.
+          description: Shown to the submitter.
 
     ModerationFeedbackRequired:
       type: object
@@ -1279,7 +1279,7 @@ components:
           type: string
           minLength: 1
           maxLength: 2000
-          description: Shown to the submitter. Pastoral tone expected.
+          description: Shown to the submitter.
 
     CreateConcern:
       type: object
