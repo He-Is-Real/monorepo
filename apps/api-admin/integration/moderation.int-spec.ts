@@ -100,14 +100,12 @@ describe('moderation, the read side (api-admin)', () => {
     await submit(ann, 'ann_video');
 
     // Bob's is sent back with a note and sent again: it goes to the back of the queue.
-    await step(admin, 'bob_pending', 'in_review');
-    await step(admin, 'bob_pending', 'changes_requested', { comment: NOTE });
+    await step(admin, 'bob_pending', 'changesRequested', { comment: NOTE });
     await submit(bob, 'bob_pending');
 
     // Picked up (in review): not in the queue, but a moderator can still open it.
     await draft(ann, 'ann_review');
     await submit(ann, 'ann_review');
-    await step(admin, 'ann_review', 'in_review');
 
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(SURREAL)

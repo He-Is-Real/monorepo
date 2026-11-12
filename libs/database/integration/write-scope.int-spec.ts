@@ -72,11 +72,11 @@ describe('write scope on story fields (D41)', () => {
     );
 
     it('cannot approve, reject or change status: no status entry, no pointer (R6)', async () => {
-      for (const status of ['in_review', 'approved', 'rejected']) {
+      for (const action of ['approved', 'rejected', 'changesRequested', 'fileUnusable']) {
         await run(
           workflow,
-          `CREATE storyStatusLog CONTENT { story: story:bob_pending, status: $status }`,
-          { status },
+          `CREATE storyStatusLog CONTENT { story: story:bob_pending, action: $action }`,
+          { action },
         ).catch(() => undefined);
       }
       await run(workflow, `UPDATE story:bob_pending SET currentStatus = NONE`);
@@ -128,12 +128,11 @@ describe('write scope on story fields (D41)', () => {
     });
 
     it('moderates by adding status entries only, and publishes exactly what the person wrote', async () => {
-      await step(admin, 'bob_pending', 'in_review');
-      await step(admin, 'bob_pending', 'changes_requested', {
+      await step(admin, 'bob_pending', 'changesRequested', {
         comment: 'Please add a little more detail',
       });
-      expect(await statusOf(migrator, 'bob_pending')).toBe('changes_requested');
-      await step(await t.person('user_bob'), 'bob_pending', 'pending');
+      expect(await statusOf(migrator, 'bob_pending')).toBe('editing');
+      await step(await t.person('user_bob'), 'bob_pending', 'sent');
       await answered(workflow, 'bob_pending');
       await approve(admin, 'bob_pending');
       // What everyone reads is the story and its file: no copy api-admin could write.

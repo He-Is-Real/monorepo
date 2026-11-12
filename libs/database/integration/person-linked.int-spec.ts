@@ -106,7 +106,7 @@ const LINKED: Record<string, LinkedCase> = {
     write: (c, db) =>
       run(
         db(c),
-        `CREATE storyStatusLog CONTENT { story: story:${c.p}_s, status: 'hidden', by: user:moderator }`,
+        `CREATE storyStatusLog CONTENT { story: story:${c.p}_s, action: 'hiddenByModerator', comment: 'Checking', by: user:moderator }`,
       ),
     landed: (c) =>
       `SELECT VALUE id FROM storyStatusLog WHERE story = story:${c.p}_s AND status = 'hidden'`,
@@ -184,16 +184,12 @@ const LINKED: Record<string, LinkedCase> = {
       );
       await draft(c.person, `${c.p}_sr`);
       await submit(c.person, `${c.p}_sr`);
-      await run(
-        c.admin,
-        `CREATE storyStatusLog CONTENT { story: story:${c.p}_sr, status: 'in_review', by: user:moderator }`,
-      );
     },
     writer: (c) => c.admin,
     write: (c, db) =>
       run(
         db(c),
-        `CREATE storyStatusLog CONTENT { story: story:${c.p}_sr, status: 'approved', by: user:moderator }`,
+        `CREATE storyStatusLog CONTENT { story: story:${c.p}_sr, action: 'approved', by: user:moderator }`,
       ),
     landed: (c) => `SELECT VALUE id FROM storySearch:${c.p}_sr`,
   },
@@ -365,7 +361,7 @@ describe('person-linked tables (round 3 sweep)', () => {
     expect(
       await outcome(
         admin,
-        `CREATE storyStatusLog CONTENT { story: story:never_existed, status: 'rejected',
+        `CREATE storyStatusLog CONTENT { story: story:never_existed, action: 'rejected', comment: 'A note',
            by: user:moderator }`,
       ),
     ).toEqual({

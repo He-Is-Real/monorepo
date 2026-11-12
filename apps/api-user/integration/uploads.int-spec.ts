@@ -998,7 +998,7 @@ describe('video and audio uploads', () => {
       await run(
         admin,
         `CREATE storyStatusLog CONTENT { story: type::record('story', $id), status: 'in_review', by: user:upadmin };
-         CREATE storyStatusLog CONTENT { story: type::record('story', $id), status: 'changes_requested', by: user:upadmin, comment: 'A little more' };`,
+         CREATE storyStatusLog CONTENT { story: type::record('story', $id), action: 'changesRequested', comment: 'A note', by: user:upadmin, comment: 'A little more' };`,
         { id },
       );
       const back = await call('GET', `/v1/account/stories/${id}`, who);

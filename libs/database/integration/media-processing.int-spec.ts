@@ -16,7 +16,7 @@ import {
   processed,
   step,
   submit,
-  withdraw,
+  edit,
 } from './support/world';
 
 /**
@@ -158,11 +158,10 @@ describe('approval waits for media processing (A2, R12)', () => {
 
   /** The approval must be refused with this message, leaving nothing approved or published. */
   const refusedApproval = async (id: string, message: string) => {
-    if ((await statusOf(id)) === 'pending') await step(admin, id, 'in_review');
     expect(
       await outcome(
         admin,
-        `CREATE storyStatusLog CONTENT { story: type::record('story', $id), status: 'approved',
+        `CREATE storyStatusLog CONTENT { story: type::record('story', $id), action: 'approved',
            by: user:moderator }`,
         { id },
       ),
@@ -170,7 +169,7 @@ describe('approval waits for media processing (A2, R12)', () => {
       ok: false,
       error: expect.stringContaining(`media_not_ready: ${message}`),
     });
-    expect(await statusOf(id)).toBe('in_review');
+    expect(await statusOf(id)).toBe('pending');
     expect(await published(id)).toEqual([]);
   };
 
@@ -435,7 +434,6 @@ describe('approval waits for media processing (A2, R12)', () => {
           ),
         );
         if (c.ok) {
-          await step(admin, id, 'in_review');
           expect(await step(admin, id, 'approved')).toHaveLength(1);
         } else {
           await refusedApproval(
@@ -450,11 +448,10 @@ describe('approval waits for media processing (A2, R12)', () => {
       const id = await video();
       expect(await submit(pat, id)).toHaveLength(1);
       await answered(workflow, id);
-      await step(admin, id, 'in_review');
       expect(
         await outcome(
           migrator,
-          `CREATE storyStatusLog CONTENT { story: type::record('story', $id), status: 'approved',
+          `CREATE storyStatusLog CONTENT { story: type::record('story', $id), action: 'approved',
              actor: 'moderator', by: user:moderator }`,
           { id },
         ),
@@ -559,7 +556,8 @@ describe('approval waits for media processing (A2, R12)', () => {
       expect(
         await outcome(
           pat,
-          `CREATE storyStatusLog CONTENT { story: type::record('story', $id), status: 'hidden' }`,
+          `CREATE storyStatusLog CONTENT { story: type::record('story', $id), action: 'hiddenBySystem',
+             hiddenReason: 'media_unavailable' }`,
           { id },
         ),
       ).toMatchObject({ ok: false });
@@ -567,7 +565,7 @@ describe('approval waits for media processing (A2, R12)', () => {
       expect(
         await outcome(
           migrator,
-          `CREATE storyStatusLog CONTENT { story: type::record('story', $id), status: 'approved',
+          `CREATE storyStatusLog CONTENT { story: type::record('story', $id), action: 'shownBySystem',
              actor: 'system' }`,
           { id },
         ),
@@ -595,7 +593,7 @@ describe('approval waits for media processing (A2, R12)', () => {
         ).find((r) => String(r.id) === `story:${id}`),
       ).toMatchObject({ mediaChanged: true });
       // A moderator's "show again" is their review of what it shows now.
-      expect(await step(admin, id, 'approved')).toHaveLength(1);
+      expect(await step(admin, id, 'shownByModerator')).toHaveLength(1);
       expect(await current(id)).toMatchObject({
         actor: 'moderator',
         reviewedMediaFile: `storyFile:${other}`,
@@ -641,7 +639,7 @@ describe('approval waits for media processing (A2, R12)', () => {
 
     it('a moderator’s hide stays until a moderator shows it again', async () => {
       const id = await live(video);
-      expect(await step(admin, id, 'hidden')).toHaveLength(1);
+      expect(await step(admin, id, 'hiddenByModerator')).toHaveLength(1);
       await processed(workflow, id);
       expect(await current(id)).toMatchObject({
         status: 'hidden',
@@ -659,12 +657,12 @@ describe('approval waits for media processing (A2, R12)', () => {
       expect(await version(id)).toBe(before + 2);
     });
 
-    it('the owner can still withdraw a hidden story, which then never comes back by itself', async () => {
+    it('the owner can take a hidden story down to edit (G2), and then it never comes back by itself', async () => {
       const id = await live(video);
       await setFile(id, `processing = 'failed'`);
-      expect(await withdraw(pat, id)).toHaveLength(1);
+      expect(await edit(pat, id)).toHaveLength(1);
       await processed(workflow, id);
-      expect(await statusOf(id)).toBe('withdrawn');
+      expect(await statusOf(id)).toBe('editing');
       expect(await published(id)).toEqual([]);
     });
 

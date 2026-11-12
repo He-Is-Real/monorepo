@@ -146,7 +146,7 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
          person: user:dev_seed, format: 'image', contentType: 'image/webp',
          sizeBytes: 1000, storyVersion: 1, width: 1200, height: 1600, processing: 'ready' };
        UPDATE story:dev_seed SET image = { file: storyFile:⟨dev-seed/dev-seed.webp⟩ };
-       CREATE storyStatusLog CONTENT { story: story:dev_seed, status: 'approved',
+       CREATE storyStatusLog CONTENT { story: story:dev_seed, action: 'approved',
          actor: 'moderator', by: user:dev_seed_moderator };`,
     );
     passTime(60_000); // the story page read earlier is a minute old (R13)

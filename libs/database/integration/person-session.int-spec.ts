@@ -18,10 +18,11 @@ import {
   buildWorld,
   draft,
   ERASE,
+  grantImage,
   statusOf,
   step,
   submit,
-  withdraw,
+  edit,
 } from './support/world';
 
 /**
@@ -210,14 +211,18 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
         (
           await rows<Record<string, unknown>>(
             bob,
-            `SELECT status, actor, storyVersion, by, at, id FROM storyStatusLog
+            `SELECT action, status, actor, storyVersion, by, at, id FROM storyStatusLog
                WHERE story = story:bob_live ORDER BY at, id`,
           )
         ).map(({ at: _at, id: _id, ...entry }) => entry),
       ).toEqual([
-        { status: 'pending', actor: 'person', storyVersion: 1 },
-        { status: 'in_review', actor: 'moderator', storyVersion: 2 },
-        { status: 'approved', actor: 'moderator', storyVersion: 3 },
+        { action: 'sent', status: 'pending', actor: 'person', storyVersion: 1 },
+        {
+          action: 'approved',
+          status: 'approved',
+          actor: 'moderator',
+          storyVersion: 2,
+        },
       ]);
       // Bob's pending story's entries aren't Ann's to see.
       expect(
@@ -259,12 +264,12 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       expect(await truth('SELECT * FROM story:for_bob')).toEqual([]);
     });
 
-    it('cannot create a story with a status: its pointer is dropped, it is a draft (R6)', async () => {
+    it('cannot create a story with a status: its pointer is dropped, it is a draft being edited (R6)', async () => {
       const [created] = await draft(ann, 'ann_prefilled', {
         currentStatus: new RecordId('storyStatusLog', 'forged'),
       });
       expect(created).toBeDefined();
-      expect(await statusOf(migrator, 'ann_prefilled')).toBe('draft');
+      expect(await statusOf(migrator, 'ann_prefilled')).toBe('editing');
     });
   });
 
@@ -303,37 +308,41 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
         `UPDATE story:ann_draft SET currentStatus =
            (SELECT VALUE id FROM storyStatusLog WHERE story = story:ann_pending)[0]`,
       );
-      expect(await statusOf(migrator, 'ann_draft')).toBe('draft');
+      expect(await statusOf(migrator, 'ann_draft')).toBe('editing');
     });
 
     it.each([
       'approved',
-      'in_review',
       'rejected',
-      'changes_requested',
-      'hidden',
-    ])('cannot add a %s entry to their own story', async (status) => {
+      'changesRequested',
+      'hiddenBySystem',
+      'hiddenByModerator',
+      'shownBySystem',
+      'fileUnusable',
+      'editStarted',
+    ])('cannot add a %s entry to their own draft', async (action) => {
       const result = await outcome(
         ann,
-        `CREATE storyStatusLog CONTENT { story: story:ann_draft, status: $status }`,
-        { status },
+        `CREATE storyStatusLog CONTENT { story: story:ann_draft, action: $action }`,
+        { action },
       );
       expect(result).toEqual({
         ok: false,
         error: expect.stringContaining('status_step'),
       });
-      expect(await statusOf(migrator, 'ann_draft')).toBe('draft');
+      expect(await statusOf(migrator, 'ann_draft')).toBe('editing');
     });
 
     it('submits with a server-set time, version and actor (no backdating, no forging)', async () => {
       await draft(ann, 'ann_submit');
-      const [entry] = await step(ann, 'ann_submit', 'pending', {
+      const [entry] = await step(ann, 'ann_submit', 'sent', {
         at: new Date('2020-01-01T00:00:00Z'),
         actor: 'moderator',
         storyVersion: 99,
         by: new RecordId('user', 'bob'),
       });
       expect(entry).toMatchObject({
+        action: 'sent',
         status: 'pending',
         actor: 'person',
         storyVersion: 1,
@@ -384,8 +393,7 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
     });
 
     it('can edit again after changes are requested, then resubmit', async () => {
-      await step(admin, 'ann_submit', 'in_review');
-      await step(admin, 'ann_submit', 'changes_requested', {
+      await step(admin, 'ann_submit', 'changesRequested', {
         comment: 'Please trim the start',
       });
       await run(ann, `UPDATE story:ann_submit SET title = 'Revised'`);
@@ -397,40 +405,41 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       ).toEqual([{ title: 'Revised', status: 'pending' }]);
     });
 
-    it('deletes only their own draft, changes-requested, withdrawn or rejected story (D71), never one in review or published', async () => {
+    it('deletes their own story in every state, straight away (ED-3)', async () => {
       const statuses = [
         'draft',
         'pending',
-        'in_review',
         'approved',
-        'changes_requested',
+        'hidden',
+        'sentBack',
+        'editing',
         'rejected',
-        'withdrawn',
       ];
-      // The steps to each status, each by whoever may take it (R6).
+      // The steps to each state, each by whoever may take it (R6).
       const path: Record<string, [Surreal | 'ann', string][]> = {
         draft: [],
-        pending: [['ann', 'pending']],
-        in_review: [
-          ['ann', 'pending'],
-          [admin, 'in_review'],
-        ],
+        pending: [['ann', 'sent']],
         approved: [
-          ['ann', 'pending'],
-          [admin, 'in_review'],
+          ['ann', 'sent'],
           [admin, 'approved'],
         ],
-        changes_requested: [
-          ['ann', 'pending'],
-          [admin, 'in_review'],
-          [admin, 'changes_requested'],
+        hidden: [
+          ['ann', 'sent'],
+          [admin, 'approved'],
+          [admin, 'hiddenByModerator'],
+        ],
+        sentBack: [
+          ['ann', 'sent'],
+          [admin, 'changesRequested'],
+        ],
+        editing: [
+          ['ann', 'sent'],
+          ['ann', 'editStarted'],
         ],
         rejected: [
-          ['ann', 'pending'],
-          [admin, 'in_review'],
+          ['ann', 'sent'],
           [admin, 'rejected'],
         ],
-        withdrawn: [['ann', 'withdrawn']],
       };
       for (const status of statuses) {
         await draft(ann, `ann_del_${status}`);
@@ -449,8 +458,8 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
             `SELECT VALUE fn::story::status_of($this) FROM story WHERE string::starts_with(record::id(id), 'ann_del_')`,
           )
         ).sort(),
-      ).toEqual(['approved', 'in_review', 'pending']);
-      // Someone else's draft, never.
+      ).toEqual([]);
+      // Someone else's story, never.
       expect(await rows(ann, 'DELETE story:bob_draft RETURN BEFORE')).toEqual(
         [],
       );
@@ -458,14 +467,14 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
     });
   });
 
-  describe('withdrawing a published story', () => {
+  describe('editing a published story (Edit, ED-1)', () => {
     beforeAll(async () => {
       await draft(ann, 'ann_live');
       await submit(ann, 'ann_live');
       await approve(admin, 'ann_live');
     });
 
-    it('cannot change a published story’s words', async () => {
+    it('cannot change a published story’s words without pressing Edit', async () => {
       const result = await outcome(
         ann,
         `UPDATE story:ann_live SET title = 'edited live'`,
@@ -479,18 +488,26 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       ]);
     });
 
-    it('cannot withdraw someone else’s story', async () => {
-      expect(await withdraw(ann, 'bob_live')).toEqual([]);
+    it('cannot take someone else’s story down to edit', async () => {
+      expect(await edit(ann, 'bob_live')).toEqual([]);
       expect(await statusOf(migrator, 'bob_live')).toBe('approved');
     });
 
-    it('withdraws their own: one entry, and the story leaves the public’s view at once', async () => {
+    it('Edit takes it off the site at once; it changes, goes back for review and keeps its first publication date', async () => {
       const reader = await t.service('api_public_read');
+      const firstPublished = await truth(
+        'SELECT VALUE currentStatus.publishedAt FROM story:ann_live',
+      );
       expect(await rows(reader, 'SELECT id FROM story:ann_live')).toHaveLength(
         1,
       );
-      expect(await withdraw(ann, 'ann_live')).toHaveLength(1);
-      expect(await statusOf(migrator, 'ann_live')).toBe('withdrawn');
+      const [entry] = await edit(ann, 'ann_live');
+      expect(entry).toMatchObject({
+        action: 'editStarted',
+        status: 'editing',
+        actor: 'person',
+      });
+      expect(await statusOf(migrator, 'ann_live')).toBe('editing');
       expect(await rows(reader, 'SELECT id FROM story:ann_live')).toEqual([]);
       // Its old approved entry is no longer anyone else's to read.
       expect(
@@ -499,13 +516,96 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
           'SELECT * FROM storyStatusLog WHERE story = story:ann_live',
         ),
       ).toEqual([]);
-      // Withdrawn stays withdrawn (D61).
+      // Pressing Edit again is refused: it is being edited already.
       expect(
         await outcome(
           ann,
-          `CREATE storyStatusLog CONTENT { story: story:ann_live, status: 'withdrawn' }`,
+          `CREATE storyStatusLog CONTENT { story: story:ann_live, action: 'editStarted' }`,
         ),
-      ).toMatchObject({ ok: false });
+      ).toMatchObject({ ok: false, error: expect.stringContaining('status_step') });
+      // Everything may change while editing (M3-6 A), and it goes back for review.
+      await run(
+        ann,
+        `UPDATE story:ann_live SET title = 'Edited live', themeRefs = [theme:doubt]`,
+      );
+      expect(await submit(ann, 'ann_live')).toHaveLength(1);
+      expect(await statusOf(migrator, 'ann_live')).toBe('pending');
+      await approve(admin, 'ann_live');
+      expect(
+        await truth(
+          'SELECT VALUE [title, currentStatus.publishedAt] FROM story:ann_live',
+        ),
+      ).toEqual([['Edited live', firstPublished[0]]]);
+    });
+
+    it('Edit works on a story waiting for review too (ED-4), and its log records a new picture without moving it', async () => {
+      const apiUser = await t.service('api_user');
+      const version = async () =>
+        (
+          await truth<number>(
+            'SELECT VALUE version FROM story:ann_hist',
+          )
+        )[0];
+      const log = () =>
+        truth<{ action: string; status: string; actor: string }>(
+          `SELECT action, status, actor, at FROM storyStatusLog WHERE story = story:ann_hist
+             ORDER BY at`,
+        ).then((r) => r.map(({ action, status, actor }) => ({ action, status, actor })));
+      await draft(ann, 'ann_hist');
+      // A draft's pictures are no history: it was never sent.
+      expect(
+        await grantImage(apiUser, {
+          story: 'ann_hist',
+          person: 'ann',
+          version: await version(),
+          name: '1'.repeat(32),
+        }),
+      ).toMatchObject({ ok: true });
+      expect(await log()).toEqual([]);
+      await submit(ann, 'ann_hist');
+      expect(await edit(ann, 'ann_hist')).toHaveLength(1);
+      expect(
+        await grantImage(apiUser, {
+          story: 'ann_hist',
+          person: 'ann',
+          version: await version(),
+          name: '2'.repeat(32),
+          expectedImage: `stories/ann_hist/${'1'.repeat(32)}.webp`,
+        }),
+      ).toMatchObject({ ok: true });
+      expect(await log()).toEqual([
+        { action: 'sent', status: 'pending', actor: 'person' },
+        { action: 'editStarted', status: 'editing', actor: 'person' },
+        { action: 'pictureReplaced', status: 'editing', actor: 'system' },
+      ]);
+      // The story's status is still the entry that moved it.
+      expect(
+        await truth('SELECT VALUE currentStatus.action FROM story:ann_hist'),
+      ).toEqual(['editStarted']);
+      // Nobody points a story at a history entry.
+      expect(
+        await outcome(
+          migrator,
+          `UPDATE story:ann_hist SET currentStatus = (SELECT VALUE id FROM storyStatusLog
+             WHERE story = story:ann_hist AND action = 'pictureReplaced')[0]`,
+        ),
+      ).toMatchObject({ ok: false, error: expect.stringContaining('moved it') });
+    });
+
+    it('a rejected story can only be deleted: no Edit, no send', async () => {
+      await draft(ann, 'ann_rejected');
+      await submit(ann, 'ann_rejected');
+      await step(admin, 'ann_rejected', 'rejected');
+      for (const action of ['editStarted', 'sent']) {
+        expect(
+          await outcome(
+            ann,
+            `CREATE storyStatusLog CONTENT { story: story:ann_rejected, action: $action }`,
+            { action },
+          ),
+        ).toMatchObject({ ok: false, error: expect.stringContaining('status_step') });
+      }
+      expect(await statusOf(migrator, 'ann_rejected')).toBe('rejected');
     });
   });
 

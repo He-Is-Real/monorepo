@@ -113,35 +113,44 @@ export function grantImage(
   );
 }
 
+/** Story states (Joel, 2026-11-11): the moderator's actions that carry their note to the person. */
+const NOTED = ['changesRequested', 'rejected', 'hiddenByModerator'];
+
 /**
- * Adds a status entry to the story's log (R6) as `who` (the person's session, api-admin's login,
- * a system user): the database checks the step and moves story.currentStatus. Answers the entry
- * as `who` reads it back. A moderator's entry names user:moderator unless `extra` says otherwise.
+ * Adds an entry to the story's status log (R6) as `who` (the person's session, api-admin's login,
+ * a system user): the database checks the action against the story's state, sets the entry's
+ * status from it and moves story.currentStatus (history-only actions leave it). Answers the entry
+ * as `who` reads it back. A moderator's entry names user:moderator, and a noted action carries a
+ * note, unless `extra` says otherwise (`comment: undefined` leaves the note out).
  */
 export function step(
   who: SurrealQueryable,
   id: string,
-  status: string,
+  action: string,
   extra: Record<string, unknown> = {},
 ): Promise<Row[]> {
+  const note =
+    NOTED.includes(action) && !('comment' in extra)
+      ? { comment: 'A note from our team' }
+      : {};
   return rows(
     who,
     `CREATE type::record('storyStatusLog', rand::ulid()) CONTENT object::extend({
-       story: type::record('story', $id), status: $status,
+       story: type::record('story', $id), action: $action,
        by: IF $auth = service:api_admin { user:moderator }
      }, $extra)`,
-    { id, status, extra },
+    { id, action, extra: { ...note, ...extra } },
   );
 }
 
-/** The owner submits (R6: a pending entry): draft/changes_requested → pending. */
+/** The owner sends it (R6: a `sent` entry): editing → pending. */
 export function submit(person: SurrealQueryable, id: string): Promise<Row[]> {
-  return step(person, id, 'pending');
+  return step(person, id, 'sent');
 }
 
-/** The owner withdraws (R6: a withdrawn entry), from any status. */
-export function withdraw(person: SurrealQueryable, id: string): Promise<Row[]> {
-  return step(person, id, 'withdrawn');
+/** The owner presses Edit (ED-1/ED-4: an editStarted entry): pending, approved or hidden → editing. */
+export function edit(person: SurrealQueryable, id: string): Promise<Row[]> {
+  return step(person, id, 'editStarted');
 }
 
 /** A story's status as its newest entry says (R6), read by a system user. */
@@ -205,8 +214,8 @@ export async function answered(
 }
 
 /**
- * A moderator picks a pending story up and approves it (R6: in_review, then approved), as
- * api-admin will (M3). The approval publishes it: the public rules read its newest entry (R11).
+ * A moderator approves a pending story (R6: approved, straight from pending), as api-admin will
+ * (M3). The approval publishes it: the public rules read its newest entry (R11).
  * `superAdminSkip`: an Admin approves while the media wait (a file's upload link still
  * usable, or an open media job) would refuse it, and the entry records that (skippedMediaWait).
  */
@@ -217,13 +226,9 @@ export async function approve(
 ) {
   await run(
     admin,
-    `BEGIN TRANSACTION;
-     CREATE type::record('storyStatusLog', rand::ulid()) CONTENT {
-       story: type::record('story', $id), status: 'in_review', by: user:moderator };
-     CREATE type::record('storyStatusLog', rand::ulid()) CONTENT {
-       story: type::record('story', $id), status: 'approved', by: user:moderator,
-       skippedMediaWait: $skip };
-     COMMIT TRANSACTION;`,
+    `CREATE type::record('storyStatusLog', rand::ulid()) CONTENT {
+       story: type::record('story', $id), action: 'approved', by: user:moderator,
+       skippedMediaWait: $skip };`,
     { id, skip: superAdminSkip ? true : undefined },
   );
 }

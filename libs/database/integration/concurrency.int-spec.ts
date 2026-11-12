@@ -160,11 +160,10 @@ describe('concurrent transactions are fenced per person', () => {
     );
     await submit(vic, 'vic_story');
     await answered(workflow, 'vic_story');
-    await step(admin, 'vic_story', 'in_review');
     const approving = await begin(admin);
     await approving
       .query(
-        `CREATE storyStatusLog CONTENT { story: story:vic_story, status: 'approved', by: user:moderator }`,
+        `CREATE storyStatusLog CONTENT { story: story:vic_story, action: 'approved', by: user:moderator }`,
       )
       .collect();
     // The video fails meanwhile (commits first).
@@ -174,7 +173,7 @@ describe('concurrent transactions are fenced per person', () => {
     expect(
       await outcome(
         admin,
-        `CREATE storyStatusLog CONTENT { story: story:vic_story, status: 'approved', by: user:moderator }`,
+        `CREATE storyStatusLog CONTENT { story: story:vic_story, action: 'approved', by: user:moderator }`,
       ),
     ).toMatchObject({
       ok: false,

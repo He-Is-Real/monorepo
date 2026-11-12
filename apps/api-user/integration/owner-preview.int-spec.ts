@@ -212,7 +212,7 @@ describe('my story: my own preview links', () => {
     // In any status its file is still there: sent for review, it keeps its link.
     await run(
       migrator,
-      `CREATE storyStatusLog CONTENT { story: story:ann_clip, status: 'pending', actor: 'person' }`,
+      `CREATE storyStatusLog CONTENT { story: story:ann_clip, action: 'sent', actor: 'person' }`,
     );
     const sent = await get('/v1/account/stories/ann_clip', 'ann');
     expect(sent.body.status).toBe('pending');
