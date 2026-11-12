@@ -81,7 +81,7 @@ function fromTime(iso: string, now = new Date()): string {
   const at = new Date(Math.ceil(Date.parse(iso) / 60_000) * 60_000);
   return ukDay.format(at) === ukDay.format(now)
     ? timeOnly.format(at)
-    : sentAt(iso);
+    : sentAt(at.toISOString());
 }
 
 /** Which file a media refusal is about, as moderators read it. */
