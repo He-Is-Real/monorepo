@@ -520,6 +520,11 @@ describe('housekeeping: old rejected and abandoned stories', () => {
     await createDraft(cat, 'old_pending', 'written');
     await submit(cat, 'old_pending');
     await touch(migrator, 'old_pending', 400);
+    // Approved, then taken down to edit: its approval is history, with a publishedAt.
+    await createDraft(cat, 'approved_then_edited', 'written');
+    await submit(cat, 'approved_then_edited');
+    await decided('approved_then_edited', 'approved', 10);
+    await edit(cat, 'approved_then_edited');
 
     library = new FakeLibrary([story(V.rejected, ago(240))]);
   });
@@ -535,6 +540,28 @@ describe('housekeeping: old rejected and abandoned stories', () => {
     expect(entry['at']).toBeDefined();
     for (const field of ['comment', 'by', 'actor', 'action', 'storyVersion']) {
       expect(entry[field]).toBeUndefined();
+    }
+  });
+
+  it('lets housekeeping read only the story, state and time of every status entry, an old approval’s publishedAt never', async () => {
+    // The approval really carries a publishedAt (as the migrator sees it).
+    const [approval] = await rows(
+      migrator,
+      `SELECT publishedAt FROM storyStatusLog
+       WHERE story = story:approved_then_edited AND action = 'approved'`,
+    );
+    expect(approval['publishedAt']).toBeDefined();
+    const entries = await rows(
+      housekeeping,
+      `SELECT * FROM storyStatusLog WHERE story = story:approved_then_edited`,
+    );
+    expect(entries.map((e) => e['status']).sort()).toEqual([
+      'approved',
+      'editing',
+      'pending',
+    ]);
+    for (const entry of entries) {
+      expect(Object.keys(entry).sort()).toEqual(['at', 'id', 'status', 'story']);
     }
   });
 
@@ -557,7 +584,12 @@ describe('housekeeping: old rejected and abandoned stories', () => {
       housekeeping,
       `DELETE story:young_rejected; DELETE story:young_editing; DELETE story:old_pending`,
     );
-    for (const id of ['young_rejected', 'young_editing', 'old_pending']) {
+    for (const id of [
+      'young_rejected',
+      'young_editing',
+      'old_pending',
+      'approved_then_edited',
+    ]) {
       expect(await exists(id)).toBe(true);
     }
   });
@@ -600,7 +632,12 @@ describe('housekeeping: old rejected and abandoned stories', () => {
         `SELECT id FROM storyStatusLog WHERE story IN [story:old_rejected, story:old_sent_back]`,
       ),
     ).toEqual([]);
-    for (const id of ['young_rejected', 'young_editing', 'old_pending']) {
+    for (const id of [
+      'young_rejected',
+      'young_editing',
+      'old_pending',
+      'approved_then_edited',
+    ]) {
       expect(await exists(id)).toBe(true);
     }
   });

@@ -215,22 +215,22 @@ test.describe('behaviour', () => {
     await expect(
       row(page, 'My draft').locator('[data-draft-expiry]'),
     ).toHaveText(
-      'We’ll keep this draft until 3 May 2027. If you don’t change it before then, it will be deleted.',
+      'If you don’t change this draft, we’ll delete it after 3 May 2027.',
     );
     await expect(
       row(page, 'Being edited one').locator('[data-draft-expiry]'),
     ).toHaveText(
-      'We’ll keep this story until 6 May 2027. If you don’t change it before then, it will be deleted.',
+      'If you don’t change this story, we’ll delete it after 6 May 2027.',
     );
     await expect(
       row(page, 'Sent back one').locator('[data-draft-expiry]'),
     ).toHaveText(
-      'We’ll keep this story until 7 May 2027. If you don’t change it before then, it will be deleted.',
+      'If you don’t change this story, we’ll delete it after 7 May 2027.',
     );
     await expect(
       row(page, 'Not accepted one').locator('[data-draft-expiry]'),
     ).toHaveText(
-      'We’ll delete this story on 1 February 2027. To keep our team’s note, download your data before then.',
+      'We’ll delete this story after 1 February 2027. To keep our team’s note, download your data before then.',
     );
     await expect(page.locator('[data-draft-expiry]')).toHaveCount(4);
     await expect(

@@ -323,7 +323,8 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   its media is fixed, or by a moderator; G2, the owner sees it as it is) and **Not accepted** (with
   the moderator's note).
 - **Drafts and stories being edited or sent back:** continue ("Continue editing" once it was sent
-  before). Only a draft says when it will be deleted if nobody touches it.
+  before). Each says the date after which the nightly clean-up deletes it if nobody touches it
+  ("Data kept and deleted", below).
 - **Preview:** every story that isn't on the site has "Preview", the person's own "see it as others
   will" page (see Sharing a story, Steps); a published one has "View" instead.
 - **Edit (ED-1 to ED-4; it replaced Withdraw):** a story waiting for review, published or not on

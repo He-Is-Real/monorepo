@@ -338,22 +338,20 @@ function StoryRow({
       )}
       {label === 'draft' && story.draftExpiresAt && (
         <p data-draft-expiry="" className="mb-3 text-sm text-secondary-text">
-          We’ll keep this draft until{' '}
-          {LONG_DATE.format(new Date(story.draftExpiresAt))}. If you don’t
-          change it before then, it will be deleted.
+          If you don’t change this draft, we’ll delete it after{' '}
+          {LONG_DATE.format(new Date(story.draftExpiresAt))}.
         </p>
       )}
       {(label === 'sent_back' || label === 'editing') &&
         story.draftExpiresAt && (
           <p data-draft-expiry="" className="mb-3 text-sm text-secondary-text">
-            We’ll keep this story until{' '}
-            {LONG_DATE.format(new Date(story.draftExpiresAt))}. If you don’t
-            change it before then, it will be deleted.
+            If you don’t change this story, we’ll delete it after{' '}
+            {LONG_DATE.format(new Date(story.draftExpiresAt))}.
           </p>
         )}
       {label === 'rejected' && story.draftExpiresAt && (
         <p data-draft-expiry="" className="mb-3 text-sm text-secondary-text">
-          We’ll delete this story on{' '}
+          We’ll delete this story after{' '}
           {LONG_DATE.format(new Date(story.draftExpiresAt))}. To keep our team’s
           note, download your data before then.
         </p>
