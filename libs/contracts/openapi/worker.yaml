@@ -120,10 +120,13 @@ paths:
         - Part 1a (Joel, 2026-11-10; P1a-4 A): `failed` is believed only once Bunny tells the writer
           the same (its own look, with the library key: the worker can never make a file unusable);
           otherwise nothing is written and the reply is `retry: true`. 503 with Bunny off. The first
-          confirmed failure of a file: the writer asks Bunny to encode it again (one automatic
-          re-encode), sets `processing` to `processing` and ends the job `applied`. Bunny's notice
-          when that ends opens the next check; a second confirmed failure is final: `processing` is
-          set to `failed` and the job ends `gave_up` with `errorType` `file_unusable`, together, and
+          confirmed failure of a file: the writer sets `processing` to `processing`, ends the job
+          `applied` and opens a follow-up check job, then asks Bunny to encode it again (one
+          automatic re-encode). Bunny's notice when that ends joins the follow-up (or opens a check).
+          A confirmed failure before Bunny's own "failed" notice reached a check job opened after the
+          request isn't final yet (Bunny may still show the first failure): the writer asks Bunny for
+          the re-encode again and replies `retry: true`. After that notice it is final: `processing`
+          is set to `failed` and the job ends `gave_up` with `errorType` `file_unusable`, together, and
           the database sends a story waiting for review, published or off the site back to its
           owner. A failed call to Bunny counts as the job's failure (reply as `/failed`'s). `gone`
           (Bunny has no such video, never the person's fault) sets `processing` to `processing` and

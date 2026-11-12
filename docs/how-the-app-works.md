@@ -461,8 +461,11 @@ Built in the database (the decisions and their pages are planned, M3):
   Bunny's final "failed to process", after one automatic re-encode, reaches the person. The result
   writer believes a worker's "failed" only once Bunny tells it the same (the worker, a home PC,
   can never blame the file); the first time it asks Bunny to encode the file again (a published
-  story leaves the site meanwhile and comes back by itself if that works), the second time it marks
-  the file failed and the job "gave up" with the reason `file_unusable`. In that same write the
+  story leaves the site meanwhile and comes back by itself if that works), recording the request
+  and opening a follow-up check before it asks, so the re-encode's result is always checked. Only
+  when Bunny's own "failed" notice arrives after that request (Bunny may still show the first
+  failure for a while) does it mark the file failed and the job "gave up" with the reason
+  `file_unusable`. In that same write the
   database sends a story waiting for review, published or not on the site right now back to its
   owner (a system "file unusable" entry: "Needs a new file"). No timer: a published story goes at
   once. Every other give-up is ours, never the person's (`bunny_unavailable`, `worker_error`,

@@ -181,8 +181,8 @@ export const unfinishedPicturesTask: Task = {
  * job gave up for a reason of ours (never Bunny's final failure: that file is failed and its story
  * went back to its owner), with no job open, that have given up at most
  * fn::media::nightly_retries() (3) times: the database's fn::media::our_problem decides. Oldest
- * waiting entry first (entry ids are ULIDs; housekeeping can't read an entry's time). Only the
- * story the entry belongs to and its status are readable to housekeeping.
+ * waiting entry first (entry ids are ULIDs). Of an entry, housekeeping reads only its story,
+ * status and time.
  */
 const OUR_GIVE_UPS = `SELECT VALUE record::id(story.mediaFile) FROM storyStatusLog
     WITH INDEX storyStatusLog_queue

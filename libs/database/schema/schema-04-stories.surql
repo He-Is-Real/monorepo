@@ -873,11 +873,11 @@ DEFINE EVENT OVERWRITE storySearch_theme_renamed ON theme
 -- publishedAt only while it is its story's current, approved entry; older entries, comments,
 -- names and reasons never. The owner reads their own story's entries, never who wrote them; only
 -- api-admin reads `by`.
--- housekeeping reads an entry's story and status only (the other fields refuse it), to find the
--- stories waiting for review whose media check gave up (Part 1a, fn::media::our_problem).
 DEFINE TABLE OVERWRITE storyStatusLog SCHEMAFULL PERMISSIONS        -- id = storyStatusLog:<ulid>
-  FOR select WHERE story.submitter = $auth OR $auth = service:api_admin
-    OR $auth = service:housekeeping
+  -- housekeeping (Part 1a; the same read as G3 B's): every entry's story, status and time, to find
+  -- the stories waiting for review whose media check gave up (fn::media::our_problem); every
+  -- other field refuses it (who, what was said, the action, the files, publishedAt).
+  FOR select WHERE story.submitter = $auth OR $auth IN [service:api_admin, service:housekeeping]
     OR (status = 'approved' AND story.currentStatus = id),
   FOR create WHERE (story.submitter = $auth AND $auth.status != 'deleted'
       AND action IN ['sent', 'editStarted'])
@@ -928,7 +928,8 @@ DEFINE FIELD OVERWRITE comment      ON storyStatusLog TYPE option<string> READON
 -- When, set by the database. A system user may supply it (dev-seed's history), never anyone else.
 DEFINE FIELD OVERWRITE at           ON storyStatusLog TYPE datetime READONLY
   VALUE IF $auth = NONE AND $value != NONE { $value } ELSE { time::now() }
-  PERMISSIONS FOR select WHERE story.submitter = $auth OR $auth = service:api_admin;
+  PERMISSIONS FOR select WHERE story.submitter = $auth
+    OR $auth IN [service:api_admin, service:housekeeping];
 -- On approved entries: when the story was first published (the first approval's time, kept on
 -- later approvals, after an edit too: "newest first" on the website). A system user may supply
 -- the first one (dev-seed's dates).
@@ -942,7 +943,8 @@ DEFINE FIELD OVERWRITE publishedAt  ON storyStatusLog TYPE option<datetime> READ
       array::min(SELECT VALUE publishedAt FROM storyStatusLog WITH INDEX storyStatusLog_story
         WHERE story = $story AND status = 'approved' AND publishedAt != NONE)
         ?? (IF $auth = NONE AND $value != NONE { $value } ELSE { $this.at })
-    };
+    }
+  PERMISSIONS FOR select WHERE $auth != service:housekeeping;
 -- On the system's hiddenBySystem entries: why (media_unavailable or media_changed; a moderator's
 -- own words go in `comment`).
 DEFINE FIELD OVERWRITE hiddenReason ON storyStatusLog TYPE option<string> READONLY

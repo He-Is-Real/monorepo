@@ -91,11 +91,16 @@ How a video or audio file becomes `ready` (M2 plan item 13; D78, D126, D129; des
    video's title isn't the story's id). The database then hides or shows the story again as
    above. A `failed` answer (Part 1a, Joel 2026-11-10) is believed only once the writer asks Bunny
    itself (library key) and Bunny says failed too, else the reply is "try again later". The first
-   confirmed failure of a file: the writer asks Bunny to re-encode it (`POST
-…/videos/<id>/reencode`), the file goes back to `processing` and the job ends `applied` with
-   `lastError` `bunny_encode_failed` (the marker that the one automatic re-encode happened). The
-   next confirmed failure is final: the file becomes `failed`, the job `gave_up` with `errorType`
-   `file_unusable`, and the database sends the story back to its owner ("Needs a new file"). A
+   confirmed failure of a file: the writer first records it (the file goes back to `processing`,
+   the job ends `applied` with `lastError` `bunny_encode_failed`, the marker that the one
+   automatic re-encode was asked for, and a follow-up check job opens with reason `resent`), then
+   asks Bunny to re-encode it (`POST …/videos/<id>/reencode`; a failed request counts on the
+   follow-up). Bunny's notice when the re-encode ends joins the follow-up (or opens a check). A
+   later confirmed failure is final only once Bunny's own "failed" notice (reason `bunny_failed`)
+   reached a check job opened after the marker: then the file becomes `failed`, the job
+   `gave_up` with `errorType` `file_unusable`, and the database sends the story back to its owner
+   ("Needs a new file"). Before that notice, Bunny may still be showing the first failure: the
+   writer asks Bunny for the re-encode again and replies "try again later", the job left open. A
    `gone` answer (Bunny has no such video) leaves the file `processing` and ends the job
    `gave_up` with `errorType` `other`. Its log is one JSON line per call, ids only:
    `gcloud logging read 'resource.labels.service_name="workflow"' --limit 20`.

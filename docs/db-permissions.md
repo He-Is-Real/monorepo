@@ -179,9 +179,10 @@ their fence (see "Transactions").
   (`media_unavailable`, `media_changed`), `reviewedMediaFile`/`reviewedImageFile` (approved
   entries: the files approved), `skippedMediaWait` (an Admin's approval during the media wait;
   api-admin alone reads it).
-  - **Read:** the owner (never `by`) and api-admin; housekeeping only `story`, `status` and
-    `publishedAt` (to find the stories waiting for review whose media job gave up on our side,
-    Part 1a); everyone else only an entry's `story`, `status` and `publishedAt`, while it is its
+  - **Read:** the owner (never `by`) and api-admin; housekeeping every entry's `story`, `status`
+    and `at` only, never who, what was said, the action, the files or `publishedAt` (Part 1a: to
+    find the stories waiting for review whose media job gave up on our side; the same read G3 B's
+    deletion chores use); everyone else only an entry's `story`, `status` and `publishedAt`, while it is its
     story's current approved entry.
   - **Create:** the owner, live, only `sent` and `editStarted`; api-admin only a moderator's
     actions. System and history-only entries come only from the database's own events (elevated),

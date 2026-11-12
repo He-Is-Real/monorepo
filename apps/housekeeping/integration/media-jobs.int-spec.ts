@@ -345,6 +345,20 @@ describe('housekeeping: media jobs', () => {
 
     const ours = await waiting();
     await ended(ours.job, 'gave_up');
+    // What housekeeping reads of the status log: an entry's story, status and time, nothing else
+    // (never who, what was said, the action, the files or publishedAt).
+    const seen = await rows<Record<string, unknown>>(
+      housekeeping,
+      `SELECT * FROM storyStatusLog WHERE story = type::record('story', $story)`,
+      { story: ours.story },
+    );
+    expect(seen).toHaveLength(1);
+    expect(Object.keys(seen[0]).sort()).toEqual([
+      'at',
+      'id',
+      'status',
+      'story',
+    ]);
     // Not retried: a draft, a story whose job is still open, and one Bunny failed for good.
     const draftJob = await openJob();
     await ended(draftJob.job, 'gave_up');
