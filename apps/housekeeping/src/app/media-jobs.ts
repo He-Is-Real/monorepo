@@ -15,7 +15,8 @@ import type { Task, TaskContext, TaskResult } from './tasks';
  *   sent the same evening isn't doubled;
  * - the tidy-up, in the nightly run: ended jobs go 30 days after they ended (J2). The database
  *   lets housekeeping delete only those (docs/db-permissions.md), so the query only picks;
- * - the nightly re-check of a video whose picture at Bunny is unfinished (T4), below.
+ * - the nightly re-check of a video whose picture at Bunny is unfinished (T4), below;
+ * - the nightly new check of a waiting story whose newest job gave up on our side (Part 1a).
  * Job ids are ULIDs: no personal data, so the logs carry them.
  */
 
@@ -147,6 +148,61 @@ export const unfinishedPicturesTask: Task = {
   name: 'unfinished-pictures',
   async run(ctx): Promise<TaskResult> {
     const [found] = (await runQuery(ctx.db, UNFINISHED, {
+      limit: ctx.maxDeletions + 1,
+    })) as [string[]];
+    const selected = (found ?? []).slice(0, ctx.maxDeletions);
+    const result: TaskResult = {
+      selected,
+      deleted: [],
+      failed: [],
+      more: (found ?? []).length > ctx.maxDeletions,
+    };
+    if (ctx.dryRun) return result;
+    for (const video of selected) {
+      try {
+        await retryOnConflict(() =>
+          runQuery(
+            ctx.db,
+            `RETURN fn::media::queue_job(type::record('storyFile', $video), 'check', 'resent')`,
+            { video },
+          ),
+        );
+        result.deleted.push(video);
+      } catch {
+        result.failed.push(video);
+      }
+    }
+    return result;
+  },
+};
+
+/**
+ * Part 1a (Joel, 2026-11-10): the video or audio files of stories waiting for review whose newest
+ * job gave up for a reason of ours (never Bunny's final failure: that file is failed and its story
+ * went back to its owner), with no job open, that have given up at most
+ * fn::media::nightly_retries() (3) times: the database's fn::media::our_problem decides. Oldest
+ * waiting entry first (entry ids are ULIDs; housekeeping can't read an entry's time). Only the
+ * story the entry belongs to and its status are readable to housekeeping.
+ */
+const OUR_GIVE_UPS = `SELECT VALUE record::id(story.mediaFile) FROM storyStatusLog
+    WITH INDEX storyStatusLog_queue
+  WHERE status = 'pending' AND story.currentStatus = id AND story.mediaFile != NONE
+    AND fn::media::our_problem(story.mediaFile).retry
+  ORDER BY id ASC LIMIT $limit`;
+
+/**
+ * Our own give-ups on a waiting story (Part 1a; Joel, 2026-11-10): "the nightly housekeeping opens
+ * a new check for a waiting story whose newest check gave up, for up to 3 nights". It opens a
+ * check of the story's file (reason `resent`, the only job housekeeping may open) and sends
+ * nothing: the 18:00 resend sends it that evening. For an audio file still without its picture
+ * video, the check's ready answer opens the render again. After the third night the moderation
+ * queue shows "Can't be reviewed yet: a problem on our side"; the person keeps seeing "Waiting for
+ * review".
+ */
+export const ourGiveUpsTask: Task = {
+  name: 'media-retry',
+  async run(ctx): Promise<TaskResult> {
+    const [found] = (await runQuery(ctx.db, OUR_GIVE_UPS, {
       limit: ctx.maxDeletions + 1,
     })) as [string[]];
     const selected = (found ?? []).slice(0, ctx.maxDeletions);

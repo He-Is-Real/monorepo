@@ -318,8 +318,15 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   states, Joel 2026-11-11): **Draft** (never sent), **Being edited** (taken down with Edit),
   **Sent back** (a moderator asked for changes; their note shows under "What our team said"),
   **Waiting for review**, **Published**, **Not on the site right now** (hidden: by the site while
-  its media is fixed, or by a moderator; G2, the owner sees it as it is) and **Not accepted** (with
+  its media is fixed, or by a moderator; G2, the owner sees it as it is; for a video or audio
+  story: "We're fixing your video. It will be back by itself.") and **Not accepted** (with
   the moderator's note).
+- **Needs a new file (Part 1a, Joel 2026-11-10):** a story whose video or audio file Bunny couldn't
+  use was sent back by the site: "We couldn't use your video. Please upload another file." ("your
+  recording" for audio), with "Upload another file". It opens the story at its upload, which says
+  the same until a new file is in, then "Thanks, your new file is in. Send it when you're ready."
+  The person replaces the file with the usual upload and sends it again. api-user gives the owner
+  `mediaProblem: unusable`, worked out from the file, never stored.
 - **Drafts and stories being edited or sent back:** continue ("Continue editing" once it was sent
   before). Only a draft says when it will be deleted if nobody touches it.
 - **Preview:** every story that isn't on the site has "Preview", the person's own "see it as others
@@ -448,7 +455,25 @@ Built in the database (the decisions and their pages are planned, M3):
   fixed in the database: the person sends (from editing) and starts editing (Edit, from pending,
   approved or hidden); a moderator approves, sends back or rejects (from pending), hides (from
   approved) and shows again (from hidden); the system hides and shows again when media breaks and
-  works again. Sending back, rejecting and a moderator's hide need a note.
+  works again, and sends a story back when its file can't be used (below). Sending back,
+  rejecting and a moderator's hide need a note.
+- **"Your video couldn't be used" (Part 1a, Joel 2026-11-10; P1a-4 A; G2, 2026-11-11):** only
+  Bunny's final "failed to process", after one automatic re-encode, reaches the person. The result
+  writer believes a worker's "failed" only once Bunny tells it the same (the worker, a home PC,
+  can never blame the file); the first time it asks Bunny to encode the file again (a published
+  story leaves the site meanwhile and comes back by itself if that works), the second time it marks
+  the file failed and the job "gave up" with the reason `file_unusable`. In that same write the
+  database sends a story waiting for review, published or not on the site right now back to its
+  owner (a system "file unusable" entry: "Needs a new file"). No timer: a published story goes at
+  once. Every other give-up is ours, never the person's (`bunny_unavailable`, `worker_error`,
+  `other`; a fixed list, readable by api-admin only): the nightly housekeeping opens a new check
+  for a waiting story whose newest job gave up, for up to 3 nights; after that the moderation
+  queue shows "Can't be reviewed yet: a problem on our side", and the person keeps seeing
+  "Waiting for review". A video Bunny no longer has is ours too (`other`).
+- **Moderators and a story sent back automatically:** it leaves the queue, and its history shows
+  "Sent back automatically: the video couldn't be processed" ("the recording" for audio). A
+  review page left open checks every minute, and when the tab comes back into view, that the
+  story is still waiting; if not, it says so. (The decision buttons, PR 6, will be disabled then.)
 - **History-only entries:** once a story has been sent, a new video or audio file or a new
   picture while it is being edited adds an entry that doesn't change its state, so moderators see
   what changed. So does changing its title, description, text or themes ("words changed"): one
@@ -473,12 +498,13 @@ Built in the database (the decisions and their pages are planned, M3):
   Bunny says a video or audio file finished encoding, failed or was deleted, a check job for that
   file is written to the job table, then queued; the media worker asks Bunny itself and calls the
   result writer, which records the answer on that file only (ready with its real size, length and
-  Bunny's thumbnail; still encoding; or failed, also when Bunny no longer has it) and marks the job
-  done in the same step. At most one job per file and kind is open: a new reason joins it. An
+  Bunny's thumbnail; still encoding; or, for Bunny's failure, Part 1a's re-encode and send-back
+  below) and marks the job done in the same step. At most one job per file and kind is open: a new reason joins it. An
   answer about a file the story no longer shows is dropped (the job ends "gone"), and so is one
   that reached the writer before the last answer recorded for that file (the job ends "stale"),
   so a late answer can't bring back a story whose video has since failed (F1). If the worker
-  fails a job 5 times, the job ends "gave up" (no dead-letter queues, J4). Jobs hold ids only and
+  fails a job 5 times, the job ends "gave up" (no dead-letter queues, J4), with why (Part 1a:
+  `bunny_unavailable`, `worker_error` or `other`, never the file's fault). Jobs hold ids only and
   go with their file (erasure, tidy-up); done jobs are deleted after 30 days (J2). Every evening
   at 18:00 UK time, when Joel's machine is on to take them, every job not done whose last send
   is over 12 hours old is sent again (Joel, 2026-11-07), so a job the queue lost (31 days, a

@@ -62,6 +62,11 @@ export interface MyStory {
   updatedAt: string;
   /** Plan 4e: the social media sharing consent ticked for this story, or null. */
   socialMediaSharingConsent?: Agreement | null;
+  /**
+   * Part 1a: `unusable` while its video or audio file can't be used (Bunny failed it for good);
+   * api-user works it out from the file, so it is null again once a new one is on it.
+   */
+  mediaProblem?: 'unusable' | null;
 }
 
 /** The contract's `MediaPlayback` as api-user gives the person their own file. */

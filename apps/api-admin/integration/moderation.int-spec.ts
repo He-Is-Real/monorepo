@@ -256,6 +256,52 @@ describe('moderation, the read side (api-admin)', () => {
   });
 
   // M3 plan concern C2: the role check is the only thing between a User and these routes.
+  // Part 1a (Joel, 2026-11-10): a waiting story whose file's check gave up on our side, after the
+  // nightly housekeeping's 3 new checks, says so in the queue; every other says nothing.
+  it('the queue marks a story whose media check keeps giving up on our side: "a problem on our side"', async () => {
+    const migrator = await t.migrator();
+    const problem = async () =>
+      Object.fromEntries(
+        (await get('/v1/moderation/queue')).body.data.map(
+          (s: { id: string; mediaProblem: string | null }) => [
+            s.id,
+            s.mediaProblem,
+          ],
+        ),
+      );
+    const giveUp = () =>
+      run(
+        migrator,
+        `CREATE mediaJob CONTENT { file: type::record('storyFile', $video), kind: 'check',
+           reasons: ['resent'], outcome: 'gave_up', doneAt: time::now(),
+           errorType: 'worker_error' }`,
+        { video: VIDEO },
+      );
+    expect(await problem()).toEqual({
+      ann_pending: null,
+      ann_video: null,
+      bob_pending: null,
+    });
+    // The first give-up (the check its sending opened) and the housekeeping's three nights.
+    await run(
+      migrator,
+      `UPDATE mediaJob SET outcome = 'gave_up', doneAt = time::now(), errorType = 'bunny_unavailable'
+         WHERE file = type::record('storyFile', $video) AND doneAt = NONE`,
+      { video: VIDEO },
+    );
+    expect((await problem())['ann_video']).toBeNull();
+    for (let n = 2; n <= 3; n++) {
+      await giveUp();
+      expect((await problem())['ann_video']).toBeNull();
+    }
+    await giveUp();
+    expect(await problem()).toEqual({
+      ann_pending: null,
+      ann_video: 'ours',
+      bob_pending: null,
+    });
+  });
+
   it('a User is refused on both routes', async () => {
     for (const path of [
       '/v1/moderation/queue',

@@ -32,13 +32,15 @@ const UNDER_MODERATION = ['pending'];
  * The queue (task 3.1): stories whose current status entry is `pending`, oldest sent first, on
  * the status log's (status, at) index (storyStatusLog_queue). Bind `$after` = [at, entry id] or
  * NONE, `$take`. An old pending entry of a story that has moved on is skipped: only the entry
- * the story points at counts.
+ * the story points at counts. `ours` (Part 1a): its file's check gave up on our side and the
+ * nightly retries are used up (fn::media::our_problem).
  */
 const QUEUE_SQL = `
   LET $c = IF $after != NONE { <datetime> $after[0] };
   LET $cid = IF $after != NONE { type::record('storyStatusLog', $after[1]) };
   SELECT record::id(id) AS entry, record::id(story) AS id, story.version AS version, status,
-    story.title AS title, story.primaryFormat AS primaryFormat, at AS submittedAt
+    story.title AS title, story.primaryFormat AS primaryFormat, at AS submittedAt,
+    fn::media::our_problem(story.mediaFile).ours AS ours
   FROM storyStatusLog WITH INDEX storyStatusLog_queue
   WHERE status = 'pending' AND story.currentStatus = id
     AND ($c = NONE OR at > $c OR (at = $c AND id > $cid))
@@ -76,6 +78,7 @@ interface QueueRow {
   title: string;
   primaryFormat: string;
   submittedAt: string;
+  ours?: boolean | null;
 }
 
 interface StoryRow {
@@ -216,6 +219,8 @@ export class ModerationController {
           title: r.title,
           primaryFormat: r.primaryFormat,
           submittedAt: iso(r.submittedAt),
+          // Part 1a: "Can't be reviewed yet: a problem on our side".
+          mediaProblem: r.ours ? 'ours' : null,
         })),
         nextCursor: rows.length > take && last ? encodeCursor(last) : null,
       },

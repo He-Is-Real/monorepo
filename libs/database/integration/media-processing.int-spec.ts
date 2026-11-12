@@ -321,12 +321,6 @@ describe('approval waits for media processing (A2, R12)', () => {
         'the story’s video or audio hasn’t finished processing',
       ],
       [
-        'a video that failed processing',
-        video,
-        `processing = 'failed'`,
-        'the story’s video or audio hasn’t finished processing',
-      ],
-      [
         'a ready video without its size',
         video,
         `processing = 'ready', lengthSeconds = 30`,
@@ -494,7 +488,6 @@ describe('approval waits for media processing (A2, R12)', () => {
     };
 
     it.each<[string, () => Promise<string>, string, 'media' | 'image']>([
-      ['a video marked failed', video, `processing = 'failed'`, 'media'],
       [
         'a video back to processing',
         video,
@@ -529,7 +522,7 @@ describe('approval waits for media processing (A2, R12)', () => {
 
     it('a system user hides and restores it too', async () => {
       const id = await live(video);
-      await setFile(id, `processing = 'failed'`, migrator);
+      await setFile(id, `processing = 'processing'`, migrator);
       await expectHidden(id);
       await setFile(id, `processing = 'ready'`, migrator);
       await expectLive(id);
@@ -537,7 +530,7 @@ describe('approval waits for media processing (A2, R12)', () => {
 
     it('stays hidden while still not ready', async () => {
       const id = await live(video);
-      await setFile(id, `processing = 'failed'`);
+      await setFile(id, `lengthSeconds = NONE`);
       await setFile(id, `processing = 'processing'`);
       await expectHidden(id);
       expect(
@@ -561,7 +554,7 @@ describe('approval waits for media processing (A2, R12)', () => {
           { id },
         ),
       ).toEqual({ ok: true, result: [] }); // refused by the permissions: nothing written
-      await setFile(id, `processing = 'failed'`);
+      await setFile(id, `processing = 'processing'`);
       expect(
         await outcome(
           migrator,
@@ -578,7 +571,7 @@ describe('approval waits for media processing (A2, R12)', () => {
 
     it('other files stay hidden: a moderator must review them, and their approval records them', async () => {
       const id = await live(video);
-      await setFile(id, `processing = 'failed'`);
+      await setFile(id, `processing = 'processing'`);
       await expectHidden(id);
       // Only a system user can point a submitted story at another file (content is locked).
       const other = await upload(id, 'video');
@@ -599,7 +592,7 @@ describe('approval waits for media processing (A2, R12)', () => {
         reviewedMediaFile: `storyFile:${other}`,
       });
       // And those files are what it comes back with next time (Codex, #61).
-      await setFile(id, `processing = 'failed'`);
+      await setFile(id, `processing = 'processing'`);
       await expectHidden(id);
       await processed(workflow, id);
       await expectLive(id);
@@ -651,7 +644,7 @@ describe('approval waits for media processing (A2, R12)', () => {
     it('steps the story’s version once to hide and once to show again (D29)', async () => {
       const id = await live(video);
       const before = await version(id);
-      await setFile(id, `processing = 'failed'`);
+      await setFile(id, `processing = 'processing'`);
       expect(await version(id)).toBe(before + 1);
       await processed(workflow, id);
       expect(await version(id)).toBe(before + 2);
@@ -659,7 +652,7 @@ describe('approval waits for media processing (A2, R12)', () => {
 
     it('the owner can take a hidden story down to edit (G2), and then it never comes back by itself', async () => {
       const id = await live(video);
-      await setFile(id, `processing = 'failed'`);
+      await setFile(id, `processing = 'processing'`);
       expect(await edit(pat, id)).toHaveLength(1);
       await processed(workflow, id);
       expect(await statusOf(id)).toBe('editing');
@@ -686,7 +679,10 @@ describe('approval waits for media processing (A2, R12)', () => {
       await answered(workflow, 'hid_v');
       await processed(workflow, 'hid_v');
       await approve(admin, 'hid_v');
-      await run(workflow, `UPDATE storyFile:hidvid SET processing = 'failed'`);
+      await run(
+        workflow,
+        `UPDATE storyFile:hidvid SET processing = 'processing'`,
+      );
       expect(await statusOf('hid_v')).toBe('hidden');
       await run(await t.service('api_user'), ERASE, {
         clerkUserId: 'user_hid',
@@ -699,6 +695,111 @@ describe('approval waits for media processing (A2, R12)', () => {
              count(SELECT id FROM storyFile WHERE story = story:hid_v)]`,
         ),
       ).toEqual([0, 0, 0]);
+    });
+  });
+  // Part 1a (Joel, 2026-11-10; G2, 2026-11-11): a video or audio file becomes failed only when
+  // Bunny has failed it for good (the result writer: apps/workflow). The database itself then
+  // sends a story waiting for review, published or off the site back to its owner, in the same
+  // write: a system fileUnusable entry, "Needs a new file". No timer: a published story goes at
+  // once. The person uploads another file and sends it again.
+  describe('a file that can’t be used sends the story back (Part 1a)', () => {
+    const entries = async (id: string) =>
+      truth<{ action: string; status: string; actor: string }>(
+        `SELECT action, status, actor, at FROM storyStatusLog
+           WHERE story = type::record('story', $id) ORDER BY at`,
+        { id },
+      );
+    const sentBack = async (id: string) => {
+      expect(await statusOf(id)).toBe('editing');
+      expect((await entries(id)).at(-1)).toMatchObject({
+        action: 'fileUnusable',
+        status: 'editing',
+        actor: 'system',
+      });
+      expect(await published(id)).toEqual([]);
+    };
+    const waiting = async (make: () => Promise<string>) => {
+      const id = await make();
+      expect(await submit(pat, id)).toHaveLength(1);
+      await answered(workflow, id);
+      return id;
+    };
+    const live = async (make: () => Promise<string>) => {
+      const id = await waiting(make);
+      await processed(workflow, id);
+      await approve(admin, id);
+      expect(await published(id)).toEqual([`story:${id}`]);
+      return id;
+    };
+
+    it.each([
+      ['a video', video],
+      ['an audio file', audio],
+    ])(
+      'waiting for review: %s that fails goes back to its owner, who uploads another and sends it again',
+      async (_name, make) => {
+        const id = await waiting(make);
+        expect(await setFile(id, `processing = 'failed'`)).toMatchObject({
+          ok: true,
+        });
+        await sentBack(id);
+        // Only the new upload makes it usable: mediaProblem is worked out from the file.
+        expect(
+          await rows(
+            pat,
+            `SELECT VALUE fn::story::file_unusable($this) FROM ONLY type::record('story', $id)`,
+            { id },
+          ),
+        ).toEqual([true]);
+        await upload(id, make === video ? 'video' : 'audio');
+        expect(
+          await rows(
+            pat,
+            `SELECT VALUE fn::story::file_unusable($this) FROM ONLY type::record('story', $id)`,
+            { id },
+          ),
+        ).toEqual([false]);
+        expect(await submit(pat, id)).toHaveLength(1);
+        expect(await statusOf(id)).toBe('pending');
+      },
+    );
+
+    it('published: a final failure sends it back at once, with no hide first (G2)', async () => {
+      const id = await live(video);
+      await setFile(id, `processing = 'failed'`);
+      await sentBack(id);
+      expect((await entries(id)).map((e) => e.action)).toEqual([
+        'sent',
+        'approved',
+        'fileUnusable',
+      ]);
+    });
+
+    it('off the site while Bunny re-encodes, then failed for good: sent back', async () => {
+      const id = await live(video);
+      await setFile(id, `processing = 'processing'`);
+      expect(await statusOf(id)).toBe('hidden');
+      await setFile(id, `processing = 'failed'`);
+      await sentBack(id);
+      // It never comes back by itself now, even if the same file turns ready.
+      await processed(workflow, id);
+      expect(await statusOf(id)).toBe('editing');
+    });
+
+    it('a story being edited, or one never sent, gets no entry', async () => {
+      const id = await video();
+      await setFile(id, `processing = 'failed'`);
+      expect(await statusOf(id)).toBe('editing');
+      expect(await entries(id)).toEqual([]);
+    });
+
+    it('a failed picture still only hides a published story (its file is checked at submit)', async () => {
+      const id = await live(written);
+      await setFile(id, `processing = 'failed'`, workflow, 'image');
+      expect(await current(id)).toMatchObject({
+        status: 'hidden',
+        hiddenReason: 'media_unavailable',
+      });
     });
   });
 });

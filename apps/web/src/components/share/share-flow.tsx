@@ -1550,6 +1550,26 @@ function MediaStep({
         </div>
         <div>
           <p className="mb-1.5 font-semibold">Your {noun}</p>
+          {/* Part 1a: the file sent before couldn't be used; a new upload clears it. */}
+          {story?.mediaProblem === 'unusable' &&
+            (file === 'uploaded' ? (
+              <p
+                role="status"
+                data-media-problem="replaced"
+                className="mb-3 rounded-xl bg-surface px-4 py-3"
+              >
+                Thanks, your new file is in. Send it when you’re ready.
+              </p>
+            ) : (
+              <p
+                data-media-problem="unusable"
+                className="mb-3 rounded-xl border-l-4 border-link bg-raised px-4 py-3"
+              >
+                We couldn’t use your{' '}
+                {format === 'audio' ? 'recording' : 'video'}. Please upload
+                another file.
+              </p>
+            ))}
           <UploadPanel
             calls={calls}
             owner={owner}

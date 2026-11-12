@@ -39,15 +39,22 @@ export interface MyStoryRow {
    * null. It can't be withdrawn: deleting the story stops any future use.
    */
   socialMediaSharingConsent?: Agreement | null;
+  /**
+   * Part 1a: `unusable` while its video or audio file can't be used (api-user works it out from
+   * the file: null again once a new one is on it).
+   */
+  mediaProblem?: 'unusable' | null;
 }
 
 /**
  * What the owner sees of each state (Story states, Joel 2026-11-11). A story being edited is a
  * "Draft" if it was never sent, "Sent back" while a moderator's note is on it, and "Being edited"
- * once its owner took it down with Edit. G2: a hidden story shows as it is.
+ * once its owner took it down with Edit. G2: a hidden story shows as it is. Part 1a: a story
+ * whose file can't be used "Needs a new file".
  */
 type Label =
   | 'draft'
+  | 'needs_file'
   | 'sent_back'
   | 'editing'
   | 'pending'
@@ -56,6 +63,7 @@ type Label =
   | 'rejected';
 const LABEL: Record<Label, { label: string; tone: string }> = {
   draft: { label: 'Draft', tone: 'border-border text-secondary-text' },
+  needs_file: { label: 'Needs a new file', tone: 'border-link text-link' },
   sent_back: { label: 'Sent back', tone: 'border-link text-link' },
   editing: { label: 'Being edited', tone: 'border-border text-secondary-text' },
   pending: { label: 'Waiting for review', tone: 'border-link text-link' },
@@ -68,6 +76,7 @@ const LABEL: Record<Label, { label: string; tone: string }> = {
 };
 function labelOf(story: MyStoryRow): Label {
   if (story.status === 'editing') {
+    if (story.mediaProblem === 'unusable') return 'needs_file';
     if (!story.submittedAt) return 'draft';
     return story.rejectionFeedback ? 'sent_back' : 'editing';
   }
@@ -283,6 +292,7 @@ function StoryRow({
   };
   const titleId = `story-${story.id}`;
   const what = label === 'draft' ? 'draft' : 'story';
+  const media = story.primaryFormat === 'audio' ? 'recording' : 'video';
 
   const go = async (command: Command) => {
     setBusy(true);
@@ -346,9 +356,16 @@ function StoryRow({
           ready, and our team will look at it.
         </p>
       )}
+      {label === 'needs_file' && (
+        <p data-media-problem="" className="mb-3 text-[0.9375rem]">
+          We couldn’t use your {media}. Please upload another file.
+        </p>
+      )}
       {label === 'hidden' && (
         <p className="mb-3 text-sm text-secondary-text">
-          It isn’t on the site right now. You can edit it or delete it.
+          {story.primaryFormat === 'written'
+            ? 'It isn’t on the site right now. You can edit it or delete it.'
+            : `We’re fixing your ${media}. It will be back by itself.`}
         </p>
       )}
       {shared && (
@@ -408,7 +425,11 @@ function StoryRow({
                 href={`/share?draft=${encodeURIComponent(story.id)}`}
                 aria-describedby={titleId}
               >
-                {label === 'draft' ? 'Continue' : 'Continue editing'}
+                {label === 'draft'
+                  ? 'Continue'
+                  : label === 'needs_file'
+                    ? 'Upload another file'
+                    : 'Continue editing'}
               </Link>
             </Button>
           )}

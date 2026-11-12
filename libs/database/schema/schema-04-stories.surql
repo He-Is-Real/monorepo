@@ -644,11 +644,27 @@ DEFINE FUNCTION OVERWRITE fn::story::restorable($s: any) {
     AND fn::story::shows_reviewed_files($s)
     AND $s.submitter.testimonyConsent != NONE;
 };
+-- Part 1a (Joel, 2026-11-10; G2, 2026-11-11): whether the story's video or audio file can't be
+-- used: it is `failed`, which only the result writer sets, and only from Bunny's final "failed to
+-- process" after one automatic re-encode (mediaJob.errorType file_unusable). The person sees it
+-- as the owner's `mediaProblem` (api-user). With the caller's permissions (the owner's session
+-- reads its own files); elevated in events.
+DEFINE FUNCTION OVERWRITE fn::story::file_unusable($s: any) {
+  RETURN $s.mediaFile != NONE AND (SELECT VALUE processing FROM ONLY $s.mediaFile) = 'failed';
+};
 -- After a write to a story's files (a file row's processing, storyFile_availability; or its
 -- pointers, story_files): hide it or show it again as above. $s: the story as it is now.
+-- Part 1a: a story waiting for review, published or off the site whose video or audio file can't
+-- be used goes back to its owner instead, in the same write as the file became failed: a system
+-- fileUnusable entry (editing; "Needs a new file"). No timer (G2): a published story goes at once.
+-- The person replaces the file with the existing upload and sends it again.
 DEFINE FUNCTION OVERWRITE fn::story::check_files($s: any) {
   LET $status = fn::story::status_of($s);
-  IF $status = 'approved' {
+  IF $status IN ['pending', 'approved', 'hidden'] AND fn::story::file_unusable($s) {
+    CREATE type::record('storyStatusLog', rand::ulid()) CONTENT {
+      story: $s.id, action: 'fileUnusable', actor: 'system'
+    } RETURN NONE;
+  } ELSE IF $status = 'approved' {
     LET $problem = fn::story::approval_problem($s);
     IF $problem != NONE OR !fn::story::shows_reviewed_files($s) {
       fn::story::hide($s, IF $problem != NONE { 'media_unavailable' } ELSE { 'media_changed' });
@@ -842,7 +858,7 @@ DEFINE EVENT OVERWRITE storySearch_theme_renamed ON theme
 --     rejected and hiddenByModerator carry the moderator's note (`comment`);
 --   the system: hiddenBySystem (from approved) when the media fails or changes, shownBySystem
 --     (from hidden) when the same media is ready again, fileUnusable (pending, approved or hidden
---     -> editing; reserved for Part 1a, not written yet);
+--     -> editing) when its video or audio file can't be used (Part 1a, fn::story::check_files);
 --   history only (no change of state, the pointer stays): fileReplaced and pictureReplaced
 --     (written by storyFile_attach when a story that was sent before gets a new file) and
 --     wordsChanged (written by story_words_changed, once per round of editing, when its words or
@@ -857,8 +873,11 @@ DEFINE EVENT OVERWRITE storySearch_theme_renamed ON theme
 -- publishedAt only while it is its story's current, approved entry; older entries, comments,
 -- names and reasons never. The owner reads their own story's entries, never who wrote them; only
 -- api-admin reads `by`.
+-- housekeeping reads an entry's story and status only (the other fields refuse it), to find the
+-- stories waiting for review whose media check gave up (Part 1a, fn::media::our_problem).
 DEFINE TABLE OVERWRITE storyStatusLog SCHEMAFULL PERMISSIONS        -- id = storyStatusLog:<ulid>
   FOR select WHERE story.submitter = $auth OR $auth = service:api_admin
+    OR $auth = service:housekeeping
     OR (status = 'approved' AND story.currentStatus = id),
   FOR create WHERE (story.submitter = $auth AND $auth.status != 'deleted'
       AND action IN ['sent', 'editStarted'])
@@ -1483,7 +1502,9 @@ DEFINE FUNCTION OVERWRITE fn::upload::renew($story: record<story>, $person: reco
 --   the table replaces dead letters).
 -- - doneAt and outcome: set once, when it ends: applied (the answer was saved), stale (a newer
 --   answer was already in), gone (the file or story was deleted) or gave_up.
--- Services only (no person's session sees it): api-user and workflow create jobs, housekeeping only
+-- - errorType (Part 1a): why it gave up, set with gave_up and only then.
+-- Services only (no person's session sees it; api-admin reads them for the moderation queue's
+-- "a problem on our side", Part 1a): api-user and workflow create jobs, housekeeping only
 -- the nightly re-check of a video whose picture at Bunny is unfinished (T4: a check, reason
 -- resent); api-user records its sends and new reasons, housekeeping its resends; only workflow
 -- ends a job. Housekeeping
@@ -1491,7 +1512,8 @@ DEFINE FUNCTION OVERWRITE fn::upload::renew($story: record<story>, $person: reco
 -- needs the person to exist and not be erased, and bumps their fence, so it conflicts with an
 -- erasure that overlaps it (docs/db-permissions.md, "Person-linked tables").
 DEFINE TABLE OVERWRITE mediaJob SCHEMAFULL PERMISSIONS          -- id = mediaJob:<ulid>
-  FOR select WHERE $auth IN [service:api_user, service:workflow, service:housekeeping],
+  FOR select WHERE $auth IN [service:api_user, service:workflow, service:housekeeping,
+    service:api_admin],
   FOR create WHERE $auth IN [service:api_user, service:workflow]
     OR ($auth = service:housekeeping AND kind = 'check' AND reasons = ['resent']),
   FOR update WHERE $auth IN [service:api_user, service:workflow, service:housekeeping],
@@ -1525,17 +1547,36 @@ DEFINE FIELD OVERWRITE outcome    ON mediaJob TYPE option<string>
   ASSERT $value = NONE OR $value IN ['applied', 'stale', 'gone', 'gave_up']
   VALUE IF $before != NONE { $before } ELSE { $value }
   PERMISSIONS FOR create, update WHERE $auth = service:workflow;
+-- Part 1a (Joel, 2026-11-10: "have a error type string"; P1a-4 A, 2026-11-11: a fixed list): why
+-- the job gave up. Set once, with outcome gave_up, and only then (mediaJob_rules); NONE while it
+-- succeeds or is still trying. Only the result writer writes it:
+-- - file_unusable: Bunny's final "failed to process", after one automatic Bunny re-encode, as the
+--   writer itself asked Bunny (the worker can never set it). Only this reaches the person: the
+--   file becomes failed and its story goes back to them (fn::story::check_files);
+-- - bunny_unavailable: Bunny didn't answer, or had an outage, on every try;
+-- - worker_error: our worker failed (a bug, a missing tool, a crash);
+-- - other: anything not recognised.
+-- The last three are ours: the nightly housekeeping opens a new check (fn::media::our_problem).
+-- Only api-admin reads it.
+DEFINE FIELD OVERWRITE errorType  ON mediaJob TYPE option<string>
+  ASSERT $value = NONE OR $value IN ['file_unusable', 'bunny_unavailable', 'worker_error', 'other']
+  VALUE IF $before != NONE { $before } ELSE { $value }
+  PERMISSIONS FOR select WHERE $auth = service:api_admin,
+    FOR create, update WHERE $auth = service:workflow;
 DEFINE INDEX OVERWRITE mediaJob_file ON mediaJob FIELDS file, kind;
 -- The nightly resend and tidy-up's lists.
 DEFINE INDEX OVERWRITE mediaJob_done ON mediaJob FIELDS doneAt;
 -- Whoever writes: the job's person must be live (their fence then serialises every job write for
 -- them, so two overlapping writes can't both find no open job), at most one job per file and kind
--- is open, and doneAt and outcome come together.
+-- is open, doneAt and outcome come together, and a job that gave up says why (errorType).
 DEFINE EVENT OVERWRITE mediaJob_rules ON mediaJob
   WHEN $event IN ['CREATE', 'UPDATE'] THEN {
     fn::person::live($after.file.person);
     IF ($after.doneAt = NONE) != ($after.outcome = NONE) {
       THROW 'a media job’s doneAt and outcome are set together';
+    };
+    IF ($after.errorType != NONE) != ($after.outcome = 'gave_up') {
+      THROW 'a media job has an errorType when, and only when, it gave up';
     };
     IF $after.doneAt = NONE AND (SELECT VALUE id FROM mediaJob
       WHERE file = $after.file AND kind = $after.kind AND doneAt = NONE AND id != $after.id) != [] {
@@ -1560,6 +1601,30 @@ DEFINE FUNCTION OVERWRITE fn::media::queue_job($file: record<storyFile>, $kind: 
   };
   RETURN { job: <string> record::id($job), story: <string> record::id($f.story),
     video: <string> record::id($file) };
+};
+-- Part 1a (Joel, 2026-11-10): how many nights the housekeeping opens a new check of a waiting
+-- story's file after our own give-up (bunny_unavailable, worker_error, other).
+DEFINE FUNCTION OVERWRITE fn::media::nightly_retries() {
+  RETURN 3;
+};
+-- Part 1a: our own give-ups on a story's video or audio file `$file` (never the person's: a file
+-- Bunny couldn't use for good is failed, and its story went back to them). When its newest job
+-- gave up and none is open: `retry` while it has given up at most fn::media::nightly_retries()
+-- times since it was uploaded (the housekeeping opens a new check that night), then `ours` (the
+-- moderation queue shows "Can't be reviewed yet: a problem on our side"; the person keeps seeing
+-- "Waiting for review"). With the caller's permissions: housekeeping and api-admin read the jobs.
+DEFINE FUNCTION OVERWRITE fn::media::our_problem($file: option<record<storyFile>>) {
+  IF $file = NONE { RETURN { retry: false, ours: false } };
+  LET $jobs = (SELECT outcome, doneAt, queuedAt FROM mediaJob WHERE file = $file
+    ORDER BY queuedAt DESC);
+  LET $stuck = $jobs != [] AND $jobs[0].outcome = 'gave_up'
+    AND $jobs.all(|$j| $j.doneAt != NONE)
+    AND (SELECT VALUE processing FROM ONLY $file) != 'failed';
+  LET $gaveUp = array::len($jobs.filter(|$j| $j.outcome = 'gave_up'));
+  RETURN {
+    retry: $stuck AND $gaveUp <= fn::media::nightly_retries(),
+    ours: $stuck AND $gaveUp > fn::media::nightly_retries()
+  };
 };
 -- The jobs a person's own steps need (Joel, 2026-11-07: media-worker-final.html section 1 steps 1
 -- to 3, media-job-table.html J1 check e; audio-picture-video "also assumed"), written in the

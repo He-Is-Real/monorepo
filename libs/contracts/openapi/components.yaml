@@ -717,7 +717,16 @@ components:
         while it is still processing, and always `null` in the list. On that route the `image` link
         lasts one hour too.
       required:
-        [id, version, status, title, primaryFormat, createdAt, updatedAt]
+        [
+          id,
+          version,
+          status,
+          title,
+          primaryFormat,
+          createdAt,
+          updatedAt,
+          mediaProblem,
+        ]
       properties:
         id:
           type: string
@@ -727,6 +736,16 @@ components:
           type: string
         status:
           $ref: '#/components/schemas/StoryStatus'
+        mediaProblem:
+          type: [string, 'null']
+          enum: [unusable, null]
+          readOnly: true
+          description: |
+            Part 1a (Joel, 2026-11-10): `unusable` while the story's video or audio file can't be
+            used (Bunny failed it for good, after one automatic re-encode: the file is `failed`).
+            The story was sent back (`editing`); the person sees "Needs a new file" and uploads
+            another with the existing upload route. Worked out from the current file, never stored:
+            `null` again as soon as a new file is on it.
         title:
           type: string
         description:
@@ -796,7 +815,8 @@ components:
       description: |
         M3 (task 3.1): a story waiting for review, as the moderators' queue lists it. Only what
         choosing the next story needs: no words, files or submitter.
-      required: [id, version, status, title, primaryFormat, submittedAt]
+      required:
+        [id, version, status, title, primaryFormat, submittedAt, mediaProblem]
       properties:
         id:
           type: string
@@ -812,6 +832,16 @@ components:
           type: string
           format: date-time
           description: When it was sent for review (its newest `sent` status entry); the queue's order.
+        mediaProblem:
+          type: [string, 'null']
+          enum: [ours, null]
+          description: |
+            Part 1a (Joel, 2026-11-10): `ours` when its video or audio file's check gave up on our
+            side (Bunny unavailable, our worker failed, anything else; never the file's fault) and
+            the nightly housekeeping has already opened a new check on 3 nights
+            (`fn::media::our_problem`): it can't be reviewed yet. The queue shows "Can't be reviewed
+            yet: a problem on our side"; the person keeps seeing "Waiting for review". `null`
+            otherwise.
 
     StoryModeration:
       type: object

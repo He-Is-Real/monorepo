@@ -70,12 +70,18 @@ describe('housekeeping: media jobs', () => {
       { job, ago },
     );
   /** As the result writer ends it (`ago` ago: only a system user may say when). */
-  const ended = (job: string, outcome: string, ago = '0s') =>
+  const ended = (
+    job: string,
+    outcome: string,
+    ago = '0s',
+    errorType = 'worker_error',
+  ) =>
     run(
       migrator,
       `UPDATE type::record('mediaJob', $job) SET outcome = $outcome,
-         doneAt = time::now() - <duration> $ago`,
-      { job, outcome, ago },
+         doneAt = time::now() - <duration> $ago,
+         errorType = IF $outcome = 'gave_up' { $errorType }`,
+      { job, outcome, ago, errorType },
     );
   const job = async (id: string) =>
     (
@@ -307,6 +313,74 @@ describe('housekeeping: media jobs', () => {
         ),
       ).rejects.toThrow();
     }
+  });
+
+  // Part 1a (Joel, 2026-11-10): a waiting story whose newest media job gave up on our side gets a
+  // new check each night, for up to 3 nights; then the moderation queue says it's our problem.
+  it('the nightly run opens a new check of a waiting story whose job gave up on our side, for 3 nights', async () => {
+    const openCheck = async (video: string) =>
+      (
+        await rows<{ id: string; reasons: string[] }>(
+          migrator,
+          `SELECT <string> record::id(id) AS id, reasons FROM mediaJob
+             WHERE file = type::record('storyFile', $video) AND kind = 'check'
+               AND doneAt = NONE`,
+          { video },
+        )
+      )[0];
+    const waiting = async () => {
+      const j = await openJob();
+      await run(
+        pat,
+        `CREATE storyStatusLog CONTENT { story: type::record('story', $story), action: 'sent' }`,
+        { story: j.story },
+      );
+      // Sending opened a check (reason submitted), which joined the open one.
+      return j;
+    };
+    const retried = async () => {
+      expect(await sweep(RUNS.nightly)).toBe(0);
+      return (lastLog('media-retry')?.['ids'] as string[]) ?? [];
+    };
+
+    const ours = await waiting();
+    await ended(ours.job, 'gave_up');
+    // Not retried: a draft, a story whose job is still open, and one Bunny failed for good.
+    const draftJob = await openJob();
+    await ended(draftJob.job, 'gave_up');
+    const stillOpen = await waiting();
+    const unusable = await waiting();
+    await ended(unusable.job, 'gave_up', '0s', 'file_unusable');
+    await run(
+      migrator,
+      `UPDATE type::record('storyFile', $video) SET processing = 'failed'`,
+      { video: unusable.video },
+    );
+
+    expect(await retried()).toEqual([ours.video]);
+    expect(await openCheck(ours.video)).toMatchObject({ reasons: ['resent'] });
+    expect(queue.sent).toEqual([]);
+    expect(await openCheck(stillOpen.video)).toMatchObject({
+      id: stillOpen.job,
+    });
+    expect(await openCheck(draftJob.video)).toBeUndefined();
+    expect(await openCheck(unusable.video)).toBeUndefined();
+
+    // That check gives up too, and the next, and the next: three nights, then no more.
+    for (let night = 2; night <= 3; night++) {
+      await ended((await openCheck(ours.video))!.id, 'gave_up');
+      expect(await retried()).toEqual([ours.video]);
+    }
+    await ended((await openCheck(ours.video))!.id, 'gave_up', '0s', 'other');
+    expect(await retried()).toEqual([]);
+    expect(await openCheck(ours.video)).toBeUndefined();
+    expect(
+      await rows(
+        await t.service('api_admin'),
+        `RETURN fn::media::our_problem(type::record('storyFile', $video))`,
+        { video: ours.video },
+      ),
+    ).toEqual([{ retry: false, ours: true }]);
   });
 
   it('a run is the nightly one unless it says media-resend, which needs the topic', () => {

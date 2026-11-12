@@ -19,7 +19,7 @@ import { BunnyLibrary, WRITER_BUNNY } from '../src/app/bunny';
 import {
   answerJob,
   applyThumbnail,
-  type MediaAnswer,
+  type WriterAnswer,
   THUMBNAIL_LOCK,
   type ThumbnailLock,
   thumbnailLockFromEnv,
@@ -118,7 +118,7 @@ describe('result writer: picture videos and Bunny’s picture', () => {
   let n = 0;
 
   const guid = () => randomUUID();
-  const ready = (story: string, extra: Partial<MediaAnswer> = {}) =>
+  const ready = (story: string, extra: Record<string, unknown> = {}) =>
     ({
       outcome: 'ready',
       title: story,
@@ -127,7 +127,7 @@ describe('result writer: picture videos and Bunny’s picture', () => {
       lengthSeconds: 95,
       thumbnailFileName: 'thumbnail.jpg',
       ...extra,
-    }) as MediaAnswer;
+    }) as WriterAnswer;
   let clock = Date.parse('2026-11-08T10:00:00Z');
   const next = () => new Date((clock += 1000)).toISOString();
   /** When approval is judged: past every upload link's cooldown (fn::story::approval_wait). */

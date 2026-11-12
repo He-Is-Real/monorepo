@@ -89,7 +89,15 @@ How a video or audio file becomes `ready` (M2 plan item 13; D78, D126, D129; des
    transaction: `applied` (the answer is saved), `stale` (an answer that reached the writer later
    is already in: `storyFile.checkedAt`) or `gone` (the story no longer shows that file, or the
    video's title isn't the story's id). The database then hides or shows the story again as
-   above. Its log is one JSON line per call, ids only:
+   above. A `failed` answer (Part 1a, Joel 2026-11-10) is believed only once the writer asks Bunny
+   itself (library key) and Bunny says failed too, else the reply is "try again later". The first
+   confirmed failure of a file: the writer asks Bunny to re-encode it (`POST
+   …/videos/<id>/reencode`), the file goes back to `processing` and the job ends `applied` with
+   `lastError` `bunny_encode_failed` (the marker that the one automatic re-encode happened). The
+   next confirmed failure is final: the file becomes `failed`, the job `gave_up` with `errorType`
+   `file_unusable`, and the database sends the story back to its owner ("Needs a new file"). A
+   `gone` answer (Bunny has no such video) leaves the file `processing` and ends the job
+   `gave_up` with `errorType` `other`. Its log is one JSON line per call, ids only:
    `gcloud logging read 'resource.labels.service_name="workflow"' --limit 20`.
 4. If the worker can't do a job it calls `.../failed` with a short code: `bunny_unreachable`
    (no answer, a timeout, Bunny's 5xx or 429), `bunny_refused` (Bunny refused the read-only key),
@@ -362,8 +370,12 @@ webhook` (bad signature: check the secret `bunny-stream-readonly-key` has the li
 --update-env-vars HOUSEKEEPING_CHORES=media-resend` ([apps/housekeeping/README.md](../apps/housekeeping/README.md)).
    - **Open with failures:** the worker keeps failing; `lastError` says why, and the worker's own
      log says more.
-   - **`gave_up`:** it failed 5 times. Fix the cause, then re-encode the video at Bunny (above):
-     Bunny's next "finished" notice opens a fresh job.
+   - **`gave_up`:** `errorType` says why (api-admin reads it): `file_unusable` (Bunny failed the
+     file twice, the person was asked for a new one: nothing to do), or ours, after 5 failures
+     (`bunny_unavailable`, `worker_error`, `other`). For ours, the nightly housekeeping
+     (`media-retry`) opens a new check of a waiting story's file on up to 3 nights; after that the
+     moderation queue shows "Can't be reviewed yet: a problem on our side". Fix the cause, then
+     re-encode the video at Bunny (above): Bunny's next "finished" notice opens a fresh job.
    - **`gone` or `stale`:** the story no longer shows that video (replaced, removed), the video's
      title isn't the story's id, or a newer answer was already in. Nothing to do.
 
