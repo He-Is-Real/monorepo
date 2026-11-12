@@ -169,7 +169,10 @@ describe('concurrent transactions are fenced per person', () => {
       )
       .collect();
     // The video breaks meanwhile (Bunny re-encodes it; commits first).
-    await run(workflow, `UPDATE storyFile:vidvic SET processing = 'processing'`);
+    await run(
+      workflow,
+      `UPDATE storyFile:vidvic SET processing = 'processing'`,
+    );
     expect(await commit(approving)).toMatch(CONFLICT);
     // The retry checks from scratch: the video isn't ready, so it can't be approved.
     expect(

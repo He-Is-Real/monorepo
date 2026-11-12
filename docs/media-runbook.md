@@ -92,7 +92,7 @@ How a video or audio file becomes `ready` (M2 plan item 13; D78, D126, D129; des
    above. A `failed` answer (Part 1a, Joel 2026-11-10) is believed only once the writer asks Bunny
    itself (library key) and Bunny says failed too, else the reply is "try again later". The first
    confirmed failure of a file: the writer asks Bunny to re-encode it (`POST
-   …/videos/<id>/reencode`), the file goes back to `processing` and the job ends `applied` with
+…/videos/<id>/reencode`), the file goes back to `processing` and the job ends `applied` with
    `lastError` `bunny_encode_failed` (the marker that the one automatic re-encode happened). The
    next confirmed failure is final: the file becomes `failed`, the job `gave_up` with `errorType`
    `file_unusable`, and the database sends the story back to its owner ("Needs a new file"). A
