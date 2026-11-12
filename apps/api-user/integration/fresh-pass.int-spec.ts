@@ -316,7 +316,7 @@ describe('a person’s request outlives their own pass (decision T, option B)', 
 
     expect(refused.status).toBe(401);
     expect(bunny.asked).toBe(before);
-    expect(await statusOf(id)).toBe('draft');
+    expect(await statusOf(id)).toBe('editing');
   });
 
   it('Clerk not answering fails the request with a retryable 503, never carrying on with a pass too short for it', async () => {
@@ -329,7 +329,7 @@ describe('a person’s request outlives their own pass (decision T, option B)', 
       503,
       'sign_in_unavailable',
     ]);
-    expect(await statusOf(id)).toBe('draft');
+    expect(await statusOf(id)).toBe('editing');
     // Once Clerk answers again, the same submit goes through.
     clerkApi.down = false;
     expect((await submitLate(id, expired('cat').token)).status).toBe(200);

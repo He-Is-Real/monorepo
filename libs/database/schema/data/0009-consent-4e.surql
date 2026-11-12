@@ -16,8 +16,9 @@
 --   * removes the old settings row _setting:consent (the dev consent switches; the runner now
 --     writes _setting:current).
 -- Edited before production (database review 2, 2026-11-05), while dev is wiped and rebuilt so
--- no database keeps the earlier copy: no audit log (R3), no deletion date (R3), and super admins
--- can see drafts (R15).
+-- no database keeps the earlier copy: no audit log (R3), no deletion date (R3), and admins can
+-- see drafts (R15). Edited again in M3 (LT-1, Joel 2026-11-11): Edit replaced Withdraw, and
+-- super admins are now admins.
 -- The old data scripts 0001, 0003, 0005 and 0007 wrote that machinery's rows and could no longer
 -- run on a fresh database, so they left the bundle (as 0002 did, D44): databases that applied
 -- them keep their _migration rows (the runner warns that the scripts are gone).
@@ -59,8 +60,9 @@ or to protect someone. Where we can, we tell you why.
 
 ## 6. Your right to withdraw or delete
 
-Your story stays yours. You can withdraw a story from the site or delete it at any time, and you
-can delete your whole account.
+Your story stays yours. You can take a story off the site to edit it, or delete it, at any time.
+An edited story is checked by our moderators again before it’s back. You can delete your whole
+account.
 
 ## 7. No warranties
 
@@ -97,14 +99,15 @@ publish it on heisreal.today.
 
 ## Who sees it
 
-While it’s a draft: you, and a small number of our super admins (for support and safety).
+While it’s a draft: you, and a small number of our admins (for support and safety).
 While it’s waiting for review: you and our moderators.
 Once it’s approved: anyone visiting heisreal.today.
 
 ## Changing your mind
 
-You can withdraw or delete any story, or delete your account, at any time. Withdrawing a story
-takes it off the site; deleting your account deletes all your stories and ends this consent.
+You can edit or delete any story, or delete your account, at any time. Editing a published story
+takes it off the site until it’s approved again; deleting your account deletes all your stories
+and ends this consent.
 
 A draft is deleted automatically after 186 days (about six months) without an edit or a renewed
 upload link.
@@ -140,7 +143,8 @@ above. Once given, it can’t be withdrawn.
 
 ## If you change your mind about the story
 
-You can still withdraw or delete the story at any time: from then on we make no new use of it.
+You can still take the story down to edit it, or delete it, at any time: from then on we make no
+new use of it.
 We can’t recall copies already shared, by us or by others (reshared posts, partner churches’ own
 channels, printed material). If you’d like it taken down from our own social media accounts, ask
 us and we’ll look at your request with care.
@@ -162,8 +166,8 @@ use it for advertising.
   one, and how you sign in. Our own database holds only Clerk’s id for you.
 - **Your stories.** What you write, record or upload (text, video, audio and pictures), the
   themes you choose, the name you choose to show, and where each story is in review, with our
-  moderators’ notes to you. While a story is a draft, you and a small number of our super admins
-  (for support and safety) can see it; once you submit it, our moderators review it.
+  moderators’ notes to you. While a story is a draft, you and a small number of our admins (for
+  support and safety) can see it; once you submit it, our moderators review it.
 - **Your agreements.** Which version of the terms of use and the testimony consent you agreed
   to, and when; and, for each story, whether you agreed to social media sharing.
 - **Favourites.** The stories you heart while signed in.
@@ -199,8 +203,8 @@ is protected as UK law requires.
 ## How long we keep it
 
 - **Drafts:** deleted automatically after 186 days without an edit or a renewed upload link.
-- **Submitted and published stories:** until you delete them or your account. Withdrawing a
-  story takes it off the site.
+- **Submitted and published stories:** until you delete them or your account. Editing a
+  published story takes it off the site until it’s approved again.
 - **Your account:** until you delete it. Then we delete your stories, media, favourites and
   agreements, and Clerk deletes your sign-in details.
 - **What stays after that:** a record that an account existed and was deleted, under an

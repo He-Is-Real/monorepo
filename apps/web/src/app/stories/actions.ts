@@ -50,7 +50,7 @@ export type CardPlayerResult =
  * cards never carry one, so links are signed only for stories someone chose to play. web's
  * server reads the story from api-public-read like the story page does (D32), and the link is
  * the one that page would show, with autoplay on: this runs only when someone presses play.
- * A story that has gone (hidden, withdrawn) answers `gone`; anything else that fails,
+ * A story that has gone (hidden, taken down to edit, deleted) answers `gone`; anything else that fails,
  * `unavailable`.
  */
 export async function cardPlayer(slug: unknown): Promise<CardPlayerResult> {

@@ -59,42 +59,38 @@ const START = Date.UTC(2023, 0, 1);
 const SPAN = Date.UTC(2026, 10, 1) - START;
 
 type Step = {
-  status: string;
+  action: string;
   actor: 'person' | 'moderator';
   comment?: string;
 };
 
 /** A story's history, from its first submission to its status now (mostly approved). */
 function history(): Step[] {
-  const p = (status: string): Step => ({ status, actor: 'person' });
-  const m = (status: string, comment?: string): Step => ({
-    status,
+  const p = (action: string): Step => ({ action, actor: 'person' });
+  const m = (action: string, comment?: string): Step => ({
+    action,
     actor: 'moderator',
     comment,
   });
   const r = random();
   if (r < 0.05) return [];
-  if (r < 0.1) return [p('pending')];
-  if (r < 0.13) return [p('pending'), m('in_review')];
-  if (r < 0.17) return [p('pending'), m('in_review'), m('rejected', 'Sorry')];
+  if (r < 0.13) return [p('sent')];
+  if (r < 0.17) return [p('sent'), m('rejected', 'Sorry')];
   if (r < 0.21)
     return [
-      p('pending'),
-      m('in_review'),
-      m('changes_requested', 'Please shorten it'),
-      p('withdrawn'),
+      p('sent'),
+      m('changesRequested', 'Please shorten it'),
+      p('sent'),
+      p('editStarted'),
     ];
-  const steps: Step[] = [p('pending'), m('in_review')];
+  const steps: Step[] = [p('sent')];
   if (random() < 0.3)
-    steps.push(
-      m('changes_requested', 'A small change'),
-      p('pending'),
-      m('in_review'),
-    );
+    steps.push(m('changesRequested', 'A small change'), p('sent'));
   steps.push(m('approved'));
   const later = random();
-  if (later < 0.1) steps.push(m('hidden', 'Checking'), m('approved'));
-  else if (later < 0.15) steps.push(p('withdrawn'));
+  if (later < 0.1)
+    steps.push(m('hiddenByModerator', 'Checking'), m('shownByModerator'));
+  else if (later < 0.15) steps.push(p('editStarted'));
   return steps;
 }
 
@@ -196,10 +192,10 @@ FOR $s IN $stories {
   };
   FOR $step IN $s.steps {
     CREATE storyStatusLog CONTENT {
-      story: $story, status: $step.status, actor: $step.actor, at: $step.at,
+      story: $story, action: $step.action, actor: $step.actor, at: $step.at,
       by: IF $step.actor = 'moderator' { user:sp_moderator },
       comment: $step.comment,
-      publishedAt: IF $step.status = 'approved' { $s.publishedAt }
+      publishedAt: IF $step.action IN ['approved', 'shownByModerator'] { $s.publishedAt }
     } RETURN NONE;
   };
 };

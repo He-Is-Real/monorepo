@@ -163,7 +163,7 @@ describe('download my data', () => {
 
   /**
    * A moderator's decision on a story, as moderation will record it (M3): api-admin's status
-   * entries (R6), picking it up and deciding.
+   * entries (R6), deciding straight from pending.
    */
   async function decide(
     id: string,
@@ -173,14 +173,13 @@ describe('download my data', () => {
   ) {
     // Moderator modq7, whom the file must never name.
     const by = new RecordId('user', 'modq7');
-    await step(admin, id, 'in_review', { by });
     await step(
       admin,
       id,
       {
         approve: 'approved',
         reject: 'rejected',
-        request_changes: 'changes_requested',
+        request_changes: 'changesRequested',
       }[decision],
       {
         by,
@@ -436,13 +435,13 @@ describe('download my data', () => {
         ]),
       ),
     ).toEqual({
-      [annDraft.id]: 'draft',
+      [annDraft.id]: 'editing',
       [annWaiting.id]: 'pending',
-      [annBack.id]: 'changes_requested',
+      [annBack.id]: 'editing',
       [annNo.id]: 'rejected',
       [annLive.id]: 'approved',
-      ann_video: 'draft',
-      ann_old_video: 'draft',
+      ann_video: 'editing',
+      ann_old_video: 'editing',
     });
     // The versions she agreed to, and when (plan 4e).
     expect(held['agreements']).toEqual([0, 0]);
@@ -506,10 +505,10 @@ describe('download my data', () => {
     expect(story(annBack.id)).toMatchObject({
       rejectionFeedback: 'Please say a little more.',
       statusHistory: [
-        { status: 'pending', actor: 'person', comment: null },
-        { status: 'in_review', actor: 'moderator', comment: null },
+        { action: 'sent', status: 'pending', actor: 'person', comment: null },
         {
-          status: 'changes_requested',
+          action: 'changesRequested',
+          status: 'editing',
           actor: 'moderator',
           comment: 'Please say a little more.',
           storyVersion: expect.any(Number),
@@ -529,19 +528,21 @@ describe('download my data', () => {
       onSiteNow: true,
       publishedAt: expect.any(String),
       statusHistory: [
-        { status: 'pending', actor: 'person' },
-        { status: 'in_review', actor: 'moderator' },
+        { action: 'sent', status: 'pending', actor: 'person' },
         {
+          action: 'approved',
           status: 'approved',
           actor: 'moderator',
           publishedAt: expect.any(String),
         },
         {
+          action: 'hiddenBySystem',
           status: 'hidden',
           actor: 'system',
           hiddenReason: 'media_unavailable',
         },
         {
+          action: 'shownBySystem',
           status: 'approved',
           actor: 'system',
           publishedAt: expect.any(String),

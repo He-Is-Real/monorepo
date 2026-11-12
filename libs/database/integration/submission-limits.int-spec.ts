@@ -8,7 +8,7 @@ import {
   STORY_TEXT_PADDING,
   TestDatabase,
 } from './support/harness';
-import { draft, ERASE, submit } from './support/world';
+import { draft, edit, ERASE, submit } from './support/world';
 
 /**
  * The submission limits (D94), adjustable by an admin (W3, D112: submissionSettings, with
@@ -45,7 +45,7 @@ describe('submission limits, their settings and per-person overrides (D94, W3, D
   const pend = (s: Surreal, id: string) =>
     outcome(
       s,
-      `CREATE storyStatusLog CONTENT { story: type::record('story', $id), status: 'pending' }`,
+      `CREATE storyStatusLog CONTENT { story: type::record('story', $id), action: 'sent' }`,
       {
         id,
       },
@@ -100,6 +100,20 @@ describe('submission limits, their settings and per-person overrides (D94, W3, D
     expect(await rows(migrator, 'SELECT id FROM story:ann_4')).toEqual([]);
     expect(await submit(ann, 'ann_1')).toHaveLength(1);
     expect(await draft(ann, 'ann_4')).toHaveLength(1);
+    // A story sent before and taken down to edit isn't a draft (Story states, 2026-11-11): it
+    // doesn't take a draft's place, nor does it expire as one.
+    expect(await edit(ann, 'ann_1')).toHaveLength(1);
+    expect(error(await newDraft(ann, 'ann_5'))).toMatch(/limit_open_drafts:/);
+    expect(
+      await rows(migrator, 'RETURN fn::story::draft_expires_at(story:ann_1)'),
+    ).toEqual([]);
+    expect(
+      await rows(
+        migrator,
+        `SELECT VALUE record::id(id) FROM story WHERE submitter = user:ann AND currentStatus = NONE
+           ORDER BY id`,
+      ),
+    ).toEqual(['ann_2', 'ann_3', 'ann_4']);
   });
 
   it('allows one submission in any rolling 7 days, whatever happens to the story since', async () => {
@@ -111,7 +125,7 @@ describe('submission limits, their settings and per-person overrides (D94, W3, D
     ).toEqual([]);
     await submit(bob, 'bob_1');
     expect(error(await pend(bob, 'bob_2'))).toMatch(/limit_weekly_submission:/);
-    expect(await status('bob_2')).toBe('draft');
+    expect(await status('bob_2')).toBe('editing');
 
     // Rolling, not a calendar week: exactly 7 days after the submission.
     const [at] = await rows<string>(
@@ -126,10 +140,10 @@ describe('submission limits, their settings and per-person overrides (D94, W3, D
       7 * 24 * 3600 * 1000,
     );
 
-    // Withdrawing it doesn't free the week, and nor does deleting it (D113).
+    // Taking it down to edit doesn't free the week, and nor does deleting it (D113).
     await run(
       bob,
-      `CREATE storyStatusLog CONTENT { story: story:bob_1, status: 'withdrawn' }`,
+      `CREATE storyStatusLog CONTENT { story: story:bob_1, action: 'editStarted' }`,
     );
     expect(error(await pend(bob, 'bob_2'))).toMatch(/limit_weekly_submission:/);
     await run(await t.service('api_user'), 'DELETE story:bob_1');
@@ -143,8 +157,7 @@ describe('submission limits, their settings and per-person overrides (D94, W3, D
     await submit(cat, 'cat_1');
     await run(
       admin,
-      `CREATE storyStatusLog CONTENT { story: story:cat_1, status: 'in_review', by: user:moderator };
-       CREATE storyStatusLog CONTENT { story: story:cat_1, status: 'changes_requested', by: user:moderator };`,
+      `CREATE storyStatusLog CONTENT { story: story:cat_1, action: 'changesRequested', comment: 'A note', by: user:moderator };`,
     );
     expect(await submit(cat, 'cat_1')).toHaveLength(1);
     expect(await status('cat_1')).toBe('pending');

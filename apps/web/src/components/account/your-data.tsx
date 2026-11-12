@@ -70,7 +70,7 @@ const outcomeUnknown = (err: unknown) =>
  * place. "Download my data" saves everything we hold about them as one JSON file (M2 plan PR 12;
  * Art 15, Art 20); "Delete my account" is how they withdraw their consent and erase everything
  * (D39, D82, D88; plan 4e, 8b P4: deleting the account is the withdrawal) after a typed
- * confirmation, and signs them out. Each story is withdrawn or deleted on its own in My
+ * confirmation, and signs them out. Each story is edited or deleted on its own in My
  * submissions. Filled in by the browser (D83).
  */
 export function YourData({ afterDeletion }: { afterDeletion: AfterDeletion }) {
@@ -248,8 +248,8 @@ function DeleteAccount({ afterDeletion }: { afterDeletion: AfterDeletion }) {
       <h3 className="mb-1 text-lg font-semibold">Delete my account</h3>
       <p className="mb-4 text-secondary-text">
         This withdraws your consent and deletes your stories, your account and
-        everything else we hold about you. To take down just one story, use
-        Withdraw or Delete on it in My submissions.
+        everything else we hold about you. To take down just one story, use Edit
+        or Delete on it in My submissions.
       </p>
       {done ? (
         <p role="status" data-deleted="">

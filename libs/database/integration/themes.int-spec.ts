@@ -103,7 +103,7 @@ describe('themes and their categories', () => {
         error(
           await outcome(
             ann,
-            `CREATE storyStatusLog CONTENT { story: story:ann_many, status: 'pending' }`,
+            `CREATE storyStatusLog CONTENT { story: story:ann_many, action: 'sent' }`,
           ),
         ),
       ).toMatch(/story_theme_count:/);
@@ -115,7 +115,7 @@ describe('themes and their categories', () => {
         error(
           await outcome(
             ann,
-            `CREATE storyStatusLog CONTENT { story: story:ann_many, status: 'pending' }`,
+            `CREATE storyStatusLog CONTENT { story: story:ann_many, action: 'sent' }`,
           ),
         ),
       ).toMatch(/story_theme_count:/);
@@ -149,7 +149,7 @@ describe('themes and their categories', () => {
       error(
         await outcome(
           ann,
-          `CREATE storyStatusLog CONTENT { story: story:ann_gone, status: 'pending' }`,
+          `CREATE storyStatusLog CONTENT { story: story:ann_gone, action: 'sent' }`,
         ),
       ),
     ).toMatch(/story_themes_changed:/);
@@ -196,7 +196,7 @@ describe('themes and their categories', () => {
     };
     const ADD_AND_SUBMIT = (id: string, refs: string) =>
       `UPDATE story:${id} SET themeRefs = ${refs};
-       CREATE storyStatusLog CONTENT { story: story:${id}, status: 'pending' };`;
+       CREATE storyStatusLog CONTENT { story: story:${id}, action: 'sent' };`;
     beforeAll(async () => {
       await settings(1, 5);
       await createPeople(t, {
@@ -245,7 +245,7 @@ describe('themes and their categories', () => {
           migrator,
           'SELECT VALUE fn::story::status_of($this) FROM story:eve_race',
         ),
-      ).toEqual(['draft']);
+      ).toEqual(['editing']);
 
       expect(
         error(

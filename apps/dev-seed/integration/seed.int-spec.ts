@@ -34,8 +34,11 @@ describe('dev-seed reset on SurrealDB (dev, the real agreement rules)', () => {
   it('loads the whole dataset', async () => {
     const summary = await reset(seeder, vars());
     const expected: Record<string, number> = {};
+    // The database's state: a draft, a story sent back and one taken down are all `editing`.
+    const state = (status: string) =>
+      ['draft', 'sent_back'].includes(status) ? 'editing' : status;
     for (const s of DATASET.stories)
-      expected[s.status] = (expected[s.status] ?? 0) + 1;
+      expected[state(s.status)] = (expected[state(s.status)] ?? 0) + 1;
     expect(summary).toEqual({
       byStatus: expected,
       publicStories: approved.length,
@@ -132,34 +135,42 @@ describe('dev-seed reset on SurrealDB (dev, the real agreement rules)', () => {
     const log = (id: string) =>
       rows<Record<string, unknown>>(
         migrator,
-        `SELECT status, actor, by, storyVersion, comment, at FROM storyStatusLog
+        `SELECT action, status, actor, by, storyVersion, comment, at FROM storyStatusLog
            WHERE story = type::record('story', $id) ORDER BY at`,
         { id },
       );
     // Sent back once, then approved: create, its upload (R12: the pointer to its video) and
-    // 6 status entries, each moving the status pointer.
+    // 4 status entries, each moving the status pointer (moderators decide straight from pending).
     expect(
       await rows(migrator, 'SELECT VALUE version FROM story:seed_v03'),
-    ).toEqual([8]);
+    ).toEqual([6]);
     expect(
-      (await log('seed_v03')).map((e) => [e.status, e.actor, e.storyVersion]),
+      (await log('seed_v03')).map((e) => [
+        e.action,
+        e.status,
+        e.actor,
+        e.storyVersion,
+      ]),
     ).toEqual([
-      ['pending', 'person', 2],
-      ['in_review', 'moderator', 3],
-      ['changes_requested', 'moderator', 4],
-      ['pending', 'person', 5],
-      ['in_review', 'moderator', 6],
-      ['approved', 'moderator', 7],
+      ['sent', 'pending', 'person', 2],
+      ['changesRequested', 'editing', 'moderator', 3],
+      ['sent', 'pending', 'person', 4],
+      ['approved', 'approved', 'moderator', 5],
     ]);
     const sentBack = (await log('seed_w10')).at(-1);
     expect(sentBack).toMatchObject({
-      status: 'changes_requested',
+      action: 'changesRequested',
+      status: 'editing',
       by: 'user:seed_moderator',
     });
     expect(sentBack?.comment).toContain('test feedback');
-    expect((await log('seed_v09')).map((e) => e.status)).toEqual([
-      'pending',
-      'in_review',
+    expect((await log('seed_v09')).map((e) => e.action)).toEqual(['sent']);
+    // Sent, then taken down by its author to edit (ED-4).
+    expect(
+      (await log('seed_v11')).map((e) => [e.action, e.status, e.actor]),
+    ).toEqual([
+      ['sent', 'pending', 'person'],
+      ['editStarted', 'editing', 'person'],
     ]);
     expect(await log('seed_w11')).toEqual([]);
     expect(
@@ -339,7 +350,7 @@ describe('dev-seed reset on SurrealDB (dev, the real agreement rules)', () => {
     const broken = vars();
     broken.stories[broken.stories.length - 1].draft['primaryFormat'] = 'video'; // no media: refused
     broken.stories[broken.stories.length - 1].steps = [
-      { status: 'pending', actor: 'person', at: new Date() },
+      { action: 'sent', actor: 'person', at: new Date() },
     ];
     await expect(reset(seeder, broken)).rejects.toThrow(
       /needs its video before it is submitted/,

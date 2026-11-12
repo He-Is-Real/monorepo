@@ -12,7 +12,7 @@ import {
   step,
   storyText,
   submit,
-  withdraw,
+  edit,
 } from './support/world';
 
 /**
@@ -59,17 +59,17 @@ describe('storySearch: published stories’ words, and only theirs', () => {
     ).toEqual([{ primaryFormat: 'written', themeIds: ['common'], same: true }]);
   });
 
-  it('adds the row when a story is published, and removes it when it is withdrawn', async () => {
+  it('adds the row when a story is published, and removes it when its owner presses Edit', async () => {
     await approve(admin, 'ann_pending');
     expect(await indexed()).toEqual(['ann_pending', 'bob_live']);
-    await withdraw(ann, 'ann_pending');
+    await edit(ann, 'ann_pending');
     expect(await indexed()).toEqual(['bob_live']);
   });
 
   it('removes it while a moderator hides the story, and adds it back when shown again', async () => {
-    await step(admin, 'bob_live', 'hidden', { comment: 'Checking' });
+    await step(admin, 'bob_live', 'hiddenByModerator', { comment: 'Checking' });
     expect(await indexed()).toEqual([]);
-    await step(admin, 'bob_live', 'approved');
+    await step(admin, 'bob_live', 'shownByModerator');
     expect(await indexed()).toEqual(['bob_live']);
   });
 
@@ -78,7 +78,7 @@ describe('storySearch: published stories’ words, and only theirs', () => {
     await submit(bob, 'bob_second');
     await approve(admin, 'bob_second');
     expect(await indexed()).toEqual(['bob_live', 'bob_second']);
-    await withdraw(bob, 'bob_second');
+    // A published story is deleted straight away (ED-3).
     await run(bob, `DELETE story:bob_second`);
     expect(
       await rows(migrator, 'SELECT * FROM storySearch:bob_second'),
@@ -285,7 +285,7 @@ describe('theme renames and deletes racing a story’s publication', () => {
   };
   const APPROVE = (id: string) =>
     `CREATE type::record('storyStatusLog', rand::ulid()) CONTENT {
-       story: story:${id}, status: 'approved', by: user:moderator }`;
+       story: story:${id}, action: 'approved', by: user:moderator }`;
   const words = async (id: string) =>
     (
       await rows<string>(
@@ -294,8 +294,8 @@ describe('theme renames and deletes racing a story’s publication', () => {
         { id },
       )
     )[0];
-  /** A story of Bob's carrying `theme`, picked up by a moderator (in review). */
-  const inReview = async (id: string, theme: string) => {
+  /** A story of Bob's carrying `theme`, sent for review. */
+  const waiting = async (id: string, theme: string) => {
     await run(
       admin,
       `CREATE type::record('theme', $theme) SET name = $name, category = themeCategory:other`,
@@ -305,7 +305,6 @@ describe('theme renames and deletes racing a story’s publication', () => {
       themeRefs: [new StringRecordId(`theme:${theme}`)],
     });
     await submit(world.bob, id);
-    await step(admin, id, 'in_review');
   };
 
   beforeAll(async () => {
@@ -317,7 +316,7 @@ describe('theme renames and deletes racing a story’s publication', () => {
   afterAll(() => t?.close());
 
   it('the approval starts first, the rename commits: the approval conflicts, its retry has the new name', async () => {
-    await inReview('bob_race_a', 'racea');
+    await waiting('bob_race_a', 'racea');
     const approving = await admin.beginTransaction();
     await run(approving as unknown as Surreal, APPROVE('bob_race_a')); // uncommitted
     await run(admin, `UPDATE theme:racea SET name = 'Renamed racea'`);
@@ -328,7 +327,7 @@ describe('theme renames and deletes racing a story’s publication', () => {
   });
 
   it('the rename starts first, the approval commits: the rename conflicts, its retry renames the new row', async () => {
-    await inReview('bob_race_b', 'raceb');
+    await waiting('bob_race_b', 'raceb');
     const renaming = await admin.beginTransaction();
     await run(
       renaming as unknown as Surreal,
@@ -342,7 +341,7 @@ describe('theme renames and deletes racing a story’s publication', () => {
   });
 
   it('a delete racing the approval: one conflicts, and the row never keeps the deleted name', async () => {
-    await inReview('bob_race_c', 'racec');
+    await waiting('bob_race_c', 'racec');
     const approving = await admin.beginTransaction();
     await run(approving as unknown as Surreal, APPROVE('bob_race_c'));
     await run(admin, `DELETE theme:racec`);

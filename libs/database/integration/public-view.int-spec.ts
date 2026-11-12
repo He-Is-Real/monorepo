@@ -1,5 +1,11 @@
 import type { Surreal } from 'surrealdb';
-import { createPeople, rows, run, TestDatabase } from './support/harness';
+import {
+  createPeople,
+  outcome,
+  rows,
+  run,
+  TestDatabase,
+} from './support/harness';
 import {
   approve,
   buildWorld,
@@ -9,7 +15,7 @@ import {
   statusOf,
   step,
   submit,
-  withdraw,
+  edit,
 } from './support/world';
 
 /**
@@ -30,10 +36,9 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
   const HIDDEN_FROM_EVERYONE = [
     'ann_draft',
     'ann_pending',
-    'ann_review',
     'ann_changes',
     'ann_rejected',
-    'ann_withdrawn',
+    'ann_editing',
     'ann_hidden',
   ];
   const PRIVATE_STORY_FIELDS = [
@@ -68,7 +73,7 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
     migrator = await t.migrator();
     const apiUser = await t.service('api_user');
     await createPeople(t, { cara: 'user_cara' });
-    // Pictures (R12): ann_draft's, ann_withdrawn's and ann_hidden's, and ann_live's, whose first
+    // Pictures (R12): ann_draft's, ann_editing's and ann_hidden's, and ann_live's, whose first
     // picture was replaced before it was submitted (detached).
     const picture = async (
       id: string,
@@ -87,36 +92,33 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
     };
     await picture('ann_draft', 1, 1);
     for (const id of [
-      'ann_review',
       'ann_changes',
       'ann_rejected',
-      'ann_withdrawn',
+      'ann_editing',
       'ann_hidden',
       'ann_live',
     ]) {
       await draft(ann, id);
-      if (['ann_withdrawn', 'ann_hidden', 'ann_live'].includes(id)) {
+      if (['ann_editing', 'ann_hidden', 'ann_live'].includes(id)) {
         await picture(id, 1, 1);
       }
       if (id === 'ann_live') await picture(id, 2, 2, pic(id, 1));
       await submit(ann, id);
       await processed(await t.service('workflow'), id);
     }
-    await step(admin, 'ann_review', 'in_review');
     for (const [id, to] of [
-      ['ann_changes', 'changes_requested'],
+      ['ann_changes', 'changesRequested'],
       ['ann_rejected', 'rejected'],
     ]) {
-      await step(admin, id, 'in_review');
       await step(admin, id, to, { comment: `Moderator note on ${id}` });
     }
     // Approved straight after their pictures' upload, while the links could still be used: a
     // Admin skips that wait (and the entry's record of it is api-admin's alone to read).
-    for (const id of ['ann_withdrawn', 'ann_hidden', 'ann_live']) {
+    for (const id of ['ann_editing', 'ann_hidden', 'ann_live']) {
       await approve(admin, id, { superAdminSkip: true });
     }
-    await withdraw(ann, 'ann_withdrawn');
-    await step(admin, 'ann_hidden', 'hidden', {
+    await edit(ann, 'ann_editing');
+    await step(admin, 'ann_hidden', 'hiddenByModerator', {
       comment: 'Hidden for a check',
     });
     for (const id of HIDDEN_FROM_EVERYONE) {
@@ -159,7 +161,7 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
         db,
         'SELECT * FROM story:ann_live',
       );
-      expect(live).toMatchObject({ title: 'Story ann_live', version: 7 });
+      expect(live).toMatchObject({ title: 'Story ann_live', version: 6 });
       for (const field of PRIVATE_STORY_FIELDS) {
         expect(live).not.toHaveProperty(field);
         expect(
@@ -240,7 +242,7 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
         migrator,
         `SELECT VALUE id FROM storyStatusLog WHERE story = story:ann_live AND status != 'approved'`,
       );
-      expect(older).toHaveLength(2);
+      expect(older).toHaveLength(1);
       for (const entry of older) {
         expect(
           await rows(db, 'SELECT * FROM type::record($e)', { e: entry }),
@@ -299,7 +301,7 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
       for (const key of [
         pic('ann_live', 1),
         pic('ann_draft', 1),
-        pic('ann_withdrawn', 1),
+        pic('ann_editing', 1),
         pic('ann_hidden', 1),
       ]) {
         expect(
@@ -417,7 +419,7 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
         ann,
         'SELECT VALUE by FROM storyStatusLog WHERE story = story:ann_changes',
       ),
-    ).toEqual([undefined, undefined, undefined]);
+    ).toEqual([undefined, undefined]);
   });
 
   it('each story’s publishedAt is its own first approval’s time', async () => {
@@ -445,14 +447,16 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
       `SELECT VALUE publishedAt FROM storyStatusLog WHERE story = story:ann_hidden AND status = 'approved'`,
     );
     // Its picture's upload link could still be used (just uploaded): an Admin shows it again.
-    await step(admin, 'ann_hidden', 'approved', { skippedMediaWait: true });
+    await step(admin, 'ann_hidden', 'shownByModerator', {
+      skippedMediaWait: true,
+    });
     expect(
       await rows(
         reader,
         'SELECT story, publishedAt FROM storyStatusLog WHERE story = story:ann_hidden',
       ),
     ).toEqual([{ story: 'story:ann_hidden', publishedAt: first }]);
-    await step(admin, 'ann_hidden', 'hidden');
+    await step(admin, 'ann_hidden', 'hiddenByModerator');
     expect(await rows(reader, 'SELECT * FROM story:ann_hidden')).toEqual([]);
   });
 
@@ -464,18 +468,26 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
     );
   });
 
-  it('a withdrawn story stays withdrawn: nobody can publish it again', async () => {
-    for (const status of ['approved', 'in_review', 'pending']) {
-      await run(
-        admin,
-        `CREATE storyStatusLog CONTENT { story: story:ann_withdrawn, status: $status, by: user:moderator }`,
-        { status },
-      ).catch(() => undefined);
+  it('a story taken down to edit can’t be published or hidden by a moderator: only the person sends it again', async () => {
+    for (const action of [
+      'approved',
+      'rejected',
+      'changesRequested',
+      'hiddenByModerator',
+      'shownByModerator',
+    ]) {
+      expect(
+        await outcome(
+          admin,
+          `CREATE storyStatusLog CONTENT { story: story:ann_editing, action: $action,
+             comment: 'A note', by: user:moderator }`,
+          { action },
+        ),
+      ).toMatchObject({
+        ok: false,
+        error: expect.stringContaining('status_step'),
+      });
     }
-    await run(
-      ann,
-      `CREATE storyStatusLog CONTENT { story: story:ann_withdrawn, status: 'pending' }`,
-    ).catch(() => undefined);
-    expect(await statusOf(migrator, 'ann_withdrawn')).toBe('withdrawn');
+    expect(await statusOf(migrator, 'ann_editing')).toBe('editing');
   });
 });

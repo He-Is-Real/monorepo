@@ -170,7 +170,7 @@ describe('the submit flow for written stories', () => {
       version: 1,
     });
     expect((await create('ann', { title: 'Another' }, k)).status).toBe(422);
-    expect(await storiesOf('ann')).toEqual(['draft']);
+    expect(await storiesOf('ann')).toEqual(['editing']);
 
     // Autosave: a merge patch at the version read.
     const saved = await patch('ann', id, 1, {
@@ -188,7 +188,7 @@ describe('the submit flow for written stories', () => {
     expect(mine.body).toMatchObject({
       id,
       version: 2,
-      status: 'draft',
+      status: 'editing',
       title: 'How I found hope',
       description: 'Hope after a hard year',
       body: TEXT,
@@ -207,7 +207,11 @@ describe('the submit flow for written stories', () => {
         })
       ).status,
     ).toBe(304);
-    const drafts = await call('GET', '/v1/account/stories?status=draft', 'ann');
+    const drafts = await call(
+      'GET',
+      '/v1/account/stories?status=editing',
+      'ann',
+    );
     expect(drafts.body).toMatchObject({ data: [{ id }], nextCursor: null });
 
     const sent = await submit('ann', id, 2);
@@ -251,7 +255,7 @@ describe('the submit flow for written stories', () => {
       code: 'story_text_too_short',
       errors: [{ pointer: '/body' }],
     });
-    expect(await storiesOf('pub')).toEqual(['draft']);
+    expect(await storiesOf('pub')).toEqual(['editing']);
   });
 
   it('stores nothing before the person agrees to the latest terms and testimony consent (plan 4e)', async () => {
@@ -281,7 +285,7 @@ describe('the submit flow for written stories', () => {
     const sent = await submit('newcomer', id, 1);
     expect(sent.status).toBe(403);
     expect(sent.body.code).toBe('testimony_consent_required');
-    expect(await storiesOf('newcomer')).toEqual(['draft']);
+    expect(await storiesOf('newcomer')).toEqual(['editing']);
     const mine = await call('GET', `/v1/account/stories/${id}`, 'newcomer');
     expect(mine.body).toMatchObject({ version: 1, title: 'How I found hope' });
 
@@ -302,7 +306,7 @@ describe('the submit flow for written stories', () => {
     });
     expect(stale.status).toBe(409);
     expect(stale.body.code).toBe('agreement_version_changed');
-    expect(await storiesOf('sharer')).toEqual(['draft']);
+    expect(await storiesOf('sharer')).toEqual(['editing']);
 
     const k = key();
     const body = { socialMediaSharingConsent: { version: latest } };
@@ -379,13 +383,13 @@ describe('the submit flow for written stories', () => {
     });
 
     const drafts = (
-      await call('GET', '/v1/account/stories?status=draft&limit=2', 'lim')
+      await call('GET', '/v1/account/stories?status=editing&limit=2', 'lim')
     ).body;
     expect(drafts.data).toHaveLength(2);
     const rest = (
       await call(
         'GET',
-        `/v1/account/stories?status=draft&limit=2&cursor=${drafts.nextCursor}`,
+        `/v1/account/stories?status=editing&limit=2&cursor=${drafts.nextCursor}`,
         'lim',
       )
     ).body;

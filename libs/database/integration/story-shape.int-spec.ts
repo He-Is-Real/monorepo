@@ -18,7 +18,7 @@ import { approve, processed, submit } from './support/world';
  *   audio   → one audio file, optional text; an optional picture (M2 plan PR 10)
  * R12: the files are storyFile rows the story points at (mediaFile, image.file). A draft is
  * created before its upload (CreateDraftStory), so a video or audio story may have no file while
- * it's editable (draft, changes_requested); from submit on (pending, in_review, approved) it needs
+ * it's being edited; once sent (pending, approved, hidden) it needs
  * it. A file's shape is its real pixel size (positive ints, both or neither), refused beyond 1:3
  * or 3:1, on its row (storyFile_shape); the rows accept only the defined fields, so the removed
  * `aspectRatio` (or any free text) can't be stored. The picture is the person's content (D41):
@@ -119,12 +119,12 @@ describe('story types and shapes (D53)', () => {
       await truth(`SELECT * FROM type::record('story', $id)`, { id }),
     ).toEqual([]);
   };
-  /** Pat adds a status entry (R6): a submit (pending) or a withdrawal. */
-  const toStatus = (id: string, status: string, db: SurrealQueryable = pat) =>
+  /** Pat adds a status entry (R6), e.g. sending it (`sent`). */
+  const toStatus = (id: string, action: string, db: SurrealQueryable = pat) =>
     outcome(
       db,
-      `CREATE storyStatusLog CONTENT { story: type::record('story', $id), status: $status }`,
-      { id, status },
+      `CREATE storyStatusLog CONTENT { story: type::record('story', $id), action: $action }`,
+      { id, action },
     );
   const update = (id: string, set: string, db: SurrealQueryable = pat) =>
     outcome(db, `UPDATE type::record('story', $id) SET ${set}`, { id });
@@ -266,7 +266,7 @@ describe('story types and shapes (D53)', () => {
 
     it('saves a short draft, but submits a written story only from 200 characters (trimmed)', async () => {
       const short = await created(body(`  \n${chars(199)} \n `));
-      expect(await toStatus(short, 'pending')).toEqual({
+      expect(await toStatus(short, 'sent')).toEqual({
         ok: false,
         error: expect.stringContaining(
           'a written story needs at least 200 characters before it is submitted',
@@ -279,7 +279,7 @@ describe('story types and shapes (D53)', () => {
             short,
           },
         ),
-      ).toEqual(['draft']);
+      ).toEqual(['editing']);
 
       const enough = await created(body(`  ${chars(200)}  `));
       expect(await submit(pat, enough)).toHaveLength(1);
@@ -298,7 +298,7 @@ describe('story types and shapes (D53)', () => {
       ],
     ])('refuses to submit %s', async (_name, text) => {
       const id = await created(body(text));
-      expect(await toStatus(id, 'pending')).toEqual({
+      expect(await toStatus(id, 'sent')).toEqual({
         ok: false,
         error: expect.stringContaining(SUBMIT_REFUSED),
       });
@@ -337,7 +337,7 @@ describe('story types and shapes (D53)', () => {
       expect(
         await outcome(
           migrator,
-          `CREATE storyStatusLog CONTENT { story: story:mig_short, status: 'pending', actor: 'person' }`,
+          `CREATE storyStatusLog CONTENT { story: story:mig_short, action: 'sent', actor: 'person' }`,
         ),
       ).toEqual({
         ok: false,
@@ -371,9 +371,9 @@ describe('story types and shapes (D53)', () => {
       );
     });
 
-    it('can be submitted only with its file, and withdrawn without it', async () => {
+    it('can be sent only with its file, and deleted without it', async () => {
       const id = await created(`primaryFormat: '${format}'`);
-      expect(await toStatus(id, 'pending')).toEqual({
+      expect(await toStatus(id, 'sent')).toEqual({
         ok: false,
         error: expect.stringContaining(`a ${format} story needs its ${format}`),
       });
@@ -391,9 +391,12 @@ describe('story types and shapes (D53)', () => {
       expect(await submit(pat, id)).toHaveLength(1);
 
       const empty = await created(`primaryFormat: '${format}'`);
-      expect(await toStatus(empty, 'withdrawn')).toMatchObject({
-        ok: true,
-      });
+      expect(await update(empty, 'title = title')).toMatchObject({ ok: true });
+      expect(
+        await outcome(pat, `DELETE type::record('story', $id) RETURN BEFORE`, {
+          id: empty,
+        }),
+      ).toMatchObject({ ok: true, result: [expect.anything()] });
     });
   });
 

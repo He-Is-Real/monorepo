@@ -31,8 +31,9 @@
 //   the browser. `PATCH` takes `image: null` (remove) and `image: { alt }`. As api-user, a
 //   picture's request names the picture it replaces (`expectedImage`; `409 image_changed` if the
 //   story has another), and `GET` of one story says whether its picture's file arrived.
-// - The profile (M2 plan PR 8): `POST /v1/stories/{id}/withdraw` and `DELETE /v1/stories/{id}`,
-//   with api-user's status rules. A seeded story may carry its `status`, `slug`, moderator's
+// - The profile (M2 plan PR 8; Edit and Delete, M3): `POST /v1/stories/{id}/edit` and
+//   `DELETE /v1/stories/{id}`, with api-user's status rules. A seeded story may carry its `status`
+//   (editing by default: a draft, unless it has a `submittedAt`), `submittedAt`, `slug`, moderator's
 //   `rejectionFeedback` and its `socialMediaSharingConsent` (plan 4e: recorded with the submission,
 //   from submit's optional body, in the same idempotent command; never withdrawn). A seeded video
 //   or audio story has its `videoId`, `uploaded: true` if its file arrived, and `processing:
@@ -652,26 +653,41 @@ const MODERATION = [
   const sent = modHour(i);
   const statusLog = s.revised
     ? [
-        { status: 'pending', actor: 'person', comment: null, at: modHour(-30) },
         {
-          status: 'in_review',
-          actor: 'moderator',
+          action: 'sent',
+          status: 'pending',
+          actor: 'person',
           comment: null,
-          at: modHour(-29),
+          at: modHour(-30),
         },
         {
-          status: 'changes_requested',
+          action: 'changesRequested',
+          status: 'editing',
           actor: 'moderator',
           comment: MOD_NOTE,
           at: modHour(-28),
         },
-        { status: 'pending', actor: 'person', comment: null, at: sent },
+        {
+          action: 'sent',
+          status: 'pending',
+          actor: 'person',
+          comment: null,
+          at: sent,
+        },
       ]
-    : [{ status: 'pending', actor: 'person', comment: null, at: sent }];
+    : [
+        {
+          action: 'sent',
+          status: 'pending',
+          actor: 'person',
+          comment: null,
+          at: sent,
+        },
+      ];
   const { revised: _revised, ...story } = s;
   return {
     ...story,
-    version: s.revised ? 5 : 2,
+    version: s.revised ? 4 : 2,
     status: 'pending',
     description: `How ${s.title.toLowerCase()} came about`,
     body: s.primaryFormat === 'written' ? MOD_TEXT : null,
@@ -952,7 +968,7 @@ function newSession(id, seed = {}) {
       });
     s.stories.set(story.id, {
       version: 1,
-      status: 'draft',
+      status: 'editing',
       description: '',
       bylineName: null,
       themeIds: [],
@@ -1020,6 +1036,9 @@ const trimmed = (t) => [...(t ?? '').trim()].length;
  * read (GetStory) also carries the owner's own player link once its file is processed (M3 plan
  * PR 2: a seeded story's `processing: 'ready'`), to the stub api-public-read's stand-in player.
  */
+/** A draft: being edited and never sent (only these count as open drafts and expire). */
+const isDraft = (st) => st.status === 'editing' && !st.submittedAt;
+
 function storyMine(s, id, st, uploaded = () => null, own = false) {
   const ready = own && st.processing === 'ready';
   return {
@@ -1066,10 +1085,9 @@ function storyMine(s, id, st, uploaded = () => null, own = false) {
     updatedAt: st.updatedAt,
     // api-user's rule (fn::story::draft_expires_at) with the stand-in forms' 6 months, from the
     // last edit (this stub doesn't renew uploads).
-    draftExpiresAt:
-      st.status === 'draft'
-        ? new Date(Date.parse(st.updatedAt) + DRAFT_RETENTION_MS).toISOString()
-        : null,
+    draftExpiresAt: isDraft(st)
+      ? new Date(Date.parse(st.updatedAt) + DRAFT_RETENTION_MS).toISOString()
+      : null,
     socialMediaSharingConsent: st.socialMediaSharingConsent ?? null,
   };
 }
@@ -1129,7 +1147,8 @@ function myDataOf(s, token, mine) {
         statusHistory: st.rejectionFeedback
           ? [
               {
-                status: 'changes_requested',
+                action: 'changesRequested',
+                status: 'editing',
                 actor: 'moderator',
                 comment: st.rejectionFeedback,
                 storyVersion: 1,
@@ -1172,9 +1191,7 @@ function myDataOf(s, token, mine) {
 /** The same field checks as api-user (story-input.ts): 400 with pointers, never the values. */
 /** GET /v1/account/limits: the session's settings, and its own limits (trusted: none). */
 function limitsOf(s) {
-  const open = [...s.stories.values()].filter(
-    (x) => x.status === 'draft',
-  ).length;
+  const open = [...s.stories.values()].filter(isDraft).length;
   const recent = [...s.stories.values()]
     .map((x) => (x.submittedAt ? Date.parse(x.submittedAt) : 0))
     .filter((t) => t + WEEK_MS > Date.now())
@@ -1410,9 +1427,7 @@ async function handleShare(req, res, path, url, s) {
       });
     if (gone(s, b)) return themesGone(res);
     return idempotent(s, req, res, b, () => {
-      const open = [...s.stories.values()].filter(
-        (st) => st.status === 'draft',
-      ).length;
+      const open = [...s.stories.values()].filter(isDraft).length;
       const max = limitsOf(s).openDrafts.max;
       if (max !== null && open >= max) {
         return {
@@ -1432,7 +1447,7 @@ async function handleShare(req, res, path, url, s) {
       const now = new Date().toISOString();
       s.stories.set(id, {
         version: 1,
-        status: 'draft',
+        status: 'editing',
         title: b.title.trim(),
         description: (b.description ?? '').trim(),
         body: b.body ?? null,
@@ -1451,13 +1466,13 @@ async function handleShare(req, res, path, url, s) {
     });
   }
   const edit = /^\/v1\/stories\/([^/]+)$/.exec(path);
-  const withdraw = /^\/v1\/stories\/([^/]+)\/withdraw$/.exec(path);
-  // DeleteStory (D71) and WithdrawStory (M2 plan PR 8): the same statuses as api-user.
+  const startEditing = /^\/v1\/stories\/([^/]+)\/edit$/.exec(path);
+  // DeleteStory (any state, ED-3) and StartEditingStory (ED-1, ED-4): the same rules as api-user.
   if (
     (edit && req.method === 'DELETE') ||
-    (withdraw && req.method === 'POST')
+    (startEditing && req.method === 'POST')
   ) {
-    const id = (edit ?? withdraw)[1];
+    const id = (edit ?? startEditing)[1];
     const st = s.stories.get(id);
     if (!st) return shareProblem(res, 404, 'Not found');
     const v = ifMatchOf(req);
@@ -1471,28 +1486,16 @@ async function handleShare(req, res, path, url, s) {
     if (v !== st.version)
       return shareProblem(res, 412, 'Precondition failed', 'stale_version');
     if (edit) {
-      if (
-        !['draft', 'changes_requested', 'withdrawn', 'rejected'].includes(
-          st.status,
-        )
-      )
-        return shareProblem(res, 409, 'Conflict', 'story_not_deletable', {
-          detail:
-            'Only a draft, or a story sent back for changes, withdrawn or not accepted, can be deleted. Withdraw it first.',
-        });
       s.stories.delete(id);
       return sendJson(res, 204, undefined);
     }
-    if (
-      !['pending', 'in_review', 'approved', 'changes_requested'].includes(
-        st.status,
-      )
-    )
-      return shareProblem(res, 409, 'Conflict', 'story_not_withdrawable', {
+    if (!['pending', 'approved', 'hidden'].includes(st.status))
+      return shareProblem(res, 409, 'Conflict', 'story_not_editable', {
         detail:
-          'Only a story waiting for review, in review or published can be withdrawn',
+          'Only a story waiting for review, published or not on the site right now can be edited',
       });
-    st.status = 'withdrawn';
+    st.status = 'editing';
+    st.rejectionFeedback = null;
     st.version += 1;
     st.updatedAt = new Date().toISOString();
     return sendJson(
@@ -1516,7 +1519,7 @@ async function handleShare(req, res, path, url, s) {
       );
     if (v !== st.version)
       return shareProblem(res, 412, 'Precondition failed', 'stale_version');
-    if (!['draft', 'changes_requested'].includes(st.status))
+    if (st.status !== 'editing')
       return shareProblem(res, 409, 'Conflict', 'story_locked');
     const b = await readJson(req);
     const errors = fieldErrors(
@@ -1603,7 +1606,7 @@ async function handleShare(req, res, path, url, s) {
           share.version !== LATEST['social-media-sharing-consent'])
       )
         return p(409, 'Conflict', 'agreement_version_changed');
-      if (!['draft', 'changes_requested'].includes(st.status))
+      if (st.status !== 'editing')
         return p(409, 'Conflict', 'story_not_submittable');
       // The themes, at submit only (themes plan v3): every one still there (A7), then
       // themesMin–themesMax.
@@ -1668,6 +1671,7 @@ async function handleShare(req, res, path, url, s) {
           availableAt: next,
         });
       st.status = 'pending';
+      st.rejectionFeedback = null; // the note shows only while it's sent back
       st.submittedAt ??= new Date().toISOString();
       st.version += 1;
       if (share)
@@ -1707,8 +1711,7 @@ async function handleShare(req, res, path, url, s) {
       });
       if (v !== st.version)
         return p(412, 'Precondition failed', 'stale_version');
-      if (!['draft', 'changes_requested'].includes(st.status))
-        return p(409, 'Conflict', 'story_locked');
+      if (st.status !== 'editing') return p(409, 'Conflict', 'story_locked');
       const limits = uploadLimitsOf(s);
       const errors = [];
       if (b.format === 'image') {

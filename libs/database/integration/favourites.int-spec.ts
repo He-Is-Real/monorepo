@@ -13,7 +13,7 @@ import {
   draft,
   ERASE,
   submit,
-  withdraw,
+  edit,
 } from './support/world';
 
 /**
@@ -48,7 +48,7 @@ describe('favourites', () => {
     t = await TestDatabase.create();
     ({ admin, ann, bob } = await buildWorld(t));
     migrator = await t.migrator();
-    // A second public story, Ann's, and Bob's withdrawn one.
+    // A second public story, Ann's, and Bob's one taken down to edit.
     for (const [person, id] of [
       [ann, 'ann_live'],
       [bob, 'bob_gone'],
@@ -57,7 +57,7 @@ describe('favourites', () => {
       await submit(person, id);
       await approve(admin, id);
     }
-    await withdraw(bob, 'bob_gone');
+    await edit(bob, 'bob_gone');
   });
   afterAll(() => t?.close());
 
@@ -149,7 +149,7 @@ describe('favourites', () => {
     await run(ann, 'DELETE favourite WHERE story = story:ann_live');
   });
 
-  it('refuses a story that isn’t public: a draft, pending, withdrawn or unknown', async () => {
+  it('refuses a story that isn’t public: a draft, pending, being edited or unknown', async () => {
     for (const story of ['bob_draft', 'bob_pending', 'bob_gone', 'nope']) {
       expect(await heart(ann, story), story).toEqual({
         ok: false,
@@ -161,9 +161,9 @@ describe('favourites', () => {
     expect(await heartsOf('ann')).toEqual(['bob_live']);
   });
 
-  it('a story hidden or withdrawn later keeps the heart, which the person can still remove', async () => {
+  it('a story hidden or taken down to edit later keeps the heart, which the person can still remove', async () => {
     expect((await heart(bob, 'ann_live')).ok).toBe(true);
-    await withdraw(ann, 'ann_live');
+    await edit(ann, 'ann_live');
     expect(await heartsOf('bob')).toEqual(['ann_live']);
     // Lists show only stories the person can read as published, so it no longer shows (C15).
     expect(

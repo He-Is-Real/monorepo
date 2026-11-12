@@ -8,7 +8,7 @@ import {
 // D32: web reads from api-public-read only, server-side, with nothing from the visitor's request
 // (no cookies, no headers). Anything that holds stories is fetched fresh (D51: `no-store`): Next's
 // `revalidate` keeps serving its last copy while a refresh fails, and a `404` never replaces it,
-// so a hidden, withdrawn or erased story could stay on the site. Only themes are kept for a
+// so a hidden, edited or erased story could stay on the site. Only themes are kept for a
 // minute: they hold no story data.
 
 export type StoryFormat = 'video' | 'audio' | 'written';

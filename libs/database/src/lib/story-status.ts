@@ -1,14 +1,17 @@
 /**
  * A story's status in SurrealQL, defined once (R6: `story.currentStatus` points at the story's
- * newest storyStatusLog entry; none yet = a draft). Fragments for a query on `story`.
+ * newest storyStatusLog entry that moved it; none yet = being edited and never sent, a "Draft").
+ * Five states (Joel, 2026-11-11): editing, pending, approved, hidden, rejected. Fragments for a
+ * query on `story`.
  */
 
-/** The status as the log records it, 'draft' with no entry (`hidden` as it is): fn::story::status_of. */
+/** The status as the log records it, 'editing' with no entry: fn::story::status_of. */
 export const STORY_STATUS = 'fn::story::status_of($this)';
 
 /**
- * A draft: no status entry yet. Reads only the pointer, never the entry, so it also works for
- * logins that can't read the status log (service:housekeeping).
+ * A draft: never sent, so no status entry yet. Reads only the pointer, never the entry, so it also
+ * works for logins that can't read the status log (service:housekeeping). The open-drafts limit
+ * and the 6-month expiry count only these.
  */
 export const IS_DRAFT = 'currentStatus = NONE';
 

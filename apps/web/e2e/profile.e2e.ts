@@ -21,7 +21,7 @@ import { fixtureToken, STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 // My profile (M2 plan PR 8), on the signed-in server against the stub api-user
 // (stub-api-user.mjs, checked against api-user.yaml in contract.e2e.ts). Each test is its own
 // person, seeded in the stub. The real api-user and database behind these answers (what may be
-// withdrawn or deleted, and that a delete reaches every copy) is
+// edited or deleted, and that a delete reaches every copy) is
 // apps/api-user/integration/my-stories.int-spec.ts.
 
 const PROFILE = `${WEB_SIGNED_IN_URL}/account`;
@@ -30,31 +30,56 @@ const FEEDBACK =
 const LONG =
   'When everything I had built came apart in a single winter and I could not find a reason to carry on Supercalifragilisticexpialidociously';
 
-/** A story of each status, as the stub keeps them. */
+const SENT = '2026-10-20T12:00:00.000Z';
+/** A story of each owner label, as the stub keeps them (Story states: five states, seven labels). */
 const EVERY_STATUS = [
-  // Last changed 29 October 2026: kept 186 days (api-user's draftExpiresAt; the stub's 6 months).
+  // Never sent. Last changed 29 October 2026: kept 186 days (api-user's draftExpiresAt; the
+  // stub's 6 months).
   {
     id: 's_draft',
-    status: 'draft',
+    status: 'editing',
     title: 'My draft',
     updatedAt: '2026-10-29T12:00:00.000Z',
   },
-  { id: 's_pending', status: 'pending', title: 'Waiting one' },
-  { id: 's_review', status: 'in_review', title: 'In review one' },
+  {
+    id: 's_pending',
+    status: 'pending',
+    title: 'Waiting one',
+    submittedAt: SENT,
+  },
+  {
+    id: 's_editing',
+    status: 'editing',
+    title: 'Being edited one',
+    submittedAt: SENT,
+  },
   {
     id: 's_live',
     status: 'approved',
     title: 'Published one',
     slug: 'published-one',
+    submittedAt: SENT,
   },
   {
     id: 's_changes',
-    status: 'changes_requested',
+    status: 'editing',
     title: 'Sent back one',
+    submittedAt: SENT,
     rejectionFeedback: FEEDBACK,
   },
-  { id: 's_rejected', status: 'rejected', title: 'Not accepted one' },
-  { id: 's_withdrawn', status: 'withdrawn', title: 'Withdrawn one' },
+  {
+    id: 's_hidden',
+    status: 'hidden',
+    title: 'Hidden one',
+    submittedAt: SENT,
+  },
+  {
+    id: 's_rejected',
+    status: 'rejected',
+    title: 'Not accepted one',
+    submittedAt: SENT,
+    rejectionFeedback: FEEDBACK,
+  },
 ].map((s, i) => ({
   ...s,
   themeIds: ['healing'],
@@ -149,31 +174,37 @@ test.describe('behaviour', () => {
     });
     expect(await offers('Waiting one')).toEqual({
       status: 'Waiting for review',
-      actions: ['Preview', 'Withdraw'],
+      actions: ['Preview', 'Edit', 'Delete'],
     });
-    expect(await offers('In review one')).toEqual({
-      status: 'In review',
-      actions: ['Preview', 'Withdraw'],
+    expect(await offers('Being edited one')).toEqual({
+      status: 'Being edited',
+      actions: ['Continue editing', 'Preview', 'Delete'],
     });
     expect(await offers('Published one')).toEqual({
       status: 'Published',
-      actions: ['View', 'Withdraw'],
+      actions: ['View', 'Edit', 'Delete'],
     });
     expect(await offers('Sent back one')).toEqual({
-      status: 'Changes requested',
-      actions: ['Preview', 'Withdraw', 'Delete'],
+      status: 'Sent back',
+      actions: ['Continue editing', 'Preview', 'Delete'],
     });
+    // G2: a hidden story shows as it is.
+    expect(await offers('Hidden one')).toEqual({
+      status: 'Not on the site right now',
+      actions: ['Preview', 'Edit', 'Delete'],
+    });
+    // Rejected stories can only be deleted.
     expect(await offers('Not accepted one')).toEqual({
-      status: 'Not published',
+      status: 'Not accepted',
       actions: ['Preview', 'Delete'],
     });
-    expect(await offers('Withdrawn one')).toEqual({
-      status: 'Withdrawn',
-      actions: ['Preview', 'Delete'],
-    });
-    await expect(
-      row(page, 'Sent back one').locator('[data-feedback]'),
-    ).toContainText(FEEDBACK);
+    // The moderator's note, under "What our team said", while sent back or not accepted.
+    for (const title of ['Sent back one', 'Not accepted one']) {
+      await expect(row(page, title).locator('[data-feedback]')).toContainText(
+        `What our team said${FEEDBACK}`,
+      );
+    }
+    await expect(page.locator('[data-feedback]')).toHaveCount(2);
     // Only a draft says when it goes if nobody touches it.
     await expect(
       row(page, 'My draft').locator('[data-draft-expiry]'),
@@ -210,7 +241,7 @@ test.describe('behaviour', () => {
             agreedAt: '2026-10-31T12:00:00.000Z',
           },
         },
-        { id: 'm2', status: 'draft', title: 'My draft' },
+        { id: 'm2', title: 'My draft' },
       ],
     });
     // Someone else in the stub, with a story of their own.
@@ -260,7 +291,7 @@ test.describe('behaviour', () => {
         s.socialMediaSharingConsent?.version ?? null,
       ]),
     ).toEqual([
-      ['My draft', 'draft', null],
+      ['My draft', 'editing', null],
       ['Only mine', 'approved', 1],
     ]);
     expect(file.agreements).toMatchObject({
@@ -295,45 +326,89 @@ test.describe('behaviour', () => {
     expect(downloads).toBe(0);
   });
 
-  test('withdraw a story waiting for review', async ({ page, request }) => {
+  test('Edit a published story: it asks first, takes it down and opens it to edit', async ({
+    page,
+    request,
+  }) => {
     const me = await person(page, request, {
-      stories: [{ id: 'w1', status: 'pending', title: 'Waiting one' }],
+      testimony: 3,
+      stories: [
+        {
+          id: 'p1',
+          status: 'approved',
+          title: 'Live one',
+          slug: 'live-one',
+          submittedAt: SENT,
+        },
+      ],
     });
     await page.goto(PROFILE);
-    const story = row(page, 'Waiting one');
-    await story.getByRole('button', { name: 'Withdraw' }).click();
-    await story.getByRole('button', { name: 'Withdraw story' }).click();
-    await expect(page.locator('[data-notice]')).toContainText(
-      '“Waiting one” is withdrawn.',
+    const story = row(page, 'Live one');
+    await story.getByRole('button', { name: 'Edit' }).click();
+    await expect(story.locator('[data-confirm]')).toContainText(
+      'It comes off the site straight away',
     );
-    await expect(story.locator('[data-status]')).toHaveText('Withdrawn');
-    await expect(story.getByRole('button', { name: 'Delete' })).toBeVisible();
-    expect(await me.stories()).toEqual([['w1', 'withdrawn']]);
+    // "Keep it" leaves it on the site.
+    await story.getByRole('button', { name: 'Keep it' }).click();
+    expect(await me.stories()).toEqual([['p1', 'approved']]);
+    await story.getByRole('button', { name: 'Edit' }).click();
+    await story.getByRole('button', { name: 'Edit story' }).click();
+    await expect(page).toHaveURL(/\/share\?draft=p1$/);
+    expect(await me.stories()).toEqual([['p1', 'editing']]);
+    // Back on the profile, it is being edited: continue it, or delete it.
+    await page.goto(PROFILE);
+    await expect(row(page, 'Live one').locator('[data-status]')).toHaveText(
+      'Being edited',
+    );
   });
 
-  test('delete a story sent back for changes, without withdrawing it first', async ({
+  test('Edit a story waiting for review: it opens to edit at once', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, {
+      testimony: 3,
+      stories: [
+        {
+          id: 'w1',
+          status: 'pending',
+          title: 'Waiting one',
+          submittedAt: SENT,
+        },
+      ],
+    });
+    await page.goto(PROFILE);
+    await row(page, 'Waiting one')
+      .getByRole('button', { name: 'Edit' })
+      .click();
+    await expect(page).toHaveURL(/\/share\?draft=w1$/);
+    expect(await me.stories()).toEqual([['w1', 'editing']]);
+  });
+
+  test('delete a published story, after “This can’t be undone”', async ({
     page,
     request,
   }) => {
     const me = await person(page, request, {
       stories: [
         {
-          id: 'cr1',
-          status: 'changes_requested',
-          title: 'Sent back one',
-          rejectionFeedback: FEEDBACK,
+          id: 'l1',
+          status: 'approved',
+          title: 'Live one',
+          slug: 'live-one',
+          submittedAt: SENT,
         },
       ],
     });
     await page.goto(PROFILE);
-    const story = row(page, 'Sent back one');
+    const story = row(page, 'Live one');
     await story.getByRole('button', { name: 'Delete' }).click();
     await expect(story.locator('[data-confirm]')).toContainText(
-      'Delete this story for good?',
+      'Delete this story for good? Its text and any video or audio go too, and it comes off the site. This can’t be undone.',
     );
     await story.getByRole('button', { name: 'Delete story' }).click();
     await expect(page.locator('[data-notice]')).toContainText(
-      '“Sent back one” is deleted.',
+      '“Live one” is deleted.',
     );
     await expect(page.locator('[data-submission]')).toHaveCount(0);
     expect(await me.stories()).toEqual([]);
@@ -368,7 +443,7 @@ test.describe('behaviour', () => {
     await expect(
       page.getByRole('heading', { name: 'My submissions' }),
     ).toBeFocused();
-    expect(await me.stories()).toEqual([['d1', 'draft']]);
+    expect(await me.stories()).toEqual([['d1', 'editing']]);
   });
 
   test('once the person signs out, what they did is never shown: not a notice, not one finishing late', async ({
@@ -437,7 +512,7 @@ test.describe('behaviour', () => {
     await expect(story.getByRole('alert')).toContainText(
       'This story changed since the page loaded.',
     );
-    expect(await me.stories()).toEqual([['c1', 'draft']]);
+    expect(await me.stories()).toEqual([['c1', 'editing']]);
   });
 
   test('the one account-wide withdrawal is Delete my account; each story is taken down on its own', async ({
@@ -452,7 +527,7 @@ test.describe('behaviour', () => {
     });
     await page.goto(PROFILE);
     await expect(
-      row(page, 'Live one').getByRole('button', { name: 'Withdraw' }),
+      row(page, 'Live one').getByRole('button', { name: 'Edit' }),
     ).toBeVisible();
     // Plan 4e (8b P4): deleting the account is the withdrawal; no "take all my stories off the
     // site", and no account-wide sharing.

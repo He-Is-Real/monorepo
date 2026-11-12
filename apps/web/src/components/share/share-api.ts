@@ -280,6 +280,9 @@ function uploadTarget(data: unknown): UploadTarget {
   };
 }
 
+/** The most pages of the person's stories read for the draft list (as My submissions). */
+const MAX_PAGES = 10;
+
 export function shareApi(api: ApiUser) {
   return {
     /** The person's account: where they stand with the terms and the testimony consent. */
@@ -295,12 +298,26 @@ export function shareApi(api: ApiUser) {
     themes: async () =>
       ((await api.get<{ data: ThemeCategory[] }>('/v1/themes')).data?.data ??
         []) as ThemeCategory[],
-    openDrafts: async () =>
-      ((
-        await api.get<{ data: MyStory[] }>(
-          '/v1/account/stories?status=draft&limit=10',
-        )
-      ).data?.data ?? []) as MyStory[],
+    // Drafts are the stories being edited that were never sent (Story states): a story sent back
+    // or taken down with Edit is continued from My submissions instead, so it follows the pages
+    // (as My submissions does, up to 10 of 50) and filters after, so those never hide a draft.
+    openDrafts: async () => {
+      const editing: MyStory[] = [];
+      let cursor: string | null = null;
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const query: string = cursor
+          ? `&cursor=${encodeURIComponent(cursor)}`
+          : '';
+        const { data } = await api.get<{
+          data: MyStory[];
+          nextCursor?: string | null;
+        }>(`/v1/account/stories?status=editing&limit=50${query}`);
+        editing.push(...(data?.data ?? []));
+        cursor = data?.nextCursor ?? null;
+        if (!cursor) break;
+      }
+      return editing.filter((s) => !s.submittedAt);
+    },
     story: async (id: string) =>
       (await api.get<MyStory>(`/v1/account/stories/${encodeURIComponent(id)}`))
         .data as MyStory,

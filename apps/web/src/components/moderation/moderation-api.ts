@@ -19,6 +19,8 @@ export interface QueuePage {
 
 /** api-admin's `ModerationStatusEntry`. */
 export interface StatusEntry {
+  /** What happened (the step); `status` is where it left the story. */
+  action: string;
   status: string;
   actor: 'person' | 'moderator' | 'system';
   comment: string | null;

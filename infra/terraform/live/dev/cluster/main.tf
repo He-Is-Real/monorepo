@@ -118,7 +118,9 @@ module "cluster" {
   # moderationReview (database review 2, part B1); no migration script, so dev is wiped again.
   # db-review-2-b2: storyFile replaces uploadGrant and hiddenStory, and the story points at its
   # files (database review 2, part B2); wiped again, no migration.
-  dev_database_reset = "db-review-2-b2"
+  # m3-story-states: five story states and an action on each status log entry, Edit instead of
+  # Withdraw, and the version 0 legal texts edited in place (M3, Joel 2026-11-11); wiped again.
+  dev_database_reset = "m3-story-states"
   # D42: the automatic cluster plan's identity (modules/bootstrap), dry-run RBAC in `database`.
   cluster_planner_email = "tf-cluster-planner@heisreal-dev.iam.gserviceaccount.com"
 

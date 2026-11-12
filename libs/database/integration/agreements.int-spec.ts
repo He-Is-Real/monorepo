@@ -260,8 +260,10 @@ describe('consent, privacy and terms (plan 4e)', () => {
       expect(await draft(pat, 'p1')).toHaveLength(1);
     });
 
-    it('a newer testimony consent stops edits, uploads and submission until re-agreed; withdrawing never', async () => {
+    it('a newer testimony consent stops edits, uploads and submission until re-agreed; pressing Edit never', async () => {
       await draft(pat, 'p2');
+      await draft(pat, 'p3');
+      await submit(pat, 'p3');
       await publishVersion(t3, 'testimonyConsent', 'Version one');
       const edit = await outcome(pat, `UPDATE story:p2 SET title = 'New'`);
       expect(!edit.ok && edit.error).toContain('testimony_consent_required');
@@ -278,11 +280,11 @@ describe('consent, privacy and terms (plan 4e)', () => {
       expect(!upload.ok && upload.error).toContain(
         'testimony_consent_required',
       );
-      const withdraw = await outcome(
+      const takenDown = await outcome(
         pat,
-        `CREATE storyStatusLog CONTENT { story: story:p1, status: 'withdrawn' }`,
+        `CREATE storyStatusLog CONTENT { story: story:p3, action: 'editStarted' }`,
       );
-      expect(withdraw.ok).toBe(true);
+      expect(takenDown.ok).toBe(true);
       await agree(pat, 'testimonyConsent');
       expect((await outcome(pat, `UPDATE story:p2 SET title = 'New'`)).ok).toBe(
         true,
@@ -346,7 +348,7 @@ describe('consent, privacy and terms (plan 4e)', () => {
          UPDATE story:d1 SET
            socialMediaSharingConsent = fn::legal::latest('socialMediaSharingConsent'),
            socialMediaSharingConsentAgreedAt = time::now();
-         CREATE storyStatusLog CONTENT { story: story:d1, status: 'pending' };
+         CREATE storyStatusLog CONTENT { story: story:d1, action: 'sent' };
          COMMIT TRANSACTION;`,
       );
       expect(both.ok).toBe(true);
@@ -381,14 +383,12 @@ describe('consent, privacy and terms (plan 4e)', () => {
          CREATE story:legacy CONTENT { submitter: user:legacy, slug: 'legacy', title: 'T',
            description: 'D', primaryFormat: 'written', body: $body,
            themeRefs: [theme:common] };
-         CREATE storyStatusLog CONTENT { story: story:legacy, status: 'pending', actor: 'person' };
-         CREATE storyStatusLog CONTENT { story: story:legacy, status: 'in_review', actor: 'moderator',
-           by: user:moderator };`,
+         CREATE storyStatusLog CONTENT { story: story:legacy, action: 'sent', actor: 'person' };`,
         { body: 'x'.repeat(250) },
       );
       const r = await outcome(
         admin,
-        `CREATE storyStatusLog CONTENT { story: story:legacy, status: 'approved', by: user:moderator }`,
+        `CREATE storyStatusLog CONTENT { story: story:legacy, action: 'approved', by: user:moderator }`,
       );
       expect(!r.ok && r.error).toContain('testimony_consent_required');
     });

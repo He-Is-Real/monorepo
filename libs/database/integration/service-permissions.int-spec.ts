@@ -166,7 +166,7 @@ describe('service identities (D13 B)', () => {
       expect(
         await rows(
           db,
-          `CREATE storyStatusLog CONTENT { story: story:bob_pending, status: 'approved' }`,
+          `CREATE storyStatusLog CONTENT { story: story:bob_pending, action: 'approved' }`,
         ),
       ).toEqual([]);
       expect(
@@ -260,7 +260,7 @@ describe('service identities (D13 B)', () => {
       expect(
         await rows(
           db,
-          `CREATE storyStatusLog CONTENT { story: story:bob_pending, status: 'in_review' }`,
+          `CREATE storyStatusLog CONTENT { story: story:bob_pending, action: 'approved' }`,
         ),
       ).toEqual([]);
       expect(
@@ -283,7 +283,7 @@ describe('service identities (D13 B)', () => {
         'story:bob_live',
         'story:bob_pending',
       ]);
-      expect(await rows(db, 'SELECT * FROM storyStatusLog')).toHaveLength(5);
+      expect(await rows(db, 'SELECT * FROM storyStatusLog')).toHaveLength(4);
     });
 
     // R7 (Joel, 2026-11-04): erasure runs on api-user's login, so api-admin deletes none of these.
@@ -321,38 +321,51 @@ describe('service identities (D13 B)', () => {
     it('moderates through the status log only, naming the moderator (R6)', async () => {
       await draft(await t.person('user_ann'), 'ann_mod');
       await submit(await t.person('user_ann'), 'ann_mod');
-      // Not straight from pending to a decision: a moderator picks it up first.
-      expect(
-        await outcome(
-          svc.admin,
-          `CREATE storyStatusLog CONTENT { story: story:ann_mod, status: 'approved', by: user:moderator }`,
-        ),
-      ).toMatchObject({
-        ok: false,
-        error: expect.stringContaining('status_step'),
-      });
       // Every moderator entry names the moderator.
       expect(
         await outcome(
           svc.admin,
-          `CREATE storyStatusLog CONTENT { story: story:ann_mod, status: 'in_review' }`,
+          `CREATE storyStatusLog CONTENT { story: story:ann_mod, action: 'approved' }`,
         ),
       ).toMatchObject({
         ok: false,
         error: expect.stringContaining('names the moderator'),
       });
-      expect(await step(svc.admin, 'ann_mod', 'in_review')).toHaveLength(1);
-      const [entry] = await step(svc.admin, 'ann_mod', 'changes_requested', {
+      // Sending back and rejecting carry the moderator's note.
+      expect(
+        await outcome(
+          svc.admin,
+          `CREATE storyStatusLog CONTENT { story: story:ann_mod, action: 'changesRequested',
+             by: user:moderator }`,
+        ),
+      ).toMatchObject({
+        ok: false,
+        error: expect.stringContaining('needs the moderator’s note'),
+      });
+      // Straight from pending (no pick-up).
+      const [entry] = await step(svc.admin, 'ann_mod', 'changesRequested', {
         comment: 'Please add more detail',
         actor: 'person',
       });
       expect(entry).toMatchObject({
-        status: 'changes_requested',
+        action: 'changesRequested',
+        status: 'editing',
         actor: 'moderator',
         by: 'user:moderator',
         comment: 'Please add more detail',
       });
-      expect(await statusOf(migrator, 'ann_mod')).toBe('changes_requested');
+      expect(await statusOf(migrator, 'ann_mod')).toBe('editing');
+      // D-1: the first decision wins; a second finds the story no longer waiting.
+      expect(
+        await outcome(
+          svc.admin,
+          `CREATE storyStatusLog CONTENT { story: story:ann_mod, action: 'approved',
+             by: user:moderator }`,
+        ),
+      ).toMatchObject({
+        ok: false,
+        error: expect.stringContaining('status_step'),
+      });
       // The story itself: api-admin can't write its words or its status pointer.
       await run(
         svc.admin,
@@ -362,7 +375,7 @@ describe('service identities (D13 B)', () => {
         await truth(
           'SELECT title, fn::story::status_of($this) AS status FROM story:ann_mod',
         ),
-      ).toEqual([{ title: 'Story ann_mod', status: 'changes_requested' }]);
+      ).toEqual([{ title: 'Story ann_mod', status: 'editing' }]);
     });
 
     it('links a legacy person to a Clerk account once; the binding never changes after', async () => {
@@ -417,7 +430,7 @@ describe('service identities (D13 B)', () => {
       expect(
         await rows(
           db,
-          `CREATE storyStatusLog CONTENT { story: story:bob_pending, status: 'in_review' }`,
+          `CREATE storyStatusLog CONTENT { story: story:bob_pending, action: 'approved' }`,
         ),
       ).toEqual([]);
       expect(await truth('SELECT * FROM story:wf')).toEqual([]);

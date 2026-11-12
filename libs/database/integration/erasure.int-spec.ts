@@ -60,7 +60,7 @@ describe('erasure on api_user’s service login', () => {
       await truth(
         'SELECT VALUE id FROM storyStatusLog WHERE story.submitter = user:ann',
       ),
-    ).toHaveLength(4); // ann_pending: 1; ann_live: 3
+    ).toHaveLength(3); // ann_pending: 1; ann_live: 2
   });
   afterAll(() => t?.close());
 
@@ -77,7 +77,7 @@ describe('erasure on api_user’s service login', () => {
       await truth(
         'SELECT VALUE id FROM storyStatusLog WHERE story.submitter = user:ann',
       ),
-    ).toHaveLength(4);
+    ).toHaveLength(3);
   });
 
   it('erases the person’s stories, their status logs and idempotency keys', async () => {
@@ -94,7 +94,7 @@ describe('erasure on api_user’s service login', () => {
           'SELECT VALUE record::id(story) FROM storyStatusLog',
         )
       ).sort(),
-    ).toEqual(['bob_live', 'bob_live', 'bob_live', 'bob_pending']);
+    ).toEqual(['bob_live', 'bob_live', 'bob_pending']);
     expect(
       await rows(
         await t.service('api_public_read'),

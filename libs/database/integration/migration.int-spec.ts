@@ -1448,13 +1448,12 @@ describe('data/0009 fills in the agreements of the people who exist when it runs
        CREATE story:waiting CONTENT { submitter: user:ann, slug: 'waiting', title: 'T',
          description: 'D', primaryFormat: 'written', body: $body,
          themeRefs: [theme:common] };
-       CREATE storyStatusLog CONTENT { story: story:waiting, status: 'pending', actor: 'person' };`,
+       CREATE storyStatusLog CONTENT { story: story:waiting, action: 'sent', actor: 'person' };`,
       { body: 'x'.repeat(250) },
     );
-    await step(admin, 'waiting', 'in_review');
     refusedBefore = await outcome(
       admin,
-      `CREATE storyStatusLog CONTENT { story: story:waiting, status: 'approved', by: user:moderator }`,
+      `CREATE storyStatusLog CONTENT { story: story:waiting, action: 'approved', by: user:moderator }`,
     );
     ranFrom = await now();
     expect(await t.migrate(t.params())).toMatchObject({

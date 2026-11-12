@@ -1,13 +1,13 @@
 import type { ClipId, ImageId } from '../media';
 
+/**
+ * Where a fixture story ends up (Story states, Joel 2026-11-11), as its owner would see it: a
+ * draft never sent, waiting for review, published, not accepted, sent back for changes, or sent and
+ * then taken down by its owner to edit. The database records the last three's state as `editing`
+ * (sent back, being edited) or `rejected`.
+ */
 export type StoryStatus =
-  | 'draft'
-  | 'pending'
-  | 'in_review'
-  | 'approved'
-  | 'rejected'
-  | 'changes_requested'
-  | 'withdrawn';
+  'draft' | 'pending' | 'approved' | 'rejected' | 'sent_back' | 'editing';
 
 export type StoryFormat = 'video' | 'audio' | 'written';
 
@@ -66,15 +66,15 @@ export interface StoryFixture {
   /** Written only: the optional image. */
   image?: { file: ImageId; alt?: string; processing?: Processing };
   /**
-   * Where the story ends up. The seed walks it there the way the services will (draft →
-   * pending → in_review → …), so its status log and versions look real.
+   * Where the story ends up. The seed walks it there the way the services will (sent, then a
+   * moderator's decisions, then the owner's Edit), so its status log and versions look real.
    */
   status: StoryStatus;
   /**
-   * The moderation decisions, in order. Each one follows a submit and a moderator picking the
-   * story up. `request_changes` sends it back; the next decision follows a resubmit. The last
+   * The moderation decisions, in order. Each one follows a send (moderators decide straight from
+   * pending). `request_changes` sends it back; the next decision follows a send again. The last
    * one decides the final status (approve → approved, reject → rejected, request_changes →
-   * changes_requested). An in_review story has none yet.
+   * sent_back). A pending story has none yet; an `editing` one none, or an approval before Edit.
    */
   reviews?: ReviewFixture[];
   /** Approved stories: how many days ago it was published (browse order). */

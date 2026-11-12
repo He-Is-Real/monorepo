@@ -327,7 +327,7 @@ test.describe('behaviour', () => {
         // Sent back for changes: sending it again isn't a new submission.
         story('back', {
           title: 'Sent back',
-          status: 'changes_requested',
+          status: 'editing',
           submittedAt: new Date(Date.now() - 9 * DAY).toISOString(),
         }),
       ],

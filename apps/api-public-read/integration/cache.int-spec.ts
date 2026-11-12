@@ -18,8 +18,8 @@ const publish = (id: string, slug: string, title: string) => `
     body: 'This is test text, written to check that api-public-read answers the same public request from memory for a minute and then asks the database again. Nobody shared this story and nothing in it happened.',
     bylineName: 'Test Person', primaryFormat: 'written', themeRefs: [theme:common]
   });
-  FOR $step IN [['pending', 'person'], ['in_review', 'moderator'], ['approved', 'moderator']] {
-    CREATE storyStatusLog CONTENT { story: $s.id, status: $step[0], actor: $step[1],
+  FOR $step IN [['sent', 'person'], ['approved', 'moderator']] {
+    CREATE storyStatusLog CONTENT { story: $s.id, action: $step[0], actor: $step[1],
       by: IF $step[1] = 'moderator' { user:cache_moderator } };
   };`;
 

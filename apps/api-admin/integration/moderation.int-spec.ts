@@ -7,6 +7,7 @@ import { SURREAL } from '@heisreal/database';
 import {
   buildWorld,
   draft,
+  edit,
   processed,
   run,
   step,
@@ -100,14 +101,13 @@ describe('moderation, the read side (api-admin)', () => {
     await submit(ann, 'ann_video');
 
     // Bob's is sent back with a note and sent again: it goes to the back of the queue.
-    await step(admin, 'bob_pending', 'in_review');
-    await step(admin, 'bob_pending', 'changes_requested', { comment: NOTE });
+    await step(admin, 'bob_pending', 'changesRequested', { comment: NOTE });
     await submit(bob, 'bob_pending');
 
-    // Picked up (in review): not in the queue, but a moderator can still open it.
-    await draft(ann, 'ann_review');
-    await submit(ann, 'ann_review');
-    await step(admin, 'ann_review', 'in_review');
+    // Sent, then taken down by its owner to edit (ED-4): no longer waiting.
+    await draft(ann, 'ann_editing');
+    await submit(ann, 'ann_editing');
+    await edit(ann, 'ann_editing');
 
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(SURREAL)
@@ -190,7 +190,9 @@ describe('moderation, the read side (api-admin)', () => {
       title: 'Story ann_video',
       primaryFormat: 'video',
       themes: [{ id: 'common', name: 'Common' }],
-      statusLog: [{ status: 'pending', actor: 'person', comment: null }],
+      statusLog: [
+        { action: 'sent', status: 'pending', actor: 'person', comment: null },
+      ],
     });
     const [media] = body.media;
     expect(media).toMatchObject({
@@ -226,28 +228,29 @@ describe('moderation, the read side (api-admin)', () => {
     const revised = await get('/v1/moderation/stories/bob_pending');
     expect(
       revised.body.statusLog.map(
-        (e: { status: string; actor: string; comment: string | null }) => [
-          e.status,
-          e.actor,
-          e.comment,
-        ],
+        (e: {
+          action: string;
+          status: string;
+          actor: string;
+          comment: string | null;
+        }) => [e.action, e.status, e.actor, e.comment],
       ),
     ).toEqual([
-      ['pending', 'person', null],
-      ['in_review', 'moderator', null],
-      ['changes_requested', 'moderator', NOTE],
-      ['pending', 'person', null],
+      ['sent', 'pending', 'person', null],
+      ['changesRequested', 'editing', 'moderator', NOTE],
+      ['sent', 'pending', 'person', null],
     ]);
-    expect(revised.body.submittedAt).toBe(revised.body.statusLog[3].at);
+    expect(revised.body.submittedAt).toBe(revised.body.statusLog[2].at);
     expect(JSON.stringify(revised.body)).not.toMatch(/user_|submitter|"by"/);
-
-    expect((await get('/v1/moderation/stories/ann_review')).body.status).toBe(
-      'in_review',
-    );
   });
 
-  it('only stories waiting for review or in review: a draft, a published story or no story is not found', async () => {
-    for (const id of ['ann_draft', 'bob_live', 'no_such_story']) {
+  it('only stories waiting for review: a draft, one taken down to edit, a published story or no story is not found', async () => {
+    for (const id of [
+      'ann_draft',
+      'ann_editing',
+      'bob_live',
+      'no_such_story',
+    ]) {
       expect((await get(`/v1/moderation/stories/${id}`)).status, id).toBe(404);
     }
   });

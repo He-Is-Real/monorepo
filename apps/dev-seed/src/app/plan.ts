@@ -14,13 +14,13 @@ export const LIMITS = {
   titleMax: 140,
   descriptionMax: 5000,
   bodyMax: 10_000, // A3
-  bodyMinSubmitted: 200, // from submit on (pending, in_review, approved)
+  bodyMinSubmitted: 200, // once sent (pending, approved)
   themesMax: 5, // the default themesMax: every seeded story can be submitted
   themeNameMax: 40,
   altMax: 500,
 } as const;
 
-const SUBMITTED: StoryStatus[] = ['pending', 'in_review', 'approved'];
+const SUBMITTED: StoryStatus[] = ['pending', 'approved', 'editing'];
 /** A made-up Bunny video id, clearly no real one (StoryFixture.media.placeholder). */
 const PLACEHOLDER = /^00000000-0000-0000-0000-[0-9a-f]{12}$/;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -30,7 +30,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * moderator would add it: who (`actor`), when (`at`) and the moderator's note to the person.
  */
 export interface Step {
-  status: Exclude<StoryStatus, 'draft'>;
+  /** The status log action (R6; Story states, Joel 2026-11-11). */
+  action: 'sent' | 'editStarted' | 'approved' | 'rejected' | 'changesRequested';
   actor: 'person' | 'moderator';
   /** The moderator's feedback to the author (a changes request's or rejection's comment). */
   comment?: string;
@@ -80,17 +81,16 @@ export function stepsFor(story: StoryFixture, end: Date): Step[] {
   const reviews = story.reviews ?? [];
   const steps: Omit<Step, 'at'>[] = [];
   if (story.status === 'draft') return [];
-  steps.push({ status: 'pending', actor: 'person' });
+  steps.push({ action: 'sent', actor: 'person' });
   for (const review of reviews) {
-    steps.push({ status: 'in_review', actor: 'moderator' });
     const decision = {
       approve: 'approved',
       reject: 'rejected',
-      request_changes: 'changes_requested',
+      request_changes: 'changesRequested',
     } as const;
     steps.push(
       compact({
-        status: decision[review.decision],
+        action: decision[review.decision],
         actor: 'moderator' as const,
         comment: review.feedback,
       }),
@@ -100,13 +100,12 @@ export function stepsFor(story: StoryFixture, end: Date): Step[] {
       review.decision === 'request_changes' &&
       review !== reviews[reviews.length - 1]
     ) {
-      steps.push({ status: 'pending', actor: 'person' });
+      steps.push({ action: 'sent', actor: 'person' });
     }
   }
-  if (story.status === 'in_review')
-    steps.push({ status: 'in_review', actor: 'moderator' });
-  if (story.status === 'withdrawn')
-    steps.push({ status: 'withdrawn', actor: 'person' });
+  // Edit (ED-1, ED-4): taken down by its owner, from pending or published.
+  if (story.status === 'editing')
+    steps.push({ action: 'editStarted', actor: 'person' });
   return steps.map((step, i) => ({
     ...step,
     at: new Date(end.getTime() - (steps.length - 1 - i) * HOUR_MS),
@@ -200,19 +199,17 @@ export function datasetProblems(data: Dataset, media: BunnyMedia): string[] {
     const expected: Partial<Record<StoryStatus, string | undefined>> = {
       approved: 'approve',
       rejected: 'reject',
-      changes_requested: 'request_changes',
+      sent_back: 'request_changes',
     };
     if (s.status in expected && last !== expected[s.status]) {
       p(`a ${s.status} story's last review is ${expected[s.status]}`);
     }
-    if (
-      ['draft', 'pending', 'withdrawn'].includes(s.status) &&
-      reviews.length > 0
-    ) {
+    if (['draft', 'pending'].includes(s.status) && reviews.length > 0) {
       p(`a ${s.status} story has no reviews here`);
     }
-    if (s.status === 'in_review' && reviews.length > 0) {
-      p('an in_review story has no decision yet');
+    // Edit is pressed on a story waiting for review or published (ED-1, ED-4).
+    if (s.status === 'editing' && last !== undefined && last !== 'approve') {
+      p('an editing story was taken down while pending or published');
     }
     if (reviews.slice(0, -1).some((r) => r.decision !== 'request_changes')) {
       p('only a request for changes comes before the last review');

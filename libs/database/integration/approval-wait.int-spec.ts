@@ -36,10 +36,10 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
   ) => rows<T>(migrator, sql, vars);
 
   /**
-   * Pat's story, submitted and picked up by a moderator, its files processed: a video uploaded
+   * Pat's story, sent for review, its files processed: a video uploaded
    * `video` ago (a SurrealQL duration) and/or a picture uploaded `picture` ago. Answers its id.
    */
-  const inReview = async (files: {
+  const waiting = async (files: {
     video?: string;
     audio?: string;
     picture?: string;
@@ -77,7 +77,6 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
     expect(await submit(pat, id)).toHaveLength(1);
     // The writer answers the check written at Submit.
     await processed(workflow, id);
-    await step(admin, id, 'in_review');
     return id;
   };
 
@@ -86,7 +85,7 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
     outcome(
       admin,
       `CREATE storyStatusLog CONTENT object::extend({ story: type::record('story', $id),
-         status: 'approved', by: user:moderator }, $extra)`,
+         action: 'approved', by: user:moderator }, $extra)`,
       { id, extra },
     );
   const statusOf = async (id: string) =>
@@ -155,36 +154,36 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
 
   describe('the upload cooldown', () => {
     it('refuses while the video’s upload link could still be used, saying when it can be approved', async () => {
-      const id = await inReview({ video: '30m' });
+      const id = await waiting({ video: '30m' });
       expect(await approve(id)).toEqual({
         ok: false,
         error: expect.stringContaining(
           `media_recently_uploaded: the story’s file was uploaded recently; it can be approved after ${await linkEnds(`${id}-media`)}`,
         ),
       });
-      expect(await statusOf(id)).toBe('in_review');
+      expect(await statusOf(id)).toBe('pending');
     });
 
     it('approves once the video’s hour is up', async () => {
-      const id = await inReview({ video: '61m' });
+      const id = await waiting({ video: '61m' });
       expect(await approve(id)).toMatchObject({ ok: true });
       expect(await statusOf(id)).toBe('approved');
     });
 
     it('a picture’s link lasts 10 minutes', async () => {
-      const recent = await inReview({ picture: '5m' });
+      const recent = await waiting({ picture: '5m' });
       expect(await approve(recent)).toMatchObject({
         ok: false,
         error: expect.stringContaining(
           `media_recently_uploaded: the story’s file was uploaded recently; it can be approved after ${await linkEnds(await fileOf(recent, 'image.file'))}`,
         ),
       });
-      const older = await inReview({ picture: '11m' });
+      const older = await waiting({ picture: '11m' });
       expect(await approve(older)).toMatchObject({ ok: true });
     });
 
     it('waits for the later of the story’s two files', async () => {
-      const id = await inReview({ video: '2h', picture: '5m' });
+      const id = await waiting({ video: '2h', picture: '5m' });
       expect(await approve(id)).toMatchObject({
         ok: false,
         error: expect.stringContaining('media_recently_uploaded:'),
@@ -210,7 +209,6 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
       );
       await processed(workflow, id);
       await submit(pat, id);
-      await step(admin, id, 'in_review');
       expect(await approve(id)).toMatchObject({
         ok: false,
         error: expect.stringContaining('media_recently_uploaded:'),
@@ -218,8 +216,8 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
     });
 
     it('ends exactly when the link does: refused a millisecond before, approved from then', async () => {
-      const video = await inReview({ video: '1d' });
-      const picture = await inReview({ picture: '1d' });
+      const video = await waiting({ video: '1d' });
+      const picture = await waiting({ picture: '1d' });
       for (const [id, key, length] of [
         [video, `${video}-media`, '1h'],
         [picture, await fileOf(picture, 'image.file'), '10m'],
@@ -245,7 +243,7 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
 
   describe('an open media job (J6)', () => {
     it('refuses while a job for the story’s video is open, and approves once it ends', async () => {
-      const id = await inReview({ video: '1d' });
+      const id = await waiting({ video: '1d' });
       const job = await openJob(`${id}-media`);
       expect(await approve(id)).toEqual({
         ok: false,
@@ -258,7 +256,7 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
     });
 
     it('an audio story whose picture video is still being made can’t be approved', async () => {
-      const id = await inReview({ audio: '1d', picture: '1d' });
+      const id = await waiting({ audio: '1d', picture: '1d' });
       const job = await openJob(`${id}-media`, 'render', 'picture_changed');
       expect(await approve(id)).toMatchObject({
         ok: false,
@@ -269,7 +267,7 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
     });
 
     it('a job for the story’s picture counts too', async () => {
-      const id = await inReview({ picture: '1d' });
+      const id = await waiting({ picture: '1d' });
       await openJob(await fileOf(id, 'image.file'));
       expect(await approve(id)).toMatchObject({
         ok: false,
@@ -278,7 +276,7 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
     });
 
     it('a video’s picture at Bunny counts until a confirmed write empties its lock, run out or not (T3, T4)', async () => {
-      const id = await inReview({ video: '1d' });
+      const id = await waiting({ video: '1d' });
       const key = `${id}-media`;
       const lock = (until: string) =>
         run(
@@ -306,7 +304,7 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
     });
 
     it('once the result writer empties the lock (Bunny confirmed), approval goes ahead', async () => {
-      const id = await inReview({ video: '1d' });
+      const id = await waiting({ video: '1d' });
       const key = `${id}-media`;
       await run(
         workflow,
@@ -323,7 +321,7 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
     });
 
     it('the lock is workflow’s to write; only housekeeping also reads it (the nightly re-check)', async () => {
-      const id = await inReview({ video: '1d' });
+      const id = await waiting({ video: '1d' });
       const key = `${id}-media`;
       const read = (db: Surreal) =>
         rows(
@@ -355,7 +353,7 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
     });
 
     it('doesn’t stop the system hiding the story and showing it again', async () => {
-      const id = await inReview({ video: '1d' });
+      const id = await waiting({ video: '1d' });
       expect(await approve(id)).toMatchObject({ ok: true });
       const key = `${id}-media`;
       await openJob(key, 'check', 'bunny_finished');
@@ -382,12 +380,12 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
         `UPDATE type::record('storyFile', $key) SET processing = 'ready', lengthSeconds = 61`,
         { key },
       );
-      await step(admin, id, 'hidden');
+      await step(admin, id, 'hiddenByModerator');
       expect(
         await outcome(
           admin,
           `CREATE storyStatusLog CONTENT { story: type::record('story', $id),
-             status: 'approved', by: user:moderator }`,
+             action: 'shownByModerator', by: user:moderator }`,
           { id },
         ),
       ).toMatchObject({
@@ -399,7 +397,7 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
 
   describe('an Admin may skip the wait', () => {
     it('approves during the cooldown with a job open, and the entry records it for api-admin only', async () => {
-      const id = await inReview({ video: '5m' });
+      const id = await waiting({ video: '5m' });
       await openJob(`${id}-media`);
       expect(await approve(id, { skippedMediaWait: true })).toMatchObject({
         ok: true,
@@ -414,25 +412,26 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
     });
 
     it('is refused when there is nothing to skip, and on any entry but an approval', async () => {
-      const id = await inReview({ video: '1d' });
+      const id = await waiting({ video: '1d' });
       expect(await approve(id, { skippedMediaWait: true })).toMatchObject({
         ok: false,
         error: expect.stringContaining('status_step: skippedMediaWait'),
       });
-      const other = await inReview({ video: '5m' });
+      const other = await waiting({ video: '5m' });
       expect(
         await outcome(
           admin,
           `CREATE storyStatusLog CONTENT { story: type::record('story', $id),
-             status: 'changes_requested', by: user:moderator, skippedMediaWait: true }`,
+             action: 'changesRequested', comment: 'A note', by: user:moderator,
+             skippedMediaWait: true }`,
           { id: other },
         ),
       ).toMatchObject({
         ok: false,
         error: expect.stringContaining('status_step: skippedMediaWait'),
       });
-      expect(await statusOf(id)).toBe('in_review');
-      expect(await statusOf(other)).toBe('in_review');
+      expect(await statusOf(id)).toBe('pending');
+      expect(await statusOf(other)).toBe('pending');
     });
   });
 });

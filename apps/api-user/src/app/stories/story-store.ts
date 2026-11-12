@@ -151,27 +151,22 @@ export class IfMatchRequiredException extends HttpException {
   }
 }
 
-const EDITABLE = ['draft', 'changes_requested'];
+/** How many random endings CreateDraftStory tries for a new story's address (SL-1). */
+const SLUG_ATTEMPTS = 3;
+/** The database refused a new story's address: another story has it (the story_slug index). */
+const isSlugClash = (err: unknown) =>
+  err instanceof DatabaseQueryError && /index `story_slug`/.test(err.message);
+
+/** Story states (Joel, 2026-11-11): only a story being edited can change or be sent. */
+const EDITABLE = ['editing'];
 /** Codes the commands THROW inside their transaction, read back from the error. */
 const ERR =
-  /\bstory_cmd:(not_found|stale_version|locked|not_written|not_withdrawable|not_deletable)\b/;
+  /\bstory_cmd:(not_found|stale_version|locked|not_written|not_editable)\b/;
 /**
- * WithdrawStory: anything submitted and not yet finished with (D61: withdrawn stays withdrawn),
- * hidden stories included (shown to their owner as published).
+ * Edit (ED-1, ED-4): a story waiting for review, published or hidden is taken down to be edited.
+ * A rejected story is final (it can only be deleted), and one being edited already needs nothing.
  */
-const WITHDRAWABLE = [
-  'pending',
-  'in_review',
-  'approved',
-  'hidden',
-  'changes_requested',
-];
-/**
- * DeleteStory (D71): the person's own draft, withdrawn or rejected story, or one sent back for
- * changes (no need to withdraw it first). The database's story permission says the same, so it
- * holds whoever calls.
- */
-const DELETABLE = ['draft', 'changes_requested', 'withdrawn', 'rejected'];
+const CAN_START_EDITING = ['pending', 'approved', 'hidden'];
 
 interface RawStory {
   /** `story:<id>` (STORY_FIELDS' storyRef). */
@@ -206,22 +201,17 @@ interface RawStory {
 }
 
 /**
- * The status its owner sees: a story hidden because of its media shows as published, as before
- * the status log (its owner can't act on it, and it comes back by itself).
- */
-const OWNER_STATUS = `IF ${STORY_STATUS} = 'hidden' { 'approved' } ELSE { ${STORY_STATUS} }`;
-
-/**
  * What its owner sees of a story's status log (R6), in their own session (they read their own
- * entries, never who moderated): that status, the moderator's note on the current changes request
- * or rejection, the first submission's time and the first publication's. GetStory and "download
- * my data" (my-data.ts).
+ * entries, never who moderated): the real status (G2: a hidden story shows as hidden), the
+ * moderator's note while the story is sent back for changes or rejected ("What our team said"),
+ * the first time it was sent and the first publication's. A story being edited that was never sent
+ * (no `submittedAt`) is a "Draft". GetStory and "download my data" (my-data.ts).
  */
 export const OWNER_STATUS_FIELDS = `
-  ${OWNER_STATUS} AS status,
-  IF ${STORY_STATUS} IN ['changes_requested', 'rejected'] { currentStatus.comment }
+  ${STORY_STATUS} AS status,
+  IF currentStatus.action IN ['changesRequested', 'rejected'] { currentStatus.comment }
     AS rejectionFeedback,
-  array::min(SELECT VALUE at FROM storyStatusLog WHERE story = $parent.id AND status = 'pending')
+  array::min(SELECT VALUE at FROM storyStatusLog WHERE story = $parent.id AND action = 'sent')
     AS submittedAt,
   array::min(SELECT VALUE publishedAt FROM storyStatusLog
     WHERE story = $parent.id AND status = 'approved') AS approvedAt`;
@@ -314,7 +304,7 @@ export class StoryStore {
   ): Promise<{ data: StoryMine[]; next?: { createdAt: string; id: string } }> {
     const where = [
       'submitter = $auth',
-      ...(status ? [`(${OWNER_STATUS}) = $status`] : []),
+      ...(status ? [`${STORY_STATUS} = $status`] : []),
       ...(cursor
         ? [
             '(createdAt < <datetime> $c OR (createdAt = <datetime> $c AND id < <record> $cid))',
@@ -345,8 +335,26 @@ export class StoryStore {
     };
   }
 
-  /** CreateDraftStory, once per Idempotency-Key (D29). */
+  /**
+   * CreateDraftStory, once per Idempotency-Key (D29). Its address is the title with a random
+   * ending; if that ever clashes with another story's (the `story_slug` unique index), it tries
+   * again with a new ending (SL-1, Joel 2026-11-12) rather than failing.
+   */
   async create(
+    input: CreateInput,
+    idempotency: { scope: IdempotencyScope; requestHash: string },
+  ): Promise<CommandResult> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.createOnce(input, idempotency);
+      } catch (err) {
+        if (attempt < SLUG_ATTEMPTS && isSlugClash(err)) continue;
+        throw err;
+      }
+    }
+  }
+
+  private async createOnce(
     input: CreateInput,
     idempotency: { scope: IdempotencyScope; requestHash: string },
   ): Promise<CommandResult> {
@@ -424,7 +432,9 @@ export class StoryStore {
           );
           if (value !== null) vars[field] = value;
         }
-        if (patch.title !== undefined) {
+        // SL-1 A (Joel, 2026-11-12): the address follows the title only until the story is first
+        // approved; after that it never changes, so shared links keep working.
+        if (patch.title !== undefined && !current.approvedAt) {
           sets.push('slug = $slug');
           vars['slug'] = slugFor(patch.title, slugSuffix(current.slug));
         }
@@ -452,7 +462,7 @@ export class StoryStore {
              FROM type::record('story', $id) WHERE submitter = $auth)[0];
            IF $s = NONE { THROW 'story_cmd:not_found' };
            IF $s.version != $version { THROW 'story_cmd:stale_version' };
-           IF $s.status NOT IN ['draft', 'changes_requested'] { THROW 'story_cmd:locked' };
+           IF $s.status != 'editing' { THROW 'story_cmd:locked' };
            LET $u = (UPDATE ONLY type::record('story', $id) SET ${sets.join(', ')} RETURN id, version);
            IF $u = NONE { THROW 'story_cmd:not_written' };
            $u;
@@ -471,7 +481,7 @@ export class StoryStore {
   }
 
   /**
-   * SubmitStory: draft/changes_requested → pending (R6: a pending status entry, which moves the
+   * SubmitStory: editing → pending (R6: a `sent` status entry, which moves the
    * story's pointer and version), once per Idempotency-Key, at `ifMatch`.
    * `checkMedia`: a video or audio story's file checks (uploads.ts), run with the others.
    * `shareVersion` (plan 4e): the version of the social media sharing consent ticked at the end
@@ -505,8 +515,7 @@ export class StoryStore {
           if (!EDITABLE.includes(current.status)) {
             throw new ConflictException({
               code: 'story_not_submittable',
-              message:
-                'Only a draft, or a story sent back for changes, can be submitted',
+              message: 'Only a story being edited can be sent',
             });
           }
           const set = await this.settings();
@@ -565,7 +574,7 @@ export class StoryStore {
                   : ''
               }
               LET $e = (CREATE ONLY storyStatusLog CONTENT {
-                story: type::record('story', $id), status: 'pending' } RETURN id);
+                story: type::record('story', $id), action: 'sent' } RETURN id);
               IF $e = NONE { THROW 'story_cmd:not_written' };
               LET $u = (SELECT id, version FROM ONLY type::record('story', $id));
               LET $result = { id: $u.id, version: $u.version };`,
@@ -585,11 +594,13 @@ export class StoryStore {
   }
 
   /**
-   * WithdrawStory at `ifMatch`: the story leaves review or the site (R6: a withdrawn status
-   * entry; D17, D51: gone from public reads on the next request). No consent needed, and nothing
-   * in it changes.
+   * Edit at `ifMatch` (ED-1, ED-4; Joel, 2026-11-11): a story waiting for review, published or
+   * hidden is taken down to be edited (R6: an editStarted status entry). It leaves the site at once
+   * (D17, D51: gone from public reads on the next request); its hearts, first publication date and
+   * address are kept, and it goes back on only after a moderator approves it again. No agreement
+   * needed, and nothing in it changes.
    */
-  async withdraw(id: string, ifMatch: number): Promise<CommandResult> {
+  async startEditing(id: string, ifMatch: number): Promise<CommandResult> {
     try {
       return await retryOnConflict(async () => {
         const results = await runQuery(
@@ -599,14 +610,14 @@ export class StoryStore {
              FROM type::record('story', $id) WHERE submitter = $auth)[0];
            IF $s = NONE { THROW 'story_cmd:not_found' };
            IF $s.version != $version { THROW 'story_cmd:stale_version' };
-           IF $s.status NOT IN $withdrawable { THROW 'story_cmd:not_withdrawable' };
+           IF $s.status NOT IN $from { THROW 'story_cmd:not_editable' };
            LET $e = (CREATE ONLY storyStatusLog CONTENT {
-             story: type::record('story', $id), status: 'withdrawn' } RETURN id);
+             story: type::record('story', $id), action: 'editStarted' } RETURN id);
            IF $e = NONE { THROW 'story_cmd:not_written' };
            LET $u = (SELECT id, version FROM ONLY type::record('story', $id));
            $u;
            COMMIT TRANSACTION;`,
-          { id, version: ifMatch, withdrawable: WITHDRAWABLE },
+          { id, version: ifMatch, from: CAN_START_EDITING },
         );
         const row = requireWritten<{ id: string; version: number }>(
           results[results.length - 2],
@@ -620,8 +631,8 @@ export class StoryStore {
   }
 
   /**
-   * DeleteStory at `ifMatch` (D71): the person's own draft, withdrawn, rejected or
-   * changes-requested story, gone with its status log and others' hearts
+   * DeleteStory at `ifMatch` (ED-3, Joel 2026-11-11): the person's own story in any state, straight
+   * away, gone with its status log and others' hearts
    * (story_erasure_cascade). Answers the Bunny videos api-user made for it (its video and audio
    * storyFile rows, D80, R12), for the caller to delete at Bunny once this has committed. Its
    * picture folder is queued by the delete itself (story_picture_folder), for housekeeping. The
@@ -637,14 +648,13 @@ export class StoryStore {
              FROM type::record('story', $id) WHERE submitter = $auth)[0];
            IF $s = NONE { THROW 'story_cmd:not_found' };
            IF $s.version != $version { THROW 'story_cmd:stale_version' };
-           IF $s.status NOT IN $deletable { THROW 'story_cmd:not_deletable' };
            LET $videos = (SELECT VALUE record::id(id) FROM storyFile
              WHERE story = type::record('story', $id) AND format != 'image' AND removedAt = NONE);
            LET $gone = (DELETE type::record('story', $id) RETURN BEFORE);
-           IF array::len($gone) = 0 { THROW 'story_cmd:not_deletable' };
+           IF array::len($gone) = 0 { THROW 'story_cmd:not_written' };
            $videos;
            COMMIT TRANSACTION;`,
-          { id, version: ifMatch, deletable: DELETABLE },
+          { id, version: ifMatch },
         );
         return { videos: (results[results.length - 2] ?? []) as string[] };
       });
@@ -903,7 +913,7 @@ export class StoryStore {
     return err;
   }
 
-  /** WithdrawStory's and DeleteStory's refusals as problems. */
+  /** Edit's and DeleteStory's refusals as problems. */
   private lifecycleProblem(err: unknown): unknown {
     if (err instanceof HttpException) return err;
     const code =
@@ -912,18 +922,11 @@ export class StoryStore {
         : undefined;
     if (code === 'not_found') return new NotFoundException();
     if (code === 'stale_version') return new StaleVersionException();
-    if (code === 'not_withdrawable' || code === 'not_written') {
+    if (code === 'not_editable') {
       return new ConflictException({
-        code: 'story_not_withdrawable',
+        code: 'story_not_editable',
         message:
-          'Only a story waiting for review, in review or published can be withdrawn',
-      });
-    }
-    if (code === 'not_deletable') {
-      return new ConflictException({
-        code: 'story_not_deletable',
-        message:
-          'Only a draft, or a story sent back for changes, withdrawn or not accepted, can be deleted. Withdraw it first.',
+          'Only a story waiting for review, published or not on the site right now can be taken down to edit',
       });
     }
     return err;
@@ -958,11 +961,10 @@ export class StoryStore {
         : undefined;
     if (code === 'not_found') return new NotFoundException();
     if (code === 'stale_version') return new StaleVersionException();
-    if (/status_step: a person can.t move a story/.test(String(err))) {
+    if (/status_step: a person can.t sent a story/.test(String(err))) {
       return new ConflictException({
         code: 'story_not_submittable',
-        message:
-          'Only a draft, or a story sent back for changes, can be submitted',
+        message: 'Only a story being edited can be sent',
       });
     }
     return err;

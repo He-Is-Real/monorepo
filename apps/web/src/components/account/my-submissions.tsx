@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
 import { previewHref } from '@/components/share/own-media';
 import { Button } from '@/components/ui/button';
@@ -26,32 +27,54 @@ export interface MyStoryRow {
   title: string;
   primaryFormat: 'video' | 'audio' | 'written';
   themes: { id: string; name: string }[];
+  /** The moderator's note while sent back for changes or rejected ("What our team said"). */
   rejectionFeedback: string | null;
+  /** When it was first sent for review; null for a story never sent (a "Draft"). */
+  submittedAt?: string | null;
   createdAt: string;
   /** A draft's deletion date if nobody touches it (api-user's rule; never recomputed here). */
   draftExpiresAt?: string | null;
   /**
    * Plan 4e: the social media sharing consent ticked for this story at the end of its upload, or
-   * null. It can't be withdrawn: withdrawing or deleting the story stops any future use.
+   * null. It can't be withdrawn: deleting the story stops any future use.
    */
   socialMediaSharingConsent?: Agreement | null;
 }
 
-const STATUS: Record<string, { label: string; tone: string }> = {
+/**
+ * What the owner sees of each state (Story states, Joel 2026-11-11). A story being edited is a
+ * "Draft" if it was never sent, "Sent back" while a moderator's note is on it, and "Being edited"
+ * once its owner took it down with Edit. G2: a hidden story shows as it is.
+ */
+type Label =
+  | 'draft'
+  | 'sent_back'
+  | 'editing'
+  | 'pending'
+  | 'approved'
+  | 'hidden'
+  | 'rejected';
+const LABEL: Record<Label, { label: string; tone: string }> = {
   draft: { label: 'Draft', tone: 'border-border text-secondary-text' },
+  sent_back: { label: 'Sent back', tone: 'border-link text-link' },
+  editing: { label: 'Being edited', tone: 'border-border text-secondary-text' },
   pending: { label: 'Waiting for review', tone: 'border-link text-link' },
-  in_review: { label: 'In review', tone: 'border-link text-link' },
   approved: { label: 'Published', tone: 'border-primary text-foreground' },
-  changes_requested: {
-    label: 'Changes requested',
-    tone: 'border-link text-link',
+  hidden: {
+    label: 'Not on the site right now',
+    tone: 'border-border text-foreground',
   },
-  rejected: { label: 'Not published', tone: 'border-border text-foreground' },
-  withdrawn: { label: 'Withdrawn', tone: 'border-border text-secondary-text' },
+  rejected: { label: 'Not accepted', tone: 'border-border text-foreground' },
 };
-/** api-user's own rules (story-store.ts): what each status offers. */
-const WITHDRAWABLE = ['pending', 'in_review', 'approved', 'changes_requested'];
-const DELETABLE = ['draft', 'changes_requested', 'withdrawn', 'rejected'];
+function labelOf(story: MyStoryRow): Label {
+  if (story.status === 'editing') {
+    if (!story.submittedAt) return 'draft';
+    return story.rejectionFeedback ? 'sent_back' : 'editing';
+  }
+  return story.status as Label;
+}
+/** api-user's own rule (story-store.ts): Edit takes these down to edit (ED-1, ED-4). */
+const CAN_START_EDITING = ['pending', 'approved', 'hidden'];
 
 const FORMAT = { video: 'Video', audio: 'Audio', written: 'Written' };
 const DATE = new Intl.DateTimeFormat('en-GB', {
@@ -97,21 +120,24 @@ async function readAll(api: ApiUser): Promise<MyStoryRow[]> {
   return all;
 }
 
-type Command = 'withdraw' | 'delete';
+type Command = 'edit' | 'delete';
 
 /**
  * "My submissions" (M2 plan PR 8): the person's stories with their status, a moderator's
  * feedback when there is some, and what they can do with each: preview it as others will see it
- * (M3 plan PR 2; a published one is viewed on the site instead), continue or delete a draft (and
- * see when it goes if left untouched), withdraw a story waiting for review or published, delete
- * one sent back for changes, withdrawn or not published (D71); and whether the person allowed it
- * to be shared on social media (plan 4e: chosen once, at the end of its upload; read only here).
+ * (M3 plan PR 2; a published one is viewed on the site instead), continue a story being edited (a
+ * draft shows when it goes if left untouched), Edit one waiting for review, published or not on
+ * the site right now (ED-1, ED-4: it is taken down at once, then opens in the share flow), and
+ * Delete any of them after one "This can't be undone" question (ED-3); and whether the person
+ * allowed it to be shared on social media (plan 4e: chosen once, at the end of its upload; read
+ * only here).
  * Filled in by the browser from api-user (D83), with its space kept while it loads.
  */
 export function MySubmissions() {
   const own = useOwnData(readMine);
   const { notice, say } = useOwnNotice<string>();
   const heading = useRef<HTMLHeadingElement>(null);
+  const router = useRouter();
 
   const run = async (
     owner: string,
@@ -123,9 +149,7 @@ export function MySubmissions() {
     const id = encodeURIComponent(story.id);
     try {
       await api.command(
-        command === 'delete'
-          ? `/v1/stories/${id}`
-          : `/v1/stories/${id}/withdraw`,
+        command === 'delete' ? `/v1/stories/${id}` : `/v1/stories/${id}/edit`,
         {
           method: command === 'delete' ? 'DELETE' : 'POST',
           version: story.version,
@@ -144,14 +168,14 @@ export function MySubmissions() {
         return plainMessage(err, TRY_AGAIN_LATER);
       }
     }
-    say(
-      owner,
-      command === 'delete'
-        ? `“${story.title}” is deleted.`
-        : `“${story.title}” is withdrawn. It’s no longer on the site or waiting for review.`,
-    );
+    if (command === 'edit') {
+      // Taken down: it opens in the share flow, where everything can change (M3-6 A).
+      router.push(`/share?draft=${id}`);
+      return null;
+    }
+    say(owner, `“${story.title}” is deleted.`);
     await own.reload(owner);
-    if (command === 'delete') heading.current?.focus();
+    heading.current?.focus();
     return null;
   };
 
@@ -252,12 +276,13 @@ function StoryRow({
   const [confirm, setConfirm] = useState<Command | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const status = STATUS[story.status] ?? {
+  const label = labelOf(story);
+  const status = LABEL[label] ?? {
     label: story.status,
     tone: 'border-border text-secondary-text',
   };
   const titleId = `story-${story.id}`;
-  const what = story.status === 'draft' ? 'draft' : 'story';
+  const what = label === 'draft' ? 'draft' : 'story';
 
   const go = async (command: Command) => {
     setBusy(true);
@@ -276,7 +301,7 @@ function StoryRow({
 
   return (
     <li
-      data-submission={story.status}
+      data-submission={label}
       aria-labelledby={titleId}
       className="rounded-2xl border border-border bg-card p-5 sm:p-6"
     >
@@ -302,22 +327,28 @@ function StoryRow({
           data-feedback=""
           className="mb-4 rounded-xl border-l-4 border-link bg-raised p-4 text-[0.9375rem]"
         >
-          <p className="mb-1 font-semibold">Feedback from our team</p>
+          <p className="mb-1 font-semibold">What our team said</p>
           <p className="whitespace-pre-line [overflow-wrap:anywhere]">
             {story.rejectionFeedback}
           </p>
         </div>
       )}
-      {story.status === 'draft' && story.draftExpiresAt && (
+      {label === 'draft' && story.draftExpiresAt && (
         <p data-draft-expiry="" className="mb-3 text-sm text-secondary-text">
           We’ll keep this draft until{' '}
           {LONG_DATE.format(new Date(story.draftExpiresAt))}. If you don’t
           change it before then, it will be deleted.
         </p>
       )}
-      {story.status === 'withdrawn' && (
+      {label === 'editing' && (
         <p className="mb-3 text-sm text-secondary-text">
-          It isn’t on the site or waiting for review. You can delete it.
+          It isn’t on the site or waiting for review. Send it again when you’re
+          ready, and our team will look at it.
+        </p>
+      )}
+      {label === 'hidden' && (
+        <p className="mb-3 text-sm text-secondary-text">
+          It isn’t on the site right now. You can edit it or delete it.
         </p>
       )}
       {shared && (
@@ -337,10 +368,8 @@ function StoryRow({
         >
           <p className="mb-3">
             {confirm === 'delete'
-              ? `Delete this ${what} for good? Its text and any video or audio go too. This can’t be undone.`
-              : story.status === 'approved'
-                ? 'Withdraw this story? It comes off the site straight away. You can delete it afterwards.'
-                : 'Withdraw this story from review? You can delete it afterwards.'}
+              ? `Delete this ${what} for good? Its text and any video or audio go too${onSite ? ', and it comes off the site' : ''}. This can’t be undone.`
+              : 'Edit this story? It comes off the site straight away, and goes back on once our team has approved it again.'}
           </p>
           <div className="flex flex-wrap gap-3">
             <Button
@@ -353,10 +382,10 @@ function StoryRow({
               {busy
                 ? confirm === 'delete'
                   ? 'Deleting…'
-                  : 'Withdrawing…'
+                  : 'Opening…'
                 : confirm === 'delete'
                   ? `Delete ${what}`
-                  : 'Withdraw story'}
+                  : 'Edit story'}
             </Button>
             <Button
               variant="outline"
@@ -370,16 +399,16 @@ function StoryRow({
         </div>
       ) : (
         <div className="flex flex-wrap gap-3">
-          {story.status === 'draft' && (
+          {story.status === 'editing' && (
             <Button
               asChild
-              className="h-auto min-h-11 px-5 py-2 whitespace-normal"
+              className="h-auto min-h-11 max-w-full px-5 py-2 text-center whitespace-normal"
             >
               <Link
                 href={`/share?draft=${encodeURIComponent(story.id)}`}
                 aria-describedby={titleId}
               >
-                Continue
+                {label === 'draft' ? 'Continue' : 'Continue editing'}
               </Link>
             </Button>
           )}
@@ -408,26 +437,27 @@ function StoryRow({
               </Link>
             </Button>
           )}
-          {WITHDRAWABLE.includes(story.status) && (
+          {CAN_START_EDITING.includes(story.status) && (
             <Button
               variant="outline"
               className="h-auto min-h-11 px-5 py-2 whitespace-normal"
               aria-describedby={titleId}
-              onClick={() => setConfirm('withdraw')}
+              disabled={busy}
+              // ED-1: a published story leaves the site on pressing Edit, so it asks first; one
+              // waiting for review or already off the site opens straight away.
+              onClick={() => (onSite ? setConfirm('edit') : go('edit'))}
             >
-              Withdraw
+              Edit
             </Button>
           )}
-          {DELETABLE.includes(story.status) && (
-            <Button
-              variant="outline"
-              className="h-auto min-h-11 px-5 py-2 whitespace-normal"
-              aria-describedby={titleId}
-              onClick={() => setConfirm('delete')}
-            >
-              Delete
-            </Button>
-          )}
+          <Button
+            variant="outline"
+            className="h-auto min-h-11 px-5 py-2 whitespace-normal"
+            aria-describedby={titleId}
+            onClick={() => setConfirm('delete')}
+          >
+            Delete
+          </Button>
         </div>
       )}
       {error && (

@@ -93,11 +93,11 @@ test.describe('moderation', () => {
       page.getByRole('img', { name: 'A church in the snow' }),
     ).toBeVisible();
     const history = page.locator('[data-history-entry]');
-    await expect(history).toHaveCount(4);
-    await expect(history.nth(2)).toContainText(
+    await expect(history).toHaveCount(3);
+    await expect(history.nth(1)).toContainText(
       'Sent back for changes by a moderator',
     );
-    await expect(history.nth(2)).toContainText(
+    await expect(history.nth(1)).toContainText(
       'Thank you for sharing this. Could you say a little more about what changed that winter?',
     );
     await expect(

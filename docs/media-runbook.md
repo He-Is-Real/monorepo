@@ -30,7 +30,7 @@ Two cases don't come back on their own:
   A new thumbnail of the same file doesn't count (R12): re-encoding often picks another frame, and
   the story comes back with it. So re-encode a broken video. Don't upload it again (a new Bunny
   video id).
-- **The story is no longer approved** (withdrawn, or a moderator's decision since). A media fix
+- **The story is no longer approved** (taken down to edit, or a moderator's decision since). A media fix
   only brings back a story the system hid, and only while the person still has a testimony
   consent. A story that wasn't public when its media broke is never hidden or published by a
   media fix.
@@ -435,7 +435,7 @@ through its file row (`storyFile`, R12; D80: the person's browser never names a 
   or removed picture. The row stays until it no longer counts towards the 7-day upload limits.
   A detached row with no `removedAt` a day or two later means the clean-up is failing:
   `SELECT * FROM storyFile WHERE detachedAt < time::now() - 1d AND removedAt = NONE`.
-- **Deleted stories:** when a person deletes their draft, withdrawn or rejected story (D71),
+- **Deleted stories:** when a person deletes a story, in any state (D71, ED-3),
   api-user deletes every video it made for that story (its file rows) at Bunny straight
   after the database commits. Only those videos: dev's seeded media and site assets are never
   touched. The rows stay for the upload limits.

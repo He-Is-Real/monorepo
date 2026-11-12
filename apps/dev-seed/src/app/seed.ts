@@ -132,10 +132,10 @@ FOR $s IN $stories {
   -- R6: each step is a status entry; the database checks it and moves story.currentStatus.
   FOR $step IN $s.steps {
     CREATE storyStatusLog CONTENT {
-      story: $story, status: $step.status, actor: $step.actor, at: $step.at,
+      story: $story, action: $step.action, actor: $step.actor, at: $step.at,
       by: IF $step.actor = 'moderator' { type::record('user', $moderator) },
       comment: $step.comment,
-      publishedAt: IF $step.status = 'approved' { $s.publishedAt }
+      publishedAt: IF $step.action = 'approved' { $s.publishedAt }
     } RETURN NONE;
   };
   -- A submit writes the file's check; dev-seed's rows already hold what it would find, so the
