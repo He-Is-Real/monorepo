@@ -431,6 +431,28 @@ DEFINE EVENT OVERWRITE story_owner_content_lock ON story
    AND fn::story::status_of($before) != 'editing'
    AND fn::story::content($before) != fn::story::content($after)
   THEN { THROW 'story content is locked after submission' };
+-- The story's history (Story states, Joel 2026-11-11: "Send again with different words or
+-- themes"): the first change to the title, description, body or themes of a story that was
+-- sent before, in each round of editing (none yet since the entry that moved it to editing),
+-- adds one history-only wordsChanged entry. Whoever writes but api-admin: its only story writes
+-- are a moderator's theme deletions, which aren't the person's words and which a moderator
+-- can't record as history (fn::story::step_allowed). System users write as the system.
+DEFINE EVENT OVERWRITE story_words_changed ON story
+  WHEN $event = 'UPDATE' AND $auth != service:api_admin
+   AND fn::story::status_of($after) = 'editing'
+   AND ($before.title != $after.title OR $before.description != $after.description
+     OR $before.body != $after.body OR $before.themeRefs != $after.themeRefs)
+  THEN {
+    LET $round = $after.currentStatus.at;
+    IF $round != NONE
+      AND (SELECT VALUE id FROM storyStatusLog WITH INDEX storyStatusLog_story
+        WHERE story = $after.id AND action = 'sent' LIMIT 1) != []
+      AND (SELECT VALUE id FROM storyStatusLog WITH INDEX storyStatusLog_story
+        WHERE story = $after.id AND at >= $round AND action = 'wordsChanged' LIMIT 1) = [] {
+      CREATE type::record('storyStatusLog', rand::ulid()) CONTENT { story: $after.id,
+        action: 'wordsChanged', actor: 'system' } RETURN NONE;
+    };
+  };
 -- Plan 4e, Joel 2026-11-01 (Q2): "agree first", in the database. The person's own writes to their
 -- story (create, edit, submit; plus the sharing pointer) need the terms of use and the testimony
 -- consent at the latest version (fn::legal::require_testimony). Pressing Edit (-> editing,
@@ -821,7 +843,8 @@ DEFINE EVENT OVERWRITE storySearch_theme_renamed ON theme
 --     -> editing; reserved for Part 1a, not written yet);
 --   history only (no change of state, the pointer stays): fileReplaced and pictureReplaced
 --     (written by storyFile_attach when a story that was sent before gets a new file) and
---     wordsChanged (reserved); only while the story is being edited.
+--     wordsChanged (written by story_words_changed, once per round of editing, when its words or
+--     themes change); only while the story is being edited.
 -- The database sets each entry's status, time, who wrote it and, on approval, publishedAt; refuses
 -- a step the current status doesn't allow; and moves the pointer, in the same write. No session can
 -- move the pointer, or change or delete an entry; entries go only with their story.

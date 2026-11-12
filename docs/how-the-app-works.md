@@ -451,7 +451,9 @@ Built in the database (the decisions and their pages are planned, M3):
   works again. Sending back, rejecting and a moderator's hide need a note.
 - **History-only entries:** once a story has been sent, a new video or audio file or a new
   picture while it is being edited adds an entry that doesn't change its state, so moderators see
-  what changed. (A changed-words entry is reserved but not written yet.)
+  what changed. So does changing its title, description, text or themes ("words changed"): one
+  entry per round of editing, however many saves, and none if nothing changed. A never-sent draft
+  has no history entries.
 - **The first decision wins (D-1):** if two moderators decide the same story at once, the second
   is refused because the story is no longer waiting. (The decision buttons and the "Another
   moderator has already decided this story" message come with the decision pages.)

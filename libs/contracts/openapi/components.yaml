@@ -381,7 +381,7 @@ components:
         `hiddenBySystem` / `shownBySystem` (approved ↔ hidden while its video can't play),
         `hiddenByModerator` / `shownByModerator` (a moderator, with a reason when hiding; not written
         yet), and the history-only `fileReplaced`, `pictureReplaced` and `wordsChanged` (no change of
-        state; `wordsChanged` is not written yet).
+        state; `wordsChanged` once per round of editing in which the words or themes changed).
       enum:
         [
           sent,

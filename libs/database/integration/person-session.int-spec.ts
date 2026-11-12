@@ -596,6 +596,58 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       });
     });
 
+    it('its log records changed words once per round of editing, only on a story that was sent before', async () => {
+      const actions = (id: string) =>
+        truth<string>(
+          `SELECT VALUE action FROM (SELECT action, at FROM storyStatusLog
+             WHERE story = type::record('story', $id) ORDER BY at)`,
+          { id },
+        );
+      const words = (id: string, set: string) =>
+        run(ann, `UPDATE type::record('story', $id) SET ${set}`, { id });
+      // A never-sent draft's changes are no history.
+      await draft(ann, 'ann_words');
+      await words('ann_words', `title = 'Draft title'`);
+      expect(await actions('ann_words')).toEqual([]);
+      // Edit, change the words twice, send again: one entry.
+      await submit(ann, 'ann_words');
+      await edit(ann, 'ann_words');
+      await words('ann_words', `title = 'New title'`);
+      await words('ann_words', `themeRefs = [theme:doubt]`);
+      expect(await submit(ann, 'ann_words')).toHaveLength(1);
+      expect(await actions('ann_words')).toEqual([
+        'sent',
+        'editStarted',
+        'wordsChanged',
+        'sent',
+      ]);
+      expect(
+        await truth(
+          `SELECT VALUE [status, actor] FROM storyStatusLog
+             WHERE story = story:ann_words AND action = 'wordsChanged'`,
+        ),
+      ).toEqual([['editing', 'person']]);
+      // The next round gets its own entry; a round that changes nothing gets none.
+      await edit(ann, 'ann_words');
+      await words('ann_words', `description = 'How I found hope'`);
+      await submit(ann, 'ann_words');
+      await edit(ann, 'ann_words');
+      await words('ann_words', `title = 'New title'`); // the same words: no change
+      await submit(ann, 'ann_words');
+      expect(await actions('ann_words')).toEqual([
+        'sent',
+        'editStarted',
+        'wordsChanged',
+        'sent',
+        'editStarted',
+        'wordsChanged',
+        'sent',
+        'editStarted',
+        'sent',
+      ]);
+      expect(await statusOf(migrator, 'ann_words')).toBe('pending');
+    });
+
     it('a rejected story can only be deleted: no Edit, no send', async () => {
       await draft(ann, 'ann_rejected');
       await submit(ann, 'ann_rejected');
