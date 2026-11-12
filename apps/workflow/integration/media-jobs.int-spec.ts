@@ -1,9 +1,9 @@
 import {
   agreeAll,
-  approve,
   createPeople,
   draft,
   grantUpload,
+  loadApproval,
   rows,
   submit,
   TestDatabase,
@@ -250,8 +250,9 @@ describe('result writer: the worker’s answers → the job’s file row and the
       const readyAt = next();
       await answer(video, ready(story), readyAt);
       await submit(pat, story);
-      // Uploaded moments ago: an Admin approves during the upload cooldown (decision 5).
-      await approve(admin, story, { superAdminSkip: true });
+      // Uploaded moments ago, which no moderator may approve yet (decision 5, G11 B): the
+      // approval is loaded as given.
+      await loadApproval(migrator, story);
       const goneAt = next();
       await answer(video, { outcome: 'gone' }, goneAt);
       expect(await isPublic(story)).toBe(false);
@@ -356,8 +357,9 @@ describe('result writer: the worker’s answers → the job’s file row and the
     const { story, video } = await videoStory();
     await answer(video, ready(story));
     await submit(pat, story);
-    // Uploaded moments ago: an Admin approves during the upload cooldown (decision 5).
-    await approve(admin, story, { superAdminSkip: true });
+    // Uploaded moments ago, which no moderator may approve yet (decision 5, G11 B): the
+    // approval is loaded as given.
+    await loadApproval(migrator, story);
     expect(await isPublic(story)).toBe(true);
 
     await answer(video, { outcome: 'failed' });

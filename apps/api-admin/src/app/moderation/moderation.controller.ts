@@ -1,34 +1,53 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
   Headers,
+  HttpCode,
   HttpStatus,
   Inject,
   Module,
   NotFoundException,
   Param,
+  Post,
   Query,
   Req,
   Res,
 } from '@nestjs/common';
 import { PersonSessions } from '@heisreal/auth';
 import { runQuery, SURREAL } from '@heisreal/database';
-import { ifNoneMatches, isStoryId, recordKey, weakETag } from '@heisreal/http';
+import {
+  ifNoneMatches,
+  isStoryId,
+  ProblemException,
+  recordKey,
+  weakETag,
+} from '@heisreal/http';
 import { RequiresRole } from '@heisreal/roles';
 import { MediaUrls } from '@heisreal/story-cards';
 import type { Request, Response } from 'express';
 import type { Surreal } from 'surrealdb';
 import { isCursorTime } from '../cursor-time';
+import {
+  type Decision,
+  decide,
+  parseAnyway,
+  parseNote,
+  parseReviewTag,
+  requireAdminForAnyway,
+  reviewTag,
+} from './decisions';
 
 /** Moderators' links last one hour (M3 plan concern C6), counted from each answer. */
 export const MODERATION_LINK_SECONDS = 60 * 60;
 
 /**
- * The state a story under moderation has (Story states, Joel 2026-11-11: moderators decide
- * straight from pending, no pick-up); any other is not found here.
+ * The states a moderator opens a story in (Story states, Joel 2026-11-11): waiting for review
+ * (`pending`: approve, send back, reject; no pick-up), and published or hidden (G5: hide and show
+ * again). Any other (being edited, a draft, rejected) is not found here.
  */
-const UNDER_MODERATION = ['pending'];
+const UNDER_MODERATION = ['pending', 'approved', 'hidden'];
 
 /**
  * The queue (task 3.1): stories whose current status entry is `pending`, oldest sent first, on
@@ -55,6 +74,9 @@ const STORY_SQL = `
   LET $s = type::record('story', $id);
   SELECT record::id(id) AS id, version, fn::story::status_of($this) AS status, title,
     description, body, bylineName, primaryFormat,
+    IF currentStatus != NONE { record::id(currentStatus) } AS entry,
+    IF mediaFile != NONE { record::id(mediaFile) } AS mediaKey,
+    IF image != NONE { record::id(image.file) } AS imageKey,
     themeRefs.map(|$t| { id: record::id($t), name: $t.name }) AS themes,
     IF mediaFile != NONE {
       [object::extend(mediaFile.{ format, thumbnailPath, width, height, processing },
@@ -86,6 +108,9 @@ interface StoryRow {
   id: string;
   version: number;
   status: string;
+  entry?: Opt<string>;
+  mediaKey?: Opt<string>;
+  imageKey?: Opt<string>;
   title: string;
   description: string;
   body?: Opt<string>;
@@ -183,11 +208,11 @@ function conditional<T>(
 }
 
 /**
- * api-admin.yaml, tag Moderation, the read side (M3 plan PR 1; tasks 3.1 and 3.2): the queue and
- * one story under review, read-only. Moderator and above on both: the database knows moderators
- * only as api-admin's login (M3 plan concern C2), so this role check is the one gate, and the
- * integration tests refuse a User on each route. Nothing here writes yet; deciding comes in a
- * later PR.
+ * api-admin.yaml, tag Moderation (M3 plan PRs 1 and 6): the queue, one story under review, and the
+ * decisions on it: approve, send back, reject (from pending), hide (from approved) and show again
+ * (from hidden). Moderator and above on all: the database knows moderators only as api-admin's
+ * login (M3 plan concern C2), so this role check is the one gate, and the integration tests refuse
+ * a User on each route. "Approve anyway" is Admin only (G24).
  */
 @Controller('v1/moderation')
 export class ModerationController {
@@ -196,6 +221,129 @@ export class ModerationController {
     @Inject(MediaUrls) private readonly links: MediaUrls,
     private readonly people: PersonSessions,
   ) {}
+
+  /**
+   * One decision (decisions.ts): checked against what the moderator reviewed (`If-Match`, G14 B),
+   * written as the moderator (their own user record, `by`), answering the story's version and, in
+   * `ETag`, what the next decision names.
+   */
+  private async decision(
+    req: Request,
+    res: Response,
+    id: string,
+    ifMatch: string | undefined,
+    action: Decision,
+    { comment, anyway = false }: { comment?: string; anyway?: boolean } = {},
+  ) {
+    if (!isStoryId(id)) throw new NotFoundException();
+    const reviewed = parseReviewTag(ifMatch);
+    if (reviewed === undefined) {
+      throw new ProblemException(
+        HttpStatus.PRECONDITION_REQUIRED,
+        'if_match_required',
+        'Precondition required',
+        'This command needs If-Match with the story’s reviewTag.',
+      );
+    }
+    if (reviewed === 'invalid') {
+      throw new ProblemException(
+        HttpStatus.PRECONDITION_FAILED,
+        'stale_version',
+        'Precondition failed',
+        'This story changed since you opened it',
+      );
+    }
+    const { role } = await this.people.authenticate(req);
+    requireAdminForAnyway(anyway, role);
+    // Who decides: the moderator's own user record, from their own database session (D27).
+    const by = await this.people.run(req, async ({ user }) => user);
+    const done = await decide(this.db, {
+      id,
+      reviewed,
+      action,
+      by,
+      comment,
+      anyway,
+    });
+    res.setHeader('ETag', `"${done.tag}"`);
+    return { id, version: done.version };
+  }
+
+  @Post('stories/:id/approve')
+  @HttpCode(200)
+  @RequiresRole('Moderator')
+  approveStory(
+    @Param('id') id: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @Body() body: unknown,
+    @Headers('if-match') ifMatch?: string,
+  ) {
+    const anyway = parseAnyway(body);
+    return this.decision(req, res, id, ifMatch, 'approved', { anyway });
+  }
+
+  @Post('stories/:id/request-changes')
+  @HttpCode(200)
+  @RequiresRole('Moderator')
+  requestStoryChanges(
+    @Param('id') id: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @Body() body: unknown,
+    @Headers('if-match') ifMatch?: string,
+  ) {
+    const comment = parseNote(body, 'feedbackToSubmitter');
+    return this.decision(req, res, id, ifMatch, 'changesRequested', {
+      comment,
+    });
+  }
+
+  @Post('stories/:id/reject')
+  @HttpCode(200)
+  @RequiresRole('Moderator')
+  rejectStory(
+    @Param('id') id: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @Body() body: unknown,
+    @Headers('if-match') ifMatch?: string,
+  ) {
+    const comment = parseNote(body, 'feedbackToSubmitter');
+    return this.decision(req, res, id, ifMatch, 'rejected', { comment });
+  }
+
+  @Post('stories/:id/hide')
+  @HttpCode(200)
+  @RequiresRole('Moderator')
+  hideStory(
+    @Param('id') id: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @Body() body: unknown,
+    @Headers('if-match') ifMatch?: string,
+  ) {
+    const comment = parseNote(body, 'reason');
+    return this.decision(req, res, id, ifMatch, 'hiddenByModerator', {
+      comment,
+    });
+  }
+
+  @Post('stories/:id/show')
+  @HttpCode(200)
+  @RequiresRole('Moderator')
+  showStory(
+    @Param('id') id: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @Body() body: unknown,
+    @Headers('if-match') ifMatch?: string,
+  ) {
+    const anyway = parseAnyway(body);
+    return this.decision(req, res, id, ifMatch, 'shownByModerator', {
+      anyway,
+    });
+  }
 
   @Get('queue')
   @RequiresRole('Moderator')
@@ -242,7 +390,7 @@ export class ModerationController {
     const results = await runQuery(this.db, STORY_SQL, { id });
     const [rows, log] = results.slice(-2) as [StoryRow[], EntryRow[]];
     const s = rows[0];
-    if (!s || !UNDER_MODERATION.includes(s.status)) {
+    if (!s || !s.entry || !UNDER_MODERATION.includes(s.status)) {
       throw new NotFoundException();
     }
     const sent = log.filter((e) => e.action === 'sent').at(-1);
@@ -293,6 +441,11 @@ export class ModerationController {
         ),
         submittedAt: iso(sent.at),
         senderIp,
+        reviewTag: reviewTag({
+          entry: s.entry,
+          media: or(s.mediaKey),
+          image: or(s.imageKey),
+        }),
         statusLog: log.map((e) => ({
           action: e.action,
           status: e.status,

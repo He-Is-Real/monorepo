@@ -139,10 +139,14 @@ export const INPUT_REFUSALS: ReadonlySet<string> = new Set([
   'image_not_uploaded',
   'image_changed',
   'nothing_to_resume',
-  // An admin approving a story whose file isn't ready yet (Joel, 2026-11-10, E-9; the route is still to be built)
+  // A moderator approving a story whose file isn't ready yet (Joel, 2026-11-10, E-9; M3 plan PR 6)
   'media_not_ready',
   'media_recently_uploaded',
   'media_still_processing',
+  // A moderator's decision on a story another moderator decided first (D-1), or in a state
+  // that no longer allows it
+  'already_decided',
+  'wrong_status',
   // Their story's state
   'story_locked',
   'story_not_submittable',
@@ -256,6 +260,11 @@ export interface CommandOptions {
   body?: unknown;
   /** The resource's `version`, for commands that modify it. */
   version?: number;
+  /**
+   * A tag the API gave out to send back in `If-Match` instead of a version: a moderator's
+   * decision names the story's `reviewTag` (G14 B).
+   */
+  tag?: string;
   /** Required on non-idempotent `POST`s. */
   idempotencyKey?: string;
   /** `PATCH` bodies are JSON Merge Patch (D28). */
@@ -353,6 +362,7 @@ export function apiUser(baseUrl: string, getToken: GetToken): ApiUser {
             );
           }
           if (o.version !== undefined) h.set('If-Match', ifMatch(o.version));
+          else if (o.tag !== undefined) h.set('If-Match', `"${o.tag}"`);
           if (o.idempotencyKey) h.set('Idempotency-Key', o.idempotencyKey);
         },
         o.body === undefined ? undefined : JSON.stringify(o.body),

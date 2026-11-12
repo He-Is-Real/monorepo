@@ -1,15 +1,20 @@
+import { randomUUID } from 'node:crypto';
 import { expect, type Page, test } from '@playwright/test';
 import { Contract } from '@heisreal/contracts/testing';
 import { BEHAVIOUR_DEVICES } from './devices';
 import { expectAllTargets, expectNoHorizontalOverflow } from './helpers';
 import { fixtureToken, STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 
-// The moderators' read side (M3 plan PR 1; tasks 3.1 and 3.2): /moderation lists the stories
-// waiting for review, oldest sent first, and /moderation/{id} shows one as the public would see it
-// (the story page's own parts, with the player's speed menu) and its history with moderators'
-// notes. No decisions yet. Moderators and up only; the admin menu shows Moderation to them. The
-// pages fit every device; the behaviour runs on one phone and one desktop. The stub api-admin
-// (stub-api-user.mjs) serves one fixed queue; sessions starting `moderator` are Moderators.
+// The moderators' pages (M3 plan PRs 1 and 6): /moderation lists the stories waiting for review,
+// oldest sent first, and /moderation/{id} shows one as the public would see it (the story page's
+// own parts, with the player's speed menu), what the moderator can do with it, and its history
+// with moderators' notes. Approve, Send back and Reject a waiting story (a note for the last two),
+// Take down a published one and Show it again (G5); refusals in plain words; the first decision
+// wins (D-1); only an Admin approves anyway, never in the upload-link hour (G11 B, G24).
+// Moderators and up only; the admin menu shows Moderation to them. The pages fit every device;
+// the behaviour runs on one phone and one desktop. The stub api-admin (stub-api-user.mjs) serves
+// one fixed queue and keeps each session's decisions; sessions starting `moderator` are
+// Moderators, `admin` Admins.
 
 async function useSession(page: Page, session: string) {
   await page.addInitScript(
@@ -17,6 +22,9 @@ async function useSession(page: Page, session: string) {
     session,
   );
 }
+
+/** A session of its own (the stub keeps each session's decisions): `prefix` sets the role. */
+const fresh = (prefix: string) => `${prefix}-${randomUUID()}`;
 
 const queueItems = (page: Page) => page.locator('[data-queue-item]');
 
@@ -28,12 +36,23 @@ test('/moderation and a story under review fit, with 44 px targets', async ({
   await expect(queueItems(page)).toHaveCount(20);
   await expectNoHorizontalOverflow(page);
   await expectAllTargets(page);
-  for (const id of ['mod_video', 'mod_written', 'mod_long_title']) {
+  for (const id of [
+    'mod_video',
+    'mod_written',
+    'mod_long_title',
+    'mod_taken_down',
+  ]) {
     await page.goto(`${WEB_SIGNED_IN_URL}/moderation/${id}`);
     await expect(page.locator('[data-history-entry]').first()).toBeVisible();
     await expectNoHorizontalOverflow(page);
     await expectAllTargets(page);
   }
+  // With the note form open.
+  await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_written`);
+  await page.getByRole('button', { name: 'Send back' }).click();
+  await expect(page.getByLabel('Your note to the person')).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expectAllTargets(page);
 });
 
 test.describe('moderation', () => {
@@ -94,15 +113,11 @@ test.describe('moderation', () => {
     ).toBeVisible();
     const history = page.locator('[data-history-entry]');
     await expect(history).toHaveCount(3);
-    await expect(history.nth(1)).toContainText(
-      'Sent back for changes by a moderator',
-    );
+    await expect(history.nth(1)).toContainText('Sent back by a moderator');
     await expect(history.nth(1)).toContainText(
       'Thank you for sharing this. Could you say a little more about what changed that winter?',
     );
-    await expect(
-      page.getByRole('button', { name: /approve|reject/i }),
-    ).toHaveCount(0);
+    await expect(history.nth(2)).toContainText('Sent again by the person');
 
     // A video plays in Bunny's player with its speed menu on.
     await page.getByRole('link', { name: '← Back to the queue' }).click();
@@ -110,6 +125,133 @@ test.describe('moderation', () => {
     const player = page.locator('[data-player] iframe');
     await expect(player).toHaveAttribute('src', /[?&]showSpeed=true(&|$)/);
     await expect(player).toHaveAttribute('src', /[?&]autoplay=false(&|$)/);
+  });
+
+  const decisions = (page: Page) => page.locator('[data-decisions]');
+  const notice = (page: Page) => page.locator('[data-review-notice]');
+
+  test('approve publishes it; the page then offers to take it down', async ({
+    page,
+  }) => {
+    await useSession(page, fresh('moderator-approves'));
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_video`);
+    await decisions(page).getByRole('button', { name: 'Approve' }).click();
+    await expect(notice(page)).toHaveText('Approved. It’s on the site now.');
+    await expect(notice(page)).toBeFocused();
+    await expect(page.locator('[data-review-status]')).toHaveText('Published');
+    await expect(
+      decisions(page).getByRole('button', { name: 'Take down' }),
+    ).toBeVisible();
+    await expect(page.locator('[data-history-entry]').last()).toContainText(
+      'Approved by a moderator',
+    );
+  });
+
+  test('send back and reject need a note, which the person will read', async ({
+    page,
+  }) => {
+    await useSession(page, fresh('moderator-sends-back'));
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_written`);
+    await decisions(page).getByRole('button', { name: 'Send back' }).click();
+    const note = page.getByLabel('Your note to the person');
+    await expect(note).toBeFocused();
+    const send = decisions(page).getByRole('button', { name: 'Send back' });
+    await expect(send).toBeDisabled();
+    await note.fill('   ');
+    await expect(send).toBeDisabled();
+    await note.fill('Thank you. Could you say who helped you that winter?');
+    await expect(decisions(page)).toContainText('52 / 2,000 characters');
+    await send.click();
+    await expect(notice(page)).toHaveText(
+      'Sent back. The person can read your note.',
+    );
+    await expect(page.locator('[data-review-gone]')).toBeVisible();
+
+    // Cancel closes the note without deciding.
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_long_title`);
+    await decisions(page).getByRole('button', { name: 'Reject' }).click();
+    await decisions(page).getByRole('button', { name: 'Cancel' }).click();
+    await decisions(page).getByRole('button', { name: 'Reject' }).click();
+    await page
+      .getByLabel('Your note to the person')
+      .fill('Thank you for sharing this with us.');
+    await decisions(page).getByRole('button', { name: 'Reject' }).click();
+    await expect(notice(page)).toHaveText(
+      'Rejected. The person can read your note.',
+    );
+  });
+
+  test('the first decision wins (D-1): the second moderator is told and the page refreshes', async ({
+    page,
+  }) => {
+    await useSession(page, fresh('moderator-second'));
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_raced`);
+    await decisions(page).getByRole('button', { name: 'Approve' }).click();
+    await expect(notice(page)).toHaveText(
+      'Another moderator has already decided this story.',
+    );
+    await expect(page.locator('[data-review-gone]')).toBeVisible();
+  });
+
+  test('approval waits for the media, in plain words; only an Admin approves anyway, never in the upload-link hour', async ({
+    page,
+  }) => {
+    await useSession(page, fresh('moderator-waits'));
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_processing`);
+    await decisions(page).getByRole('button', { name: 'Approve' }).click();
+    const refused = page.locator('[data-decision-refused]');
+    await expect(refused).toHaveText(
+      'The audio file is still being processed. Try again in a few minutes.',
+    );
+    await expect(
+      page.getByRole('button', { name: 'Approve anyway' }),
+    ).toHaveCount(0);
+
+    // An Admin may approve anyway while it is still processing (G24)…
+    await useSession(page, fresh('admin-approves-anyway'));
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_processing`);
+    await decisions(page).getByRole('button', { name: 'Approve' }).click();
+    await page.getByRole('button', { name: 'Approve anyway' }).click();
+    await expect(notice(page)).toHaveText('Approved. It’s on the site now.');
+
+    // …but not while the upload link could still replace the file (G11 B).
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_cooldown`);
+    await decisions(page).getByRole('button', { name: 'Approve' }).click();
+    await expect(refused).toHaveText(
+      'The video is still being processed. You can approve it from 1 November 2026 at 14:05.',
+    );
+    await expect(
+      page.getByRole('button', { name: 'Approve anyway' }),
+    ).toHaveCount(0);
+  });
+
+  test('take down a published story with a reason, and show it again (G5)', async ({
+    page,
+  }) => {
+    await useSession(page, fresh('moderator-takes-down'));
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_published`);
+    await expect(page.locator('[data-review-status]')).toHaveText('Published');
+    await decisions(page).getByRole('button', { name: 'Take down' }).click();
+    await page
+      .getByLabel('Why it’s being taken down')
+      .fill('A family member asked us to check it first.');
+    await decisions(page).getByRole('button', { name: 'Take down' }).click();
+    await expect(notice(page)).toHaveText(
+      'Taken down. It stays off the site until a moderator shows it again.',
+    );
+    await expect(page.locator('[data-review-status]')).toHaveText(
+      'Taken down by a moderator',
+    );
+    const last = page.locator('[data-history-entry]').last();
+    await expect(last).toContainText('Taken down by a moderator');
+    await expect(last).toContainText(
+      'Why it was taken downA family member asked us to check it first.',
+    );
+    await decisions(page).getByRole('button', { name: 'Show again' }).click();
+    await expect(notice(page)).toHaveText(
+      'Shown again. It’s back on the site.',
+    );
+    await expect(page.locator('[data-review-status]')).toHaveText('Published');
   });
 
   test('an audio file still being processed says so, with no player', async ({
@@ -216,7 +358,9 @@ test('the stub api-admin’s moderation answers fit the contract', async ({
 }, info) => {
   test.skip(info.project.name !== 'desktop-1280', 'one device');
   const contract = new Contract('api-admin.yaml');
-  const check = async (path: string, session = 'moderator-contract') => {
+  // Its own session: the decisions below change it.
+  const mine = fresh('moderator-contract');
+  const check = async (path: string, session = mine) => {
     const res = await request.get(`${STUB_USER_URL}${path}`, {
       headers: { authorization: `Bearer ${fixtureToken(session)}` },
     });
@@ -245,7 +389,63 @@ test('the stub api-admin’s moderation answers fit the contract', async ({
     (await check('/v1/moderation/stories/mod_video', 'admin-contract')).body
       .senderIp,
   ).toBe('203.0.113.7');
+  for (const id of ['mod_published', 'mod_taken_down']) {
+    expect((await check(`/v1/moderation/stories/${id}`)).status).toBe(200);
+  }
   expect((await check('/v1/moderation/queue?limit=0')).status).toBe(400);
+  // The decisions' answers too: applied, a missing note, a stale tag, a refusal.
+  const post = async (path: string, body: unknown, ifMatch?: string) => {
+    const res = await request.post(`${STUB_USER_URL}${path}`, {
+      headers: {
+        authorization: `Bearer ${fixtureToken(mine)}`,
+        ...(ifMatch ? { 'if-match': ifMatch } : {}),
+      },
+      data: body,
+    });
+    const text = await res.text();
+    expect(
+      contract.problems({
+        method: 'POST',
+        path: new URL(res.url()).pathname,
+        status: res.status(),
+        contentType: res.headers()['content-type'] ?? null,
+        body: text === '' ? undefined : JSON.parse(text),
+      }),
+      path,
+    ).toEqual([]);
+    return res.status();
+  };
+  const { body: published } = await check(
+    '/v1/moderation/stories/mod_published',
+  );
+  const tag = `"${published.reviewTag}"`;
+  expect(await post('/v1/moderation/stories/mod_published/hide', {}, tag)).toBe(
+    400,
+  );
+  expect(
+    await post(
+      '/v1/moderation/stories/mod_published/hide',
+      { reason: 'Checking.' },
+      '"old"',
+    ),
+  ).toBe(412);
+  expect(
+    await post('/v1/moderation/stories/mod_published/approve', {}, tag),
+  ).toBe(409);
+  expect(
+    await post(
+      '/v1/moderation/stories/mod_published/hide',
+      { reason: 'Checking.' },
+      tag,
+    ),
+  ).toBe(200);
+  expect(
+    await post(
+      '/v1/moderation/stories/mod_cooldown/approve',
+      {},
+      '"mod_cooldown-1"',
+    ),
+  ).toBe(409);
   expect((await check('/v1/moderation/stories/no_such')).status).toBe(404);
   expect((await check('/v1/moderation/queue', 'user-x')).status).toBe(403);
 });

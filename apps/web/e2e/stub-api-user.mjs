@@ -66,6 +66,15 @@
 //   same fixed queue for every session, Moderators and up only (sessions starting `moderator`
 //   are Moderators, `admin` Admins; everyone else 403 `role_required`). Its player and picture
 //   links point at the stub api-public-read's stand-in player and pictures.
+// - api-admin's decisions (M3 plan PR 6): `POST /v1/moderation/stories/{id}/{approve,
+//   request-changes,reject,hide,show}`, per session, with the real one's checks: `If-Match` the
+//   story's `reviewTag` (428 / 412), a note of 1–2000 characters, the step allowed from the
+//   story's state (409 `wrong_status`), `approveAnyway` Admins only. A story sent back or
+//   rejected is no longer found. Fixed refusals: `mod_raced` was just decided by another
+//   moderator (409 `already_decided`), `mod_cooldown`'s video was uploaded recently (409
+//   `media_recently_uploaded`, even for an Admin), `mod_processing`'s audio is still being
+//   processed (409 `media_still_processing` unless an Admin approves anyway). Besides the queue,
+//   `mod_published` is on the site and `mod_taken_down` was hidden by a moderator.
 // - api-admin's staff list (M3 plan PR 4): `GET /v1/admin/staff`, `PUT`/`DELETE
 //   /v1/admin/staff/{email}`, Admins only, kept per session from two baseline admins and a
 //   Moderator; checked like the real one (@heisreal.today only, the two roles, never the last
@@ -765,6 +774,202 @@ const MODERATION = [
   };
 });
 
+/** Stories moderators open that aren't in the queue: published, or taken down (G5). */
+const MOD_EXTRA = [
+  {
+    id: 'mod_published',
+    title: 'Found on a Tuesday',
+    status: 'approved',
+    log: [
+      ['sent', 'pending', 'person', null],
+      ['approved', 'approved', 'moderator', null],
+    ],
+  },
+  {
+    id: 'mod_taken_down',
+    title: 'The letter I never sent',
+    status: 'hidden',
+    log: [
+      ['sent', 'pending', 'person', null],
+      ['approved', 'approved', 'moderator', null],
+      [
+        'hiddenByModerator',
+        'hidden',
+        'moderator',
+        'Someone named in it asked us to check it first.',
+      ],
+    ],
+  },
+  {
+    id: 'mod_raced',
+    title: 'Two moderators at once',
+    status: 'pending',
+    log: [['sent', 'pending', 'person', null]],
+  },
+  {
+    id: 'mod_cooldown',
+    title: 'Just uploaded',
+    status: 'pending',
+    primaryFormat: 'video',
+    log: [['sent', 'pending', 'person', null]],
+  },
+].map((s) => ({
+  id: s.id,
+  version: 3,
+  status: s.status,
+  title: s.title,
+  description: `How ${s.title.toLowerCase()} came about`,
+  body: s.primaryFormat ? null : MOD_TEXT,
+  bylineName: 'Robin',
+  primaryFormat: s.primaryFormat ?? 'written',
+  media: [],
+  image: null,
+  themes: [],
+  submittedAt: modHour(-50),
+  statusLog: s.log.map(([action, status, actor, comment], i) => ({
+    action,
+    status,
+    actor,
+    comment,
+    at: modHour(-50 + i),
+  })),
+}));
+
+/** The tag a decision names (G14 B): the stub's stands for the story's newest entry. */
+const tagOf = (story) => `${story.id}-${story.statusLog.length}`;
+
+/** Each session's stories under moderation, as its decisions left them. */
+const moderationState = new Map();
+function moderationFor(token) {
+  if (!moderationState.has(token)) {
+    moderationState.set(
+      token,
+      new Map(
+        [...MODERATION, ...MOD_EXTRA].map((s) => [s.id, structuredClone(s)]),
+      ),
+    );
+  }
+  return moderationState.get(token);
+}
+/** A story as moderators open it, or undefined (not found, or no longer theirs). */
+function moderated(token, id) {
+  const story = moderationFor(token).get(id);
+  if (!story || !['pending', 'approved', 'hidden'].includes(story.status))
+    return undefined;
+  return { ...story, reviewTag: tagOf(story) };
+}
+
+const DECISIONS = {
+  approve: { from: 'pending', action: 'approved', to: 'approved' },
+  'request-changes': {
+    from: 'pending',
+    action: 'changesRequested',
+    to: 'editing',
+    note: 'feedbackToSubmitter',
+  },
+  reject: {
+    from: 'pending',
+    action: 'rejected',
+    to: 'rejected',
+    note: 'feedbackToSubmitter',
+  },
+  hide: {
+    from: 'approved',
+    action: 'hiddenByModerator',
+    to: 'hidden',
+    note: 'reason',
+  },
+  show: { from: 'hidden', action: 'shownByModerator', to: 'approved' },
+};
+
+/** `POST /v1/moderation/stories/{id}/{decision}`: as api-admin decides (M3 plan PR 6). */
+async function decideStory(req, res, token, id, route) {
+  const d = DECISIONS[route];
+  const text = await readBody(req);
+  let body;
+  try {
+    body = text ? JSON.parse(text) : undefined;
+  } catch {
+    return invalid(res, '', 'validation_failed', 'The body is JSON');
+  }
+  const story = moderationFor(token).get(id);
+  if (!story) return problem(res, 404, 'Not found', 'not_found');
+  const ifMatch = req.headers['if-match'];
+  if (!ifMatch)
+    return problem(res, 428, 'Precondition required', 'if_match_required');
+  let comment = null;
+  if (d.note) {
+    const note = body?.[d.note];
+    if (typeof note !== 'string' || note.trim() === '')
+      return invalid(
+        res,
+        `/${d.note}`,
+        'validation_failed',
+        'Write a note to go with this decision',
+      );
+    if ([...note.trim()].length > 2000)
+      return invalid(
+        res,
+        `/${d.note}`,
+        'validation_failed',
+        'Keep the note to 2000 characters',
+      );
+    comment = note.trim();
+  }
+  const anyway = body?.approveAnyway === true;
+  if (anyway && roleOf(token) !== 'Admin')
+    return problem(res, 403, 'Forbidden', 'role_required');
+  if (id === 'mod_raced' && story.status === 'pending') {
+    // Another moderator decided it a moment ago (D-1).
+    story.status = 'rejected';
+    story.statusLog.push({
+      action: 'rejected',
+      status: 'rejected',
+      actor: 'moderator',
+      comment: 'Not this time.',
+      at: new Date().toISOString(),
+    });
+    return problem(res, 409, 'Conflict', 'already_decided');
+  }
+  if (ifMatch !== `"${tagOf(story)}"`)
+    return problem(res, 412, 'Precondition failed', 'stale_version');
+  if (story.status !== d.from)
+    return problem(res, 409, 'Conflict', 'wrong_status');
+  if (d.to === 'approved') {
+    if (id === 'mod_cooldown') {
+      res.writeHead(409, {
+        'content-type': 'application/problem+json',
+        'cache-control': 'no-store',
+      });
+      return res.end(
+        JSON.stringify({
+          type: 'about:blank',
+          title: 'Conflict',
+          status: 409,
+          code: 'media_recently_uploaded',
+          availableAt: '2026-11-01T14:05:00.000Z',
+        }),
+      );
+    }
+    if (id === 'mod_processing' && !anyway)
+      return problem(res, 409, 'Conflict', 'media_still_processing');
+  }
+  story.status = d.to;
+  story.statusLog.push({
+    action: d.action,
+    status: d.to,
+    actor: 'moderator',
+    comment,
+    at: new Date().toISOString(),
+  });
+  return sendJson(
+    res,
+    200,
+    { id, version: story.version },
+    { etag: `"${tagOf(story)}"` },
+  );
+}
+
 /** `GET /v1/moderation/queue` (getModerationQueue): pages, oldest sent first. */
 function sendQueue(req, res, url) {
   const limit = url.searchParams.get('limit') ?? '20';
@@ -1161,6 +1366,7 @@ function storyMine(s, id, st, uploaded = () => null, own = false) {
     // A deleted theme is left out, as api-user does.
     themes: st.themeIds.map((id) => themeRef(s, id)).filter(Boolean),
     rejectionFeedback: st.rejectionFeedback ?? null,
+    takenDown: st.status === 'hidden' && st.takenDown === true,
     submittedAt: st.submittedAt,
     approvedAt: null,
     createdAt: st.createdAt,
@@ -2337,9 +2543,7 @@ createServer(async (req, res) => {
     if (!signedIn()) return;
     if (roleOf(token) === 'User')
       return problem(res, 403, 'Forbidden', 'role_required');
-    const story = MODERATION.find(
-      (s) => s.id === decodeURIComponent(reviewed[1]),
-    );
+    const story = moderated(token, decodeURIComponent(reviewed[1]));
     if (!story) return problem(res, 404, 'Not found', 'not_found');
     // Block list (G21 D): an Admin sees the address the first story was sent from.
     return cached(req, res, {
@@ -2349,6 +2553,22 @@ createServer(async (req, res) => {
           ? '203.0.113.7'
           : null,
     });
+  }
+  const decision =
+    /^\/v1\/moderation\/stories\/([^/]+)\/(approve|request-changes|reject|hide|show)$/.exec(
+      path,
+    );
+  if (decision && req.method === 'POST') {
+    if (!signedIn()) return;
+    if (roleOf(token) === 'User')
+      return problem(res, 403, 'Forbidden', 'role_required');
+    return void decideStory(
+      req,
+      res,
+      token,
+      decodeURIComponent(decision[1]),
+      decision[2],
+    );
   }
   if (path === '/v1/account/favourites' && req.method === 'GET') {
     const mine = signedIn();

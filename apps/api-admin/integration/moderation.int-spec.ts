@@ -248,13 +248,10 @@ describe('moderation, the read side (api-admin)', () => {
     expect(JSON.stringify(revised.body)).not.toMatch(/user_|submitter|"by"/);
   });
 
-  it('only stories waiting for review: a draft, one taken down to edit, a published story or no story is not found', async () => {
-    for (const id of [
-      'ann_draft',
-      'ann_editing',
-      'bob_live',
-      'no_such_story',
-    ]) {
+  it('a published story opens too (G5: hide); a draft, one taken down to edit or no story is not found', async () => {
+    const live = await get('/v1/moderation/stories/bob_live');
+    expect([live.status, live.body.status]).toEqual([200, 'approved']);
+    for (const id of ['ann_draft', 'ann_editing', 'no_such_story']) {
       expect((await get(`/v1/moderation/stories/${id}`)).status, id).toBe(404);
     }
   });

@@ -58,6 +58,19 @@ components:
       schema:
         type: string
         example: '"3"'
+    ifMatchReviewTag:
+      name: If-Match
+      in: header
+      required: true
+      description: |
+        G14 B (Joel, 2026-11-11): a moderator's decision names what they reviewed, the story's
+        `reviewTag` from `GET /v1/moderation/stories/{id}` (or the `ETag` of their last decision),
+        in quotes: its current status entry and the files the page showed, never the story's
+        `version` (background work changes that without changing what was reviewed). `412` if the
+        story changed since, `428` if missing.
+      schema:
+        type: string
+        example: '"WyIwMUpZWiIsbnVsbCxudWxsXQ"'
     ifNoneMatch:
       name: If-None-Match
       in: header
@@ -758,6 +771,13 @@ components:
           description: |
             "What our team said": the moderator's pastoral feedback while the story is sent back
             for changes (`editing` after `changesRequested`) or rejected; `null` otherwise.
+        takenDown:
+          type: boolean
+          description: |
+            G5: `true` while a moderator has hidden the story (`hidden` after their
+            `hiddenByModerator` entry): the person sees "Taken down by our team" rather than "Not
+            on the site right now" (the system's hide while a video can't play). The reason stays
+            on the status log (Download my data). Sent by api-user (absent means `false`).
         submittedAt:
           type: [string, 'null']
           format: date-time
@@ -819,11 +839,11 @@ components:
     StoryModeration:
       type: object
       description: |
-        M3 (task 3.2): the moderator's view of a story waiting for review, read-only:
-        what the public would see (words, themes, picture, player, byline) plus its processing
-        state and its status log with past moderators' notes. Testimonies are Art 9 data, so it
-        carries the least about the person: no account id, join date, email or name (Clerk's),
-        and nobody's user id on the log entries.
+        M3 (task 3.2; M3 plan PR 6): the moderator's view of a story waiting for review, published
+        or hidden: what the public would see (words, themes, picture, player, byline) plus its
+        processing state, its status log with past moderators' notes, and the `reviewTag` its
+        decisions name. Testimonies are Art 9 data, so it carries the least about the person: no
+        account id, join date, email or name (Clerk's), and nobody's user id on the log entries.
       required:
         [
           id,
@@ -839,6 +859,7 @@ components:
           themes,
           submittedAt,
           senderIp,
+          reviewTag,
           statusLog,
         ]
       properties:
@@ -847,7 +868,15 @@ components:
         version:
           $ref: '#/components/schemas/Version'
         status:
-          $ref: '#/components/schemas/StoryStatusLogged'
+          type: string
+          enum: [pending, approved, hidden]
+          description: |
+            `pending`: approve, send back or reject. `approved`: hide. `hidden`: show again.
+        reviewTag:
+          type: string
+          description: |
+            What a decision on this story names in `If-Match` (G14 B): opaque; it stands for the
+            story's current status entry and the files this answer shows.
         title:
           type: string
         description:
@@ -1293,13 +1322,17 @@ components:
               format: date-time
               description: When the link stops working; ask again with `resume` to carry on after it.
 
-    ModerationFeedback:
+    ModerationApprove:
       type: object
       properties:
-        feedbackToSubmitter:
-          type: string
-          maxLength: 2000
-          description: Shown to the submitter. Pastoral tone expected.
+        approveAnyway:
+          type: boolean
+          default: false
+          description: |
+            Admin only (G24; `403` for a Moderator): approve (or show again) while the story's
+            media is still being processed (`media_still_processing`). Never during the upload
+            cooldown (`media_recently_uploaded`, G11 B), nor while a file isn't ready
+            (`media_not_ready`). The status entry records that the wait was skipped.
 
     ModerationFeedbackRequired:
       type: object
@@ -1309,7 +1342,22 @@ components:
           type: string
           minLength: 1
           maxLength: 2000
-          description: Shown to the submitter. Pastoral tone expected.
+          description: |
+            Shown to the submitter as "What our team said". Pastoral tone expected. 1–2000
+            characters, spaces around it trimmed.
+
+    ModerationHide:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: |
+            Why a moderator takes the story down (G5): 1–2000 characters, spaces around it trimmed.
+            Kept on the story's status log, which the person can read (Download my data); their
+            profile says "Taken down by our team".
 
     CreateConcern:
       type: object

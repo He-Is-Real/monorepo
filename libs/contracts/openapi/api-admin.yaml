@@ -123,11 +123,12 @@ paths:
       operationId: getModerationStory
       summary: A story under moderation
       description: |
-        M3 (task 3.2): one story waiting for review (`pending`), read-only, with one-hour
-        signed links to its player and picture (M3 plan concern C6). Any other status, or no such
+        M3 (task 3.2; M3 plan PR 6): one story waiting for review (`pending`), published
+        (`approved`) or hidden (`hidden`, G5), with one-hour signed links to its player and picture
+        (M3 plan concern C6). Any other status (being edited, a draft, rejected), or no such
         story, is `404`. Moderator and above (D1, M3 plan concern C2). The links change on every
-        answer, so the `ETag` is a hash of this answer, not the story's version; commands take
-        `version` in `If-Match`.
+        answer, so the `ETag` is a hash of this answer, not the story's version; decisions take
+        `reviewTag` in `If-Match` (G14 B).
       x-required-role: Moderator
       x-milestone: M3
       parameters:
@@ -162,13 +163,18 @@ paths:
       operationId: approveStory
       summary: Approve and publish a story
       description: |
-        Command `ApproveStory`. The database checks the submitter has the testimony consent (plan 4e;
-        any version: it covers every story they submit), then adds an `approved` entry to the
-        story's status log (R6), which publishes it (one `story` table, R11): one write. Straight
-        from `pending` (no pick-up; Joel, 2026-11-11). Two moderators deciding the same story: the
-        first decision wins, and the second answers `409` (D-1); the web says "Another moderator has
-        already decided this story" and refreshes. Moderation emails come after Go live; until then
-        the submitter sees the outcome on "My submissions".
+        Command `ApproveStory` (M3 plan PR 6). The database checks the submitter has the testimony
+        consent (plan 4e; any version: it covers every story they submit), then adds an `approved`
+        entry to the story's status log (R6), which publishes it (one `story` table, R11): one
+        write. Straight from `pending` (no pick-up; Joel, 2026-11-11); moderators and admins may
+        approve their own stories. Moderation emails come after Go live; until then the submitter
+        sees the outcome on "My submissions".
+        Every decision names what the moderator reviewed in `If-Match` (`reviewTag`, G14 B), and is
+        refused, nothing written, when the story has moved on: `409` `already_decided` when another
+        moderator's decision is the story's newest entry (the first decision wins, D-1; the web
+        says "Another moderator has already decided this story" and refreshes), else `412`
+        `stale_version` (the person pressed Edit, or the system changed its files or hid it). The
+        answer's `ETag` is the story's new `reviewTag`.
 
         Approval waits for processing (A2): every video, audio file and image must be `ready`, and a
         video must have its width, height and duration, an audio file its duration. Otherwise `409`
@@ -178,25 +184,29 @@ paths:
         refuses it, nothing written, with `409` and:
         - `code: media_recently_uploaded`: the story's video, audio file or picture could still be
           replaced through its upload link (an hour after the link was signed, 10 minutes for a
-          picture). `availableAt`: when it can be approved.
+          picture). `availableAt`: when it can be approved. No one may skip this (G11 B).
         - `code: media_still_processing`: a media job for the story's files is still open (e.g. an
-          audio story's picture video is being made).
-        An Admin may approve despite both; the approval's status entry records that the wait
-        was skipped. The same holds for showing a hidden story again.
+          audio story's picture video is being made), or the video's picture at Bunny isn't
+          confirmed yet. An Admin may approve anyway (`approveAnyway`, G24); the approval's status
+          entry records that the wait was skipped. `approveAnyway` when the wait has just ended is
+          an ordinary approval.
+        A Moderator sending `approveAnyway: true` gets `403` `role_required`.
       x-required-role: Moderator
       x-milestone: M3
       parameters:
         - $ref: './components.yaml#/components/parameters/storyId'
-        - $ref: './components.yaml#/components/parameters/ifMatch'
+        - $ref: './components.yaml#/components/parameters/ifMatchReviewTag'
       requestBody:
         required: false
         content:
           application/json:
             schema:
-              $ref: './components.yaml#/components/schemas/ModerationFeedback'
+              $ref: './components.yaml#/components/schemas/ModerationApprove'
       responses:
         '200':
           $ref: './components.yaml#/components/responses/CommandApplied'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
         '401':
           $ref: './components.yaml#/components/responses/Unauthorized'
         '403':
@@ -219,12 +229,19 @@ paths:
       summary: Reject a story
       description: |
         Command `RejectStory` (→ `rejected`, final: the person can only delete it). Feedback to the
-        submitter is required. Straight from `pending`; the first decision wins (`409` otherwise, D-1).
+        submitter is required (1–2000 characters; `400` otherwise), which they see as "What our team
+        said" with "Not accepted". Straight from `pending`.
+        Every decision names what the moderator reviewed in `If-Match` (`reviewTag`, G14 B), and is
+        refused, nothing written, when the story has moved on: `409` `already_decided` when another
+        moderator's decision is the story's newest entry (the first decision wins, D-1; the web
+        says "Another moderator has already decided this story" and refreshes), else `412`
+        `stale_version` (the person pressed Edit, or the system changed its files or hid it). The
+        answer's `ETag` is the story's new `reviewTag`.
       x-required-role: Moderator
       x-milestone: M3
       parameters:
         - $ref: './components.yaml#/components/parameters/storyId'
-        - $ref: './components.yaml#/components/parameters/ifMatch'
+        - $ref: './components.yaml#/components/parameters/ifMatchReviewTag'
       requestBody:
         required: true
         content:
@@ -258,19 +275,122 @@ paths:
       summary: Send a story back to its submitter for changes
       description: |
         Command `RequestStoryChanges` (→ `editing`, a `changesRequested` entry with the note; the
-        person sees "Sent back" and "What our team said"). Feedback is required. Straight from
-        `pending`; the first decision wins (`409` otherwise, D-1).
+        person sees "Sent back" and "What our team said"). Feedback is required (1–2000 characters;
+        `400` otherwise). Straight from `pending`.
+        Every decision names what the moderator reviewed in `If-Match` (`reviewTag`, G14 B), and is
+        refused, nothing written, when the story has moved on: `409` `already_decided` when another
+        moderator's decision is the story's newest entry (the first decision wins, D-1; the web
+        says "Another moderator has already decided this story" and refreshes), else `412`
+        `stale_version` (the person pressed Edit, or the system changed its files or hid it). The
+        answer's `ETag` is the story's new `reviewTag`.
       x-required-role: Moderator
       x-milestone: M3
       parameters:
         - $ref: './components.yaml#/components/parameters/storyId'
-        - $ref: './components.yaml#/components/parameters/ifMatch'
+        - $ref: './components.yaml#/components/parameters/ifMatchReviewTag'
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: './components.yaml#/components/schemas/ModerationFeedbackRequired'
+      responses:
+        '200':
+          $ref: './components.yaml#/components/responses/CommandApplied'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './components.yaml#/components/responses/Conflict'
+        '412':
+          $ref: './components.yaml#/components/responses/PreconditionFailed'
+        '428':
+          $ref: './components.yaml#/components/responses/PreconditionRequired'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
+
+  /v1/moderation/stories/{id}/hide:
+    post:
+      tags: [Moderation]
+      operationId: hideStory
+      summary: Take a published story off the site
+      description: |
+        Command `HideStory` (G5, Joel 2026-11-11: "just allow moderators to have a hide + show
+        again button"): a `hiddenByModerator` entry with the moderator's reason (→ `hidden`, off
+        the site at once). From `approved` only. It stays hidden until a moderator shows it again
+        (the system never does); its owner sees "Taken down by our team" and can still Edit or
+        Delete it. The reason is required (1–2000 characters; `400` otherwise).
+        Every decision names what the moderator reviewed in `If-Match` (`reviewTag`, G14 B), and is
+        refused, nothing written, when the story has moved on: `409` `already_decided` when another
+        moderator's decision is the story's newest entry (the first decision wins, D-1; the web
+        says "Another moderator has already decided this story" and refreshes), else `412`
+        `stale_version` (the person pressed Edit, or the system changed its files or hid it). The
+        answer's `ETag` is the story's new `reviewTag`.
+      x-required-role: Moderator
+      x-milestone: M3
+      parameters:
+        - $ref: './components.yaml#/components/parameters/storyId'
+        - $ref: './components.yaml#/components/parameters/ifMatchReviewTag'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './components.yaml#/components/schemas/ModerationHide'
+      responses:
+        '200':
+          $ref: './components.yaml#/components/responses/CommandApplied'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './components.yaml#/components/responses/Conflict'
+        '412':
+          $ref: './components.yaml#/components/responses/PreconditionFailed'
+        '428':
+          $ref: './components.yaml#/components/responses/PreconditionRequired'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
+
+  /v1/moderation/stories/{id}/show:
+    post:
+      tags: [Moderation]
+      operationId: showStory
+      summary: Put a hidden story back on the site
+      description: |
+        Command `ShowStory` (G5): a `shownByModerator` entry (→ `approved`, back on the site with
+        its first publication date). From `hidden`, whoever hid it: a moderator's "show again" is
+        their review of what the story shows now, so it is checked like an approval (the media and
+        the testimony consent, the same `409` codes) and records the files it shows; an Admin may
+        show it anyway while its media is still being processed (`approveAnyway`), never during
+        the upload cooldown (G11 B).
+        Every decision names what the moderator reviewed in `If-Match` (`reviewTag`, G14 B), and is
+        refused, nothing written, when the story has moved on: `409` `already_decided` when another
+        moderator's decision is the story's newest entry (the first decision wins, D-1; the web
+        says "Another moderator has already decided this story" and refreshes), else `412`
+        `stale_version` (the person pressed Edit, or the system changed its files or hid it). The
+        answer's `ETag` is the story's new `reviewTag`.
+      x-required-role: Moderator
+      x-milestone: M3
+      parameters:
+        - $ref: './components.yaml#/components/parameters/storyId'
+        - $ref: './components.yaml#/components/parameters/ifMatchReviewTag'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: './components.yaml#/components/schemas/ModerationApprove'
       responses:
         '200':
           $ref: './components.yaml#/components/responses/CommandApplied'

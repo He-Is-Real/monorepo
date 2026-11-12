@@ -169,12 +169,14 @@ describe('download my data', () => {
     id: string,
     decision: 'approve' | 'request_changes' | 'reject',
     feedback?: string,
-    { superAdminSkip = false }: { superAdminSkip?: boolean } = {},
+    { loaded = false }: { loaded?: boolean } = {},
   ) {
     // Moderator modq7, whom the file must never name.
     const by = new RecordId('user', 'modq7');
     await step(
-      admin,
+      // `loaded`: as the migrator loads it, with no media wait (a file uploaded moments ago,
+      // which no moderator may approve yet: decision 5, G11 B).
+      loaded ? migrator : admin,
       id,
       {
         approve: 'approved',
@@ -184,8 +186,7 @@ describe('download my data', () => {
       {
         by,
         ...(feedback ? { comment: feedback } : {}),
-        // An Admin approving during the media wait (decision 5), which the file never shows.
-        ...(superAdminSkip ? { skippedMediaWait: true } : {}),
+        ...(loaded ? { actor: 'moderator' } : {}),
       },
     );
   }
@@ -325,8 +326,8 @@ describe('download my data', () => {
     expect(await shareStory(ann, `story:${annLive.id}`)).toHaveLength(1);
     await submit(ann, annLive.id);
     await processed(await t.service('workflow'), annLive.id);
-    // Its picture was uploaded moments ago: an Admin approves during the upload cooldown.
-    await decide(annLive.id, 'approve', undefined, { superAdminSkip: true });
+    // Its picture was uploaded moments ago: the approval is loaded as given.
+    await decide(annLive.id, 'approve', undefined, { loaded: true });
     // Its picture stops being ready, then is again: the system hides it and shows it again (R6).
     await run(
       await t.service('workflow'),
