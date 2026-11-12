@@ -172,7 +172,7 @@ their fence (see "Transactions").
   Fields: `story`, `action` (what happened: `sent`, `editStarted`, `changesRequested`,
   `fileUnusable` (reserved), `approved`, `rejected`, `hiddenBySystem`, `shownBySystem`,
   `hiddenByModerator`, `shownByModerator`, and the history-only `fileReplaced`, `pictureReplaced`
-  and `wordsChanged` (reserved)), `status` (computed from the action: `editing`, `pending`,
+  and `wordsChanged`), `status` (computed from the action: `editing`, `pending`,
   `approved`, `hidden`, `rejected`; a history-only entry keeps the story's), `actor` (set by the database: `person`, `moderator`, `system`), `by` (the person or
   moderator; api-admin alone reads it), `storyVersion`, `comment`, `at` (server time),
   `publishedAt` (approved entries: the first approval's time, kept on later ones), `hiddenReason`
@@ -181,13 +181,16 @@ their fence (see "Transactions").
   api-admin alone reads it).
   - **Read:** the owner (never `by`) and api-admin; everyone else only an entry's `story`,
     `status` and `publishedAt`, while it is its story's current approved entry.
-  - **Create:** the owner, live, or api-admin. `storyStatusLog_step` checks who may take which
+  - **Create:** the owner, live, only `sent` and `editStarted`; api-admin only a moderator's
+    actions. System and history-only entries come only from the database's own events (elevated),
+    never from a direct write. `storyStatusLog_step` checks who may take which
     step (`fn::story::step_allowed`): the owner sends (from editing) and starts editing (Edit, from
     pending, approved or hidden); a moderator (api-admin, naming `by`) approves, sends back or
     rejects (from pending only, so of two decisions the first wins, D-1), hides (from approved, with
     a note) and shows again (from hidden); the system hides and shows again for media
     (`hiddenBySystem` needs a `hiddenReason`). Sending back and rejecting need a note. History-only
-    entries (written by `storyFile_attach` while editing a story sent before, actor `system`) never
+    entries (`storyFile_attach`'s new file or picture, actor `system`, and `story_words_changed`'s
+    once-per-round changed words, actor `person`, while editing a story sent before) never
     move the pointer; every other entry moves `story.currentStatus` in the same write, so the
     story's own events (shape, limits, agreements, approval gate) check the step too. No update;
     no delete while its story exists. Specs: `person-session`, `write-scope`, `public-view`.
