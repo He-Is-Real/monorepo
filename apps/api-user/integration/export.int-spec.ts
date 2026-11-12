@@ -628,8 +628,12 @@ describe('download my data', () => {
 
     // Nothing of anyone else's: not Zed, not his words, ids, video, keys or hearts; not who moderated.
     const zedHeld = await truth('zqx');
+    // Zed's id as it would appear (a record link, his Clerk id, a quoted key): a bare "zqx" can
+    // turn up by chance inside a random id or signature.
     const zedOnly = [
-      'zqx',
+      'user:zqx',
+      'user_zqx',
+      '"zqx"',
       ZED_TEXT,
       zedDraft.id,
       zedVideo,
@@ -638,6 +642,10 @@ describe('download my data', () => {
       'modq7',
       'PRIVATE-META-q8',
     ].map(String);
+    // The same forms of Ann's own id do appear in her export, so the needles would catch Zed's.
+    expect(
+      ['user:ann', 'user_ann', '"ann"'].filter((n) => res.text.includes(n)),
+    ).not.toEqual([]);
     for (const needle of zedOnly) {
       expect([
         needle,
