@@ -58,7 +58,9 @@ describe('the block list (api-admin)', () => {
     call('PUT', `/ips/${encodeURIComponent(ip)}`, who);
   const stored = async () => ({
     emails: await rows(migrator, 'SELECT VALUE email FROM blockedEmail'),
-    ips: (await rows<string>(migrator, 'SELECT VALUE ip FROM blockedIp')).sort(),
+    ips: (
+      await rows<string>(migrator, 'SELECT VALUE ip FROM blockedIp')
+    ).sort(),
   });
 
   beforeAll(async () => {
@@ -137,8 +139,12 @@ describe('the block list (api-admin)', () => {
         .status,
     ).toBe(204);
     expect(
-      (await call('DELETE', `/emails/${encodeURIComponent('SPAMMER@example.com')}`))
-        .status,
+      (
+        await call(
+          'DELETE',
+          `/emails/${encodeURIComponent('SPAMMER@example.com')}`,
+        )
+      ).status,
     ).toBe(204);
     // Removing what isn't there changes nothing.
     expect((await call('DELETE', '/emails/nobody%40example.com')).status).toBe(

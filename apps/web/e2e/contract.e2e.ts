@@ -562,3 +562,55 @@ test('the stub api-admin’s staff list fits the contract', async ({
     ).status,
   ).toBe(403);
 });
+
+// Block list (G21 D): the stub api-admin's block list (/admin/block-list) answers as
+// api-admin.yaml says.
+test('the stub api-admin’s block list fits the contract', async ({
+  request,
+}) => {
+  const admin = {
+    authorization: `Bearer ${fixtureToken(`admin-contract${Date.now()}`)}`,
+  };
+  const call = async (
+    method: 'GET' | 'PUT' | 'DELETE',
+    path: string,
+    headers: object = admin,
+  ) => {
+    const res = await request.fetch(`${STUB_USER_URL}${path}`, {
+      method,
+      headers: headers as Record<string, string>,
+    });
+    const text = await res.text();
+    const body = text === '' ? undefined : JSON.parse(text);
+    expect(
+      adminContract.problems({
+        method,
+        path: new URL(res.url()).pathname,
+        status: res.status(),
+        contentType: res.headers()['content-type'] ?? null,
+        body,
+      }),
+      `${method} ${path} ${res.status()}`,
+    ).toEqual([]);
+    return { status: res.status(), body };
+  };
+  const list = '/v1/admin/block-list';
+  expect((await call('GET', list)).status).toBe(200);
+  expect((await call('PUT', `${list}/emails/a%40example.com`)).status).toBe(
+    200,
+  );
+  expect((await call('PUT', `${list}/emails/not-an-email`)).status).toBe(400);
+  expect((await call('PUT', `${list}/ips/203.0.113.7`)).status).toBe(200);
+  expect((await call('PUT', `${list}/ips/nope`)).status).toBe(400);
+  expect((await call('DELETE', `${list}/ips/203.0.113.7`)).status).toBe(204);
+  expect((await call('DELETE', `${list}/emails/a%40example.com`)).status).toBe(
+    204,
+  );
+  expect(
+    (
+      await call('GET', list, {
+        authorization: `Bearer ${fixtureToken('contract')}`,
+      })
+    ).status,
+  ).toBe(403);
+});

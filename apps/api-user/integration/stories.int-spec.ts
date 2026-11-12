@@ -628,11 +628,7 @@ describe('the submit flow for written stories', () => {
       `CREATE blockedEmail:⟨blocked@example.com⟩ SET email = 'blocked@example.com', addedBy = 'joel@heisreal.today';
        CREATE blockedIp:⟨203.0.113.66⟩ SET ip = '203.0.113.66', addedBy = 'joel@heisreal.today';`,
     );
-    const sendAs = async (
-      who: string,
-      email: string,
-      forwardedFor: string,
-    ) => {
+    const sendAs = async (who: string, email: string, forwardedFor: string) => {
       await person(who);
       const { id, version } = (await create(who, { themeIds: ['healing'] }))
         .body;

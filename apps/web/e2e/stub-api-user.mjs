@@ -71,6 +71,10 @@
 //   Moderator; checked like the real one (@heisreal.today only, the two roles, never the last
 //   Admin: 409 `last_admin`; an email starting `nobody` has no account, so adding it is 400). A
 //   session starting `admin-clerk-down` gets 502 `clerk_unavailable`.
+// - api-admin's block list (G21 D): `GET /v1/admin/block-list`, `PUT`/`DELETE
+//   /v1/admin/block-list/{emails|ips}/{value}`, Admins only, kept per session from one blocked
+//   email; values checked and stored like the real one. An Admin's moderation view of
+//   `mod_video` carries a sender IP address (`senderIp`); everyone else's is null.
 //
 // It accepts only the fixtures' token (account-control.tsx): `e2e.<payload>.fixture`, whose payload
 // is the fixture person (`sub`) and an optional session a test picks (localStorage
@@ -78,6 +82,7 @@
 // Hearts are kept per token, so tests running in parallel never see each other's.
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
+import { isIP } from 'node:net';
 import { LATEST, LEGAL_VERSIONS } from './legal-fixtures.mjs';
 
 const port = Number(process.env.STUB_USER_PORT ?? 4313);
@@ -554,6 +559,66 @@ async function changeStaff(req, res, session, raw) {
     staff.sort((a, b) => a.email.localeCompare(b.email));
   }
   return send(res, 200, { id: email, version: null });
+}
+
+// --- api-admin: the block list (G21 D) ---------------------------------------------------------
+const blockState = new Map();
+const blocksFor = (session) => {
+  if (!blockState.has(session))
+    blockState.set(session, {
+      emails: [
+        {
+          email: 'spammer@example.com',
+          addedBy: 'joel@heisreal.today',
+          addedAt: '2026-11-11T12:00:00.000Z',
+        },
+      ],
+      ips: [],
+    });
+  return blockState.get(session);
+};
+const BLOCK_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** An IP address in the one form api-admin keeps (libs/http canonicalIp), or null. */
+const blockIpOf = (raw) => {
+  const ip = raw.trim();
+  if (isIP(ip) === 4) return ip;
+  if (isIP(ip) === 6) return new URL(`http://[${ip}]`).hostname.slice(1, -1);
+  return null;
+};
+
+/** `PUT`/`DELETE /v1/admin/block-list/{emails|ips}/{value}`, checked like api-admin. */
+function changeBlocks(req, res, session, kind, raw) {
+  const list = blocksFor(session)[kind];
+  const text = decodeURIComponent(raw).trim();
+  const value =
+    kind === 'emails'
+      ? BLOCK_EMAIL.test(text.toLowerCase())
+        ? text.toLowerCase()
+        : null
+      : blockIpOf(text);
+  if (value === null)
+    return kind === 'emails'
+      ? invalid(res, '/email', 'blocked_email', 'Enter an email address.')
+      : invalid(
+          res,
+          '/ip',
+          'blocked_ip',
+          'Enter an IP address, like 203.0.113.7 or 2001:db8::1.',
+        );
+  const key = kind === 'emails' ? 'email' : 'ip';
+  const i = list.findIndex((e) => e[key] === value);
+  if (req.method === 'DELETE') {
+    if (i >= 0) list.splice(i, 1);
+    res.writeHead(204);
+    return res.end();
+  }
+  if (i < 0)
+    list.unshift({
+      [key]: value,
+      addedBy: 'e2e-admin@heisreal.today',
+      addedAt: new Date().toISOString(),
+    });
+  return send(res, 200, { id: value, version: null });
 }
 
 // --- api-admin: moderation, the read side (M3 plan PR 1) ---------------------------------------
@@ -2238,6 +2303,21 @@ createServer(async (req, res) => {
       { 'cache-control': 'private, no-store' },
     );
   }
+  if (path === '/v1/admin/block-list' && req.method === 'GET') {
+    if (!signedIn()) return;
+    if (!token.startsWith('admin'))
+      return problem(res, 403, 'Forbidden', 'role_required');
+    return sendJson(res, 200, blocksFor(token), {
+      'cache-control': 'private, no-store',
+    });
+  }
+  const blocked = /^\/v1\/admin\/block-list\/(emails|ips)\/([^/]+)$/.exec(path);
+  if (blocked && (req.method === 'PUT' || req.method === 'DELETE')) {
+    if (!signedIn()) return;
+    if (!token.startsWith('admin'))
+      return problem(res, 403, 'Forbidden', 'role_required');
+    return changeBlocks(req, res, token, blocked[1], blocked[2]);
+  }
   const staffMember = /^\/v1\/admin\/staff\/([^/]+)$/.exec(path);
   if (staffMember && (req.method === 'PUT' || req.method === 'DELETE')) {
     if (!signedIn()) return;
@@ -2260,7 +2340,14 @@ createServer(async (req, res) => {
       (s) => s.id === decodeURIComponent(reviewed[1]),
     );
     if (!story) return problem(res, 404, 'Not found', 'not_found');
-    return cached(req, res, story);
+    // Block list (G21 D): an Admin sees the address the first story was sent from.
+    return cached(req, res, {
+      ...story,
+      senderIp:
+        roleOf(token) === 'Admin' && story.id === 'mod_video'
+          ? '203.0.113.7'
+          : null,
+    });
   }
   if (path === '/v1/account/favourites' && req.method === 'GET') {
     const mine = signedIn();

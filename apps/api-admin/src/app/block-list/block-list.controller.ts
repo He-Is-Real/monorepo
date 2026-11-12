@@ -12,7 +12,12 @@ import {
   Res,
 } from '@nestjs/common';
 import { PersonSessions } from '@heisreal/auth';
-import { DatabaseQueryError, runQuery, SURREAL } from '@heisreal/database';
+import {
+  DatabaseQueryError,
+  retryOnConflict,
+  runQuery,
+  SURREAL,
+} from '@heisreal/database';
 import { canonicalIp, ProblemException } from '@heisreal/http';
 import { RequiresRole } from '@heisreal/roles';
 import type { Request, Response } from 'express';
@@ -132,20 +137,27 @@ export class BlockListController {
     const value = listValue(kind, raw);
     const { email: by } = await this.people.authenticate(req);
     try {
-      await runQuery(
-        this.db,
-        `IF (SELECT VALUE id FROM ONLY type::record($table, $value)) = NONE {
-           CREATE type::record($table, $value)
-             CONTENT { ${FIELD[kind]}: $value, addedBy: $by } RETURN NONE;
-         };`,
-        { table: TABLE[kind], value, by: by ?? undefined },
+      await retryOnConflict(() =>
+        runQuery(
+          this.db,
+          `IF (SELECT VALUE id FROM ONLY type::record($table, $value)) = NONE {
+             CREATE type::record($table, $value)
+               CONTENT { ${FIELD[kind]}: $value, addedBy: $by } RETURN NONE;
+           };`,
+          { table: TABLE[kind], value, by: by ?? undefined },
+        ),
       );
     } catch (err) {
       // The database's own check of the value (`string::is_email`) is the last word.
       if (err instanceof DatabaseQueryError && /conform/.test(err.message)) {
         throw kind === 'emails' ? badEmail() : badIp();
       }
-      throw err;
+      // Another Admin added the same one at the same moment: it's on the list either way.
+      if (!(
+        err instanceof DatabaseQueryError && /already exists/.test(err.message)
+      )) {
+        throw err;
+      }
     }
     return { id: value, version: null };
   }

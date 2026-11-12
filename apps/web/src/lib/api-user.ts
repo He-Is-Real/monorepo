@@ -180,6 +180,8 @@ export const SYSTEM_CODES: ReadonlySet<string> = new Set([
   // Who's asking: handled by the page itself (sign-in, "This page is for admins")
   'unknown_person',
   'role_required',
+  // On the block list (G21 D): people see only the generic message
+  'blocked',
   // Not found: pages that expect it explain it themselves ("this draft no longer exists")
   'not_found',
   'story_not_found',

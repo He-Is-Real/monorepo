@@ -103,6 +103,19 @@ their fence (see "Transactions").
   exempt (wiping dev data). Staff work emails, not story data: not linked to `user`, not on the
   erasure checklist. Specs: `staff`, api-admin's `staff`.
 
+- **`blockedEmail`, `blockedIp`** (the block list; G21 D, Joel 2026-11-11): id = the value,
+  lower-case (`blockedEmail:⟨spam@example.com⟩`; `blockedIp:⟨203.0.113.7⟩`, IPv6 in its short
+  form as api-admin writes it, `canonicalIp` in `libs/http`); `email` / `ip` (the same; a valid
+  email, `string::is_email`, or IP address, `string::is_ip`), `addedBy` (the adding Admin's email
+  from their token; required from any session, NONE only from a system user), `addedAt`. api-admin's
+  login reads, creates and deletes (it checks the caller is an Admin); nobody updates (remove and
+  add again). **api-user may read one row it names:** the rule is `email = $blockCheck` /
+  `ip = $blockCheck`, the query's own parameter, so api-user can ask whether one email or address
+  is blocked (at a person's first call and when a story is sent) but can't list the block list.
+  No other service or person reads either table. Not linked to `user`, kept after erasure on
+  purpose (a block is permanent until an Admin removes it). Specs: `block-list`, api-admin's
+  `block-list`, api-user's `account` and `stories`.
+
 ### Stories (`schema-04-stories.surql`)
 
 - **`story`: one table (R11), its content only.** `currentStatus` points at its newest status
@@ -181,11 +194,17 @@ their fence (see "Transactions").
   `publishedAt` (approved entries: the first approval's time, kept on later ones), `hiddenReason`
   (`media_unavailable`, `media_changed`), `reviewedMediaFile`/`reviewedImageFile` (approved
   entries: the files approved), `skippedMediaWait` (an Admin's approval during the media wait;
-  api-admin alone reads it).
-  - **Read:** the owner (never `by`) and api-admin; housekeeping every entry's `story`, `status`
-    and `at` only, never who, what was said, the action, the files or `publishedAt` (G3 B: to find
-    the stories due for deletion); everyone else only an entry's `story`, `status` and
-    `publishedAt`, while it is its story's current approved entry.
+  api-admin alone reads it), `senderIp` (block list, G21 D: the IP address a person's own
+  `sent` entry was sent from, as api-user supplies it, lower-case; dropped on any other entry;
+  api-admin reads it and shows it to Admins only).
+  - **Read:** the owner (never `by`) and api-admin; housekeeping every entry that isn't pending
+    for its `story`, `status` and `at` only, never who, what was said, the action, the files or
+    `publishedAt` (G3 B: to find the stories due for deletion; a pending story never is), and a
+    pending (`sent`) entry only while it still holds a `senderIp` 30 days old
+    (`fn::story::sender_ips_expire_before`), never the address (block list: a field it may not
+    read is NONE in its WHERE, so these rows are how it picks what to clear); everyone else only
+    an entry's `story`, `status` and `publishedAt`, while it is its story's current approved
+    entry.
   - **Create:** the owner, live, only `sent` and `editStarted`; api-admin only a moderator's
     actions. System and history-only entries come only from the database's own events (elevated),
     never from a direct write. `storyStatusLog_step` checks who may take which
@@ -197,8 +216,13 @@ their fence (see "Transactions").
     entries (`storyFile_attach`'s new file or picture, actor `system`, and `story_words_changed`'s
     once-per-round changed words, actor `person`, while editing a story sent before) never
     move the pointer; every other entry moves `story.currentStatus` in the same write, so the
-    story's own events (shape, limits, agreements, approval gate) check the step too. No update;
-    no delete while its story exists. Specs: `person-session`, `write-scope`, `public-view`.
+    story's own events (shape, limits, agreements, approval gate) check the step too. No delete
+    while its story exists. **The one update:** housekeeping clears `senderIp` 30 days after the
+    entry (table `FOR update` for housekeeping on such entries only; `storyStatusLog_append_only`
+    refuses any update that changes anything else or doesn't clear it, system users included;
+    the other fields are `READONLY`, and `senderIp`'s `VALUE` keeps a value only from a person's
+    own `sent` entry or a system user, so housekeeping can only clear it). Specs:
+    `person-session`, `write-scope`, `public-view`, `block-list`, housekeeping's suite.
   - `fn::story::status_of($s)` (`currentStatus.status ?? 'editing'`) is the status every rule and
     event asks. App code uses `STORY_STATUS`, `IS_DRAFT` and `isPublished` from `libs/database`
     (`story-status.ts`), never the convention itself.
@@ -368,7 +392,7 @@ and here.
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------- | ------------------------------------------------------------- |
 | `user`            | the person (Clerk id until erasure)                                                                                                     | root   | fence; binding and erasure rules (D37); `status` → `deleted` only by erasure | stub: id, `createdAt`, `status`                               |
 | `story`           | testimony; `submitter`                                                                                                                  | linked | submitter live; owner and agreement rules                                    | deleted                                                       |
-| `storyStatusLog`  | a story's status history; `story`, `by`                                                                                                 | linked | step rules; submitter live (the pointer move)                                | deleted (cascade)                                             |
+| `storyStatusLog`  | a story's status history; `story`, `by`, `senderIp` (30 days)                                                                           | linked | step rules; submitter live (the pointer move)                                | deleted (cascade)                                             |
 | `storySearch`     | a published story's words; `story`                                                                                                      | linked | events only, with the write that publishes or unpublishes the story          | deleted with the story                                        |
 | `storyFile`       | one uploaded file; `person`, `story`                                                                                                    | linked | created by api-user, processed by workflow, cleaned by housekeeping; live    | deleted                                                       |
 | `mediaJob`        | a media job about one file; `file`                                                                                                      | linked | api-user and workflow create; file's person live; one open per file and kind | deleted with the file                                         |
@@ -380,6 +404,8 @@ and here.
 | `erasedIdentity`  | sha256 of an erased Clerk id (D82): pseudonymous; no link, no date                                                                      | kept   | api-user creates and reads; nobody updates or deletes                        | kept for ever                                                 |
 | `pendingDeletion` | Bunny ids, deleted stories' folders, a Clerk id until deleted (D40); no link                                                            | kept   | erasure and story deletes; api-user and housekeeping retry and delete        | gone once done, a folder after its final pass                 |
 | `staffMember`     | staff emails and roles (Staff page); no user link                                                                                       | none   | api-admin only; `@heisreal.today`; never the last Admin (fenced)             | removed on the Staff page; not erased (staff, not story data) |
+| `blockedEmail`    | a blocked email (block list); no user link                                                                                              | none   | api-admin only (api-user reads one it names); `addedBy` required             | kept until an Admin removes it (G21 D: permanent)             |
+| `blockedIp`       | a blocked IP address (block list); no user link                                                                                         | none   | api-admin only (api-user reads one it names); `addedBy` required             | kept until an Admin removes it (G21 D: permanent)             |
 | reference tables  | `submissionSettings`, `themeCategory`, `theme`, `themeCatalog`, the four legal texts, `service`, `_migration*`, `_identity`, `_setting` | none   | —                                                                            | —                                                             |
 
 - **Staff links.** `storyStatusLog.by`, the legal texts' `publishedBy` and the settings' and

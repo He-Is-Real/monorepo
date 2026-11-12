@@ -170,10 +170,14 @@ describe('block list', () => {
   });
 
   async function createAndErase(clerkUserId: string, id: string) {
-    await run(apiUser, `CREATE type::record('user', $id) SET clerkUserId = $c`, {
-      id,
-      c: clerkUserId,
-    });
+    await run(
+      apiUser,
+      `CREATE type::record('user', $id) SET clerkUserId = $c`,
+      {
+        id,
+        c: clerkUserId,
+      },
+    );
     await run(apiUser, ERASE, { clerkUserId, reason: 'self' });
   }
 

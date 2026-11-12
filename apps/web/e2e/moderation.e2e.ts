@@ -185,7 +185,29 @@ test.describe('moderation', () => {
       'Submission limits',
       'Themes',
       'Staff',
+      'Block list',
     ]);
+  });
+
+  test('an admin, never a moderator, sees the address a story was sent from, with a link to block it', async ({
+    page,
+  }) => {
+    await useSession(page, 'moderator-no-ip');
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_video`);
+    await expect(page.locator('[data-history-entry]').first()).toBeVisible();
+    await expect(page.locator('[data-sender-ip]')).toHaveCount(0);
+
+    await useSession(page, 'admin-sees-ip');
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_video`);
+    const ip = page.locator('[data-sender-ip]');
+    await expect(ip).toContainText(
+      'Sent from IP address 203.0.113.7. Only admins see this, for 30 days.',
+    );
+    await ip.getByRole('link', { name: 'Block this address' }).click();
+    await expect(page).toHaveURL(/\/admin\/block-list\?ip=203\.0\.113\.7$/);
+    await expect(page.getByLabel('IP address', { exact: true })).toHaveValue(
+      '203.0.113.7',
+    );
   });
 });
 
@@ -218,6 +240,11 @@ test('the stub api-admin’s moderation answers fit the contract', async ({
   for (const s of [...first.body.data, ...second.body.data]) {
     expect((await check(`/v1/moderation/stories/${s.id}`)).status).toBe(200);
   }
+  // An Admin's view carries the address it was sent from (block list).
+  expect(
+    (await check('/v1/moderation/stories/mod_video', 'admin-contract')).body
+      .senderIp,
+  ).toBe('203.0.113.7');
   expect((await check('/v1/moderation/queue?limit=0')).status).toBe(400);
   expect((await check('/v1/moderation/stories/no_such')).status).toBe(404);
   expect((await check('/v1/moderation/queue', 'user-x')).status).toBe(403);
