@@ -12,7 +12,7 @@ is for) is the delivery plan in the `project` repo (`context/future/delivery-pla
 - The long dated log and the per-step build notes that used to be here are in git history
   (this file before 2026-11-04).
 
-**Last updated:** 2026-11-09
+**Last updated:** 2026-11-12
 
 Everything below runs on the **dev** site only, with made-up test stories. Nothing reaches the
 public until the "Go live" milestone; the old prototype and the Squarespace site keep running
@@ -20,20 +20,20 @@ until then.
 
 ## Milestones
 
-| Milestone                         | Status         | In short                                                                                                                                           |
-| --------------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| M0 Walking skeleton               | ✅ Done        | The foundations: the code base, the cloud set-up, the database, sign-in and a first public page.                                                   |
-| M1 Browse & view                  | ✅ Done        | Anyone can read, watch and listen to stories, browse and search them, and read the information pages. Done 2026-10-24.                             |
-| M2 Accounts & submission          | 🟡 In progress | People can sign up, agree to the terms, share stories, manage them, keep favourites, download their data and delete their account. Two parts left. |
-| M3 Moderation                     | 🟡 In progress | Moderators review stories before they go public. The queue and a read-only review page are built; staff roles and the Staff page are being built.  |
-| M4 Donations                      | 🟡 In progress | Giving through Stripe works on dev in Stripe's test mode. Recording donors and Gift Aid are not started.                                           |
-| M5 Admin dashboard                | ⚪ Not started | Three admin pages already exist from M2 (limits, themes, consent texts); the dashboard itself is not started.                                      |
-| M6 Community vetting              | ⚪ Not started |                                                                                                                                                    |
-| M7 Async processing (AI)          | ⚪ Not started | A transcription worker was tried out in the `project` repo. Background work will run on Joel's machine, later church hardware, not Google Cloud.   |
-| M8 Embeddable widgets             | ⚪ Not started | Can start any time.                                                                                                                                |
-| Real stories (the 24 testimonies) | ⚪ Not started | After M8: bring in the 24 existing testimonies. See "What blocks Go live" below.                                                                   |
-| Go live                           | ⚪ Not started | After Real stories: the heisreal.today domain, the production sign-in service and switching off Squarespace.                                       |
-| Emails                            | ⚪ Not started | After Go live, once the domain can send mail: submission confirmations, moderation results, the draft-deletion reminder.                           |
+| Milestone                         | Status         | In short                                                                                                                                                        |
+| --------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M0 Walking skeleton               | ✅ Done        | The foundations: the code base, the cloud set-up, the database, sign-in and a first public page.                                                                |
+| M1 Browse & view                  | ✅ Done        | Anyone can read, watch and listen to stories, browse and search them, and read the information pages. Done 2026-10-24.                                          |
+| M2 Accounts & submission          | 🟡 In progress | People can sign up, agree to the terms, share stories, manage them, keep favourites, download their data and delete their account. Two parts left.              |
+| M3 Moderation                     | 🟡 In progress | Moderators review stories before they go public. The queue, a read-only review page, staff roles and the Staff page are built; Edit and Delete are being built. |
+| M4 Donations                      | 🟡 In progress | Giving through Stripe works on dev in Stripe's test mode. Recording donors and Gift Aid are not started.                                                        |
+| M5 Admin dashboard                | ⚪ Not started | Three admin pages already exist from M2 (limits, themes, consent texts); the dashboard itself is not started.                                                   |
+| M6 Community vetting              | ⚪ Not started |                                                                                                                                                                 |
+| M7 Async processing (AI)          | ⚪ Not started | A transcription worker was tried out in the `project` repo. Background work will run on Joel's machine, later church hardware, not Google Cloud.                |
+| M8 Embeddable widgets             | ⚪ Not started | Can start any time.                                                                                                                                             |
+| Real stories (the 24 testimonies) | ⚪ Not started | After M8: bring in the 24 existing testimonies. See "What blocks Go live" below.                                                                                |
+| Go live                           | ⚪ Not started | After Real stories: the heisreal.today domain, the production sign-in service and switching off Squarespace.                                                    |
+| Emails                            | ⚪ Not started | After Go live, once the domain can send mail: submission confirmations, moderation results, the draft-deletion reminder.                                        |
 
 ## M0: Walking skeleton ✅
 
@@ -158,26 +158,14 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
   one below) whatever the reader's text size: a larger browser text setting had dropped desktops
   to two columns (Joel, 2026-11-07/08).
 
-**In progress (open pull requests):**
+**Done since (merged):**
 
 - "Download my data" gives people each video or audio as an MP4 file Bunny makes when it encodes
-  it, and its links last 7 days instead of an hour (Joel's B and C1, 2026-11-06,
-  `project/context/research/video-bundle-rethink.html`;
-  [#191](https://github.com/He-Is-Real/monorepo/pull/191)). Bunny's MP4 copies start once the bunny
-  root is applied; older videos have none. The browser removes a video's or audio file's location
-  and device details before upload (Joel's M2, 2026-11-06), as an MP4 copy can keep the
-  location.
-- A video's own picture shown by Bunny's player (Joel's A, 2026-11-06) is built: once a video
-  is ready, the result writer tells Bunny to show the story's picture (or its own frame again once
-  the picture is taken off). The old video bundle
-  ([#160](https://github.com/He-Is-Real/monorepo/pull/160)) is closed.
-- **Seeing your own upload (part 1b, Joel 2026-11-10):** the share flow's review step plays the
-  person's own video or audio in Bunny's player once Bunny has processed it, or says "Check back
-  later for your video preview" (they can still send it or save it as a draft); a "see your story
-  as others will" page (`/account/stories/{id}/preview`, owner only), linked from the review step
-  and My submissions. api-user signs the owner's links for one hour on the single-story read only.
-  The steps at the top of the share flow become buttons: back at any time, forward as far as the
-  steps are complete. Built (`project/context/research/m3-plan-and-m2-extras.html`, Part 1b).
+  it, and its links last 7 days instead of an hour (Joel's B and C1, 2026-11-06;
+  [#191](https://github.com/He-Is-Real/monorepo/pull/191)); the browser removes a video's or audio
+  file's location and device details before upload. A video's own picture in Bunny's player is the
+  story's picture (Joel's A, 2026-11-06).
+- Seeing your own upload and the clickable share steps (part 1b) moved into M3; see below.
 
 **Left in the M2 plan:**
 
@@ -233,32 +221,45 @@ was sent back for changes (moves to M3 with moderation).
 
 ## M3: Moderation 🟡
 
-Planned in `project/context/research/m3-plan-and-m2-extras.html` (9 November 2026) as nine pull
-requests in waves; Joel said to start on 2026-11-09. Most of them wait for his answers to that
-page's questions.
+Planned in `project/context/research/m3-plan-and-m2-extras.html` as pull requests in waves;
+Joel answered its questions on 10–12 November 2026 (the page's "Decided by Joel" box). M3 is kept
+basic for now: no pick-up locking, escalation or assignment of stories to moderators.
 
-**In progress:** the read side (pull request 1 of the plan). Moderators and above get a
-"Moderation" link in the staff menu, a queue of the stories waiting for review (the one sent
-longest ago first), and a review page that shows a story as the public would see it, with the
-player's speed menu and the story's history with past moderators' notes. Read-only: there are no
-buttons yet. Before its links work on dev, apply the bunny root (it lets api-admin read the two
-link-signing keys), then the gcp root.
+**Merged (on dev once applied):**
 
-**In progress: staff and roles** (pull request 4 of the plan). The roles are now User, Moderator
-and Admin (the old Admin is now called Moderator, the old Super Admin is now Admin). Moderators
-see only Moderation; themes, limits, legal texts and every story are for Admins. A new Staff page
-(`/admin/staff`, Admins only) lists the staff and adds, changes and removes Moderators and Admins
-(`@heisreal.today` emails only): each change goes to Clerk, where roles live, then to the list.
-There are no invitations: someone signs up as an ordinary user first, then an Admin adds them. A
-staff role counts only while the person's sign-in token carries a verified `@heisreal.today`
-email; anyone else is treated as a User. There is always at least one Admin, and `info@heisreal.today` and `joel@heisreal.today` are made
-Admin again on every deploy. Before it works on dev: apply the gcp root (api-admin reads Clerk's
-secret key), and apply the Clerk settings (`infra/clerk/clerk-config.mjs`, the token's new email
-claim; without it nobody, Joel included, counts as staff). Until api-admin has started on the new image, accounts whose Clerk role is still
-`SuperAdmin` are refused (that role no longer exists); the baseline step fixes Joel's and info@'s.
+- **Plain error messages:** every system error says "Something went wrong. Please try again
+  later.", and a database restart shows its own countdown
+  ([#206](https://github.com/He-Is-Real/monorepo/pull/206)).
+- **Picture check when a story is sent for review**
+  ([#208](https://github.com/He-Is-Real/monorepo/pull/208)).
+- **Moderation queue and review page, read-only:** moderators see the stories waiting for review,
+  oldest first, and each one as the public would see it, with its history
+  ([#210](https://github.com/He-Is-Real/monorepo/pull/210)).
+- **A chosen picture is added straight away**, like a video
+  ([#211](https://github.com/He-Is-Real/monorepo/pull/211)).
+- **Owner preview and clickable steps:** people see their own video or audio once Bunny has
+  processed it, a "see your story as others will" page, and can move between the share steps by
+  clicking them ([#212](https://github.com/He-Is-Real/monorepo/pull/212)).
+- **Staff and roles:** the roles are now User, Moderator and Admin; Admins add and remove staff
+  (`@heisreal.today` emails only) on a new Staff page; roles live in Clerk
+  ([#214](https://github.com/He-Is-Real/monorepo/pull/214)). Before it works on dev: apply the gcp
+  root and the Clerk settings (`infra/clerk/clerk-config.mjs`).
 
-**Next:** the person's own preview, Edit and Delete, the "your video couldn't be used" message,
-then the decision buttons with feedback and the story's history.
+**In progress:** Edit and Delete. Withdraw becomes Edit: pressing it takes the story off the site
+until it is approved again; Delete works on every story after one "This can't be undone" question.
+
+**Still to come:**
+
+- "Your video couldn't be used" (part 1a): a video Bunny can't use sends the story back to the
+  person with a plain message.
+- The moderators' decisions (approve, send back, reject), the story's history shown as a timeline
+  including file changes, and hide and show again.
+- The block list (emails and IP addresses, permanent) and the matching wording in the legal texts.
+- The automatic deletion times (90 days for a rejected story, 186 days for one left while
+  editing) as settings on the admin Limits page.
+
+**Deferred:** two-step verification and Google-only sign-in for staff, until we are happy to pay
+for them.
 
 ## M4: Donations 🟡
 
@@ -309,7 +310,8 @@ Before the 24 real testimonies come in ("Real stories"):
   versions must be published, and the privacy notice must name everything it has to (Bunny.net
   and Germany for video storage, the record of deleted accounts, where background processing runs).
 - Media links must last about an hour or less (dev uses 6–7 hours), and deleting an account must
-  cut off links already handed out.
+  cut off links already handed out. "Download my data" keeps its 7-day links, a named exception
+  (Joel, 2026-11-11).
 - How the 24 existing storytellers' agreement is recorded must be decided.
 - The CI planning account must stop reading dev's logs.
 - The official SurrealDB release must replace the patched build.

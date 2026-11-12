@@ -14,7 +14,7 @@ the limits, and what we keep and delete. Progress (what is built and what is nex
 - The bracketed codes, like (D71), point to the decision record in the `project` repo
   (`context/research/*.html`), for anyone who needs the reasoning.
 
-**Last updated:** 2026-11-09
+**Last updated:** 2026-11-12
 
 ## Needs Joel to confirm
 
@@ -41,9 +41,9 @@ code does what it does today; nobody should build on either reading.
 6. **A notice when the privacy notice changes.** Plan 4e (8b) says changes that matter are
    announced with a banner on the next visit (and later by email). Only the testimony-consent
    banner is built. Is a privacy-notice banner wanted before Go live?
-7. **Bunny Optimizer.** Joel chose (2026-10-30, picture checks) to add Bunny Optimizer, which
-   rebuilds every picture on the way out (about $19 a month). It is off in our infrastructure
-   code ("nothing that costs extra") and was never tested with signed links. Still wanted?
+7. **Bunny Optimizer.** Answered (Joel, 2026-11-11): the question waits for the production
+   rollout. Bunny Optimizer (it rebuilds every picture on the way out, about $19 a month) stays
+   off on dev; whether production has it is decided when production is built.
 8. **Stripe's embedded Checkout.** The donate-button decision (2026-10-30) said Stripe's embedded
    Checkout would replace the Buy Buttons in M4. Is that still the M4 plan?
 9. **Trusted submitters' hourly limit.** D94 says trusted submitters keep the hourly upload
@@ -61,7 +61,10 @@ code does what it does today; nobody should build on either reading.
   same account. (D2)
 - There is no Sign in with Apple and no Apple-only technology. Apple Pay through Stripe is fine.
 - CAPTCHA and lockout after repeated failures are on. Two-step sign-in and passkeys are off for
-  now (they need Clerk's paid plan; decided with moderation, M3). (D2)
+  now (they need Clerk's paid plan). (D2)
+- **Staff sign-in (G7, Joel 2026-11-11):** staff are protected by using `@heisreal.today` emails
+  only (see Staff, below). Google-only sign-in and two-step verification for staff are left for
+  later, "once we are happy to spend extra money for this".
 - **Adults only.** The site isn't for children: signing up and sharing need the person to be 18
   or over, which they confirm by agreeing to the terms of use. There is no parental-consent route
   and no date of birth is stored. Reading needs no age check. (D77)
@@ -336,7 +339,9 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   withdrawals, moderators' decisions with their comments, signed "moderator" and never who made
   them, and the site's own hides and shows while a video can't play; R6, Joel 2026-11-05), what
   they agreed to and when, their hearts, their limits and their sign-in details from Clerk. Videos,
-  audio and pictures come as links that last 7 days (B, Joel 2026-11-06). Each video or audio item
+  audio and pictures come as links that last 7 days (B, Joel 2026-11-06), in dev and in
+  production: a named exception to the one-hour rule for the links to files that aren't public
+  (G16 C, Joel 2026-11-11). Each video or audio item
   also has a link to download it as an MP4 file, a copy Bunny makes when it encodes the video (C1,
   Joel 2026-11-06); we never keep the upload itself. Videos encoded before MP4 copies were turned
   on (November 2026) have none, and the file says so. The file says what it leaves out (who
@@ -506,9 +511,16 @@ Built, read-only (M3 plan, pull request 1; Joel, 2026-11-09):
 
 Planned (M3):
 
-- A moderator picks a story up, which locks it for them, and can release it.
-- Approve, Request changes, Reject and Escalate on the review page. Reject and Request changes
-  need feedback, written pastorally, which the person sees on their profile.
+- Approve, Send back and Reject on the review page; Reject and Send back need a note, which the
+  person sees on their profile. Moderators can also hide a published story and show it again (G5).
+  If two moderators decide on the same story, the first decision wins (D-1).
+- **No pick-up locking, escalation or assignment** (Joel, 2026-11-11): any moderator can decide on
+  any story in the queue. How assignment should look is for later, once the basics are visible.
+- **No appeal process** (G20, Joel 2026-11-11): the rejection message points the person to
+  info@heisreal.today.
+- **No content notes** on distressing stories (G19, Joel 2026-11-11).
+- **No "your story has news" banner** for the person and **no per-moderator speed stats** (G25,
+  Joel 2026-11-11).
 - A story changed after it went public needs approving again. (D59, D66)
 
 ## Donations
