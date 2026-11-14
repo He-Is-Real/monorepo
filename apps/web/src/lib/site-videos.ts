@@ -1,3 +1,4 @@
+import { writeLog } from '@heisreal/logging';
 import { apiPublicReadUrl } from './config';
 
 // D32: a site video's player link comes from api-public-read, read on the server with nothing
@@ -30,7 +31,8 @@ export async function siteVideoUrl(key: SiteVideoKey): Promise<string | null> {
     }
     return body.playbackUrl;
   } catch (err) {
-    console.error(
+    writeLog(
+      'ERROR',
       `api-public-read: site video ${key} unavailable: ${err instanceof Error ? err.message : 'error'}`,
     );
     return null;

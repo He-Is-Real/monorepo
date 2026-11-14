@@ -3,7 +3,8 @@ import { join } from 'node:path';
 
 /**
  * A service whose sign-in the database refuses doesn't start (Joel, 2026-11-08): the process
- * exits with code 1 after one structured `database_refused` line, and nothing it prints repeats
+ * exits with code 1 after one structured `database_refused` line (the shared JSON log format),
+ * every other line is JSON too, and nothing it prints repeats
  * the server's own text (Nest's start-up error log and Node's unhandled-rejection dump would).
  */
 describe('a refused database sign-in at start-up', () => {
@@ -41,10 +42,14 @@ describe('a refused database sign-in at start-up', () => {
     expect(lines).toHaveLength(1);
     expect(JSON.parse(lines[0] ?? '')).toMatchObject({
       severity: 'CRITICAL',
+      timestamp: expect.stringMatching(/^\d{4}-\d\d-\d\dT[\d:.]+Z$/),
       code: 'database_refused',
       kind: 'NotAllowed',
       detail: 'Auth',
     });
+    for (const line of output.split('\n').filter(Boolean)) {
+      expect(() => JSON.parse(line)).not.toThrow();
+    }
     expect(output).not.toContain(serverText);
   }, 70_000);
 });

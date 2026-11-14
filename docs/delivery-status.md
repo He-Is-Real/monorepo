@@ -245,6 +245,11 @@ basic for now: no pick-up locking, escalation or assignment of stories to modera
   ([#214](https://github.com/He-Is-Real/monorepo/pull/214)). Before it works on dev: apply the gcp
   root and the Clerk settings (`infra/clerk/clerk-config.mjs`).
 
+**In progress: JSON logs everywhere** (Joel, 2026-11-14, ops question 2). Every service, job,
+the media worker and the dev data seeder write one JSON line per log entry with a severity and a
+timestamp, on Google Cloud and locally; SurrealDB uses its own built-in JSON. Next.js's own lines
+stay as Next writes them.
+
 **In progress: story states, Edit and Delete.** A story is now in one of five states (being
 edited, waiting for review, published, not on the site right now, not accepted), and each step in
 its history says what happened. "Withdraw" is gone: Edit takes a story waiting for review,

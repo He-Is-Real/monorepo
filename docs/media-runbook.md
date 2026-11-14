@@ -348,7 +348,7 @@ A story's video stays "not processed yet" (no `processing`) or `processing`.
    - **No job:** Bunny's notice didn't arrive or was refused. api-user logs `Refused a Bunny
 webhook` (bad signature: check the secret `bunny-stream-readonly-key` has the library's current
      read-only key, which the bunny root writes):
-     `gcloud logging read 'resource.labels.service_name="api-user" AND textPayload:"Bunny"' --limit 20`.
+     `gcloud logging read 'resource.labels.service_name="api-user" AND jsonPayload.message:"Bunny"' --limit 20`.
    - **Open, `sentAt` empty:** the send failed (`Couldn't queue a media job` in api-user's log).
      Bunny retries for about 4 hours; the 18:00 resend (below) sends it after that.
    - **Open and sent:** it waits for the worker. The worker is off (Joel's machine) or its login

@@ -28,6 +28,9 @@
   "references": [
     {
       "path": "../../libs/worker-identity/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/logging/tsconfig.lib.json"
     }
   ]
 }

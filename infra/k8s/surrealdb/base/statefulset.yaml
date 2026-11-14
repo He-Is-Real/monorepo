@@ -30,6 +30,10 @@ spec:
           args:
             - start
             - --log=info
+            # JSON log lines, built into SurrealDB (Joel, 2026-11-14: JSON logs everywhere, SurrealDB
+            # only if it supports it out of the box). Its own format: `level` (not `severity`),
+            # `timestamp`, `fields.message`, `target`. The start-up banner stays plain text.
+            - --log-format=json
             # Startup init (init.surql.tmpl): system users, service logins, removal of old
             # users. Runs on every start before the server answers anything, so a restart
             # with a new init is also the moment every older session ends (D13 B cutover).

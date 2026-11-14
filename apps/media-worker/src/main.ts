@@ -15,7 +15,10 @@
  * renewed here every few hours.
  */
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
+import { type Severity, writeLog } from '@heisreal/logging';
+import { JsonLogger } from '@heisreal/logging/nest';
 import { SecretsService } from '@heisreal/secrets';
+import { Logger } from '@nestjs/common';
 import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { BunnyStreamReader, checkAnswer } from './bunny';
@@ -48,8 +51,40 @@ function tokenEmail(token: string): unknown {
   ).email;
 }
 
-const log = (entry: LogEntry | Record<string, unknown>) =>
-  console.log(JSON.stringify({ time: new Date().toISOString(), ...entry }));
+// libs/secrets' own Nest `Logger` lines in the same format.
+Logger.overrideLogger(new JsonLogger());
+
+/**
+ * How serious a line is (Joel, 2026-11-14: severities in the worker's logs too): the worker
+ * stopping, a crash, a failed job or certificate renewal are errors; a job that can't be read or
+ * answered now (it goes back to the queue, or is dropped) is a warning; the rest is routine.
+ */
+function severityOf(entry: Record<string, unknown>): Severity {
+  switch (entry['step']) {
+    case 'stopped':
+    case 'crashed':
+    case 'failed':
+    case 'identity_renewal_failed':
+      return 'ERROR';
+    case 'unreadable':
+      return 'WARNING';
+    case 'busy':
+      return 'INFO';
+  }
+  return entry['delivery'] === 'RETRY' || entry['delivery'] === 'DROP'
+    ? 'WARNING'
+    : 'INFO';
+}
+
+/** One line in the shared JSON log format (libs/logging); its message is the step. */
+const log = (entry: LogEntry | Record<string, unknown>) => {
+  const fields = entry as Record<string, unknown>;
+  writeLog(
+    severityOf(fields),
+    String(fields['step'] ?? 'media-worker'),
+    fields,
+  );
+};
 
 async function main() {
   const project = env('GCP_PROJECT', NAME);

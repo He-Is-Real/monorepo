@@ -5,9 +5,12 @@
  *
  * Exit status: 0 reset done; 1 failed (nothing changed: the reset is one transaction);
  * 2 refused (not dev, or the dataset has a problem).
- * Prints counts and reasons, never a password.
+ * Prints counts and reasons, never a password, in the shared JSON log format (libs/logging).
  */
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
+import { writeLog } from '@heisreal/logging';
+import { JsonLogger } from '@heisreal/logging/nest';
+import { Logger } from '@nestjs/common';
 import { SecretsService, withTimeout } from '@heisreal/secrets';
 import { Surreal } from 'surrealdb';
 import { seedConfig } from './app/config';
@@ -19,6 +22,9 @@ import bunnyMedia from './app/bunny-media.json';
 
 const CONNECT_TIMEOUT_MS = 15_000;
 
+// libs/secrets' own Nest `Logger` lines in the same format.
+Logger.overrideLogger(new JsonLogger());
+
 async function main(): Promise<number> {
   let config;
   let vars;
@@ -26,7 +32,7 @@ async function main(): Promise<number> {
     config = seedConfig();
     vars = buildVars(DATASET, bunnyMedia as BunnyMedia);
   } catch (err) {
-    console.error(`dev-seed refused: ${(err as Error).message}`);
+    writeLog('ERROR', `dev-seed refused: ${(err as Error).message}`);
     return 2;
   }
 
@@ -52,15 +58,17 @@ async function main(): Promise<number> {
       CONNECT_TIMEOUT_MS,
       `Connecting to ${config.url}`,
     );
-    console.log(
+    writeLog(
+      'INFO',
       `dev-seed: resetting ${config.namespace}/${config.database} as ${config.username} ` +
         `(${vars.stories.length} stories, ${vars.people.length + 1} people, ${vars.themes.length} themes)`,
     );
     const summary = await reset(db, vars);
-    console.log(`dev-seed: done ${JSON.stringify(summary)}`);
+    writeLog('INFO', 'dev-seed: done', { summary });
     return 0;
   } catch (err) {
-    console.error(
+    writeLog(
+      'ERROR',
       `dev-seed failed, nothing changed: ${(err as Error).message}`,
     );
     return 1;
@@ -72,7 +80,7 @@ async function main(): Promise<number> {
 main().then(
   (code) => process.exit(code),
   (err) => {
-    console.error(`dev-seed failed: ${(err as Error).message}`);
+    writeLog('ERROR', `dev-seed failed: ${(err as Error).message}`);
     process.exit(1);
   },
 );

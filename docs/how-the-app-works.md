@@ -762,6 +762,17 @@ For developers. Details are in the linked documents.
   copy, with no timers, so Cloud Run still bills only per request and scales to zero: served for
   60 seconds (R13), and kept up to 30 minutes for when the database is restarting (cache B, Joel
   2026-11-07), within the same 500-answer limit.
+- **Logs are JSON everywhere** (Joel, 2026-11-14: "yes add JSON formatting to all logs with
+  severity levels eg DEBUG INFO WARNING including the worker with timestamps. dont force surrealdb
+  to do this if it does not support it out of the box"). Every service, job and the media worker
+  writes one JSON object per line, on Google Cloud and on a developer's machine alike: `severity`
+  (Cloud Logging's names: DEBUG, INFO, NOTICE, WARNING, ERROR, CRITICAL), `message`, `timestamp`
+  (ISO 8601, UTC), then context fields (a NestJS `context`, a job's `step`, counts and ids). An
+  error's stack is in the same entry (`stack_trace`). DEBUG lines appear only when `LOG_LEVEL`
+  allows them (default INFO; `LOG_LEVEL=DEBUG` shows everything). One shared library,
+  `libs/logging`. Not covered: Next.js's own start-up and request lines (changing them would mean
+  patching Next), human-run command-line tools (the worker's identity commands, dev-seed's media
+  upload), and SurrealDB, which writes its own built-in JSON (`level`, not `severity`).
 - **Budget:** £15 a month with alerts at £3, £7.50 and £15. (decision 10)
 - **Tests measure behaviour** (AGENTS.md; test clean-up T1–T10, 2026-10-24).
 - **Dependencies** update through Renovate. (D106)

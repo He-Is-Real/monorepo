@@ -44,7 +44,10 @@ export interface Task {
   run(ctx: TaskContext): Promise<TaskResult>;
 }
 
-/** One JSON line per chore, for Cloud Logging. */
+/**
+ * One line per chore in the shared JSON log format (libs/logging): `severity` (INFO when left
+ * out) and `message`, then the entry's own fields.
+ */
 export type Log = (entry: Record<string, unknown>) => void;
 
 /**
@@ -61,6 +64,12 @@ export async function runTasks(
     try {
       const r = await task.run(ctx);
       log({
+        ...(r.failed.length
+          ? {
+              severity: 'ERROR',
+              message: `${task.name}: some deletions failed`,
+            }
+          : { message: `${task.name}: done` }),
         task: task.name,
         dryRun: ctx.dryRun,
         selected: r.selected.length,
@@ -74,6 +83,8 @@ export async function runTasks(
     } catch (err) {
       code = 1;
       log({
+        severity: 'ERROR',
+        message: `${task.name}: failed`,
         task: task.name,
         dryRun: ctx.dryRun,
         error: (err as Error).message,

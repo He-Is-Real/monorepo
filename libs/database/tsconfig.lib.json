@@ -22,6 +22,9 @@
     },
     {
       "path": "../contracts/tsconfig.lib.json"
+    },
+    {
+      "path": "../logging/tsconfig.lib.json"
     }
   ],
   "exclude": ["vitest.config.mts", "src/**/*.spec.ts", "src/**/*.test.ts"]

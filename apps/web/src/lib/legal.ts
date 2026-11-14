@@ -1,3 +1,4 @@
+import { writeLog } from '@heisreal/logging';
 import { apiPublicReadUrl } from './config';
 import type { LegalDocumentName } from './legal-text';
 
@@ -85,7 +86,8 @@ export async function getLegalDocument(
     if (isDocument(d, document)) return d;
     throw new Error(d === null ? 'not found' : 'unexpected answer');
   } catch (err) {
-    console.error(
+    writeLog(
+      'ERROR',
       `api-public-read: ${document} unavailable: ${err instanceof Error ? err.message : 'error'}`,
     );
     return null;

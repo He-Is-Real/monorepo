@@ -5,6 +5,8 @@
 // or api-admin, and holds no database access, secrets or tokens. api-user's
 // address (apiUserUrl) is only handed to the browser, which calls it itself.
 
+import { writeLog } from '@heisreal/logging';
+
 export function apiPublicReadUrl(): string {
   const url = process.env['API_PUBLIC_READ_URL'];
   if (!url) {
@@ -73,7 +75,8 @@ export function siteUrl(): string | undefined {
   const raw = process.env['SITE_URL']?.trim().replace(/\/+$/, '');
   if (!raw) return undefined;
   if (validOrigin(raw)) return raw;
-  console.error(
+  writeLog(
+    'ERROR',
     'SITE_URL is not an http(s) origin without a path (e.g. https://www.heisreal.today); ignoring it',
   );
   return undefined;
@@ -99,7 +102,8 @@ export function apiAdminUrl(): string | undefined {
   if (!raw) return undefined;
   const local = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(raw);
   if (validOrigin(raw) && (raw.startsWith('https://') || local)) return raw;
-  console.error(
+  writeLog(
+    'ERROR',
     'API_ADMIN_URL is not an https origin without a path (http only for localhost); ignoring it',
   );
   return undefined;
@@ -117,7 +121,8 @@ export function apiUserUrl(): string | undefined {
   if (!raw) return undefined;
   const local = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(raw);
   if (validOrigin(raw) && (raw.startsWith('https://') || local)) return raw;
-  console.error(
+  writeLog(
+    'ERROR',
     'API_USER_URL is not an https origin without a path (http only for localhost); ignoring it',
   );
   return undefined;
@@ -174,7 +179,7 @@ export function stripeDonations(): StripeDonations | undefined {
     const value = read(name);
     if (!value) return undefined;
     if (pattern.test(value)) return value;
-    console.error(`${name} is not ${what}; ignoring it`);
+    writeLog('ERROR', `${name} is not ${what}; ignoring it`);
     return undefined;
   };
   const publishableKey = valid(

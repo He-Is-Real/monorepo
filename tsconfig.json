@@ -56,6 +56,9 @@
     },
     {
       "path": "./apps/cert-signer"
+    },
+    {
+      "path": "./libs/logging"
     }
   ],
   "compilerOptions": {}

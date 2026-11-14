@@ -30,6 +30,7 @@ commands vs CRUD, errors, versioning, concurrency, "agree first") in
 | `libs/auth`            | Clerk sign-in for api-user and api-admin        | Networkless JWT check, `user` row on first use, role guard; `/testing`   |
 | `libs/http`            | CORS allowlist and RFC 9457 problem responses   | `CORS_ALLOWED_ORIGINS` (D31); `ProblemFilter` (D30)                      |
 | `libs/roles`           | The role set and role decorators (D1)           | `@RequiresRole` / `@NoRoleRequired` on every api-user/api-admin route    |
+| `libs/logging`         | The shared JSON log format (one line per entry) | `severity`, `message`, `timestamp`; `LOG_LEVEL` (default INFO); `/nest`  |
 | `libs/contracts`       | OpenAPI 3.1 specs, the API source of truth      | `pnpm nx run contracts:lint-openapi`; [README](libs/contracts/README.md) |
 | `infra/k8s/surrealdb`  | SurrealDB on Kubernetes (Kustomize)             | [README](infra/k8s/surrealdb/README.md)                                  |
 | `infra/terraform`      | All cloud infrastructure (GCP, GKE, Cloud Run)  | [README](infra/terraform/README.md)                                      |
