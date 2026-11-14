@@ -552,7 +552,7 @@ describe('result writer: the worker’s answers → the job’s file row and the
       const { story, video } = await videoStory();
       await answer(video, ready(story));
       await submit(pat, story);
-      await approve(admin, story, { superAdminSkip: true });
+      await loadApproval(migrator, story);
       const bunny = fakeBunny('failed');
 
       await answerFailed(workflow, bunny, await queue(video), video, next());
@@ -693,6 +693,52 @@ describe('result writer: the worker’s answers → the job’s file row and the
       expect(await storyRow(story)).toMatchObject({
         current: { status: 'pending' },
       });
+    });
+
+    // P1-10 A (Joel, 2026-11-14; Codex r4 F1): the check that recorded the file's one re-encode
+    // is kept until the file itself is deleted, so a clean-up between two failures of the same
+    // file can't make the writer ask Bunny again.
+    it('the 30-day clean-up keeps the check that recorded the re-encode, so Bunny is asked once only', async () => {
+      const housekeeping = await t.service('housekeeping');
+      // A draft's file: no story state keeps its jobs, only the re-encode's own record.
+      const { video } = await videoStory();
+      // The first failure, a month ago: the writer's marker (ended applied, before it asked
+      // Bunny), and the follow-up check that then gave up as ours.
+      await rows(
+        migrator,
+        `CREATE mediaJob CONTENT { file: type::record('storyFile', $video), kind: 'check',
+           reasons: ['bunny_failed'], lastError: $reencoded, outcome: 'applied',
+           doneAt: time::now() - 40d };
+         CREATE mediaJob CONTENT { file: type::record('storyFile', $video), kind: 'check',
+           reasons: ['resent'], outcome: 'gave_up', errorType: 'bunny_unavailable',
+           doneAt: time::now() - 35d };`,
+        { video, reencoded: REENCODED },
+      );
+      const jobsOf = () =>
+        rows<{ lastError?: string }>(
+          migrator,
+          `SELECT lastError FROM mediaJob WHERE file = type::record('storyFile', $video)`,
+          { video },
+        );
+      expect(await jobsOf()).toHaveLength(2);
+      // The nightly tidy-up (housekeeping's own delete, gated by the table's permission).
+      await rows(
+        housekeeping,
+        `DELETE mediaJob WHERE file = type::record('storyFile', $video)
+           AND doneAt != NONE AND doneAt <= time::now() - 30d`,
+        { video },
+      );
+      expect(await jobsOf()).toEqual([{ lastError: REENCODED }]);
+
+      // Bunny fails the file again: final, with no second re-encode.
+      const bunny = fakeBunny('failed');
+      const again = await queue(video, 'bunny_failed');
+      expect(
+        await answerFailed(workflow, bunny, again, video, next()),
+      ).toMatchObject({ outcome: 'gave_up' });
+      expect(bunny.calls).toEqual([`status ${video}`]);
+      expect(await job(again)).toMatchObject({ errorType: 'file_unusable' });
+      expect((await file(video))['processing']).toBe('failed');
     });
 
     it('a Bunny call that fails counts as the job’s failure (ours: bunny_unavailable at the fifth)', async () => {

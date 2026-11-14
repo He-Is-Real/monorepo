@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   agreeAll,
-  approve,
+  loadApproval,
   createPeople,
   grantUpload,
   rows,
@@ -277,6 +277,66 @@ describe('housekeeping: media jobs', () => {
     expect(await job(waiting.job)).toBeUndefined();
   });
 
+  // P1-9 (Joel, 2026-11-14): a story the site took off itself keeps its checks too, so its 3
+  // nightly retries never start again; one a moderator took down doesn't. P1-10 A: the check that
+  // recorded a file's one re-encode stays until the file itself goes.
+  it('the 30-day tidy-up keeps the jobs of a story the site took off, and a file’s re-encode record', async () => {
+    const admin = await t.service('api_admin');
+    const published = async () => {
+      const j = await openJob();
+      await run(
+        migrator,
+        `UPDATE type::record('storyFile', $video) SET processing = 'ready', width = 1920,
+           height = 1080, lengthSeconds = 60`,
+        { video: j.video },
+      );
+      await run(
+        pat,
+        `CREATE storyStatusLog CONTENT { story: type::record('story', $story), action: 'sent' }`,
+        { story: j.story },
+      );
+      await loadApproval(migrator, j.story);
+      return j;
+    };
+    const bySite = await published();
+    await ended(bySite.job, 'gave_up', '31d');
+    // Its file breaks: the site takes it off.
+    await run(
+      migrator,
+      `UPDATE type::record('storyFile', $video) SET processing = 'processing'`,
+      { video: bySite.video },
+    );
+    const byModerator = await published();
+    await ended(byModerator.job, 'gave_up', '31d');
+    await run(
+      admin,
+      `CREATE storyStatusLog CONTENT { story: type::record('story', $story),
+         action: 'hiddenByModerator', comment: 'Taken down for now', by: user:moderator }`,
+      { story: byModerator.story },
+    );
+    // A draft's file whose re-encode was asked for 40 days ago (the result writer's marker).
+    const reencoded = await openJob();
+    await run(
+      migrator,
+      `UPDATE type::record('mediaJob', $job) SET outcome = 'applied',
+         lastError = 'bunny_encode_failed', doneAt = time::now() - 40d`,
+      { job: reencoded.job },
+    );
+
+    expect(await sweep(RUNS.nightly)).toBe(0);
+    expect(await job(bySite.job)).toBeDefined();
+    expect(await job(byModerator.job)).toBeUndefined();
+    expect(await job(reencoded.job)).toBeDefined();
+    // The database refuses it too, whatever housekeeping asks.
+    await run(
+      housekeeping,
+      `DELETE type::record('mediaJob', $a); DELETE type::record('mediaJob', $b)`,
+      { a: bySite.job, b: reencoded.job },
+    ).catch(() => undefined);
+    expect(await job(bySite.job)).toBeDefined();
+    expect(await job(reencoded.job)).toBeDefined();
+  });
+
   it('the nightly run opens a check of each video whose picture at Bunny is unfinished (T4), and only those', async () => {
     /** The result writer's lock on the video, until `delta` from now (SurrealQL). */
     const lockUntil = (video: string, delta: string) =>
@@ -449,7 +509,7 @@ describe('housekeeping: media jobs', () => {
         `CREATE storyStatusLog CONTENT { story: type::record('story', $story), action: 'sent' }`,
         { story: j.story },
       );
-      await approve(admin, j.story, { superAdminSkip: true });
+      await loadApproval(migrator, j.story);
       expect(await statusOf(j.story)).toBe('approved');
       return j;
     };
@@ -512,9 +572,7 @@ describe('housekeeping: media jobs', () => {
       `CREATE storyStatusLog CONTENT { story: type::record('story', $story), action: 'sent' }`,
       { story },
     );
-    await approve(await t.service('api_admin'), story, {
-      superAdminSkip: true,
-    });
+    await loadApproval(migrator, story);
     // The approval entry carries publishedAt (a privileged read shows it)…
     const full = await rows<Record<string, unknown>>(
       migrator,
@@ -525,13 +583,14 @@ describe('housekeeping: media jobs', () => {
     expect(full).toHaveLength(1);
     expect(full[0]['publishedAt']).toBeDefined();
     // …but housekeeping's SELECT * sees only story, status and time (never who, what was said,
-    // the action, the files or publishedAt).
+    // the action, the files or publishedAt), and not the pending ("sent") entry at all (block
+    // list: only one still holding an address 30 days old).
     const seen = await rows<Record<string, unknown>>(
       housekeeping,
       `SELECT * FROM storyStatusLog WHERE story = type::record('story', $story)`,
       { story },
     );
-    expect(seen).toHaveLength(2);
+    expect(seen.map((e) => e['status'])).toEqual(['approved']);
     for (const entry of seen) {
       expect(Object.keys(entry).sort()).toEqual([
         'at',

@@ -1609,7 +1609,7 @@ DEFINE FUNCTION OVERWRITE fn::upload::renew($story: record<story>, $person: reco
 -- - doneAt and outcome: set once, when it ends: applied (the answer was saved), stale (a newer
 --   answer was already in), gone (the file or story was deleted) or gave_up.
 -- - errorType (Part 1a): why it gave up, set with gave_up and only then.
--- Services only (no person's session sees it; api-admin reads them for the moderation queue's
+-- Services only (no person's session sees it; api-admin reads them for the moderators' list's
 -- "a problem on our side", Part 1a): api-user and workflow create jobs, housekeeping only
 -- the nightly re-check of a video whose picture at Bunny is unfinished (T4: a check, reason
 -- resent); api-user records its sends and new reasons, housekeeping its resends; only workflow
@@ -1743,7 +1743,7 @@ DEFINE FUNCTION OVERWRITE fn::media::nightly_retries() {
 -- Bunny couldn't use for good is failed, and its story went back to them). When its newest job
 -- gave up and none is open: `retry` while it has given up at most fn::media::nightly_retries()
 -- times since it was uploaded (the housekeeping opens a new check that night), then `ours` (the
--- moderation queue shows "Can't be reviewed yet: a problem on our side"; the person keeps seeing
+-- moderators' list shows "Can't be reviewed yet: a problem on our side"; the person keeps seeing
 -- "Waiting for review"). The same for a published story the site took off itself while Bunny
 -- re-encodes its file (P1-5, Joel, 2026-11-14): it stays off the site, and its owner keeps seeing
 -- "We're fixing your video", and the moderators' list shows "a problem on our side". A story's

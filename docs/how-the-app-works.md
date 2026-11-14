@@ -396,7 +396,7 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   back for its file, My submissions shows "Ready to send again", "Thanks, your new file is in.
   Send it when you're ready." and "Send again" (which opens the story to send it). api-user gives
   the owner `mediaProblem: unusable` (worked out from the current file) and `unusableFile:
-  recording | picture` (worked out from the status history: set while the story's current entry
+recording | picture` (worked out from the status history: set while the story's current entry
   is the site's "file unusable" one, so null again once it is sent); neither is stored on the
   story.
 - **Drafts and stories being edited or sent back:** continue ("Continue editing" once it was sent

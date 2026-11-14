@@ -387,8 +387,8 @@ test.describe('behaviour', () => {
         headers: { ...route.request().headers(), 'if-none-match': '' },
       });
       const body = await response.json();
-      body.data.mediaProblem = failed ? 'unusable' : null;
-      body.data.unusableFile = 'recording';
+      body.mediaProblem = failed ? 'unusable' : null;
+      body.unusableFile = 'recording';
       return route.fulfill({ response, json: body });
     });
     await page.goto(`${SHARE}?draft=${id}`);
@@ -404,7 +404,7 @@ test.describe('behaviour', () => {
     );
     failed = false;
     await page
-      .getByLabel('Choose a file')
+      .getByLabel('Choose another file')
       .setInputFiles(clip(info.outputPath('second.mp4')));
     await expect(page.getByText(/^Uploaded: second\.mp4/)).toBeVisible();
     await expect(page.locator('[data-media-problem="replaced"]')).toHaveText(

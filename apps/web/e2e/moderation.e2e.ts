@@ -332,8 +332,8 @@ test.describe('moderation', () => {
         headers: { ...route.request().headers(), 'if-none-match': '' },
       });
       const body = await response.json();
-      body.data.version += 1;
-      body.data.status = 'editing';
+      body.version += 1;
+      body.status = 'editing';
       return route.fulfill({ response, json: body });
     });
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
@@ -374,7 +374,8 @@ test.describe('moderation', () => {
     ]);
     await show.selectOption('hidden');
     await expect(states(page)).toHaveText([
-      'State: Hidden by the site while its video or audio can’t play',
+      // Part 1a: its check gave up on our side for good (mediaProblem ours).
+      'State: Hidden by the site while its video or audio can’t playA problem on our side',
       'State: Taken down by a moderator',
     ]);
     await expect(

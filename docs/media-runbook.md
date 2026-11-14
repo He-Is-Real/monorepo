@@ -382,10 +382,13 @@ webhook` (bad signature: check the secret `bunny-stream-readonly-key` has the li
      file twice, the person was asked for a new one: nothing to do), or ours, after 5 failures
      (`bunny_unavailable`, `worker_error`, `other`). For ours, the nightly housekeeping
      (`media-retry`) opens a new check of the file of a waiting story, or of a published story the
-     site took off itself (P1-5), on up to 3 nights; after that the moderation queue shows "Can't
-     be reviewed yet: a problem on our side", and a story off the site stays off. A waiting
-     story's jobs aren't tidied away after 30 days (P1-3), so the count holds. Fix the cause, then
-     re-encode the video at Bunny (above): Bunny's next "finished" notice opens a fresh job.
+     site took off itself (P1-5), on up to 3 nights; after that the moderators' list shows "a
+     problem on our side", and a story off the site stays off (never deleted automatically,
+     P1-9). The jobs of a waiting story or one the site took off aren't tidied away after 30
+     days (P1-3, P1-9), so the count holds and the retries never start again; nor is the check
+     that recorded a file's re-encode (P1-10), so Bunny is never asked for a second one. Fix the
+     cause, then re-encode the video at Bunny (above): Bunny's next "finished" notice opens a
+     fresh job. Or a Moderator or Admin rejects the story.
    - **`gone` or `stale`:** the story no longer shows that video (replaced, removed), the video's
      title isn't the story's id, or a newer answer was already in. Nothing to do.
 
