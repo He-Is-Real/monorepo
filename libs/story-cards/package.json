@@ -15,6 +15,16 @@
       "import": "./src/lib/upload-signing.ts",
       "default": "./src/lib/upload-signing.ts"
     },
+    "./bunny-stream": {
+      "types": "./src/lib/bunny-stream.ts",
+      "import": "./src/lib/bunny-stream.ts",
+      "default": "./src/lib/bunny-stream.ts"
+    },
+    "./images-zone": {
+      "types": "./src/lib/images-zone.ts",
+      "import": "./src/lib/images-zone.ts",
+      "default": "./src/lib/images-zone.ts"
+    },
     "./package.json": "./package.json"
   },
   "nx": {

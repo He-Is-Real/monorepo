@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Test } from '@nestjs/testing';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { CLERK_CONFIG, parseClerkConfig } from '@heisreal/auth';
@@ -19,9 +20,44 @@ import {
 } from '@heisreal/database/integration-testing';
 import { SECRET_MANAGER_CLIENT, SECRETS_PROJECT } from '@heisreal/secrets';
 import { MediaUrls } from '@heisreal/story-cards';
+import {
+  BUNNY_STREAM,
+  type BunnyStream,
+  signUpload,
+} from '@heisreal/story-cards/bunny-stream';
 import type { Surreal } from 'surrealdb';
 import { AppModule } from '../src/app/app.module';
 import { useBodyParser } from '../src/app/body-parser';
+import { STORY_FOLDERS } from '../src/app/moderation/story-media';
+
+/**
+ * Bunny, in memory (DEL-1): records what an Admin's Delete removes at Bunny Stream and in the
+ * images zone, or fails every call while `down`, as Bunny would in an outage.
+ */
+class FakeBunny implements BunnyStream {
+  down = false;
+  readonly videos: string[] = [];
+  readonly folders: string[] = [];
+  async createVideo(): Promise<string> {
+    throw new Error('api-admin never creates videos');
+  }
+  async video() {
+    return null;
+  }
+  async deleteVideo(id: string) {
+    if (this.down) throw new Error('Bunny Stream delete answered 503');
+    this.videos.push(id);
+  }
+  sign(videoId: string, now?: number) {
+    return signUpload('42', 'library-key', videoId, now);
+  }
+  readonly zone = {
+    deleteFolder: async (folder: string) => {
+      if (this.down) throw new Error('The images zone answered 503');
+      this.folders.push(folder);
+    },
+  };
+}
 
 const NOTE =
   'Thank you for sharing this. Could you tell us a little more about that winter?';
@@ -43,6 +79,7 @@ describe('moderation, the decisions (api-admin)', () => {
   let ann: Surreal;
   let admin: Surreal;
   let n = 0;
+  const bunny = new FakeBunny();
 
   const MOD = { role: 'Moderator', sub: 'user_mod' };
   const ADMIN = { role: 'Admin', sub: 'user_boss' };
@@ -134,6 +171,10 @@ describe('moderation, the decisions (api-admin)', () => {
       .useValue('test-project')
       .overrideProvider(MediaUrls)
       .useValue(new MediaUrls(null))
+      .overrideProvider(BUNNY_STREAM)
+      .useValue(bunny)
+      .overrideProvider(STORY_FOLDERS)
+      .useValue(bunny.zone)
       .compile();
     app = moduleRef.createNestApplication<NestExpressApplication>({
       logger: false,
@@ -427,7 +468,45 @@ describe('moderation, the decisions (api-admin)', () => {
     expect(await statusOf(migrator, hidByMod)).toBe('hidden');
   });
 
-  it('an Admin deletes a story as its owner would (P1-11): its log, hearts and search row go; a Moderator is refused', async () => {
+  /** Ann's video story with a picture, sent for review: its video's id at Bunny. */
+  const videoStory = async () => {
+    const id = `dec_${++n}`;
+    const video = randomUUID();
+    await draft(ann, id, { primaryFormat: 'video', body: undefined });
+    await run(
+      migrator,
+      `CREATE type::record('storyFile', $video) CONTENT {
+         story: type::record('story', $id), person: user:ann, format: 'video',
+         contentType: 'video/mp4', sizeBytes: 1000, storyVersion: 1, at: time::now() - 1d };
+       UPDATE type::record('story', $id) SET mediaFile = type::record('storyFile', $video);`,
+      { id, video },
+    );
+    const pic = await grantImage(await t.service('api_user'), {
+      story: id,
+      person: 'ann',
+      version: await versionOf(id),
+    });
+    expect(pic).toMatchObject({ ok: true });
+    await submit(ann, id);
+    return { id, video };
+  };
+  const versionOf = async (id: string) =>
+    (
+      await rows<number>(
+        migrator,
+        `SELECT VALUE version FROM type::record('story', $id)`,
+        { id },
+      )
+    )[0];
+  const remove = (id: string, who = ADMIN) =>
+    call('DELETE', `/v1/moderation/stories/${id}`, { who });
+  /** The story's picture folder, still queued for housekeeping's final pass. */
+  const queuedFolder = (id: string) =>
+    rows(migrator, `SELECT VALUE ref FROM pendingDeletion WHERE ref = $ref`, {
+      ref: `stories/${id}/`,
+    });
+
+  it('an Admin deletes a story as its owner would (P1-11): its log, hearts and search row go, its picture folder at Bunny at once (DEL-1); a Moderator is refused', async () => {
     const id = await waiting();
     expect((await decide(id, 'approve', (await open(id)).tag)).status).toBe(
       200,
@@ -438,21 +517,15 @@ describe('moderation, the decisions (api-admin)', () => {
       `CREATE favourite:ulid() CONTENT { person: $auth, story: type::record('story', $id) }`,
       { id },
     );
-    const { tag } = await open(id, ADMIN);
-    const remove = (ifMatch?: string, who = ADMIN) =>
-      call('DELETE', `/v1/moderation/stories/${id}`, { who, ifMatch });
 
-    // A Moderator has no Delete.
-    expect(await remove(tag, MOD)).toMatchObject({
+    // A Moderator has no Delete (DEL-2 A).
+    expect(await remove(id, MOD)).toMatchObject({
       status: 403,
       body: { code: 'role_required' },
     });
-    // It names what the Admin reviewed (G14 B).
-    expect((await remove()).status).toBe(428);
-    expect((await remove('"forged"')).status).toBe(412);
     expect(await statusOf(migrator, id)).toBe('approved');
 
-    expect((await remove(tag)).status).toBe(204);
+    expect((await remove(id)).status).toBe(204);
     expect(
       await rows(
         migrator,
@@ -465,47 +538,76 @@ describe('moderation, the decisions (api-admin)', () => {
         { id },
       ),
     ).toEqual([[], [], [], []]);
-    // Its picture folder is queued for housekeeping, as for the owner's Delete.
-    expect(
-      await rows(
-        migrator,
-        `SELECT VALUE ref FROM pendingDeletion WHERE ref = $ref`,
-        { ref: `stories/${id}/` },
-      ),
-    ).toEqual([`stories/${id}/`]);
+    // Its picture folder goes at Bunny at once (DEL-1) and stays queued for housekeeping's final
+    // pass, as for the owner's Delete (a PUT link may still be used).
+    expect(bunny.folders).toContain(`stories/${id}/`);
+    expect(await queuedFolder(id)).toEqual([`stories/${id}/`]);
     // Already gone.
-    expect((await remove(tag)).status).toBe(404);
+    expect((await remove(id)).status).toBe(404);
   });
 
-  it('an Admin deletes a draft never sent; a story that changed since it was opened is refused', async () => {
-    const id = `dec_${++n}`;
-    await draft(ann, id);
-    const opened = await open(id, ADMIN);
-    // Ann sends it meanwhile: not what the Admin looked at.
-    await submit(ann, id);
-    const stale = await call('DELETE', `/v1/moderation/stories/${id}`, {
-      who: ADMIN,
-      ifMatch: opened.tag,
-    });
-    expect([stale.status, stale.body.code]).toEqual([412, 'stale_version']);
-    expect(await statusOf(migrator, id)).toBe('pending');
+  it('an Admin deletes a story whose words and files changed after the page opened (DEL-3), and a draft never sent', async () => {
+    const { id, video } = await videoStory();
+    await open(id, ADMIN);
+    // Ann presses Edit, changes the words and picks a new picture meanwhile.
+    await edit(ann, id);
+    await run(
+      ann,
+      `UPDATE type::record('story', $id) SET title = 'A new title'`,
+      {
+        id,
+      },
+    );
+    expect(
+      await grantImage(await t.service('api_user'), {
+        story: id,
+        person: 'ann',
+        version: await versionOf(id),
+        name: 'b'.repeat(32),
+        expectedImage: `stories/${id}/${'a'.repeat(32)}.webp`,
+      }),
+    ).toMatchObject({ ok: true });
+    expect((await remove(id)).status).toBe(204);
+    expect(
+      await rows(migrator, `SELECT id FROM type::record('story', $id)`, { id }),
+    ).toEqual([]);
+    expect(bunny.videos).toContain(video);
+    expect(bunny.folders).toContain(`stories/${id}/`);
 
     const never = `dec_${++n}`;
     await draft(ann, never);
-    const page = await open(never, ADMIN);
-    expect(
-      (
-        await call('DELETE', `/v1/moderation/stories/${never}`, {
-          who: ADMIN,
-          ifMatch: page.tag,
-        })
-      ).status,
-    ).toBe(204);
+    await open(never, ADMIN);
+    expect((await remove(never)).status).toBe(204);
     expect(
       await rows(migrator, `SELECT id FROM type::record('story', $id)`, {
         id: never,
       }),
     ).toEqual([]);
+  });
+
+  it('Bunny down: an Admin’s Delete still succeeds, and the clean-up queue still holds the picture folder', async () => {
+    const { id, video } = await videoStory();
+    bunny.down = true;
+    try {
+      expect((await remove(id)).status).toBe(204);
+    } finally {
+      bunny.down = false;
+    }
+    expect(
+      await rows(migrator, `SELECT id FROM type::record('story', $id)`, { id }),
+    ).toEqual([]);
+    expect(bunny.videos).not.toContain(video);
+    expect(bunny.folders).not.toContain(`stories/${id}/`);
+    // Housekeeping deletes the folder from the queue; the video, no story's now, goes in the
+    // nightly orphan sweep (its file row stays for the upload limits, D113).
+    expect(await queuedFolder(id)).toEqual([`stories/${id}/`]);
+    expect(
+      await rows(
+        migrator,
+        `SELECT VALUE [record::id(id), story] FROM type::record('storyFile', $video)`,
+        { video },
+      ),
+    ).toEqual([[video, expect.anything()]]);
   });
 
   it('a User is refused on every decision', async () => {

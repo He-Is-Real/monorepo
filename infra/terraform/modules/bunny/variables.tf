@@ -92,22 +92,22 @@ variable "upload_key_readers" {
 }
 
 variable "storage_password_readers" {
-  description = "The nightly housekeeping Job, as serviceAccount:housekeeping@<project>.iam.gserviceaccount.com: it may read the images zone's password (to delete the folders of stories that are gone: erasure's queued pictures and abandoned drafts'), and no other bunny-* secret beyond stream_key_readers'. Empty: no reader."
+  description = "Who may read the images zone's password, and no other bunny-* secret beyond stream_key_readers': the nightly housekeeping Job (to delete the folders of stories that are gone: erasure's queued pictures and abandoned drafts') and api-admin (an Admin's Delete removes the story's folder at once: DEL-1, Joel 2026-11-14), as serviceAccount:<name>@<project>.iam.gserviceaccount.com. Empty: no reader."
   type        = set(string)
   default     = []
   validation {
-    condition     = alltrue([for m in var.storage_password_readers : m == "serviceAccount:housekeeping@${var.project_id}.iam.gserviceaccount.com"])
-    error_message = "Only this project's housekeeping service account may read the images zone password on its own (api-user reads it through upload_key_readers)."
+    condition     = alltrue([for m in var.storage_password_readers : contains(["serviceAccount:housekeeping@${var.project_id}.iam.gserviceaccount.com", "serviceAccount:api-admin@${var.project_id}.iam.gserviceaccount.com"], m)])
+    error_message = "Only this project's housekeeping and api-admin service accounts may read the images zone password on its own (api-user reads it through upload_key_readers)."
   }
 }
 
 variable "stream_key_readers" {
-  description = "The nightly housekeeping Job, as serviceAccount:housekeeping@<project>.iam.gserviceaccount.com: it may read the Stream library key (to list and delete orphaned story videos), and no other bunny-* secret. Empty: no reader."
+  description = "Who may read the Stream library key, and no other bunny-* secret through this grant: the nightly housekeeping Job (to list and delete orphaned story videos) and api-admin (an Admin's Delete removes the story's videos at once: DEL-1, Joel 2026-11-14), as serviceAccount:<name>@<project>.iam.gserviceaccount.com. Empty: no reader."
   type        = set(string)
   default     = []
   validation {
-    condition     = alltrue([for m in var.stream_key_readers : m == "serviceAccount:housekeeping@${var.project_id}.iam.gserviceaccount.com"])
-    error_message = "Only this project's housekeeping service account may read the Stream library key on its own (api-user reads it through upload_key_readers)."
+    condition     = alltrue([for m in var.stream_key_readers : contains(["serviceAccount:housekeeping@${var.project_id}.iam.gserviceaccount.com", "serviceAccount:api-admin@${var.project_id}.iam.gserviceaccount.com"], m)])
+    error_message = "Only this project's housekeeping and api-admin service accounts may read the Stream library key on its own (api-user reads it through upload_key_readers)."
   }
 }
 

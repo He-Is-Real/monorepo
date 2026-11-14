@@ -190,16 +190,15 @@ paths:
         Command `DeleteStoryAsAdmin` (P1-11, Joel 2026-11-14: Admins have a Delete button,
         Moderators don't). An Admin deletes a story in any state they can open, as its owner's
         `DeleteStory` does (ED-3): the story goes with its status log and others' hearts, it leaves
-        the site and search at once, and its files at Bunny go too (its picture folder is queued,
-        its videos are deleted by the nightly sweep). The owner isn't told beyond the story leaving
-        My submissions. Names what the Admin reviewed in `If-Match` (`reviewTag`, G14 B; a draft
-        never sent has one too): `412 stale_version` when the story changed since, nothing deleted.
-        `403 role_required` for a Moderator.
+        the site and search at once, and its videos and picture folder at Bunny are deleted at once
+        too (DEL-1, Joel 2026-11-14; if Bunny fails, the Delete still succeeds and the nightly
+        clean-up removes them). The owner isn't told beyond the story leaving My submissions. No
+        `If-Match` (DEL-3, Joel 2026-11-14): the story goes whatever changed since the Admin opened
+        it. `403 role_required` for a Moderator; `404` when the story is already gone.
       x-required-role: Admin
       x-milestone: M3
       parameters:
         - $ref: './components.yaml#/components/parameters/storyId'
-        - $ref: './components.yaml#/components/parameters/ifMatchReviewTag'
       responses:
         '204':
           description: Deleted.
@@ -211,10 +210,6 @@ paths:
           $ref: './components.yaml#/components/responses/NotFound'
         '409':
           $ref: './components.yaml#/components/responses/Conflict'
-        '412':
-          $ref: './components.yaml#/components/responses/PreconditionFailed'
-        '428':
-          $ref: './components.yaml#/components/responses/PreconditionRequired'
         '503':
           $ref: './components.yaml#/components/responses/ServiceRestarting'
 

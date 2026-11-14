@@ -28,7 +28,7 @@ import {
   type BunnyStream,
   signUpload,
   type StreamVideo,
-} from '../src/app/stories/bunny-stream';
+} from '@heisreal/story-cards/bunny-stream';
 
 /**
  * Video and audio uploads (M2 plan PR 7) through api-user's real AppModule, as /share calls it:

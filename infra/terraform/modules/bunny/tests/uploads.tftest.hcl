@@ -112,7 +112,7 @@ run "housekeeping_reads_only_the_stream_key" {
   }
 }
 
-run "stream_key_only_for_housekeeping" {
+run "stream_key_only_for_housekeeping_and_api_admin" {
   command = plan
   variables {
     stream_key_readers = ["serviceAccount:api-public-read@heisreal-dev.iam.gserviceaccount.com"]
@@ -176,6 +176,49 @@ run "another_projects_housekeeping_refused_the_zone_password" {
   command = plan
   variables {
     storage_password_readers = ["serviceAccount:housekeeping@heisreal-prod.iam.gserviceaccount.com"]
+  }
+  expect_failures = [var.storage_password_readers]
+}
+
+# An Admin's Delete (DEL-1, Joel 2026-11-14): api-admin may read the Stream library key and the
+# images zone's password, each on its own grant, and no other bunny-* secret (never the upload
+# keys' grant or the read-only key); another project's api-admin may not.
+run "api_admin_reads_the_two_delete_keys" {
+  command = plan
+  variables {
+    stream_key_readers       = ["serviceAccount:api-admin@heisreal-dev.iam.gserviceaccount.com"]
+    storage_password_readers = ["serviceAccount:api-admin@heisreal-dev.iam.gserviceaccount.com"]
+  }
+
+  assert {
+    condition = (
+      length(google_secret_manager_secret_iam_member.stream_key_readers) == 1 &&
+      google_secret_manager_secret_iam_member.stream_key_readers["serviceAccount:api-admin@heisreal-dev.iam.gserviceaccount.com"].secret_id == "bunny-stream-api-key" &&
+      google_secret_manager_secret_iam_member.stream_key_readers["serviceAccount:api-admin@heisreal-dev.iam.gserviceaccount.com"].role == "roles/secretmanager.secretAccessor" &&
+      length(google_secret_manager_secret_iam_member.storage_password_readers) == 1 &&
+      google_secret_manager_secret_iam_member.storage_password_readers["serviceAccount:api-admin@heisreal-dev.iam.gserviceaccount.com"].secret_id == "bunny-storage-password" &&
+      google_secret_manager_secret_iam_member.storage_password_readers["serviceAccount:api-admin@heisreal-dev.iam.gserviceaccount.com"].role == "roles/secretmanager.secretAccessor"
+    )
+    error_message = "api-admin may read the Stream library key and the images zone's password."
+  }
+  assert {
+    condition     = alltrue([for g in google_secret_manager_secret_iam_member.upload_key_readers : g.member != "serviceAccount:api-admin@heisreal-dev.iam.gserviceaccount.com"])
+    error_message = "api-admin's delete keys don't go through the upload keys' grant."
+  }
+}
+
+run "stream_key_not_for_another_projects_api_admin" {
+  command = plan
+  variables {
+    stream_key_readers = ["serviceAccount:api-admin@heisreal-prod.iam.gserviceaccount.com"]
+  }
+  expect_failures = [var.stream_key_readers]
+}
+
+run "zone_password_not_for_another_projects_api_admin" {
+  command = plan
+  variables {
+    storage_password_readers = ["serviceAccount:api-admin@heisreal-prod.iam.gserviceaccount.com"]
   }
   expect_failures = [var.storage_password_readers]
 }

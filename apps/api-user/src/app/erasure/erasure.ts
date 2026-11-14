@@ -11,7 +11,10 @@ import {
   SURREAL,
 } from '@heisreal/database';
 import type { Surreal } from 'surrealdb';
-import { BUNNY_STREAM, type BunnyStream } from '../stories/bunny-stream';
+import {
+  BUNNY_STREAM,
+  type BunnyStream,
+} from '@heisreal/story-cards/bunny-stream';
 import { CLERK_BACKEND, type ClerkBackend } from './clerk-backend';
 
 /**

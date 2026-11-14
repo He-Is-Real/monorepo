@@ -21,7 +21,7 @@ import {
   BUNNY_STREAM,
   type BunnyStream,
   signUpload,
-} from '../src/app/stories/bunny-stream';
+} from '@heisreal/story-cards/bunny-stream';
 
 /**
  * The profile's commands on the person's own stories (M2 plan PR 8), through api-user's real

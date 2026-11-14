@@ -230,3 +230,69 @@ run "site_videos_need_signing" {
   }
   expect_failures = [var.site_videos]
 }
+
+# An Admin's Delete (DEL-1, Joel 2026-11-14): api-admin gets the library key's and the images
+# zone password's secret names (never values) with the library and zone identifiers, only when
+# api_admin_story_deletes is on; alongside its signing settings, each variable once.
+run "api_admin_story_deletes_pass_the_two_secret_names" {
+  command = plan
+  variables {
+    api_public_read_media = {
+      stream_library_id   = "786537"
+      stream_cdn_hostname = "vz-da4dce15-a49.b-cdn.net"
+      images_cdn_hostname = "heisreal-dev-images.b-cdn.net"
+    }
+    api_user_image_uploads = {
+      storage_zone = "heisreal-dev-image-store"
+      s3_host      = "uk-s3.storage.bunnycdn.com"
+      s3_region    = "uk"
+    }
+    api_admin_media_signing = true
+    api_admin_story_deletes = true
+  }
+
+  assert {
+    condition = {
+      for e in google_cloud_run_v2_service.signed_in_api["api-admin"].template[0].containers[0].env :
+      e.name => e.value if contains(["BUNNY_STREAM_LIBRARY_ID", "BUNNY_STREAM_API_KEY_SECRET", "BUNNY_STORAGE_ZONE", "BUNNY_STORAGE_S3_HOST", "BUNNY_STORAGE_S3_REGION", "BUNNY_STORAGE_PASSWORD_SECRET"], e.name)
+      } == {
+      BUNNY_STREAM_LIBRARY_ID       = "786537"
+      BUNNY_STREAM_API_KEY_SECRET   = "bunny-stream-api-key"
+      BUNNY_STORAGE_ZONE            = "heisreal-dev-image-store"
+      BUNNY_STORAGE_S3_HOST         = "uk-s3.storage.bunnycdn.com"
+      BUNNY_STORAGE_S3_REGION       = "uk"
+      BUNNY_STORAGE_PASSWORD_SECRET = "bunny-storage-password"
+    }
+    error_message = "api-admin gets the library, the zone and the two secrets' names."
+  }
+  assert {
+    condition     = length([for e in google_cloud_run_v2_service.signed_in_api["api-admin"].template[0].containers[0].env : e if startswith(e.name, "BUNNY_")]) == 10
+    error_message = "api-admin's signing and delete settings together: ten BUNNY_* variables, none twice."
+  }
+}
+
+run "api_admin_story_deletes_off_by_default" {
+  command = plan
+  variables {
+    api_public_read_media = {
+      stream_library_id   = "786537"
+      stream_cdn_hostname = "vz-da4dce15-a49.b-cdn.net"
+      images_cdn_hostname = "heisreal-dev-images.b-cdn.net"
+    }
+    api_admin_media_signing = true
+  }
+
+  assert {
+    condition = length([for e in google_cloud_run_v2_service.signed_in_api["api-admin"].template[0].containers[0].env :
+    e if contains(["BUNNY_STREAM_API_KEY_SECRET", "BUNNY_STORAGE_PASSWORD_SECRET"], e.name)]) == 0
+    error_message = "api-admin reads no delete key unless api_admin_story_deletes is on."
+  }
+}
+
+run "api_admin_story_deletes_need_the_settings" {
+  command = plan
+  variables {
+    api_admin_story_deletes = true
+  }
+  expect_failures = [var.api_admin_story_deletes]
+}

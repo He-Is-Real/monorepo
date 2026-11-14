@@ -416,7 +416,7 @@ function Decisions({
     try {
       await client.command(
         `/v1/moderation/stories/${encodeURIComponent(story.id)}`,
-        { method: 'DELETE', tag: story.reviewTag },
+        { method: 'DELETE' },
       );
       onSettled({ text: DONE.delete, tone: 'done' });
     } catch (err) {

@@ -126,6 +126,11 @@ module "gcp" {
   # Apply the bunny root first (it lets api-admin read them), or api-admin's new revision won't
   # start.
   api_admin_media_signing = true
+  # An Admin's Delete (DEL-1, Joel 2026-11-14): api-admin deletes the story's videos and picture
+  # folder at Bunny at once. Apply the bunny root first (its stream_key_readers and
+  # storage_password_readers grants let api-admin read the two keys), or api-admin's new
+  # revision won't start.
+  api_admin_story_deletes = true
   # Video and audio uploads (M2 plan PR 7): api-user creates and signs Bunny Stream uploads with
   # the library key. The bunny root's upload_key_readers grant (#123) must be applied first.
   api_user_uploads = true

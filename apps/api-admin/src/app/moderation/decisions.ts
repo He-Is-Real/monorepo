@@ -52,12 +52,10 @@ export function reviewTag(r: Reviewed): string {
 
 /**
  * `If-Match: "<reviewTag>"`; `undefined` when missing, `'invalid'` when it isn't one of ours. A
- * draft never sent has no status entry (`entry` empty): only an Admin's Delete names one
- * (`draft`), as no decision applies to it.
+ * draft never sent has no status entry (`entry` empty), so no decision can name one.
  */
 export function parseReviewTag(
   header: string | undefined,
-  { draft = false }: { draft?: boolean } = {},
 ): Reviewed | undefined | 'invalid' {
   if (header === undefined || header.trim() === '') return undefined;
   const m = /^"([A-Za-z0-9_-]{1,2048})"$/.exec(header.trim());
@@ -70,7 +68,7 @@ export function parseReviewTag(
       Array.isArray(parts) &&
       parts.length === 3 &&
       typeof parts[0] === 'string' &&
-      (draft || parts[0] !== '') &&
+      parts[0] !== '' &&
       parts.slice(1).every((p) => p === null || typeof p === 'string')
     ) {
       return {
@@ -294,42 +292,35 @@ export async function decide(
 }
 
 /**
- * An Admin's Delete (P1-11, Joel 2026-11-14), in one transaction: refused unless the story still
- * points at the status entry (none for a draft never sent) and the files the Admin reviewed (G14 B),
- * then the story goes exactly as its owner's Delete takes it (ED-3): its status log and others'
- * hearts with it (story_erasure_cascade), its search row (story_search), and its picture folder is
- * queued for housekeeping (story_picture_folder). Its storyFile rows stay (the upload limits count
- * them for 7 days, D113); its videos at Bunny, no longer any story's, go in the nightly orphan
- * sweep (docs/media-runbook.md). api-admin's login may delete stories (erasure's permission).
+ * An Admin's Delete (P1-11, Joel 2026-11-14), in one transaction: the story goes exactly as its
+ * owner's Delete takes it (ED-3), whatever changed since the Admin opened it (DEL-3: an Admin's
+ * Delete names no review tag; the decisions keep G14 B): its status log and others' hearts with it
+ * (story_erasure_cascade), its search row (story_search), and its picture folder is queued
+ * (story_picture_folder) for housekeeping's final pass. Its storyFile rows stay (the upload limits
+ * count them for 7 days, D113). Answers the ids of its current videos at Bunny (as the owner's
+ * Delete reads them), which api-admin then deletes at once (DEL-1). api-admin's login may delete
+ * stories (erasure's permission) and read storyFile rows.
  */
 const DELETE_SQL = `BEGIN TRANSACTION;
   LET $story = type::record('story', $id);
-  LET $s = (SELECT currentStatus, mediaFile, image.file AS imageFile FROM ONLY $story);
-  IF $s = NONE { THROW 'moderation_cmd:not_found' };
-  IF $s.currentStatus != (IF $entry != NONE { type::record('storyStatusLog', $entry) })
-    OR $s.mediaFile != (IF $media != NONE { type::record('storyFile', $media) })
-    OR $s.imageFile != (IF $image != NONE { type::record('storyFile', $image) }) {
-    THROW 'moderation_cmd:changed';
-  };
+  IF !record::exists($story) { THROW 'moderation_cmd:not_found' };
+  LET $videos = (SELECT VALUE record::id(id) FROM storyFile
+    WHERE story = $story AND format != 'image' AND removedAt = NONE);
   LET $gone = (DELETE $story RETURN BEFORE);
   IF array::len($gone) = 0 { THROW 'moderation_cmd:not_written' };
+  $videos;
   COMMIT TRANSACTION;`;
 
-/** Deletes the story the Admin reviewed (see DELETE_SQL). */
-export async function deleteReviewed(
+/** Deletes the story (see DELETE_SQL); answers its videos' ids at Bunny. */
+export async function deleteStory(
   db: Surreal,
   id: string,
-  reviewed: Reviewed,
-): Promise<void> {
+): Promise<{ videos: string[] }> {
   try {
-    await retryOnConflict(() =>
-      runQuery(db, DELETE_SQL, {
-        id,
-        entry: reviewed.entry === '' ? undefined : reviewed.entry,
-        media: reviewed.media ?? undefined,
-        image: reviewed.image ?? undefined,
-      }),
+    const results = await retryOnConflict(() =>
+      runQuery(db, DELETE_SQL, { id }),
     );
+    return { videos: (results.at(-2) ?? []) as string[] };
   } catch (err) {
     throw decisionProblem(err);
   }

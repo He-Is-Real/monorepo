@@ -438,7 +438,11 @@ through its file row (`storyFile`, R12; D80: the person's browser never names a 
 - **Deleted stories:** when a person deletes a story, in any state (D71, ED-3),
   api-user deletes every video it made for that story (its file rows) at Bunny straight
   after the database commits. Only those videos: dev's seeded media and site assets are never
-  touched. The rows stay for the upload limits.
+  touched. The rows stay for the upload limits. An Admin's Delete on the review page does the
+  same from api-admin (DEL-1, Joel 2026-11-14): its videos at once, and its picture folder at
+  once too (the folder also stays queued for housekeeping's final pass); it no longer waits for
+  the nightly sweep. A failure there is logged (`Couldn’t delete the deleted story’s video …`,
+  `Couldn’t delete stories/<id>/ …`) and left to the sweep and the queue.
 - **Orphans** (a video on Bunny that no story shows) happen when that delete fails (api-user
   logs `Couldn’t delete replaced video …` or `… a deleted story’s video …`), when the database refused the file row after the video
   was created and the delete after it failed (`… after a refused upload`), when api-user lost the

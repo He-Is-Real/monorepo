@@ -29,7 +29,10 @@ import {
   type ClerkBackend,
   clerkProfile,
 } from '../src/app/erasure/clerk-backend';
-import { BUNNY_STREAM, BunnyStreamApi } from '../src/app/stories/bunny-stream';
+import {
+  BUNNY_STREAM,
+  BunnyStreamApi,
+} from '@heisreal/story-cards/bunny-stream';
 
 /**
  * "Download my data" (M2 plan PR 12; Art 15, Art 20) through api-user's real AppModule and a real

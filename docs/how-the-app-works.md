@@ -620,10 +620,13 @@ Built (M3 plan, pull requests 1 and 6; Joel, 2026-11-09 and 2026-11-11):
 - **Admins delete (P1-11, Joel 2026-11-14):** an Admin, never a Moderator, has a Delete button on
   the review page of a story in any state they can open, after one "This can't be undone"
   question (as the owner's Delete). It deletes the story exactly as the owner's Delete does: its
-  status log and others' hearts go with it, it leaves the site and search at once, its picture
-  folder is deleted by the nightly clean-up, and its videos at Bunny by the nightly orphan sweep.
-  The person isn't told, beyond the story leaving My submissions. Like a decision, it names what
-  the Admin saw, so a story that changed since the page opened is refused and the page refreshes.
+  status log and others' hearts go with it, it leaves the site and search at once, and its videos
+  and picture folder at Bunny are deleted at once too (DEL-1, Joel 2026-11-14). If Bunny fails at
+  that moment the Delete still succeeds: the nightly orphan sweep removes the videos and the
+  queued picture folder is removed by the nightly clean-up, as for the owner's Delete. The person
+  isn't told, beyond the story leaving My submissions. Unlike a decision, it doesn't check what the
+  Admin saw: the story goes even if it changed since the page opened (DEL-3, Joel 2026-11-14);
+  a story already gone answers that it wasn't found. Moderators have no Delete (DEL-2 A).
 - **Approve anyway is Admin only (G24)**, offered after an approval was refused because the media
   is still being processed; never during the upload link's time (G11 B).
 - **Refusals in plain words** (Joel, 2026-11-09: never codes): for example "The video is still

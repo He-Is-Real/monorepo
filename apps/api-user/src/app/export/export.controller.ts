@@ -18,7 +18,10 @@ import {
   type ClerkBackend,
   type ClerkProfile,
 } from '../erasure/clerk-backend';
-import { BUNNY_STREAM, type BunnyStream } from '../stories/bunny-stream';
+import {
+  BUNNY_STREAM,
+  type BunnyStream,
+} from '@heisreal/story-cards/bunny-stream';
 import { heldVideoIds, LINK_SECONDS, readHeld, toExport } from './my-data';
 
 /**

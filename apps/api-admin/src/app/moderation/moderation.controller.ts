@@ -35,13 +35,14 @@ import {
   type Decision,
   type Reviewed,
   decide,
-  deleteReviewed,
+  deleteStory,
   parseAnyway,
   parseNote,
   parseReviewTag,
   requireAdminForAnyway,
   reviewTag,
 } from './decisions';
+import { StoryMedia, StoryMediaModule } from './story-media';
 
 /** Moderators' links last one hour (M3 plan concern C6), counted from each answer. */
 export const MODERATION_LINK_SECONDS = 60 * 60;
@@ -242,11 +243,8 @@ function requireAdmin(role?: string): void {
 }
 
 /** What a command names in `If-Match` (`reviewTag`, G14 B): `428` missing, `412` not ours. */
-function reviewedOf(
-  ifMatch: string | undefined,
-  opts?: { draft?: boolean },
-): Reviewed {
-  const reviewed = parseReviewTag(ifMatch, opts);
+function reviewedOf(ifMatch: string | undefined): Reviewed {
+  const reviewed = parseReviewTag(ifMatch);
   if (reviewed === undefined) {
     throw new ProblemException(
       HttpStatus.PRECONDITION_REQUIRED,
@@ -295,6 +293,7 @@ export class ModerationController {
     @Inject(SURREAL) private readonly db: Surreal,
     @Inject(MediaUrls) private readonly links: MediaUrls,
     private readonly people: PersonSessions,
+    private readonly media: StoryMedia,
   ) {}
 
   /**
@@ -406,19 +405,17 @@ export class ModerationController {
 
   /**
    * An Admin's Delete (P1-11, Joel 2026-11-14): the story in any state an Admin can open, gone as
-   * its owner's Delete takes it (decisions.ts, deleteReviewed). Names what the Admin reviewed
-   * (`reviewTag`, G14 B), as the decisions do. Moderators are refused (403).
+   * its owner's Delete takes it (decisions.ts, deleteStory), whatever changed since the page was
+   * opened (DEL-3: no If-Match). Then its videos and picture folder go at Bunny at once (DEL-1,
+   * StoryMedia). Moderators are refused (403, DEL-2 A).
    */
   @Delete('stories/:id')
   @HttpCode(204)
   @RequiresRole('Admin')
-  async deleteModerationStory(
-    @Param('id') id: string,
-    @Headers('if-match') ifMatch?: string,
-  ): Promise<void> {
+  async deleteModerationStory(@Param('id') id: string): Promise<void> {
     if (!isStoryId(id)) throw new NotFoundException();
-    const reviewed = reviewedOf(ifMatch, { draft: true });
-    await deleteReviewed(this.db, id, reviewed);
+    const { videos } = await deleteStory(this.db, id);
+    await this.media.discardDeleted(id, videos);
   }
 
   @Get('stories')
@@ -558,5 +555,8 @@ export class ModerationController {
   }
 }
 
-@Module({ controllers: [ModerationController] })
+@Module({
+  imports: [StoryMediaModule],
+  controllers: [ModerationController],
+})
 export class ModerationModule {}

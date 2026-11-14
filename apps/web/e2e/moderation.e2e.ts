@@ -666,17 +666,12 @@ test('the stub api-admin’s moderation answers fit the contract', async ({
   ).toBe(409);
   expect((await check('/v1/moderation/stories/no_such')).status).toBe(404);
   expect((await check('/v1/moderation/stories', 'user-x')).status).toBe(403);
-  // An Admin's Delete (P1-11): Moderators refused, a stale tag refused, then deleted.
+  // An Admin's Delete (P1-11): Moderators refused (DEL-2 A); no If-Match (DEL-3), then gone.
   const admin = fresh('admin-contract-delete');
-  const remove = async (session: string, ifMatch: string) => {
+  const remove = async (session: string) => {
     const res = await request.delete(
       `${STUB_USER_URL}/v1/moderation/stories/mod_written`,
-      {
-        headers: {
-          authorization: `Bearer ${fixtureToken(session)}`,
-          'if-match': ifMatch,
-        },
-      },
+      { headers: { authorization: `Bearer ${fixtureToken(session)}` } },
     );
     const text = await res.text();
     expect(
@@ -690,11 +685,9 @@ test('the stub api-admin’s moderation answers fit the contract', async ({
     ).toEqual([]);
     return res.status();
   };
-  const written = (await check('/v1/moderation/stories/mod_written', admin))
-    .body;
-  expect(await remove(mine, `"${written.reviewTag}"`)).toBe(403);
-  expect(await remove(admin, '"old"')).toBe(412);
-  expect(await remove(admin, `"${written.reviewTag}"`)).toBe(204);
+  expect(await remove(mine)).toBe(403);
+  expect(await remove(admin)).toBe(204);
+  expect(await remove(admin)).toBe(404);
   expect(
     (await check('/v1/moderation/stories/mod_written', admin)).status,
   ).toBe(404);

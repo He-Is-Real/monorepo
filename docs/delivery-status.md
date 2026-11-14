@@ -299,7 +299,8 @@ see drafts never sent), as a table they filter by state and theme; a published s
 has a Take down button for moderators only; and the person sees the take-down reason on My
 submissions, like a sent-back note. Also from 14 November: an Admin (never a Moderator) can
 delete a story in any state from its review page, after a "This can't be undone" question, exactly
-as its owner can; and a story the site took off itself (its video or audio can't play) can be
+as its owner can (it removes the story's videos and pictures at Bunny at once, and doesn't check
+whether the story changed since the page opened); and a story the site took off itself (its video or audio can't play) can be
 rejected, which then lets the nightly clean-up delete it like any rejected story.
 
 **Still to come:**

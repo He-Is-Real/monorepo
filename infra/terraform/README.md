@@ -284,8 +284,8 @@ Scheduler starts it at 03:30 London time; both are in `europe-west2`, written ou
 
 - **Identities.** `housekeeping` runs the Job: it reads `surreal-housekeeping-password` (granted
   here), `bunny-stream-api-key` (granted by the bunny root's `stream_key_readers`, which accepts
-  only this account) and `bunny-storage-password` (the bunny root's `storage_password_readers`,
-  the same: to delete the images-zone folders of stories that are gone; it gets the zone from
+  only this account and api-admin's) and `bunny-storage-password` (the bunny root's
+  `storage_password_readers`, the same: to delete the images-zone folders of stories that are gone; it gets the zone from
   `api_user_image_uploads`, and without that, picture deletions wait in the queue), and signs in as `service:housekeeping`, whose permissions are in
   [docs/db-permissions.md](../../docs/db-permissions.md) ("Rules by table"). `housekeeping-scheduler` is
   Scheduler's: `run.invoker` on this Job only, so it can start it (without overrides) and nothing
@@ -474,8 +474,10 @@ through an `ephemeral` read, so it's in neither state nor plans. The keys the ap
 copied into Secret Manager with write-only versions; apps read them through `libs/secrets`.
 `bunny-stream-api-key` and `bunny-storage-password` (uploads) are read by api-user
 (`upload_key_readers`, which accepts nothing but this project's api-user service account) and,
-each on its own grant, by the housekeeping Job (`stream_key_readers`, `storage_password_readers`:
-only this project's housekeeping account).
+each on its own grant, by the housekeeping Job and api-admin (`stream_key_readers`,
+`storage_password_readers`: only this project's housekeeping and api-admin accounts). api-admin
+reads them for an Admin's Delete, which removes the story's videos and picture folder at once
+(DEL-1, Joel 2026-11-14; the gcp root's `api_admin_story_deletes` names them to it).
 `bunny-stream-token-key` and `bunny-images-token-key` (D52) are read by api-public-read,
 api-user and api-admin (moderators' one-hour links, M3) (`signing_key_readers`). Each is a grant on one secret, made by this root.
 

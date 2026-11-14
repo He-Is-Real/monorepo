@@ -143,8 +143,21 @@ resource "google_cloud_run_v2_service" "signed_in_api" {
           value = env.value
         }
       }
+      # An Admin's Delete (DEL-1, Joel 2026-11-14): api-admin deletes the story's videos with the
+      # library key and its picture folder with the images zone's password, at once (names,
+      # never values; the bunny root's stream_key_readers and storage_password_readers grants).
       dynamic "env" {
-        for_each = each.key == "api-admin" && var.api_admin_media_signing ? local.api_public_read_media_env : {}
+        for_each = each.key != "api-admin" ? {} : merge(
+          var.api_admin_media_signing ? local.api_public_read_media_env : {},
+          var.api_admin_story_deletes ? {
+            BUNNY_STREAM_LIBRARY_ID       = var.api_public_read_media.stream_library_id
+            BUNNY_STREAM_API_KEY_SECRET   = "bunny-stream-api-key"
+            BUNNY_STORAGE_ZONE            = var.api_user_image_uploads.storage_zone
+            BUNNY_STORAGE_S3_HOST         = var.api_user_image_uploads.s3_host
+            BUNNY_STORAGE_S3_REGION       = var.api_user_image_uploads.s3_region
+            BUNNY_STORAGE_PASSWORD_SECRET = var.api_user_image_uploads.password_secret
+          } : {},
+        )
         content {
           name  = env.key
           value = env.value

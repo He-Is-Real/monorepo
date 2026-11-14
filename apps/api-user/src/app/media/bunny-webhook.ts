@@ -18,7 +18,7 @@ import { NoRoleRequired } from '@heisreal/roles';
 import { SecretsService, withTimeout } from '@heisreal/secrets';
 import type { Request } from 'express';
 import type { Surreal } from 'surrealdb';
-import { VIDEO_ID } from '../stories/bunny-stream';
+import { VIDEO_ID } from '@heisreal/story-cards/bunny-stream';
 
 /**
  * Bunny Stream's webhook (`POST /v1/webhooks/bunny`, M2 plan item 13, D78; media-worker-final.html):

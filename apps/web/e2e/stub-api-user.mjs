@@ -73,7 +73,7 @@
 //   story's `reviewTag` (428 / 412), a note of 1–2000 characters, the step allowed from the
 //   story's state (409 `wrong_status`; reject also from hidden by the site, P1-9), `approveAnyway`
 //   Admins only. An Admin's `DELETE /v1/moderation/stories/{id}` (P1-11; Moderators 403) takes the
-//   story out of that session (428 / 412 on `If-Match` as above). A story sent back or
+//   story out of that session (no `If-Match`, DEL-3). A story sent back or
 //   rejected is no longer found. Fixed refusals: `mod_raced` was just decided by another
 //   moderator (409 `already_decided`), `mod_cooldown`'s video was uploaded recently (409
 //   `media_recently_uploaded`, even for an Admin), `mod_processing`'s audio is still being
@@ -1038,16 +1038,12 @@ async function decideStory(req, res, token, id, route) {
 }
 
 /** `DELETE /v1/moderation/stories/{id}`: an Admin's Delete (P1-11), as api-admin's. */
-function deleteModerated(req, res, token, id) {
+function deleteModerated(res, token, id) {
   if (roleOf(token) !== 'Admin')
     return problem(res, 403, 'Forbidden', 'role_required');
   const story = moderationFor(token).get(id);
   if (!story) return problem(res, 404, 'Not found', 'not_found');
-  const ifMatch = req.headers['if-match'];
-  if (!ifMatch)
-    return problem(res, 428, 'Precondition required', 'if_match_required');
-  if (ifMatch !== `"${tagOf(story)}"`)
-    return problem(res, 412, 'Precondition failed', 'stale_version');
+  // No If-Match (DEL-3): the story goes whatever changed since the page was opened.
   moderationFor(token).delete(id);
   res.writeHead(204, { 'cache-control': 'no-store' });
   return res.end();
@@ -2649,7 +2645,7 @@ createServer(async (req, res) => {
   const reviewed = /^\/v1\/moderation\/stories\/([^/]+)$/.exec(path);
   if (reviewed && req.method === 'DELETE') {
     if (!signedIn()) return;
-    return deleteModerated(req, res, token, decodeURIComponent(reviewed[1]));
+    return deleteModerated(res, token, decodeURIComponent(reviewed[1]));
   }
   if (reviewed && req.method === 'GET') {
     if (!signedIn()) return;

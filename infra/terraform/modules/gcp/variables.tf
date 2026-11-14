@@ -174,6 +174,25 @@ variable "api_admin_media_signing" {
   }
 }
 
+variable "api_admin_story_deletes" {
+  description = <<-EOT
+    An Admin's Delete (DEL-1, Joel 2026-11-14): api-admin deletes the story's
+    videos at Bunny Stream and its picture folder in the images zone at once, with
+    the library key (bunny-stream-api-key) and the zone password
+    (bunny-storage-password), named here, never their values. Reuses the library
+    in api_public_read_media and the zone in api_user_image_uploads (both must be
+    set). The bunny root must already let api-admin read those two secrets
+    (stream_key_readers, storage_password_readers): a revision that can't read
+    them doesn't start. false = the files wait for the nightly clean-up.
+  EOT
+  type        = bool
+  default     = false
+  validation {
+    condition     = !var.api_admin_story_deletes || (var.api_public_read_media != null && var.api_user_image_uploads != null)
+    error_message = "api_admin_story_deletes needs api_public_read_media (the Stream library id) and api_user_image_uploads (the images zone)."
+  }
+}
+
 variable "api_user_uploads" {
   description = <<-EOT
     Video and audio uploads (M2 plan PR 7): api-user creates each story's Bunny

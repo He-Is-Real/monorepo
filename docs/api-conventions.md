@@ -46,7 +46,8 @@ brackets).
   `/v1/moderation/stories/{id}/approve`, `request-changes`, `reject`, `hide`, `show`) take the
   answer's `reviewTag` in `If-Match` instead of a version (G14 B): it stands for the story's
   newest status entry and the files the page showed, so background work that only bumps the
-  version doesn't refuse a decision. It names nobody: no account id, and no user id on its status
+  version doesn't refuse a decision. An Admin's Delete (`DELETE /v1/moderation/stories/{id}`)
+  takes no `If-Match` (DEL-3, Joel 2026-11-14): it deletes the story as it is now. It names nobody: no account id, and no user id on its status
   log.
 - **The account bootstrap:** web's header calls `GET /v1/account` once each time a page loads
   signed in. The first call creates the person's `user` row (so staff can use `api-admin`), and
