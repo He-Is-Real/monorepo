@@ -5,15 +5,17 @@ import { BEHAVIOUR_DEVICES } from './devices';
 import { expectAllTargets, expectNoHorizontalOverflow } from './helpers';
 import { fixtureToken, STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 
-// The moderators' pages (M3 plan PRs 1 and 6): /moderation lists the stories waiting for review,
-// oldest sent first, and /moderation/{id} shows one as the public would see it (the story page's
+// The moderators' pages (M3 plan PRs 1 and 6; MD-1 to MD-4): /moderation lists every story that
+// isn't public, one state at a time (opening on waiting for review, oldest sent first; drafts
+// never sent for Admins only), optionally one theme, and /moderation/{id} shows one as the public would see it (the story page's
 // own parts, with the player's speed menu), what the moderator can do with it, and its history
 // with moderators' notes. Approve, Send back and Reject a waiting story (a note for the last two),
 // Take down a published one and Show it again (G5); refusals in plain words; the first decision
 // wins (D-1); only an Admin approves anyway, never in the upload-link hour (G11 B, G24).
 // Moderators and up only; the admin menu shows Moderation to them. The pages fit every device;
 // the behaviour runs on one phone and one desktop. The stub api-admin (stub-api-user.mjs) serves
-// one fixed queue and keeps each session's decisions; sessions starting `moderator` are
+// fixed stories and keeps each session's decisions; a published story's public page offers its
+// Take down to moderators only (MD-1); sessions starting `moderator` are
 // Moderators, `admin` Admins.
 
 async function useSession(page: Page, session: string) {
@@ -26,14 +28,19 @@ async function useSession(page: Page, session: string) {
 /** A session of its own (the stub keeps each session's decisions): `prefix` sets the role. */
 const fresh = (prefix: string) => `${prefix}-${randomUUID()}`;
 
-const queueItems = (page: Page) => page.locator('[data-queue-item]');
+const listItems = (page: Page) => page.locator('[data-list-item]');
+const states = (page: Page) => page.locator('[data-list-state]');
 
 test('/moderation and a story under review fit, with 44 px targets', async ({
   page,
 }) => {
   await useSession(page, 'moderator-fit');
   await page.goto(`${WEB_SIGNED_IN_URL}/moderation`);
-  await expect(queueItems(page)).toHaveCount(20);
+  await expect(listItems(page)).toHaveCount(20);
+  await expectNoHorizontalOverflow(page);
+  await expectAllTargets(page);
+  await page.goto(`${WEB_SIGNED_IN_URL}/moderation?state=hidden`);
+  await expect(listItems(page)).toHaveCount(2);
   await expectNoHorizontalOverflow(page);
   await expectAllTargets(page);
   for (const id of [
@@ -64,7 +71,7 @@ test.describe('moderation', () => {
     );
   });
 
-  test('a moderator opens the queue, oldest first, and reads a story with its history', async ({
+  test('a moderator opens the list on waiting stories, oldest first, and reads a story with its history', async ({
     page,
   }) => {
     await useSession(page, 'moderator-reads');
@@ -76,22 +83,28 @@ test.describe('moderation', () => {
     const menu = page.getByRole('navigation', { name: 'Admin pages' });
     await expect(menu.getByRole('link')).toHaveText(['Moderation']);
 
-    await expect(queueItems(page)).toHaveCount(20);
-    await expect(queueItems(page).first()).toContainText(
-      'The night I stopped running',
-    );
-    await expect(queueItems(page).first()).toContainText(
-      'Video · sent 1 November 2026 at 09:05',
+    await expect(page.getByLabel('Show')).toHaveValue('pending');
+    await expect(listItems(page)).toHaveCount(20);
+    const first = listItems(page).first();
+    await expect(first).toContainText('The night I stopped running');
+    await expect(first).toContainText('Video');
+    await expect(first).toContainText('Waiting for review');
+    await expect(first).toContainText('Healing');
+    await expect(first.locator('[data-list-dates]')).toHaveText(
+      'Sent 1 November 2026 at 09:05',
     );
     await page.getByRole('button', { name: 'Show more' }).click();
-    await expect(queueItems(page)).toHaveCount(24);
-    await expect(queueItems(page).last()).toContainText('Waiting story 24');
+    await expect(listItems(page)).toHaveCount(26);
+    await expect(listItems(page).last()).toContainText('Just uploaded');
     await expect(page.getByRole('button', { name: 'Show more' })).toHaveCount(
       0,
     );
 
     // A written story sent back once with a note, then sent again.
-    await page.locator('[data-queue-item="mod_written"]').click();
+    await page
+      .locator('[data-list-item="mod_written"]')
+      .getByRole('link')
+      .click();
     await expect(page).toHaveURL(/\/moderation\/mod_written$/);
     await expect(
       page.getByRole('heading', {
@@ -120,8 +133,11 @@ test.describe('moderation', () => {
     await expect(history.nth(2)).toContainText('Sent again by the person');
 
     // A video plays in Bunny's player with its speed menu on.
-    await page.getByRole('link', { name: '← Back to the queue' }).click();
-    await page.locator('[data-queue-item="mod_video"]').click();
+    await page.getByRole('link', { name: '← Back to the list' }).click();
+    await page
+      .locator('[data-list-item="mod_video"]')
+      .getByRole('link')
+      .click();
     const player = page.locator('[data-player] iframe');
     await expect(player).toHaveAttribute('src', /[?&]showSpeed=true(&|$)/);
     await expect(player).toHaveAttribute('src', /[?&]autoplay=false(&|$)/);
@@ -165,7 +181,11 @@ test.describe('moderation', () => {
     await expect(notice(page)).toHaveText(
       'Sent back. The person can read your note.',
     );
-    await expect(page.locator('[data-review-gone]')).toBeVisible();
+    // Still open to moderators (MD-4), with nothing to decide.
+    await expect(page.locator('[data-review-status]')).toHaveText(
+      'Sent back by a moderator',
+    );
+    await expect(decisions(page)).toHaveCount(0);
 
     // Cancel closes the note without deciding.
     await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_long_title`);
@@ -190,7 +210,8 @@ test.describe('moderation', () => {
     await expect(notice(page)).toHaveText(
       'Another moderator has already decided this story.',
     );
-    await expect(page.locator('[data-review-gone]')).toBeVisible();
+    await expect(page.locator('[data-review-status]')).toHaveText('Rejected');
+    await expect(decisions(page)).toHaveCount(0);
   });
 
   test('approval waits for the media, in plain words; only an Admin approves anyway, never in the upload-link hour', async ({
@@ -268,11 +289,125 @@ test.describe('moderation', () => {
     await expect(page.locator('[data-player]')).toHaveCount(0);
   });
 
-  test('a story no longer waiting for review says so', async ({ page }) => {
+  test('a story that’s gone says so', async ({ page }) => {
     await useSession(page, 'moderator-gone');
     await page.goto(`${WEB_SIGNED_IN_URL}/moderation/no_such_story`);
     await expect(page.locator('[data-review-gone]')).toContainText(
-      'This story isn’t waiting for review.',
+      'This story isn’t here any more.',
+    );
+  });
+
+  // MD-3 and MD-4: every story that isn't public, by state and theme; drafts for Admins only.
+  test('a moderator lists each state that isn’t public, and one theme', async ({
+    page,
+  }) => {
+    await useSession(page, 'moderator-states');
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation`);
+    const show = page.getByLabel('Show');
+    await expect(show.locator('option')).toHaveText([
+      'Waiting for review',
+      'Being edited',
+      'Taken down',
+      'Rejected',
+    ]);
+    await show.selectOption('editing');
+    await expect(page).toHaveURL(/\/moderation\?state=editing$/);
+    await expect(states(page)).toHaveText([
+      'State: Sent back by a moderator',
+      'State: Being edited by the person',
+    ]);
+    await show.selectOption('hidden');
+    await expect(states(page)).toHaveText([
+      'State: Hidden by the site while its video or audio can’t play',
+      'State: Taken down by a moderator',
+    ]);
+    await expect(
+      listItems(page).last().locator('[data-list-dates]'),
+    ).toContainText('Taken down');
+    await show.selectOption('rejected');
+    await expect(states(page)).toHaveText(['State: Rejected']);
+    // A rejected story opens read only, with its history.
+    await listItems(page).first().getByRole('link').click();
+    await expect(page.locator('[data-review-status]')).toHaveText('Rejected');
+    await expect(page.locator('[data-decisions]')).toHaveCount(0);
+    await expect(page.locator('[data-history-entry]')).toHaveCount(2);
+
+    // One theme: only waiting stories about Healing; pressed again, all of them.
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation`);
+    const themes = page.getByRole('navigation', { name: 'Themes' });
+    await themes.getByRole('link', { name: 'Healing' }).click();
+    await expect(page).toHaveURL(/\/moderation\?theme=healing$/);
+    await expect(listItems(page)).toHaveCount(1);
+    await expect(listItems(page)).toContainText('The night I stopped running');
+    await show.selectOption('editing');
+    await expect(page).toHaveURL(/state=editing&theme=healing$/);
+    await expect(page.locator('[data-list-empty]')).toHaveText(
+      'No stories here.',
+    );
+    await themes.getByRole('link', { name: 'Healing' }).click();
+    await expect(listItems(page)).toHaveCount(2);
+
+    // Drafts never sent aren't a moderator's, even by address.
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation?state=draft`);
+    await expect(show).toHaveValue('pending');
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_draft`);
+    await expect(page.locator('[data-review-gone]')).toBeVisible();
+  });
+
+  test('an Admin also lists drafts never sent, and opens one', async ({
+    page,
+  }) => {
+    await useSession(page, 'admin-drafts');
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation`);
+    await page.getByLabel('Show').selectOption('draft');
+    await expect(listItems(page)).toHaveCount(1);
+    await expect(states(page)).toHaveText(['State: Draft, never sent']);
+    await listItems(page).first().getByRole('link').click();
+    await expect(page.locator('[data-review-status]')).toHaveText(
+      'Draft, never sent',
+    );
+    await expect(page.getByRole('main')).toContainText('Never sent for review');
+    await expect(page.locator('[data-decisions]')).toHaveCount(0);
+  });
+
+  // MD-1: Take down on the story's public page, for moderators only.
+  test('a moderator takes a story down from its public page; others never see the button', async ({
+    page,
+  }) => {
+    const story = `${WEB_SIGNED_IN_URL}/stories/test-story-walking-skeleton`;
+    const takeDown = page.locator('[data-take-down]');
+    // A visitor, and a signed-in User, see the story with no Take down.
+    await page.goto('/stories/test-story-walking-skeleton');
+    await expect(page.locator('[data-story-text]')).toBeVisible();
+    await expect(takeDown).toHaveCount(0);
+    await useSession(page, 'user-reader');
+    await page.goto(story);
+    await expect(
+      page.getByRole('button', { name: /^Account: / }),
+    ).toBeVisible();
+    await expect(page.locator('[data-story-text]')).toBeVisible();
+    await expect(takeDown).toHaveCount(0);
+
+    await useSession(page, fresh('moderator-public'));
+    await page.goto(story);
+    await takeDown.getByRole('button', { name: 'Take down' }).click();
+    const reason = page.getByLabel('Why it’s being taken down');
+    await expect(reason).toBeFocused();
+    await expect(takeDown).toContainText('The person can read this');
+    const confirm = takeDown.getByRole('button', { name: 'Take down' });
+    await expect(confirm).toBeDisabled();
+    await reason.fill('Someone named in it asked us to check it first.');
+    await expectNoHorizontalOverflow(page);
+    await confirm.click();
+    await expect(page.locator('[data-take-down-notice]')).toHaveText(
+      'Taken down. It stays off the site until a moderator shows it again.',
+    );
+    await takeDown.getByRole('link', { name: 'Open its review page' }).click();
+    await expect(page.locator('[data-review-status]')).toHaveText(
+      'Taken down by a moderator',
+    );
+    await expect(page.locator('[data-history-entry]').last()).toContainText(
+      'Someone named in it asked us to check it first.',
     );
   });
 
@@ -280,7 +415,7 @@ test.describe('moderation', () => {
     page,
   }) => {
     await useSession(page, 'moderator-fails');
-    await page.route('**/v1/moderation/queue', (route) =>
+    await page.route('**/v1/moderation/stories?*', (route) =>
       route.fulfill({
         status: 500,
         contentType: 'application/problem+json',
@@ -307,7 +442,7 @@ test.describe('moderation', () => {
       await expect(page.locator('[data-admin-refused]')).toHaveText(
         'This page is for moderators.',
       );
-      await expect(page.locator('[data-queue-item]')).toHaveCount(0);
+      await expect(page.locator('[data-list-item]')).toHaveCount(0);
       await expect(page.locator('[data-history]')).toHaveCount(0);
       // Nor any staff link in the menu.
       await expect(
@@ -321,7 +456,7 @@ test.describe('moderation', () => {
   }) => {
     await useSession(page, 'admin-menu');
     await page.goto(`${WEB_SIGNED_IN_URL}/moderation`);
-    await expect(queueItems(page)).toHaveCount(20);
+    await expect(listItems(page)).toHaveCount(20);
     await expect(
       page.getByRole('navigation', { name: 'Admin pages' }).getByRole('link'),
     ).toHaveText([
@@ -380,12 +515,25 @@ test('the stub api-admin’s moderation answers fit the contract', async ({
     ).toEqual([]);
     return { status: res.status(), body: text ? JSON.parse(text) : undefined };
   };
-  const first = await check('/v1/moderation/queue');
+  const first = await check('/v1/moderation/stories');
   const second = await check(
-    `/v1/moderation/queue?cursor=${first.body.nextCursor}`,
+    `/v1/moderation/stories?cursor=${first.body.nextCursor}`,
   );
-  for (const s of [...first.body.data, ...second.body.data]) {
-    expect((await check(`/v1/moderation/stories/${s.id}`)).status).toBe(200);
+  const listed = [...first.body.data, ...second.body.data];
+  for (const state of ['editing', 'hidden', 'rejected']) {
+    listed.push(
+      ...(await check(`/v1/moderation/stories?state=${state}`)).body.data,
+    );
+  }
+  listed.push(
+    ...(
+      await check('/v1/moderation/stories?state=draft', fresh('admin-contract'))
+    ).body.data,
+  );
+  for (const s of listed) {
+    expect((await check(`/v1/moderation/stories/${s.id}`)).status).toBe(
+      s.state === 'draft' ? 404 : 200,
+    );
   }
   // An Admin's view carries the address it was sent from (block list).
   expect(
@@ -395,7 +543,12 @@ test('the stub api-admin’s moderation answers fit the contract', async ({
   for (const id of ['mod_published', 'mod_taken_down']) {
     expect((await check(`/v1/moderation/stories/${id}`)).status).toBe(200);
   }
-  expect((await check('/v1/moderation/queue?limit=0')).status).toBe(400);
+  expect(
+    (await check('/v1/moderation/stories/mod_draft', fresh('admin-contract')))
+      .status,
+  ).toBe(200);
+  expect((await check('/v1/moderation/stories?limit=0')).status).toBe(400);
+  expect((await check('/v1/moderation/stories?state=draft')).status).toBe(403);
   // The decisions' answers too: applied, a missing note, a stale tag, a refusal.
   const post = async (path: string, body: unknown, ifMatch?: string) => {
     const res = await request.post(`${STUB_USER_URL}${path}`, {
@@ -450,5 +603,5 @@ test('the stub api-admin’s moderation answers fit the contract', async ({
     ),
   ).toBe(409);
   expect((await check('/v1/moderation/stories/no_such')).status).toBe(404);
-  expect((await check('/v1/moderation/queue', 'user-x')).status).toBe(403);
+  expect((await check('/v1/moderation/stories', 'user-x')).status).toBe(403);
 });

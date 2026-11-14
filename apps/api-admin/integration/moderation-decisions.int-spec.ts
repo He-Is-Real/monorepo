@@ -198,7 +198,7 @@ describe('moderation, the decisions (api-admin)', () => {
       ).status,
     ).toBe(200);
     expect(await statusOf(migrator, back)).toBe('editing');
-    // The person reads the note, trimmed; the story is no longer the moderators' to open.
+    // The person reads the note, trimmed; moderators still open it (MD-4), with nothing to decide.
     expect(
       await rows(
         ann,
@@ -206,9 +206,8 @@ describe('moderation, the decisions (api-admin)', () => {
         { id: back },
       ),
     ).toEqual([NOTE]);
-    expect((await call('GET', `/v1/moderation/stories/${back}`)).status).toBe(
-      404,
-    );
+    const sentBack = await call('GET', `/v1/moderation/stories/${back}`);
+    expect([sentBack.status, sentBack.body.status]).toEqual([200, 'editing']);
 
     const no = await waiting();
     const opened = await open(no);

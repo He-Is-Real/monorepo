@@ -27,6 +27,8 @@ import { fixtureToken, STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 const PROFILE = `${WEB_SIGNED_IN_URL}/account`;
 const FEEDBACK =
   'Thank you for sharing this. We felt it needs a little more about what changed for you.';
+const TAKE_DOWN_REASON =
+  'Someone named in your story asked us to check it with you first.';
 const LONG =
   'When everything I had built came apart in a single winter and I could not find a reason to carry on Supercalifragilisticexpialidociously';
 
@@ -82,6 +84,7 @@ const EVERY_STATUS = [
     title: 'Taken down one',
     submittedAt: SENT,
     takenDown: true,
+    rejectionFeedback: TAKE_DOWN_REASON,
   },
   {
     id: 's_rejected',
@@ -215,13 +218,17 @@ test.describe('behaviour', () => {
       status: 'Not accepted',
       actions: ['Preview', 'Delete'],
     });
-    // The moderator's note, under "What our team said", while sent back or not accepted.
+    // The moderator's note, under "What our team said", while sent back or not accepted, and
+    // why a moderator took it down (MD-2).
     for (const title of ['Sent back one', 'Not accepted one']) {
       await expect(row(page, title).locator('[data-feedback]')).toContainText(
         `What our team said${FEEDBACK}`,
       );
     }
-    await expect(page.locator('[data-feedback]')).toHaveCount(2);
+    await expect(
+      row(page, 'Taken down one').locator('[data-feedback]'),
+    ).toContainText(`What our team said${TAKE_DOWN_REASON}`);
+    await expect(page.locator('[data-feedback]')).toHaveCount(3);
     // A draft or a story being edited says when it goes if nobody touches it, and a rejected
     // story when it goes (G3 B); nothing waiting, published or hidden does.
     await expect(

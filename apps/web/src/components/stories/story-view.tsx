@@ -209,9 +209,12 @@ export function StoryArticle({
 export function StoryView({
   story,
   related,
+  staff,
 }: {
   story: PublicStory;
   related: StorySummary[];
+  /** Staff-only controls the browser fills in (MD-1: Take down), after the story's text. */
+  staff?: React.ReactNode;
 }) {
   const written = story.primaryFormat === 'written';
   return (
@@ -233,7 +236,12 @@ export function StoryView({
           <ShareMenu title={story.title} />
         </div>
       }
-      after={<KeepExploring related={related} />}
+      after={
+        <>
+          {staff}
+          <KeepExploring related={related} />
+        </>
+      }
     />
   );
 }

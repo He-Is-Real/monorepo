@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound, permanentRedirect } from 'next/navigation';
+import { StoryTakeDown } from '@/components/moderation/story-take-down';
 import { RestartingMessage } from '@/components/restarting/restarting-message';
 import { StoryView } from '@/components/stories/story-view';
 import { getRelatedStories, type StorySummary } from '@/lib/browse';
@@ -9,6 +10,7 @@ import {
   type PublicStory,
   StoriesUnavailableError,
 } from '@/lib/public-stories';
+import { apiAdminUrl } from '@/lib/config';
 import { logStoriesUnavailable } from '@/lib/log';
 import { jsonLdScript, pageMetadata } from '@/lib/seo';
 
@@ -103,7 +105,12 @@ export default async function StoryPage({ params }: Props) {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: jsonLdScript(articleJsonLd(story)) }}
       />
-      <StoryView story={story} related={await related(story.slug)} />
+      <StoryView
+        story={story}
+        related={await related(story.slug)}
+        // MD-1: Take down for moderators, filled in by their browser; the same page for everyone.
+        staff={<StoryTakeDown storyId={story.id} apiAdminUrl={apiAdminUrl()} />}
+      />
     </main>
   );
 }

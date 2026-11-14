@@ -2,20 +2,75 @@ import { ApiUserProblem, NotSignedIn, StaleVersion } from '@/lib/api-user';
 import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 import type { MediaPlayback, StoryImage } from '@/lib/public-stories';
 
-/** api-admin's `ModerationQueueItem` (M3 task 3.1). */
-export interface QueueItem {
+/**
+ * The moderators' list's states (MD-3, Joel 2026-11-14): every story that isn't public, one at a
+ * time; `draft` (never sent) is for Admins only. The list opens on `pending`.
+ */
+export const LIST_STATES = [
+  { state: 'pending', label: 'Waiting for review', admin: false },
+  { state: 'editing', label: 'Being edited', admin: false },
+  { state: 'hidden', label: 'Taken down', admin: false },
+  { state: 'rejected', label: 'Rejected', admin: false },
+  { state: 'draft', label: 'Drafts never sent', admin: true },
+] as const;
+export type ListState = (typeof LIST_STATES)[number]['state'];
+
+export const isListState = (s: string | undefined): s is ListState =>
+  LIST_STATES.some((l) => l.state === s);
+
+/** api-admin's `ModerationListItem` (MD-4): one row of the list. */
+export interface ListItem {
   id: string;
-  version: number;
-  status: string;
+  state: ListState;
+  /** What put it in this state (its current status entry); null for a draft. */
+  action: string | null;
   title: string;
   primaryFormat: 'video' | 'audio' | 'written';
-  submittedAt: string;
+  themes: { id: string; name: string }[];
+  /** When it entered this state (a draft: when it was started); the list's order. */
+  since: string;
+  sentAt: string | null;
+  updatedAt: string;
 }
 
-export interface QueuePage {
-  data: QueueItem[];
+export interface ListPage {
+  data: ListItem[];
   nextCursor: string | null;
 }
+
+/** What a row (and the review page) says the story is, from its state and what put it there. */
+export function stateLabel(state: string, action: string | null): string {
+  switch (state) {
+    case 'pending':
+      return 'Waiting for review';
+    case 'approved':
+      return 'Published';
+    case 'rejected':
+      return 'Rejected';
+    case 'draft':
+      return 'Draft, never sent';
+    case 'hidden':
+      return action === 'hiddenByModerator'
+        ? 'Taken down by a moderator'
+        : 'Hidden by the site while its video or audio can’t play';
+    case 'editing':
+      return action === 'changesRequested'
+        ? 'Sent back by a moderator'
+        : action === 'fileUnusable'
+          ? 'Sent back: its file can’t be used'
+          : 'Being edited by the person';
+  }
+  return state;
+}
+
+/** What the row's "since" date means, by state. */
+export const SINCE_LABEL: Record<ListState, string> = {
+  pending: 'Sent',
+  editing: 'Since',
+  hidden: 'Taken down',
+  rejected: 'Rejected',
+  draft: 'Started',
+};
 
 /** api-admin's `ModerationStatusEntry`. */
 export interface StatusEntry {
@@ -31,8 +86,11 @@ export interface StatusEntry {
 export interface ModerationStory {
   id: string;
   version: number;
-  /** Waiting for review, published, or hidden (G5). */
-  status: 'pending' | 'approved' | 'hidden';
+  /**
+   * Waiting for review, published, or hidden (G5): something to decide. Being edited (a draft
+   * when `submittedAt` is null, Admins only) or rejected: read only (MD-4).
+   */
+  status: 'editing' | 'pending' | 'approved' | 'hidden' | 'rejected';
   title: string;
   description: string;
   body: string | null;
@@ -44,7 +102,8 @@ export interface ModerationStory {
   })[];
   image: StoryImage | null;
   themes: { id: string; name: string }[];
-  submittedAt: string;
+  /** When it was last sent; null for a draft never sent. */
+  submittedAt: string | null;
   /** The IP address it was last sent from: Admins only, for 30 days (block list); else null. */
   senderIp: string | null;
   /** What a decision names in `If-Match` (G14 B). */

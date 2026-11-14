@@ -38,8 +38,9 @@ brackets).
   route gives counts. Signed out, hearts stay in the browser (Joel, 2026-10-28); their cards
   come from api-public-read's anonymous `GET /v1/stories?id=…` (up to 50 ids), through web's
   server like every other card.
-- **Moderation (M3):** the browser's staff pages call api-admin's `GET /v1/moderation/queue` and
-  `GET /v1/moderation/stories/{id}` (Moderator and up). The review answer signs the story's
+- **Moderation (M3):** the browser's staff pages call api-admin's `GET /v1/moderation/stories`
+  (the moderators' list: `state`, `theme`, pages; drafts never sent Admin only) and
+  `GET /v1/moderation/stories/{id}` (Moderator and up; a draft never sent Admin only). The review answer signs the story's
   player and picture for one hour from that answer (M3 plan concern C6), so it carries a weak
   `ETag` of the answer itself, not the story's version. Its decisions (POST
   `/v1/moderation/stories/{id}/approve`, `request-changes`, `reject`, `hide`, `show`) take the
@@ -105,7 +106,7 @@ short-lived upload credentials.
 **Naming rules:**
 
 - Collections are plural nouns (`/stories`, `/themes`, `/concerns`); the method says
-  what happens. Singletons are singular (`/account`, `/feed`, `/moderation/queue`).
+  what happens. Singletons are singular (`/account`, `/feed`).
 - A verb only as the last segment of a state-changing `POST` that isn't create/replace/delete:
   `/submit`, `/edit`, `/approve`, `/reject`, `/request-changes`, `/publish`. Never a verb in a `GET`, never `/getStories`.
 - The person's relationships live under `/account` by the related item's ID, with `PUT`/`DELETE`:

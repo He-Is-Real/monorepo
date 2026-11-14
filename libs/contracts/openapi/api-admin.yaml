@@ -3,12 +3,12 @@ info:
   title: He Is Real Today — api-admin
   version: 1.0.0-draft
   description: |
-    **Moderation and admin.** The moderation queue and decisions, flag triage, the staff list and roles, theme
+    **Moderation and admin.** The moderators' list and decisions, flag triage, the staff list and roles, theme
     curation, and new versions of the four legal texts (plan 4e). Its own service and database login (D13, D33). No featured or
     pinned stories (Joel, 2026-10-23: unfair to everyone else).
 
     - Clerk JWT on every route, with a minimum role (`x-required-role`) checked on each one
-      (Moderator for the moderation queue; Admin for everything else, G24). Called directly by the browser (D31).
+      (Moderator for moderation; Admin for everything else, G24). Called directly by the browser (D31).
       The role is the session token's `role` claim (Clerk `publicMetadata.role`, D1); below the minimum
       is `403` with code `role_required`. api-admin never creates `user` records (D13): a person
       without one (no api-user call yet) gets `403` with code `unknown_person`.
@@ -39,7 +39,7 @@ tags:
   - name: Health
     description: 'Liveness and readiness.'
   - name: Moderation
-    description: 'The queue, decisions and flags.'
+    description: 'The moderators’ list, decisions and flags.'
   - name: Admin
     description: 'Users (M5).'
   - name: Staff
@@ -71,25 +71,49 @@ paths:
           $ref: './components.yaml#/components/responses/HealthDown'
 
   # ------------------------------------------------------------------ moderation
-  /v1/moderation/queue:
+  /v1/moderation/stories:
     get:
       tags: [Moderation]
-      operationId: getModerationQueue
-      summary: Pending submissions, oldest first
+      operationId: listModerationStories
+      summary: The moderators' list of stories that aren't public
       description: |
-        M3 (task 3.1): the stories waiting for review (their current status is `pending`), oldest
-        sent first (then by entry), from the status log's (status, at) index. Moderator and above
-        (D1: the role is checked here; the database knows moderators only as api-admin's login,
-        M3 plan concern C2).
+        MD-3 and MD-4 (Joel, 2026-11-14): one list for Moderators and Admins, replacing the old
+        queue, of every story that is not on the site, one state at a time (`state`, default
+        `pending`), optionally only stories with one theme (`theme`). Oldest first by when the
+        story entered its state (for `pending`: when it was sent, the old queue's order), then by
+        entry. Each row opens `GET /v1/moderation/stories/{id}`.
+        - `pending`: waiting for review.
+        - `editing`: being edited after it was sent (sent back by a moderator or by the system, or
+          its owner pressed Edit; `action` says which).
+        - `hidden`: taken down (`action`: `hiddenByModerator`, or `hiddenBySystem` while its video
+          or audio can't play).
+        - `rejected`.
+        - `draft`: never sent. Admin only (MD-3, "visibility of users who might be preparing spam
+          or other malicious activities"); a Moderator gets `403` `role_required`.
+        Moderator and above (D1: the role is checked here; the database knows moderators only as
+        api-admin's login, M3 plan concern C2).
       x-required-role: Moderator
       x-milestone: M3
       parameters:
+        - name: state
+          in: query
+          description: Which stories (default `pending`). `draft` is Admin only.
+          schema:
+            type: string
+            enum: [pending, editing, hidden, rejected, draft]
+            default: pending
+        - name: theme
+          in: query
+          description: Only stories with this theme (a theme id, as browse takes it).
+          schema:
+            type: string
+            pattern: '^[0-9A-Za-z_]{1,40}$'
         - $ref: './components.yaml#/components/parameters/limit'
         - $ref: './components.yaml#/components/parameters/cursor'
         - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
-          description: A page of the queue.
+          description: A page of the list.
           headers:
             ETag:
               $ref: './components.yaml#/components/headers/CollectionETag'
@@ -105,7 +129,7 @@ paths:
                       data:
                         type: array
                         items:
-                          $ref: './components.yaml#/components/schemas/ModerationQueueItem'
+                          $ref: './components.yaml#/components/schemas/ModerationListItem'
         '304':
           $ref: './components.yaml#/components/responses/NotModified'
         '400':
@@ -123,10 +147,11 @@ paths:
       operationId: getModerationStory
       summary: A story under moderation
       description: |
-        M3 (task 3.2; M3 plan PR 6): one story waiting for review (`pending`), published
-        (`approved`) or hidden (`hidden`, G5), with one-hour signed links to its player and picture
-        (M3 plan concern C6). Any other status (being edited, a draft, rejected), or no such
-        story, is `404`. Moderator and above (D1, M3 plan concern C2). The links change on every
+        M3 (task 3.2; M3 plan PR 6; MD-1, MD-4): one story in any state, with one-hour signed links
+        to its player and picture (M3 plan concern C6): what the moderators' list opens, and what
+        the Take down button on a published story's public page reads first. A draft never sent
+        opens for Admins only (MD-3); to a Moderator, like no such story, it is `404`. Moderator
+        and above (D1, M3 plan concern C2). The links change on every
         answer, so the `ETag` is a hash of this answer, not the story's version; decisions take
         `reviewTag` in `If-Match` (G14 B).
       x-required-role: Moderator

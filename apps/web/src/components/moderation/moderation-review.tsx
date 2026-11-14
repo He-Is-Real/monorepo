@@ -18,6 +18,7 @@ import {
   moderationProblem,
   type Refusal,
   sentAt,
+  stateLabel,
   type StatusEntry,
 } from './moderation-api';
 
@@ -53,26 +54,35 @@ const ACTOR_LABEL: Record<StatusEntry['actor'], string> = {
   system: 'automatically',
 };
 
-/** What the page says the story is now; a hidden one says who hid it (its newest moving entry). */
+/** Entries that record a change without moving the story (they carry its state as it was). */
+const HISTORY_ONLY = ['fileReplaced', 'pictureReplaced', 'wordsChanged'];
+
+/** What the page says the story is now, from its newest entry that moved it (MD-4's labels). */
 function statusLabel(story: ModerationStory): string {
-  if (story.status === 'pending') return 'Waiting for review';
-  if (story.status === 'approved') return 'Published';
-  const hid = [...story.statusLog]
+  if (story.status === 'editing' && !story.submittedAt) {
+    return stateLabel('draft', null);
+  }
+  const moved = [...story.statusLog]
     .reverse()
-    .find(
-      (e) => e.action === 'hiddenByModerator' || e.action === 'hiddenBySystem',
-    );
-  return hid?.action === 'hiddenByModerator'
-    ? 'Taken down by a moderator'
-    : 'Hidden while its video or audio can’t play';
+    .find((e) => !HISTORY_ONLY.includes(e.action));
+  return stateLabel(story.status, moved?.action ?? null);
 }
 
+/** The states with something to decide (G5, G24); the rest are read only (MD-4). */
+const DECIDABLE: ModerationStory['status'][] = [
+  'pending',
+  'approved',
+  'hidden',
+];
+
 /**
- * /moderation/{id} (M3 task 3.2; M3 plan PR 6): one story waiting for review, published or
- * hidden, for Moderators and up (api-admin checks it too, M3 plan concern C2). The story shows as
- * the public would see it, through the story page's own parts, with the player's speed menu on;
- * then what the moderator can do with it (approve, send back or reject a waiting story; hide a
- * published one, G5; show a hidden one again) and its history, with moderators' notes.
+ * /moderation/{id} (M3 task 3.2; M3 plan PR 6; MD-4): one story in any state the moderators'
+ * list shows (drafts never sent for Admins only, MD-3), or a published one, for Moderators and up
+ * (api-admin checks it too, M3 plan concern C2). The story shows as the public would see it,
+ * through the story page's own parts, with the player's speed menu on; then what the moderator
+ * can do with it (approve, send back or reject a waiting story; hide a published one, G5; show a
+ * hidden one again; nothing for one being edited or rejected) and its history, with moderators'
+ * notes.
  */
 export function ModerationReview({
   id,
@@ -165,8 +175,8 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
           className="rounded-2xl border border-border bg-card p-6"
           data-review-gone=""
         >
-          This story isn’t waiting for review.{' '}
-          <Link href="/moderation">Back to the queue</Link>
+          This story isn’t here any more. It may have been deleted.{' '}
+          <Link href="/moderation">Back to the list</Link>
         </p>
       </>
     );
@@ -201,21 +211,27 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
         story={story}
         speedMenu
         dateLine={
-          <>
-            Sent for review{' '}
-            <time dateTime={story.submittedAt}>
-              {sentAt(story.submittedAt)}
-            </time>
-          </>
+          story.submittedAt ? (
+            <>
+              Sent for review{' '}
+              <time dateTime={story.submittedAt}>
+                {sentAt(story.submittedAt)}
+              </time>
+            </>
+          ) : (
+            'Never sent for review'
+          )
         }
         after={
           <>
-            <Decisions
-              key={story.reviewTag}
-              story={story}
-              client={client}
-              onSettled={settled}
-            />
+            {DECIDABLE.includes(story.status) && (
+              <Decisions
+                key={story.reviewTag}
+                story={story}
+                client={client}
+                onSettled={settled}
+              />
+            )}
             <History entries={story.statusLog} />
           </>
         }
@@ -249,9 +265,10 @@ function SenderIp({ ip }: { ip: string | null }) {
 
 /** The form a decision opens: Send back, Reject and Hide need a note; Approve and Show don't. */
 type Open = 'request-changes' | 'reject' | 'hide' | null;
+export type Noted = Exclude<Open, null>;
 
 const NOTED: Record<
-  Exclude<Open, null>,
+  Noted,
   { label: string; hint: string; confirm: string; field: string }
 > = {
   'request-changes': {
@@ -268,11 +285,84 @@ const NOTED: Record<
   },
   hide: {
     label: 'Why it’s being taken down',
-    hint: 'Kept with the story’s history, which the person can read. Their profile says “Taken down by our team”.',
+    hint: 'The person can read this, as “What our team said”, beside “Taken down by our team” on their profile.',
     confirm: 'Take down',
     field: 'reason',
   },
 };
+
+/**
+ * The note a decision needs (1–2000 characters), and its confirm and Cancel buttons: the review
+ * page's, and the Take down form on a published story's own page (MD-1: the same form).
+ * `onSubmit` gets the body to send.
+ */
+export function NoteForm({
+  kind,
+  busy,
+  onSubmit,
+  onCancel,
+}: {
+  kind: Noted;
+  busy: boolean;
+  onSubmit: (body: Record<string, string>) => void;
+  onCancel: () => void;
+}) {
+  const noted = NOTED[kind];
+  const [note, setNote] = useState('');
+  const noteId = useId();
+  const noteRef = useRef<HTMLTextAreaElement>(null);
+  // Opening a note moves to it.
+  useEffect(() => noteRef.current?.focus(), []);
+  const noteLength = [...note.trim()].length;
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (noteLength === 0) return;
+        onSubmit({ [noted.field]: note.trim() });
+      }}
+    >
+      <label htmlFor={noteId} className="mb-1.5 block font-semibold">
+        {noted.label}
+      </label>
+      <p id={`${noteId}-hint`} className="mb-2 text-sm text-secondary-text">
+        {noted.hint}
+      </p>
+      <textarea
+        ref={noteRef}
+        id={noteId}
+        className="min-h-40 w-full rounded-md border border-input bg-input-background px-3 py-2.5 text-base text-foreground outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        maxLength={NOTE_MAX}
+        value={note}
+        required
+        aria-describedby={`${noteId}-hint ${noteId}-count`}
+        onChange={(e) => setNote(e.target.value)}
+      />
+      <p id={`${noteId}-count`} className="mt-1 text-sm text-secondary-text">
+        {noteLength.toLocaleString('en-GB')} /{' '}
+        {NOTE_MAX.toLocaleString('en-GB')} characters
+      </p>
+      <div className="mt-4 flex flex-wrap gap-3">
+        <Button
+          type="submit"
+          className={WRAPPING_BUTTON}
+          disabled={busy || noteLength === 0}
+        >
+          {noted.confirm}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className={WRAPPING_BUTTON}
+          disabled={busy}
+          onClick={onCancel}
+        >
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+}
 
 /**
  * What the moderator can do with the story in its state (G24: Moderators approve, send back,
@@ -291,18 +381,10 @@ function Decisions({
 }) {
   const isAdmin = useRole() === 'Admin';
   const [open, setOpen] = useState<Open>(null);
-  const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<
     (Refusal & { route: DecisionRoute }) | null
   >(null);
-  const noteId = useId();
-  const noteRef = useRef<HTMLTextAreaElement>(null);
-  // Opening a note moves to it.
-  useEffect(() => {
-    if (open) noteRef.current?.focus();
-  }, [open]);
-
   async function decide(route: DecisionRoute, body?: unknown) {
     setBusy(true);
     setRefusal(null);
@@ -323,9 +405,6 @@ function Decisions({
     }
   }
 
-  const noted = open && NOTED[open];
-  const noteLength = [...note.trim()].length;
-
   return (
     <section
       aria-labelledby="decide-heading"
@@ -335,7 +414,7 @@ function Decisions({
       <h2 id="decide-heading" className="mb-4 text-xl font-semibold">
         {story.status === 'pending' ? 'Your decision' : 'On the site'}
       </h2>
-      {!noted && (
+      {!open && (
         <div className="flex flex-wrap gap-3">
           {story.status === 'pending' && (
             <>
@@ -385,59 +464,16 @@ function Decisions({
           )}
         </div>
       )}
-      {noted && open && (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (noteLength === 0) return;
-            void decide(open, { [noted.field]: note.trim() });
+      {open && (
+        <NoteForm
+          kind={open}
+          busy={busy}
+          onSubmit={(body) => void decide(open, body)}
+          onCancel={() => {
+            setOpen(null);
+            setRefusal(null);
           }}
-        >
-          <label htmlFor={noteId} className="mb-1.5 block font-semibold">
-            {noted.label}
-          </label>
-          <p id={`${noteId}-hint`} className="mb-2 text-sm text-secondary-text">
-            {noted.hint}
-          </p>
-          <textarea
-            ref={noteRef}
-            id={noteId}
-            className="min-h-40 w-full rounded-md border border-input bg-input-background px-3 py-2.5 text-base text-foreground outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-            maxLength={NOTE_MAX}
-            value={note}
-            required
-            aria-describedby={`${noteId}-hint ${noteId}-count`}
-            onChange={(e) => setNote(e.target.value)}
-          />
-          <p
-            id={`${noteId}-count`}
-            className="mt-1 text-sm text-secondary-text"
-          >
-            {noteLength.toLocaleString('en-GB')} /{' '}
-            {NOTE_MAX.toLocaleString('en-GB')} characters
-          </p>
-          <div className="mt-4 flex flex-wrap gap-3">
-            <Button
-              type="submit"
-              className={WRAPPING_BUTTON}
-              disabled={busy || noteLength === 0}
-            >
-              {noted.confirm}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className={WRAPPING_BUTTON}
-              disabled={busy}
-              onClick={() => {
-                setOpen(null);
-                setRefusal(null);
-              }}
-            >
-              Cancel
-            </Button>
-          </div>
-        </form>
+        />
       )}
       {refusal && (
         <div role="alert" className="mt-4" data-decision-refused="">
