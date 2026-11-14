@@ -364,6 +364,10 @@ export function UploadPanel({
           }
         }
       }
+      // A new video replaces the story's file once api-user has the request, answered or not
+      // (Codex, PR 228 round 4): the finished record stops vouching for the old file before it's
+      // sent, so a lost answer never leaves the old file's tick and name on "Review and submit".
+      if (k?.done) remember(ready.draftId, null);
       const target = await newUpload(file, ready, request, gone);
       if (!target) return null;
       onCounted();

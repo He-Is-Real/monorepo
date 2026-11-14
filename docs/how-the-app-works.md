@@ -357,7 +357,8 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   under it. The name is kept only in that browser tab, never on our servers: after a reload in
   another tab or on another device, the confirmation is shown without the name. The tick shows
   only when the file is known to have arrived: a picture our server found in storage, or a video
-  or audio file this tab finished uploading or that Bunny has started processing. Otherwise there's
+  or audio file this tab finished uploading (and hasn't since asked to replace) or that Bunny has
+  started processing. Otherwise there's
   no tick but a highlighted line with a button back to the upload step: "Your video may not have
   finished uploading. We'll check when you submit." (another tab or device started it, and
   only submitting asks Bunny), "We couldn't read that video file…" (Bunny couldn't process it),
