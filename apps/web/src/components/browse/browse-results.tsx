@@ -12,6 +12,7 @@ import type { StorySummary } from '@/lib/browse';
 import {
   type BrowseFilters,
   browseHref,
+  favouritesOn,
   parseBrowseSearch,
 } from '@/lib/browse-query';
 import { type CardLayout, type ColumnHeights, layoutFor } from '@/lib/masonry';
@@ -120,7 +121,16 @@ function BrowseList({ filters, cards, nextCursor, pagesLoaded }: ListProps) {
       setStatus('idle');
       // That more loaded, never how many (D62: no story counts anywhere).
       setAnnouncement('More stories loaded.');
-      window.history.replaceState(null, '', browseHref(filters, { pages }));
+      // Keeps "Favourites only" if it was turned on meanwhile, or the address had it before the
+      // browser knew who is signed in (Codex, #223).
+      const favourites = favouritesOn(
+        new URLSearchParams(window.location.search),
+      );
+      window.history.replaceState(
+        null,
+        '',
+        browseHref(filters, { pages, favourites }),
+      );
       return true;
     },
     [filters],

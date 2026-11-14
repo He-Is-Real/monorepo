@@ -322,4 +322,32 @@ test.describe('layout', () => {
       await expectAllTargets(page);
     });
   }
+
+  // Joel, 2026-11-14: on desktop (1280 px and up) the edit box and the preview take twice the
+  // standard content width (800 px) between them, each still within it; phones and tablets keep
+  // the standard column.
+  test('admin consent: the edit box and preview take double width on desktop only', async ({
+    page,
+    request,
+  }) => {
+    await person(page, request, {}, 'admin');
+    await page.goto(`${WEB_SIGNED_IN_URL}/admin/consent`);
+    const panes = page.locator('[data-editor-panes]');
+    await expect(panes).toBeVisible();
+    const width = page.viewportSize()?.width ?? 0;
+    const panesBox = await panes.boundingBox();
+    const edit = await panes.locator('> div').first().boundingBox();
+    const preview = await page.locator('[data-preview]').boundingBox();
+    if (!panesBox || !edit || !preview) throw new Error('not rendered');
+    if (width >= 1280) {
+      // Up to twice 800 px, less the page's padding; the screen's width where it's narrower.
+      expect(panesBox.width).toBeGreaterThan(1100);
+      expect(panesBox.width).toBeLessThanOrEqual(1520);
+      expect(edit.width).toBeLessThanOrEqual(800);
+      expect(preview.width).toBeLessThanOrEqual(800);
+      expect(preview.x).toBeGreaterThan(edit.x + edit.width); // side by side
+    } else {
+      expect(panesBox.width).toBeLessThanOrEqual(800);
+    }
+  });
 });

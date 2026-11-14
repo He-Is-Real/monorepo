@@ -6,7 +6,6 @@ import { Popover } from 'radix-ui';
 import { cloneElement, type ReactElement, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useAccountBootstrap } from '@/components/auth/account-bootstrap';
-import { FAVOURITES_HREF } from '@/components/nav/site-nav';
 import { usePublishPersonalSession } from '@/lib/personal-session';
 import { signInHref } from '@/lib/return-path';
 import { forgetShareStorageExcept } from '@/lib/share-storage';
@@ -21,7 +20,7 @@ export function AccountControl({ apiUserUrl }: { apiUserUrl?: string }) {
   const { isLoaded, isSignedIn, user } = useUser();
   const { userId, getToken } = useAuth();
   useAccountBootstrap(isSignedIn ? userId : null, apiUserUrl, () => getToken());
-  // The rest of the page (hearts, My favourites) learns who is signed in from here (D83).
+  // The rest of the page (hearts, browse's Favourites only) learns who is signed in from here (D83).
   usePublishPersonalSession(
     isLoaded ? (isSignedIn ? userId : null) : undefined,
     apiUserUrl,
@@ -77,7 +76,7 @@ function useForgetOthersShareStorage(
  * avatar, first name, ▾): a compact button no wider than the header's account slot
  * (site-header.tsx), so it never pushes the header onto a second row. The first name shows
  * from 640 px and truncates to fit; phones get the avatar only.
- * It opens a panel with the full name, My profile, My favourites and Sign out. Presentational, so the e2e suite can render
+ * It opens a panel with the full name, My profile and Sign out. Presentational, so the e2e suite can render
  * it without a Clerk session (site-header.tsx, E2E_FIXTURES). `signOut` wraps the Sign out
  * button (Clerk's SignOutButton in the app).
  */
@@ -147,21 +146,6 @@ export function SignedInAccount({
             </svg>
             My profile
           </a>
-          <a
-            href={FAVOURITES_HREF}
-            className="mb-2 flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-              className="size-4 fill-none stroke-current"
-              strokeWidth="2"
-              strokeLinejoin="round"
-            >
-              <path d="M12 20.5s-7.5-4.6-9.2-9.4C1.6 7.7 3.8 4.5 7.2 4.5c2 0 3.6 1.1 4.8 2.8 1.2-1.7 2.8-2.8 4.8-2.8 3.4 0 5.6 3.2 4.4 6.6-1.7 4.8-9.2 9.4-9.2 9.4z" />
-            </svg>
-            My favourites
-          </a>
           {signOut(
             <Button variant="outline" className="h-11 w-full">
               Sign out
@@ -174,34 +158,12 @@ export function SignedInAccount({
 }
 
 /**
- * What a signed-out visitor sees in the header: My favourites, then Sign in. Their hearts are
- * kept in this browser (device-hearts.ts), and this is the way to them (Joel, 2026-11-07); signed
- * in, the account panel has the link instead. The heart alone (with its name for screen readers)
- * until 1024 px, the heart and the words from there, so both fit the account slot.
+ * What a signed-out visitor sees in the header: Sign in. (Favourites are a switch on browse now,
+ * not a page: Joel, 2026-11-14.)
  */
 export function SignedOutAccount() {
-  const pathname = usePathname();
   return (
     <div className="flex min-w-0 flex-wrap items-center justify-end gap-1 sm:gap-2">
-      <a
-        href={FAVOURITES_HREF}
-        aria-label="My favourites"
-        aria-current={pathname === FAVOURITES_HREF ? 'page' : undefined}
-        className="inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-lg text-sm font-medium text-secondary-text transition-colors hover:bg-accent hover:text-foreground aria-[current=page]:text-foreground lg:px-3"
-      >
-        <svg
-          viewBox="0 0 24 24"
-          aria-hidden="true"
-          className="size-5 shrink-0 fill-none stroke-current lg:size-4"
-          strokeWidth="2"
-          strokeLinejoin="round"
-        >
-          <path d="M12 20.5s-7.5-4.6-9.2-9.4C1.6 7.7 3.8 4.5 7.2 4.5c2 0 3.6 1.1 4.8 2.8 1.2-1.7 2.8-2.8 4.8-2.8 3.4 0 5.6 3.2 4.4 6.6-1.7 4.8-9.2 9.4-9.2 9.4z" />
-        </svg>
-        <span aria-hidden="true" className="hidden whitespace-nowrap lg:inline">
-          My favourites
-        </span>
-      </a>
       <SignInLink />
     </div>
   );

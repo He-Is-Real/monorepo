@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 const NEAR_END = '0px 0px 800px 0px';
 
 /**
- * Loading more as the reader nears the end of a list (browse and favourites; Joel, 2026-10-31:
+ * Loading more as the reader nears the end of a list (browse; Joel, 2026-10-31:
  * no page cap). Put `sentinel` on an empty element after the list: while `active`, `onNear`
  * runs when it comes within NEAR_END of the screen. The observer is made again whenever
  * `active` or `round` changes, and a new observer reports at once, so a list that still ends on
