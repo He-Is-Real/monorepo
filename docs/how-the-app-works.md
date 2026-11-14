@@ -261,7 +261,7 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   processed the video or audio file, the review step plays it in Bunny's player, beside the
   picture. Until then it says "Check back later for your video preview." ("…your audio preview."
   for audio), with no waiting or checking again: the person can still send the story, or press
-  "Save as draft" and come back later (after a submission whose answer was lost, "Save as draft"
+  "Save and exit" and come back later (after a submission whose answer was lost, "Save and exit"
   first sends that same submission again, since the person already asked to send it and our server
   may still be working on it: if it went through it shows "Thank you"; if that can't be known yet
   it confirms nothing and asks them to try again). The review step also links to "See your story as others
@@ -271,6 +271,14 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   The links to the person's own video, audio and picture are signed only when that one story is
   read (never in the list, never publicly) and last one hour; reloading gets fresh ones (an answer
   carrying links is never "not modified", so the page never keeps expired ones).
+- **Drafts** (Joel, 2026-11-14: people needn't write their story in one go): each step says what
+  autosave is doing, "Saving…" then "Draft saved". **"Save and exit"** on every step from writing
+  to review waits for the save, then goes to My submissions, where the draft is listed with
+  "Continue". Before a draft can be saved (a written story needs its title and some text, a video
+  or audio story its title) it stays and says what's needed, also for text brought back after a
+  reload; it only leaves straight away when nothing has been typed. If the save fails it stays and
+  says so. A picture still uploading is waited for; a video or audio upload stops and carries on when
+  the person comes back and chooses the same file.
 - **Autosave:** the draft is saved once it has a title and text, then after each pause. If the
   same draft is open in two tabs, each keeps its own changes, and the person is asked only when
   both changed the same thing. Text stays in the tab until the server has it, through reloads and
@@ -330,12 +338,19 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   and the moderator seeing every picture are what stand between an upload and the public.
 - Pictures are converted in the browser before upload, so no location or camera data leaves the
   device: WebP, at most 2048 pixels on the long side, at least 200 pixels a side, at most 5 MB,
-  and no more extreme than 1:3 or 3:1. A description for screen readers is optional, on every
-  type.
+  and no more extreme than 1:3 or 3:1.
+- **A picture has no description** (Joel, 2026-11-14, having weighed accessibility and search):
+  there is no "describe the picture" box, and none is stored or sent anywhere. Readers' pages give
+  every story picture the same neutral alternative text ("A photo shared with this story"). The
+  story's own optional description stays.
 - **A chosen picture is added straight away** (Joel, 2026-11-09), as a video or audio file
   uploads once chosen: no "Add" button to press. A line says whether it is being prepared,
   uploading or added; Continue waits while it uploads. A failed upload keeps one "Try again"
-  button. Its description saves on its own when the person leaves the box (and before Continue).
+  button.
+- **The attached file's name is shown** (Joel, 2026-11-14) for a video, audio file or picture, on
+  the upload step and on "Review and submit", so it's clear what was attached. The name is kept
+  only in that browser tab, never on our servers: after a reload in another tab or on another
+  device, the file is shown without its name.
 - **Videos and audio lose where and on what they were recorded before they leave the device**
   (M2, Joel 2026-11-06): the browser blanks an MP4, MOV or M4A file's location and device
   metadata in place, without re-encoding, so the file is the same size and plays the same. Bunny's

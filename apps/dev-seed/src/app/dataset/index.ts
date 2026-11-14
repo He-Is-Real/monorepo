@@ -345,7 +345,6 @@ const STORIES: StoryFixture[] = [
     themes: ['faith', 'answered-prayers'],
     image: {
       file: 'image-01',
-      alt: 'A test pattern with a label (dummy image)',
       processing: 'ready',
     },
     status: 'approved',
@@ -353,12 +352,11 @@ const STORIES: StoryFixture[] = [
     publishedDaysAgo: 1,
   },
   {
-    // Waiting for review: a short story with a landscape image and no alt text (neutral default).
+    // Waiting for review: a short story with a landscape image.
     id: 'seed_w02',
     slug: 'test-written-landscape-image',
     title: 'Test written story with a landscape picture',
-    description:
-      'Dummy written story, short, with a 3:2 image and no alt text.',
+    description: 'Dummy written story, short, with a 3:2 image.',
     body: dummyText(230, 2),
     bylineName: 'Daniel (test)',
     submitter: 'seed_daniel',
@@ -381,7 +379,6 @@ const STORIES: StoryFixture[] = [
     themes: ['salvation'],
     image: {
       file: 'image-03',
-      alt: 'A square test pattern (dummy image)',
       processing: 'ready',
     },
     status: 'approved',
@@ -404,7 +401,6 @@ const STORIES: StoryFixture[] = [
     themes: ['joy', 'hope'],
     image: {
       file: 'image-04',
-      alt: 'A wide test pattern (dummy image)',
       processing: 'ready',
     },
     status: 'approved',
@@ -422,7 +418,7 @@ const STORIES: StoryFixture[] = [
     submitter: 'seed_eleni',
     format: 'written',
     themes: ['illness', 'healing'],
-    image: { file: 'image-05', alt: 'A portrait test pattern (dummy image)' },
+    image: { file: 'image-05' },
     status: 'pending',
   },
   {

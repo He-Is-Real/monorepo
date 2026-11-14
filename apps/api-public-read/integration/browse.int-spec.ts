@@ -34,7 +34,6 @@ interface Card {
     url: null;
     width: number;
     height: number;
-    alt: string | null;
   } | null;
   textLength: number;
   themes: { id: string; name: string }[];
@@ -216,7 +215,6 @@ describe('browse API over the dev dataset', () => {
         url: null,
         width: 1200,
         height: 1600,
-        alt: 'A test pattern with a label (dummy image)',
       });
       expect(w01.thumbnailWidth).toBeNull();
       expect(w01.durationSeconds).toBeNull();

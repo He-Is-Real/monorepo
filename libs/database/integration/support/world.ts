@@ -68,8 +68,8 @@ export function grantUpload(
 
 /**
  * RequestUpload's database half for an image (M2 plan PR 10, R12): the storyFile row api-user
- * records for the file it named, with the description as the $imageAlt parameter, `stories/<story>/<32 hex>.webp` unless `path` says otherwise. The defaults suit a
- * small portrait WebP with its description. `expectedImage`: the path of the picture the person's
+ * records for the file it named, `stories/<story>/<32 hex>.webp` unless `path` says otherwise. The
+ * defaults suit a small portrait WebP. `expectedImage`: the path of the picture the person's
  * page showed (left out: none), which must be the story's picture now.
  */
 export function grantImage(
@@ -84,7 +84,6 @@ export function grantImage(
     sizeBytes?: number;
     width?: number;
     height?: number;
-    alt?: string | null;
     expectedImage?: string | null;
   },
 ) {
@@ -106,8 +105,6 @@ export function grantImage(
       sizeBytes: g.sizeBytes ?? 40_000,
       width: g.width ?? 900,
       height: g.height ?? 1200,
-      imageAlt:
-        g.alt === null ? undefined : (g.alt ?? 'A sunrise over the hills'),
       expected: g.expectedImage ?? undefined,
     },
   );

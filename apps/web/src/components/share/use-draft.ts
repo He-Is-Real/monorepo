@@ -221,7 +221,7 @@ export function settle(
 const dirty = (s: Stored) =>
   Object.keys(mergePatch(s.local, s.saved)).length > 0;
 /** A written story needs its title and text; a video or audio story its title (D53). */
-const canCreate = (f: StoryFields, format: StoryFormat = 'written') =>
+export const canCreate = (f: StoryFields, format: StoryFormat = 'written') =>
   !!f.title.trim() && (format !== 'written' || !!f.body.trim());
 
 /** `owner`: the signed-in person's Clerk user id. */

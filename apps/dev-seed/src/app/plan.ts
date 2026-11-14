@@ -17,7 +17,6 @@ export const LIMITS = {
   bodyMinSubmitted: 200, // once sent (pending, approved)
   themesMax: 5, // the default themesMax: every seeded story can be submitted
   themeNameMax: 40,
-  altMax: 500,
 } as const;
 
 const SUBMITTED: StoryStatus[] = ['pending', 'approved', 'editing'];
@@ -64,7 +63,7 @@ export interface SeedVars {
      * its key (the Bunny video id, a placeholder's made-up id, or the picture's path) and fields.
      */
     media?: { key: string; row: Record<string, unknown> };
-    image?: { key: string; row: Record<string, unknown>; alt?: string };
+    image?: { key: string; row: Record<string, unknown> };
     steps: Step[];
     /** Approved stories: their approved entry's publishedAt (browse order). */
     publishedAt?: Date;
@@ -180,7 +179,6 @@ export function datasetProblems(data: Dataset, media: BunnyMedia): string[] {
       if (s.media && CLIPS[s.media.clip].kind !== s.format)
         p(`${s.media.clip} isn't ${s.format}`);
     }
-    if ((s.image?.alt?.length ?? 0) > LIMITS.altMax) p('alt text too long');
 
     // A2: approval needs every upload processed.
     if (s.status === 'approved') {
@@ -300,10 +298,7 @@ export function buildVars(
             )
           : undefined,
         image: s.image
-          ? compact({
-              ...imageFile(s.image.file, media, s.image.processing),
-              alt: s.image.alt,
-            })
+          ? imageFile(s.image.file, media, s.image.processing)
           : undefined,
         steps: stepsFor(s, publishedAt ?? now),
         publishedAt,

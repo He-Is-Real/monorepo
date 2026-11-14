@@ -117,7 +117,7 @@ FOR $s IN $stories {
   -- The picture first: one set on an audio story that already has its file asks for a new
   -- picture video, and dev-seed's files are never re-rendered.
   IF $s.image != NONE {
-    UPDATE $story SET image = { file: type::record('storyFile', $s.image.key), alt: $s.image.alt }
+    UPDATE $story SET image = { file: type::record('storyFile', $s.image.key) }
       RETURN NONE;
   };
   IF $s.media != NONE {

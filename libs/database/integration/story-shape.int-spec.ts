@@ -39,7 +39,7 @@ describe('story types and shapes (D53)', () => {
   ) => rows<T>(migrator, sql, vars);
 
   /** A file row's fields (SurrealQL object entries); `format` says which kind. */
-  type Files = { media?: string; image?: string; alt?: string };
+  type Files = { media?: string; image?: string };
   const VIDEO = `format: 'video', width: 1080, height: 1920`;
   const AUDIO = `format: 'audio', lengthSeconds: 60`;
   const IMAGE = `width: 1200, height: 1600`;
@@ -80,14 +80,13 @@ describe('story types and shapes (D53)', () => {
        CREATE type::record('story', $id) CONTENT {
          themeRefs: [theme:common], submitter: $submitter ?? $auth, slug: $id, title: 'A story', description: 'How I came to faith',
          ${files.media !== undefined ? `mediaFile: type::record('storyFile', $id + '-media'),` : ''}
-         ${files.image !== undefined ? `image: { file: type::record('storyFile', $pic), alt: $alt },` : ''}
+         ${files.image !== undefined ? `image: { file: type::record('storyFile', $pic) },` : ''}
          ${fields}
        } RETURN VALUE id;
        COMMIT TRANSACTION;`,
       {
         id,
         pic: `dev-seed/pic-${seq}.webp`,
-        alt: files.alt,
         submitter:
           writer === migrator ? new RecordId('user', 'pat') : undefined,
       },
@@ -147,12 +146,7 @@ describe('story types and shapes (D53)', () => {
       [
         'text and a picture',
         `primaryFormat: 'written', body: 'My story'`,
-        { image: IMAGE, alt: 'A sunrise' },
-      ],
-      [
-        'a picture without alt text (readers use a neutral default)',
-        `primaryFormat: 'written', body: 'My story'`,
-        { image: `width: 800, height: 800` },
+        { image: IMAGE },
       ],
       [
         'a picture at exactly 1:3',
@@ -481,7 +475,6 @@ describe('story types and shapes (D53)', () => {
     beforeAll(async () => {
       id = await created(`primaryFormat: 'written', body: 'x'`, {
         image: IMAGE,
-        alt: 'A sunrise',
       });
     });
     const image = async () =>
@@ -499,7 +492,6 @@ describe('story types and shapes (D53)', () => {
       for (const set of [
         `image = NONE`,
         `image = { file: storyFile:⟨dev-seed/other.webp⟩ }`,
-        `image.alt = 'Words the person never wrote'`,
         `image.file = storyFile:⟨dev-seed/someone-elses.webp⟩`,
       ]) {
         await update(id, set, db());
@@ -507,14 +499,11 @@ describe('story types and shapes (D53)', () => {
       expect(await image()).toEqual(before);
     });
 
-    it('the person changes its description on a draft, never its file', async () => {
-      expect(
-        await update(id, `image.alt = 'Sunrise over the hills'`),
-      ).toMatchObject({ ok: true });
+    it('the person never changes its file, and it has no description to store (Joel, 2026-11-14)', async () => {
       await update(id, `image.file = storyFile:⟨dev-seed/someone-elses.webp⟩`);
+      await update(id, `image.alt = 'Sunrise over the hills'`);
       expect(await image()).toEqual({
         file: `storyFile:⟨dev-seed/pic-${id.split('_')[1]}.webp⟩`,
-        alt: 'Sunrise over the hills',
       });
     });
 
@@ -523,7 +512,7 @@ describe('story types and shapes (D53)', () => {
         image: IMAGE,
       });
       expect(await submit(pat, s)).toHaveLength(1);
-      expect(await update(s, `image.alt = 'Changed after submit'`)).toEqual({
+      expect(await update(s, `image = NONE`)).toEqual({
         ok: false,
         error: expect.stringContaining('locked after submission'),
       });
@@ -534,7 +523,6 @@ describe('story types and shapes (D53)', () => {
     it('publishes a written story with its picture, and a video with its size', async () => {
       const w = await created(`primaryFormat: 'written', ${TEXT}`, {
         image: IMAGE,
-        alt: 'A sunrise',
       });
       const v = await created(`primaryFormat: 'video'`, { media: VIDEO });
       for (const id of [w, v]) {
@@ -547,7 +535,7 @@ describe('story types and shapes (D53)', () => {
         await rows(
           reader,
           `SELECT record::id(image.file) AS path, image.file.width AS width,
-             image.file.height AS height, image.alt AS alt
+             image.file.height AS height
            FROM ONLY type::record('story', $w)`,
           { w },
         ),
@@ -556,7 +544,6 @@ describe('story types and shapes (D53)', () => {
           path: `dev-seed/pic-${w.split('_')[1]}.webp`,
           width: 1200,
           height: 1600,
-          alt: 'A sunrise',
         },
       ]);
       expect(

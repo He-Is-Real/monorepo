@@ -36,7 +36,7 @@ const video = (width: number, height: number) =>
     thumbnailHeight: height,
   });
 const image = (width: number, height: number) =>
-  card({ image: { url: null, width, height, alt: null } });
+  card({ image: { url: null, width, height } });
 const h = (s: StorySummary, width = 340) => predictHeight(cardShape(s), width);
 
 describe('lineCount (wrapping as the browser does)', () => {

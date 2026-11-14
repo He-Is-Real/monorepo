@@ -19,10 +19,10 @@ export interface StoryFields {
   /** Theme ids (`theme:<id>`), in the person's order. */
   themeIds?: string[];
   /**
-   * EditStory only (M2 plan PR 10): `null` removes the story's image; `{ alt }` changes its
-   * description. Only RequestUpload puts an image on a story (D80).
+   * EditStory only (M2 plan PR 10): `null` removes the story's image. Only RequestUpload puts an
+   * image on a story (D80).
    */
-  image?: null | { alt: string | null };
+  image?: null;
 }
 
 export interface CreateInput extends StoryFields {
@@ -39,7 +39,6 @@ const LIMITS = {
   title: 140,
   description: 5000,
   bylineName: 80,
-  alt: 500,
 } as const;
 const THEME_ID = /^[0-9A-Za-z_]{1,40}$/;
 const length = (s: string) => [...s].length;
@@ -159,27 +158,9 @@ export function parsePatch(body: unknown): StoryFields {
     errors,
   );
   if ('image' in b) {
-    const image = b['image'];
-    if (image === null) f.image = null;
-    else {
-      const i = image as Record<string, unknown>;
-      const alt = i?.['alt'];
-      if (
-        !i ||
-        typeof i !== 'object' ||
-        Array.isArray(i) ||
-        Object.keys(i).some((k) => k !== 'alt') ||
-        !('alt' in i) ||
-        (alt !== null && (typeof alt !== 'string' || length(alt) > LIMITS.alt))
-      ) {
-        errors.push({
-          pointer: '/image',
-          message: `null, or { alt } with at most ${LIMITS.alt} characters`,
-        });
-      } else {
-        f.image = { alt: (alt as string | null)?.trim() || null };
-      }
-    }
+    if (b['image'] === null) f.image = null;
+    else
+      errors.push({ pointer: '/image', message: 'null (removes the picture)' });
   }
   if (errors.length) fail(errors);
   return f;

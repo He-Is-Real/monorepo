@@ -98,7 +98,7 @@ describe('moderation, the read side (api-admin)', () => {
          story: story:ann_video, person: user:ann, format: 'image', contentType: 'image/webp',
          sizeBytes: 1000, storyVersion: 1, width: 900, height: 1200, at: time::now() - 1d };
        UPDATE story:ann_video SET mediaFile = type::record('storyFile', $video),
-         image = { file: type::record('storyFile', $picture), alt: 'A sunrise' };`,
+         image = { file: type::record('storyFile', $picture) };`,
       { video: VIDEO, picture: PICTURE },
     );
     await processed(workflow, 'ann_video');
@@ -222,7 +222,6 @@ describe('moderation, the read side (api-admin)', () => {
     expect(body.image).toMatchObject({
       width: 900,
       height: 1200,
-      alt: 'A sunrise',
     });
     expect(body.image.url).toContain(
       `https://images-test.b-cdn.net/${PICTURE}?token=HS256-`,

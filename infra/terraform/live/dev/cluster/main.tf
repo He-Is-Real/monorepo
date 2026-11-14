@@ -122,7 +122,9 @@ module "cluster" {
   # Withdraw, and the version 0 legal texts edited in place (M3, Joel 2026-11-11); wiped again.
   # m3-block-list: version 0 of the legal texts edited in place for the block list and AI tools
   # (Joel 2026-11-11, LT-1 and G18: dev only, no real users); data/0009 changed, so wiped again.
-  dev_database_reset = "m3-block-list"
+  # share-flow-tidy: a story's picture has no description any more (image.alt removed, Joel
+  # 2026-11-14); wiped again, no migration.
+  dev_database_reset = "share-flow-tidy"
   # D42: the automatic cluster plan's identity (modules/bootstrap), dry-run RBAC in `database`.
   cluster_planner_email = "tf-cluster-planner@heisreal-dev.iam.gserviceaccount.com"
 

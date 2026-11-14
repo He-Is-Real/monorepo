@@ -7,12 +7,7 @@ import {
   test,
 } from '@playwright/test';
 import { BEHAVIOUR_DEVICES } from './devices';
-import {
-  countFetches,
-  expectAllTargets,
-  expectNoHorizontalOverflow,
-  fetchesTakenIn,
-} from './helpers';
+import { expectAllTargets, expectNoHorizontalOverflow } from './helpers';
 import { STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 
 // Pictures on /share (M2 plan PR 10; D53, D65, D80): a written story's image and a video's own
@@ -194,7 +189,7 @@ test.describe('behaviour', () => {
     );
   });
 
-  test('a written story’s picture: described, and uploaded as WebP without its EXIF or GPS', async ({
+  test('a written story’s picture: its file’s name is shown, and it’s uploaded as WebP without its EXIF or GPS', async ({
     page,
     request,
   }) => {
@@ -213,12 +208,13 @@ test.describe('behaviour', () => {
       buffer: photo,
     });
 
-    // Added as soon as it's chosen (Joel, 2026-11-09). The description is never required
-    // (Joel, 2026-10-30); typed afterwards, it saves once the box is left.
+    // Added as soon as it's chosen (Joel, 2026-11-09), with the chosen file's name, and no
+    // description to give (Joel, 2026-11-14).
     await expect(page.getByText('Picture added.')).toBeVisible();
-    await page.getByLabel('Describe the picture').fill('A green hill at dawn');
-    await page.getByLabel('Describe the picture').blur();
-    await expect(page.getByText('Description saved.')).toBeVisible();
+    await expect(page.locator('[data-attached-name]')).toHaveText(
+      'Attached: hill.jpg',
+    );
+    await expect(page.getByLabel(/Describe the/)).toHaveCount(0);
 
     const { images } = await me.uploads();
     expect(images).toHaveLength(1);
@@ -280,7 +276,7 @@ test.describe('behaviour', () => {
     r.method() === 'PATCH' &&
     'image' in ((r.postDataJSON() as object | null) ?? {});
 
-  test('a chosen picture is added with no click; Continue waits while it uploads, and Enter in its description saves it before moving on', async ({
+  test('a chosen picture is added with no click, and Continue waits while it uploads', async ({
     page,
     request,
   }) => {
@@ -312,13 +308,7 @@ test.describe('behaviour', () => {
       { bytes: expect.any(String) },
     ]);
 
-    // Enter in the description sends the form without leaving the box: it's saved first.
-    const described = page.waitForRequest(isImageEdit);
-    await page.getByLabel('Describe the picture').fill('A green hill at dawn');
-    await page.getByLabel('Describe the picture').press('Enter');
-    expect((await described).postDataJSON()).toEqual({
-      image: { alt: 'A green hill at dawn' },
-    });
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await step(page, 'Add some details');
   });
 
@@ -368,78 +358,6 @@ test.describe('behaviour', () => {
     await stepButton(/^6\. Review/).click();
     await step(page, 'Write your story');
     await expect(page.getByText('didn’t finish uploading')).toBeVisible();
-  });
-
-  test('Continue saves a description typed while its save is under way, and waits for a picture chosen meanwhile (Codex #211, 2 and 3)', async ({
-    page,
-    request,
-  }) => {
-    await person(page, request);
-    await written(page);
-    await choose(page, 900, 1200);
-    await expect(page.getByText('Picture added.')).toBeVisible();
-
-    // Each description save is held until the test lets it through.
-    const sent: unknown[] = [];
-    const gates: (() => void)[] = [];
-    let arrived!: () => void;
-    let next = new Promise<void>((r) => (arrived = r));
-    await page.route(`${STUB_USER_URL}/v1/stories/*`, async (route) => {
-      if (!isImageEdit(route.request())) return route.fallback();
-      sent.push(route.request().postDataJSON());
-      const res = await route.fetch();
-      await new Promise<void>((r) => {
-        gates.push(r);
-        arrived();
-      });
-      return route.fulfill({ response: res });
-    });
-    const waitSent = async () => {
-      await next;
-      next = new Promise<void>((r) => (arrived = r));
-    };
-
-    // Enter saves "first"; more is typed while that save is held: both are saved before moving on.
-    await page.getByLabel('Describe the picture').fill('first');
-    await page.getByLabel('Describe the picture').press('Enter');
-    await waitSent();
-    await page.getByLabel('Describe the picture').fill('newer text');
-    gates.shift()?.();
-    await waitSent();
-    expect(sent).toEqual([
-      { image: { alt: 'first' } },
-      { image: { alt: 'newer text' } },
-    ]);
-    await expect(
-      page.getByRole('heading', { level: 2, name: 'Write your story' }),
-    ).toBeVisible();
-
-    // A replacement chosen while Continue waits on a save: Continue stops, as it's uploading.
-    let release!: () => void;
-    const held = new Promise<void>((r) => (release = r));
-    await page.route(`${STUB_USER_URL}/__s3/**`, async (route) => {
-      if (route.request().method() !== 'PUT') return route.fallback();
-      await held;
-      return route.fallback();
-    });
-    await choose(page, 1200, 900);
-    await expect(
-      page
-        .getByText('Preparing your picture…')
-        .or(page.getByText('Uploading your picture…')),
-    ).toBeVisible();
-    gates.shift()?.();
-    await expect(
-      alert(page, 'Your picture is still uploading. Wait for it to finish'),
-    ).toBeVisible();
-    await expect(
-      page.getByRole('heading', { level: 2, name: 'Write your story' }),
-    ).toBeVisible();
-
-    release();
-    await expect(page.getByText('Picture added.')).toBeVisible();
-    await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await step(page, 'Add some details');
   });
 
   test('a failed upload is tried again at the same path; a replacement not yet added can be discarded; removing a granted picture takes it off the story (Codex #140, 2 and 3)', async ({
@@ -663,59 +581,7 @@ test.describe('behaviour', () => {
     expect(images[2].bytes).not.toBeNull();
   });
 
-  test('signing out while a description is being saved keeps nothing of the story in the tab, and a save queued behind it is never sent (Codex #140, 1; #211, 1)', async ({
-    page,
-    request,
-  }) => {
-    await countFetches(page);
-    await person(page, request);
-    await written(page);
-    await choose(page, 900, 1200);
-    await expect(page.getByText('Picture added.')).toBeVisible();
-
-    // Every save is held from here, so the text typed next is on this device only.
-    let release!: () => void;
-    const held = new Promise<void>((r) => (release = r));
-    let arrived!: () => void;
-    const described = new Promise<void>((r) => (arrived = r));
-    await page.route(`${STUB_USER_URL}/v1/stories/*`, async (route) => {
-      if (route.request().method() !== 'PATCH') return route.fallback();
-      if (isImageEdit(route.request())) arrived();
-      const res = await route.fetch();
-      await held;
-      return route.fulfill({ response: res });
-    });
-    await page
-      .getByLabel('Your story')
-      .fill('Something private, never saved. '.repeat(8));
-    let imageEdits = 0;
-    page.on('request', (r) => {
-      if (isImageEdit(r)) imageEdits++;
-    });
-    await page.getByLabel('Describe the picture').fill('The hill at sunrise');
-    await page.getByLabel('Describe the picture').blur();
-    await described;
-    // Another change, queued behind the save still under way.
-    await page.getByLabel('Describe the picture').fill('The hill at sunset');
-    await page.getByLabel('Describe the picture').blur();
-
-    // Signing out (as Clerk's does: Share's storage cleared, the flow gone), in the same page.
-    await page.evaluate(() => window.sessionStorage.clear());
-    await page.getByRole('link', { name: 'He Is Real Today, home' }).click();
-    await expect(page).toHaveURL(/\/$/);
-    const answered = page.waitForEvent('requestfinished', isImageEdit);
-    release();
-    await answered;
-    // The page has taken in that answer, and every other, before looking.
-    await fetchesTakenIn(page);
-    expect(
-      await page.evaluate(() => JSON.stringify(window.sessionStorage)),
-    ).not.toMatch(/Something private|sunrise|sunset/);
-    // The queued save left with the flow: nothing more was sent.
-    expect(imageEdits).toBe(1);
-  });
-
-  test('a video’s own thumbnail is offered once the video is chosen, and shown when reviewing', async ({
+  test('a video’s own thumbnail is offered once the video is chosen, and both are shown by name when reviewing', async ({
     page,
     request,
   }, info) => {
@@ -744,6 +610,9 @@ test.describe('behaviour', () => {
       buffer: await drawn(page, 1280, 720, 'image/png'),
     });
     await expect(page.getByText('Thumbnail added.')).toBeVisible();
+    await expect(page.locator('[data-attached-name]')).toHaveText(
+      'Attached: thumb.png',
+    );
     expect((await me.uploads()).images).toMatchObject([
       { bytes: expect.any(String) },
     ]);
@@ -758,6 +627,11 @@ test.describe('behaviour', () => {
     await expect
       .poll(() => shown.evaluate((img: HTMLImageElement) => img.naturalWidth))
       .toBe(1280);
+    // What was attached, by name, before it's sent (Joel, 2026-11-14).
+    await expect(page.locator('[data-attached-name]')).toHaveText([
+      'Attached: clip.mp4',
+      'Attached: thumb.png',
+    ]);
   });
 
   // Plan 4e: a newer testimony consent or terms of use saved while the person was writing makes

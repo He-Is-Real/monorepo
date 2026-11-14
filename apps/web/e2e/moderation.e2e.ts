@@ -90,7 +90,7 @@ test.describe('moderation', () => {
       'Doubt',
     );
     await expect(
-      page.getByRole('img', { name: 'A church in the snow' }),
+      page.getByRole('img', { name: 'A photo shared with this story' }),
     ).toBeVisible();
     const history = page.locator('[data-history-entry]');
     await expect(history).toHaveCount(3);

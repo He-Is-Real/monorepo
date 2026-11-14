@@ -74,7 +74,6 @@ export interface StoryMine {
     url: string | null;
     width: number;
     height: number;
-    alt: string | null;
     /** Its file's path in the images zone: what RequestUpload's `expectedImage` names. */
     path: string;
     /**
@@ -189,7 +188,7 @@ interface RawStory {
     durationSeconds?: number | null;
     processing?: string | null;
   }[];
-  image?: { path: string; width: number; height: number; alt?: string } | null;
+  image?: { path: string; width: number; height: number } | null;
   rejectionFeedback?: string | null;
   submittedAt?: string | null;
   approvedAt?: string | null;
@@ -227,14 +226,6 @@ const STORY_FIELDS = `version, slug, title,
   IF socialMediaSharingConsent != NONE { record::id(socialMediaSharingConsent) } AS sharingVersion,
   socialMediaSharingConsentAgreedAt AS sharingAt,
   <string> id AS storyRef`;
-
-function fail400(pointer: string, message: string): never {
-  throw new BadRequestException({
-    code: 'validation_failed',
-    message: 'The story has fields that aren’t valid',
-    errors: [{ pointer, message }],
-  });
-}
 
 const iso = (d: string | null | undefined) =>
   d ? new Date(d).toISOString() : null;
@@ -442,17 +433,9 @@ export class StoryStore {
           sets.push("themeRefs = $themes.map(|$t| type::record('theme', $t))");
           vars['themes'] = patch.themeIds;
         }
-        // The image (M2 plan PR 10): removed, or its description changed. A removed picture's
-        // row is detached, and housekeeping deletes its file later (R12). Only RequestUpload
-        // puts one on (D80); the database keeps the person to these two changes.
+        // The image (M2 plan PR 10): only removed here. A removed picture's row is detached, and
+        // housekeeping deletes its file later (R12). Only RequestUpload puts one on (D80).
         if (patch.image === null) sets.push('image = NONE');
-        else if (patch.image) {
-          if (!current.image) {
-            fail400('/image', 'this story has no picture to describe');
-          }
-          sets.push(patch.image.alt ? 'image.alt = $alt' : 'image.alt = NONE');
-          if (patch.image.alt) vars['alt'] = patch.image.alt;
-        }
         // An empty patch still makes a version step (nothing else to do; D29).
         if (!sets.length) sets.push('title = title');
         const results = await runQuery(
@@ -817,7 +800,6 @@ export class StoryStore {
             url: this.urls?.imageUrl(r.image.path) ?? null,
             width: r.image.width,
             height: r.image.height,
-            alt: r.image.alt ?? null,
             path: r.image.path,
             uploaded: null,
           }

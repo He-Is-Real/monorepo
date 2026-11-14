@@ -93,23 +93,17 @@ DEFINE FIELD OVERWRITE currentStatus ON story TYPE option<record<storyStatusLog>
 -- 2026-10-30): readers show it in place of Bunny's generated thumbnail. One image system: it is
 -- never set at Bunny. R12 (Joel, 2026-11-05): the picture is a storyFile row (its path in the
 -- images storage zone is the row's id; its pixel size and processing state live there), and the
--- story keeps only the pointer and the person's description (alt: NONE = readers show a neutral
--- default), which they may change without uploading again.
+-- story keeps only the pointer. No description (Joel, 2026-11-14): readers show a neutral alt.
 -- D65/D80: only a new upload's row puts a picture on (storyFile_attach, on api-user's login); the
--- person's session may then change only `alt`, or take the picture off (NONE), never point at
--- another file. System users ($auth NONE: the migrator, dev-seed) write it as given, still only to
+-- person's session may only take the picture off (NONE), never point at another file. System users ($auth NONE: the migrator, dev-seed) write it as given, still only to
 -- the story's own rows (story_files).
 DEFINE FIELD OVERWRITE image         ON story TYPE option<object>
   VALUE IF $auth = NONE OR $auth = service:api_user { $value }
     ELSE IF $value = NONE OR $before = NONE { NONE }
-    ELSE { { file: $before.file, alt: $value.alt } }
+    ELSE { { file: $before.file } }
   PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
 DEFINE FIELD OVERWRITE image.file    ON story TYPE record<storyFile>
   PERMISSIONS FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
-DEFINE FIELD OVERWRITE image.alt     ON story TYPE option<string>
-  ASSERT $value = NONE OR string::len($value) <= 500
-  PERMISSIONS FOR select WHERE $auth != service:housekeeping,
-    FOR update WHERE $auth NOT IN [service:api_admin, service:workflow];
 -- R12: the story's one video or audio file, a storyFile row (its id is the Bunny video id; its
 -- thumbnail, size, real length and processing state live there). D80 (Joel, 2026-10-25): never
 -- the person's session or api-admin: a new upload's row moves it (storyFile_attach, elevated),
@@ -1357,9 +1351,6 @@ DEFINE FUNCTION OVERWRITE fn::upload::image_limits() {
 -- and testimony consent (plan 4e, Q2: an upload is the person's write, made for them), and the file
 -- must be within the limits; then the story points at it (D80), and story_files detaches the
 -- file it replaces. The story's version steps once, to storyVersion + 1.
--- A picture's description comes with RequestUpload but isn't a fact about the file (R12: it stays
--- on the story, where the person may change it), so api-user passes it to this write as the
--- query parameter $imageAlt.
 DEFINE EVENT OVERWRITE storyFile_attach ON storyFile
   WHEN $event = 'CREATE' AND $auth != NONE AND $after.renderOf = NONE THEN {
     fn::person::live($after.person);
@@ -1419,9 +1410,7 @@ DEFINE EVENT OVERWRITE storyFile_attach ON storyFile
       THROW 'limit_upload_weekly: the person has started as many uploads as they may in 7 days (D113)';
     };
     IF $after.format = 'image' {
-      UPDATE $after.story SET image = { file: $after.id,
-        alt: IF fn::text::trimmed_length($imageAlt) = 0 { NONE } ELSE { string::trim($imageAlt) } }
-        RETURN NONE;
+      UPDATE $after.story SET image = { file: $after.id } RETURN NONE;
     } ELSE {
       UPDATE $after.story SET mediaFile = $after.id RETURN NONE;
     };

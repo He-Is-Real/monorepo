@@ -283,12 +283,7 @@ describe('download my data', () => {
     // Ann's stories: a draft with a picture, one waiting, one sent back with feedback, one
     // rejected, one published (and hearted by Zed), and a video draft with its upload.
     // A picture comes only through an upload grant (api-user's login), in the story's folder.
-    const picture = async (
-      id: string,
-      width: number,
-      height: number,
-      alt?: string,
-    ) => {
+    const picture = async (id: string, width: number, height: number) => {
       const [version] = await rows<number>(
         migrator,
         `SELECT VALUE version FROM type::record('story', $id)`,
@@ -301,7 +296,6 @@ describe('download my data', () => {
           version,
           width,
           height,
-          alt: alt ?? null,
         }),
       ).toMatchObject({ ok: true });
       return `stories/${id}/${'a'.repeat(32)}.webp`;
@@ -310,7 +304,7 @@ describe('download my data', () => {
     await run(ann, `UPDATE type::record('story', $id) SET bylineName = 'Ann'`, {
       id: annDraft.id,
     });
-    const draftPicture = await picture(annDraft.id, 800, 600, 'A sunrise');
+    const draftPicture = await picture(annDraft.id, 800, 600);
     const annWaiting = await createThroughApi('ann', 'Ann waiting');
     await submit(ann, annWaiting.id);
     const annBack = await createThroughApi('ann', 'Ann sent back');
@@ -495,7 +489,6 @@ describe('download my data', () => {
       image: {
         width: 800,
         height: 600,
-        alt: 'A sunrise',
         // The database keeps every picture in its own story's folder, so the person's own
         // picture is signed for them, published or not.
         url: expect.stringContaining(`/${draftPicture}?token=HS256-`),
@@ -551,7 +544,6 @@ describe('download my data', () => {
       image: {
         width: 640,
         height: 480,
-        alt: null,
         url: expect.stringMatching(
           new RegExp(
             `^https://images-test\\.b-cdn\\.net/${livePicture}\\?token=HS256-`,

@@ -168,7 +168,7 @@ test.describe('behaviour', () => {
     await expect(preview(page)).toHaveAttribute('target', '_blank');
   });
 
-  test('while Bunny still has the video: “check back later”, and the story can be sent or kept as a draft anyway', async ({
+  test('while Bunny still has the video: “check back later”, and the story can be sent anyway', async ({
     page,
     request,
   }) => {
@@ -183,10 +183,6 @@ test.describe('behaviour', () => {
     );
     await expect(page.locator('iframe')).toHaveCount(0);
 
-    await page.getByRole('button', { name: 'Save as draft' }).click();
-    await expect(page.locator('[data-saved-draft]')).toContainText(
-      'Saved as a draft.',
-    );
     await page.getByRole('button', { name: 'Submit for review' }).click();
     await step(page, 'Thank you for sharing your story');
   });
@@ -367,7 +363,6 @@ test.describe('behaviour', () => {
               url: null,
               width: 900,
               height: 1200,
-              alt: null,
               path: 'stories/p1/picture.webp',
             },
           },
@@ -552,7 +547,7 @@ test.describe('behaviour', () => {
     await expect(alert(page, 'Choose 1–5 themes.')).toBeVisible();
   });
 
-  test('“Save as draft” after a submission whose answer was lost says it was sent, if it was (Codex #212, 2)', async ({
+  test('“Save and exit” after a submission whose answer was lost says it was sent, if it was (Codex #212, 2)', async ({
     page,
     request,
   }) => {
@@ -576,12 +571,12 @@ test.describe('behaviour', () => {
       alert(page, 'Something went wrong. Please try again later.'),
     ).toBeVisible();
 
-    await page.getByRole('button', { name: 'Save as draft' }).click();
+    await page.getByRole('button', { name: 'Save and exit' }).click();
     await step(page, 'Thank you for sharing your story');
-    await expect(page.getByText('Saved as a draft.')).toHaveCount(0);
+    await expect(page).toHaveURL(/\/share/);
   });
 
-  test('“Save as draft” while a submission is still being worked on sends that submission again, and says it was sent (Codex #212, round 2)', async ({
+  test('“Save and exit” while a submission is still being worked on sends that submission again, and says it was sent (Codex #212, round 2)', async ({
     page,
     request,
   }) => {
@@ -603,7 +598,7 @@ test.describe('behaviour', () => {
         first = { headers: req.headers(), body: req.postData() };
         return route.abort('timedout');
       }
-      // Pressing Save as draft sends it again; meanwhile the first one commits, then this one
+      // Pressing Save and exit sends it again; meanwhile the first one commits, then this one
       // replays its answer.
       expect(
         (
@@ -620,14 +615,14 @@ test.describe('behaviour', () => {
       alert(page, 'Something went wrong. Please try again later.'),
     ).toBeVisible();
 
-    await page.getByRole('button', { name: 'Save as draft' }).click();
+    await page.getByRole('button', { name: 'Save and exit' }).click();
     await step(page, 'Thank you for sharing your story');
-    await expect(page.getByText('Saved as a draft.')).toHaveCount(0);
+    await expect(page).toHaveURL(/\/share/);
     expect(submits).toHaveLength(2);
     expect(submits[1].key).toBe(submits[0].key);
   });
 
-  test('“Save as draft” keeps an unanswered submission until the story’s status can be read (Codex #212, round 3)', async ({
+  test('“Save and exit” keeps an unanswered submission until the story’s status can be read (Codex #212, round 3)', async ({
     page,
     request,
   }) => {
@@ -671,20 +666,20 @@ test.describe('behaviour', () => {
     ).toBeVisible();
 
     // Refused as stale, but its status can't be read: nothing is confirmed.
-    await page.getByRole('button', { name: 'Save as draft' }).click();
+    await page.getByRole('button', { name: 'Save and exit' }).click();
     await expect.poll(() => reads).toBe(1);
     await expect(
-      page.getByRole('button', { name: 'Save as draft' }),
+      page.getByRole('button', { name: 'Save and exit' }),
     ).toBeEnabled();
     await expect(
       alert(page, 'Something went wrong. Please try again later.'),
     ).toBeVisible();
-    await expect(page.getByText('Saved as a draft.')).toHaveCount(0);
+    await expect(page).toHaveURL(/\/share/);
 
     // The submission is still kept: the next try reads the story, which was sent.
-    await page.getByRole('button', { name: 'Save as draft' }).click();
+    await page.getByRole('button', { name: 'Save and exit' }).click();
     await step(page, 'Thank you for sharing your story');
-    await expect(page.getByText('Saved as a draft.')).toHaveCount(0);
+    await expect(page).toHaveURL(/\/share/);
     expect(keys).toHaveLength(3);
     expect(new Set(keys).size).toBe(1);
   });

@@ -102,7 +102,7 @@ describe('approval waits for media processing (A2, R12)', () => {
          story: type::record('story', $id), person: user:pat, format: $format,
          contentType: 'x/y', sizeBytes: 1000, storyVersion: 1, at: time::now() - 1d,
          width: IF $format = 'image' { 1200 }, height: IF $format = 'image' { 1600 } };
-       UPDATE type::record('story', $id) SET ${format === 'image' ? `image = { file: type::record('storyFile', $key), alt: 'A sunrise' }` : `mediaFile = type::record('storyFile', $key)`};`,
+       UPDATE type::record('story', $id) SET ${format === 'image' ? `image = { file: type::record('storyFile', $key) }` : `mediaFile = type::record('storyFile', $key)`};`,
       { id, key, format },
     );
     return key;

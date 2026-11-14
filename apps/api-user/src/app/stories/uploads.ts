@@ -61,10 +61,9 @@ export interface UploadRequest {
   fileSizeBytes: number;
   durationSeconds?: number;
   resume: boolean;
-  /** Images: the real pixel size (D53) and its optional description. */
+  /** Images: the real pixel size (D53). */
   width?: number;
   height?: number;
-  alt?: string;
   /**
    * Images: the path of the picture the person's page showed when they chose theirs (null: none).
    * The grant is refused (`409 image_changed`) if the story has another one by then (Codex #140 r3).
@@ -97,7 +96,6 @@ export const IMAGE_LIMITS = {
   maxBytes: 5_242_880,
   minSide: 200,
   maxSide: 4096,
-  altMax: 500,
 };
 
 /** A4: video MP4/MOV/WebM, audio MP3/M4A/WAV (browsers name some of them two ways); images WebP. */
@@ -157,7 +155,6 @@ export function parseUploadRequest(body: unknown): UploadRequest {
         'fileSizeBytes',
         'width',
         'height',
-        'alt',
         'expectedImage',
       ]
     : ['format', 'contentType', 'fileSizeBytes', 'durationSeconds', 'resume'];
@@ -191,16 +188,6 @@ export function parseUploadRequest(body: unknown): UploadRequest {
           message: 'whole pixels, at least 1',
         });
       }
-    }
-    const alt = b['alt'];
-    if (
-      alt !== undefined &&
-      (typeof alt !== 'string' || [...alt].length > IMAGE_LIMITS.altMax)
-    ) {
-      errors.push({
-        pointer: '/alt',
-        message: `at most ${IMAGE_LIMITS.altMax} characters`,
-      });
     }
     const expected = b['expectedImage'];
     if (
@@ -240,7 +227,6 @@ export function parseUploadRequest(body: unknown): UploadRequest {
       ? {
           width: b['width'] as number,
           height: b['height'] as number,
-          alt: (b['alt'] as string | undefined)?.trim() || undefined,
           expectedImage: b['expectedImage'] as string | null,
         }
       : {}),
@@ -437,8 +423,6 @@ export class Uploads {
       if (availableAt) throw limitReached(availableAt);
       return {
         status: 200,
-        // The description isn't a fact about the file (R12: it stays on the story): the row's
-        // event puts it there with the pointer, from $imageAlt.
         statements: `LET $grant = (CREATE ONLY type::record('storyFile', $path) CONTENT {
             story: type::record('story', $id), person: $person, format: 'image',
             contentType: $contentType, sizeBytes: $size, width: $width, height: $height,
@@ -454,7 +438,6 @@ export class Uploads {
           size: input.fileSizeBytes,
           width: input.width,
           height: input.height,
-          imageAlt: input.alt,
           expected: input.expectedImage ?? undefined,
           version: ifMatch,
         },

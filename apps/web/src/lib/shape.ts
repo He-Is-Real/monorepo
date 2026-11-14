@@ -27,9 +27,5 @@ export function audioSize(width: number | null, height: number | null) {
   return width && height ? { width, height } : DEFAULT_AUDIO_THUMBNAIL;
 }
 
-/** Shown when the person gave no description of their image (D53). */
-export const DEFAULT_IMAGE_ALT = 'A photo shared with this story';
-
-export function imageAlt(image: { alt: string | null }): string {
-  return image.alt?.trim() || DEFAULT_IMAGE_ALT;
-}
+/** A story's picture's alt text: the same neutral words for every picture (no description, Joel 2026-11-14). */
+export const IMAGE_ALT = 'A photo shared with this story';

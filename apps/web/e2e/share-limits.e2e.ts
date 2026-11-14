@@ -310,7 +310,7 @@ test.describe('behaviour', () => {
     // Kept on this device: once there's room again, it saves.
     await me.settings({ openDraftsMax: 3 });
     await page.getByRole('button', { name: 'Try saving again' }).click();
-    await expect(saved).toHaveText('Saved');
+    await expect(saved).toHaveText('Draft saved');
   });
 
   test('with this week’s submission sent and the open drafts full, a new story and submitting wait, and say until when', async ({
