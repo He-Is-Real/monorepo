@@ -370,7 +370,10 @@ test.describe('behaviour', () => {
     const row = page.locator('li').filter({ hasText: 'Come back to it later' });
     await expect(row.getByText('Draft', { exact: true })).toBeVisible();
     await row.getByRole('link', { name: 'Continue' }).click();
-    await step(page, 'Write your story');
+    // Opened from a link, as after a reload: the step is shown (focus moves only between steps).
+    await expect(
+      page.getByRole('heading', { level: 2, name: 'Write your story' }),
+    ).toBeVisible();
     await expect(page.getByLabel('Title')).toHaveValue('Come back to it later');
     await expect(page.getByLabel('Your story')).toHaveValue(TEXT);
   });
