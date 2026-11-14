@@ -39,6 +39,15 @@ source of truth, so change them in the same PR as the code.
   (api-public-read is read-only). Don't merge services or share DB users.
 - Secrets come only from GCP Secret Manager: through `libs/secrets` (SDK, ADC) in our code, and
   through External Secrets Operator on clusters. Never commit secret values or add key files.
+- **`.env` files are committed (Joel, 2026-11-14).** They hold config only: plain settings, and a
+  secret's Secret Manager _name_ where code needs one (e.g. `SURREAL_PASSWORD_SECRET=…`), never its value,
+  so every env file is safe to publish. gitleaks (pre-commit hook and CI) scans them.
+- **Generated files and `.gitignore` (Joel, 2026-11-14).** Commit only source, config, env files and
+  lock files; never build output, caches, test reports, OpenTofu state or plans, or logs.
+  - A PR that adds a tool or target that writes files adds its `.gitignore` entry in the same PR.
+  - If `git status` shows a generated file as untracked, fix `.gitignore`; don't leave it or commit it.
+  - Deleting or renaming a project: also delete its old local folder (`dist`, `out-tsc`,
+    `node_modules` stay behind as ignored files), e.g. `git clean -ndX apps/<old>` to preview, then `-fdX`.
 - Nothing on GKE is reachable from the internet: private nodes only, and no `LoadBalancer` or
   `NodePort` Services and no Ingress/Gateway. Workers (Dapr workflow, inference workers) run
   off Google Cloud (Joel's machine, later church hardware) and connect outbound only, to Pub/Sub. Public entry points are Cloud Run services only.

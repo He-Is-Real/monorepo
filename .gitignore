@@ -48,11 +48,8 @@ Thumbs.db
 .nx/polygraph
 .nx/self-healing
 .nx/migrate-runs
-# env files: config only, never secret values (see README "Secrets")
-.env
-.env.*
-!.env.example
-!**/.env.example
+# env files are committed (Joel, 2026-11-14): they hold config and Secret Manager secret
+# NAMES only, never secret values (see README "Secrets"); gitleaks scans them in CI and pre-commit.
 
 # OpenTofu: plans, state and crash logs never belong in git (state lives in GCS).
 *.tfplan
@@ -66,6 +63,8 @@ crash.*.log
 .terraform.tfstate.lock.info
 
 test-output
+# Playwright's default output folder (our configs write to test-output/)
+test-results
 
 # Next.js
 .next
