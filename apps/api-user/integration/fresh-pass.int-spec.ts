@@ -329,7 +329,7 @@ describe('a person’s request outlives their own pass (decision T, option B)', 
     const refused = await submit(id, token);
 
     expect([refused.status, refused.body.code]).toEqual([403, 'blocked']);
-    expect(await statusOf(id)).toBe('draft');
+    expect(await statusOf(id)).toBe('editing');
   });
 
   it('a session that has ended (signed out, revoked, blocked or deleted) stops the request: 401, nothing submitted', async () => {

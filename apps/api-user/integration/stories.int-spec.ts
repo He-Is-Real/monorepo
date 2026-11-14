@@ -655,11 +655,11 @@ describe('the submit flow for written stories', () => {
     const byEmail = await sendAs('blke', 'blocked@example.com', '203.0.113.1');
     expect(byEmail.res.status).toBe(403);
     expect(await byEmail.res.json()).toMatchObject({ code: 'blocked' });
-    expect(await storiesOf('blke')).toEqual(['draft']);
+    expect(await storiesOf('blke')).toEqual(['editing']);
 
     const byIp = await sendAs('blki', 'fine@example.com', '203.0.113.66');
     expect(byIp.res.status).toBe(403);
-    expect(await storiesOf('blki')).toEqual(['draft']);
+    expect(await storiesOf('blki')).toEqual(['editing']);
 
     // Anyone else sends as usual, and the entry keeps the address Google saw, not the client's.
     const fine = await sendAs('blkok', 'fine@example.com', '203.0.113.2');

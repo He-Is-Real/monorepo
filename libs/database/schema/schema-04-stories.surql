@@ -859,7 +859,7 @@ DEFINE EVENT OVERWRITE storySearch_theme_renamed ON theme
 -- Everyone (R11; db review 2, section 6 items 3 and 4) may read an entry's story, status and
 -- publishedAt only while it is its story's current, approved entry; older entries, comments,
 -- names and reasons never. The owner reads their own story's entries, never who wrote them; only
--- api-admin reads `by` and `senderIp`.
+-- api-admin reads `by`; `senderIp` only api-admin and the owner (their export).
 -- One exception to "never changed": the nightly housekeeping clears `senderIp` (the IP address a
 -- story was sent from, block list) 30 days after the entry, and may read and change nothing
 -- else: of the pending entries it sees only those still holding an address that old, and
@@ -974,15 +974,16 @@ DEFINE FIELD OVERWRITE skippedMediaWait ON storyStatusLog TYPE option<bool> READ
 -- On a person's "sent" entry (pending): the IP address the story was sent from (block list,
 -- G21 D; Joel 2026-11-11), so an Admin can block a recent abuser's address. api-user supplies it
 -- (the client address Cloud Run passes, docs/how-the-app-works.md); kept only on the person's own
--- "sent" entries (anything else is dropped), lower-case. api-admin's alone to read (Admins only:
--- api-admin shows it to an Admin, never a Moderator). The nightly housekeeping clears it 30 days
+-- "sent" entries (anything else is dropped), lower-case. Read by api-admin (Admins only:
+-- api-admin shows it to an Admin, never a Moderator) and by the person who sent it, in their own
+-- "Download my data" export (BL-4, Joel 2026-11-14). The nightly housekeeping clears it 30 days
 -- after the entry (fn::story::sender_ips_expire_before). Goes with the story, like the entry.
 DEFINE FIELD OVERWRITE senderIp     ON storyStatusLog TYPE option<string>
   VALUE IF $auth = NONE OR (record::tb($auth) = 'user' AND $this.action = 'sent'
     AND $this.actor = 'person') { $value }
   ASSERT $value = NONE OR (string::len($value) <= 45 AND string::is_ip($value)
     AND $value = string::lowercase($value))
-  PERMISSIONS FOR select WHERE $auth = service:api_admin;
+  PERMISSIONS FOR select WHERE $auth = service:api_admin OR story.submitter = $auth;
 -- Public lists, newest or oldest first (db review 2, section 6 items 5 and 6).
 DEFINE INDEX OVERWRITE storyStatusLog_published ON storyStatusLog FIELDS status, publishedAt;
 -- The moderators' queue (pending, oldest first; M3).

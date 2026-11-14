@@ -1235,6 +1235,7 @@ function myDataOf(s, token, mine) {
                 at: st.updatedAt,
                 publishedAt: null,
                 hiddenReason: null,
+                senderIp: null,
               },
             ]
           : [],

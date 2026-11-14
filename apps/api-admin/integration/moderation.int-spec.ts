@@ -263,12 +263,12 @@ describe('moderation, the read side (api-admin)', () => {
     await draft(ann, 'ann_ip');
     await run(
       ann,
-      `CREATE storyStatusLog CONTENT { story: story:ann_ip, status: 'pending', senderIp: '203.0.113.7' }`,
+      `CREATE storyStatusLog CONTENT { story: story:ann_ip, action: 'sent', senderIp: '203.0.113.7' }`,
     );
     await draft(ann, 'ann_ip_old');
     await run(
       migrator,
-      `CREATE storyStatusLog CONTENT { story: story:ann_ip_old, status: 'pending', actor: 'person',
+      `CREATE storyStatusLog CONTENT { story: story:ann_ip_old, action: 'sent', actor: 'person',
          at: time::now() - 31d, senderIp: '203.0.113.8' }`,
     );
     const asAdmin = { role: 'Admin', sub: 'user_mod' };

@@ -6,7 +6,7 @@ import { buildWorld, draft, ERASE, submit } from './support/world';
  * The block list (G21 D, Joel 2026-11-11; m3-plan-and-m2-extras.html, "Block list"): blocked
  * emails and IP addresses, in plain text, that only Admins (api-admin's login) read and change,
  * kept until an Admin removes them; and the IP address each story is sent from
- * (`storyStatusLog.senderIp`), readable by api-admin only and cleared by the nightly housekeeping
+ * (`storyStatusLog.senderIp`), readable by api-admin and the person who sent it, and cleared by the nightly housekeeping
  * after 30 days. api-user may ask about one email or address at a time ($blockCheck), never
  * list them.
  */
@@ -185,7 +185,7 @@ describe('block list', () => {
     const sentWithIp = (db: Surreal, id: string, senderIp: unknown) =>
       outcome(
         db,
-        `CREATE storyStatusLog CONTENT { story: type::record('story', $id), status: 'pending', senderIp: $senderIp }`,
+        `CREATE storyStatusLog CONTENT { story: type::record('story', $id), action: 'sent', senderIp: $senderIp }`,
         { id, senderIp },
       );
     const ipsOf = (id: string) =>
@@ -195,7 +195,7 @@ describe('block list', () => {
         { id },
       );
 
-    it("is kept on the person's own sent entry, and only api-admin reads it", async () => {
+    it("is kept on the person's own sent entry, and only api-admin and that person read it", async () => {
       await draft(ann, 'ann_ip');
       expect(await sentWithIp(ann, 'ann_ip', '203.0.113.7')).toMatchObject({
         ok: true,
@@ -207,8 +207,15 @@ describe('block list', () => {
           `SELECT VALUE senderIp FROM storyStatusLog WHERE story = story:ann_ip`,
         ),
       ).toEqual(['203.0.113.7']);
+      // The person who sent it, in their own session (their "Download my data" export, BL-4).
+      expect(
+        await rows(
+          ann,
+          `SELECT VALUE senderIp FROM storyStatusLog WHERE story = story:ann_ip`,
+        ),
+      ).toEqual(['203.0.113.7']);
       for (const [name, db] of [
-        ['owner', ann],
+        ['someone else', await t.person('user_bob')],
         ['api_user', apiUser],
         ['workflow', await t.service('workflow')],
       ] as const) {
@@ -235,7 +242,7 @@ describe('block list', () => {
       // A moderator's entry can't carry one.
       await run(
         admin,
-        `CREATE storyStatusLog CONTENT { story: story:ann_ip2, status: 'in_review', by: user:moderator, senderIp: '198.51.100.1' }`,
+        `CREATE storyStatusLog CONTENT { story: story:ann_ip2, action: 'changesRequested', comment: 'x', by: user:moderator, senderIp: '198.51.100.1' }`,
       );
       expect(await ipsOf('ann_ip2')).toEqual([]);
     });
@@ -250,7 +257,7 @@ describe('block list', () => {
         await draft(ann, id);
         await run(
           migrator,
-          `CREATE storyStatusLog CONTENT { story: type::record('story', $id), status: 'pending',
+          `CREATE storyStatusLog CONTENT { story: type::record('story', $id), action: 'sent',
              actor: 'person', at: $at, senderIp: $ip }`,
           { id, at: daysAgo(days), ip },
         );
@@ -314,7 +321,7 @@ describe('block list', () => {
         // Clearing it together with any other change is refused whole: the entry's other fields
         // are read-only.
         for (const change of [
-          `status = 'withdrawn', senderIp = NONE`,
+          `action = 'editStarted', senderIp = NONE`,
           `comment = 'x', senderIp = NONE`,
         ]) {
           await outcome(

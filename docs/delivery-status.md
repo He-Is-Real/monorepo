@@ -266,7 +266,8 @@ after it.
 can't create an account or send a story; a blocked IP address can't send a story; reading is
 never blocked, and a block lasts until an Admin removes it. To make IP blocking possible, the
 address each story is sent from is kept for 30 days, and an Admin (never a Moderator) sees it on
-the story's review page with a link to block it. The terms of use, testimony consent and privacy
+the story's review page with a link to block it. People get the address in their own "Download
+my data" file, for their own stories only, while it is kept. The terms of use, testimony consent and privacy
 notice (version 0, edited in place on dev) now say this, and that AI tools may be used for
 transcripts, captions and summaries. Before it works on dev: dev's database is wiped and rebuilt
 once (the legal texts changed), when the cluster root is applied.

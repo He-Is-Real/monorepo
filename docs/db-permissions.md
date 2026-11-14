@@ -196,15 +196,16 @@ their fence (see "Transactions").
   entries: the files approved), `skippedMediaWait` (an Admin's approval during the media wait;
   api-admin alone reads it), `senderIp` (block list, G21 D: the IP address a person's own
   `sent` entry was sent from, as api-user supplies it, lower-case; dropped on any other entry;
-  api-admin reads it and shows it to Admins only).
-  - **Read:** the owner (never `by`) and api-admin; housekeeping every entry that isn't pending
-    for its `story`, `status` and `at` only, never who, what was said, the action, the files or
-    `publishedAt` (G3 B: to find the stories due for deletion; a pending story never is), and a
-    pending (`sent`) entry only while it still holds a `senderIp` 30 days old
-    (`fn::story::sender_ips_expire_before`), never the address (block list: a field it may not
-    read is NONE in its WHERE, so these rows are how it picks what to clear); everyone else only
-    an entry's `story`, `status` and `publishedAt`, while it is its story's current approved
-    entry.
+  api-admin reads it and shows it to Admins only; the owner reads it too, for their own "Download
+  my data" export, BL-4).
+  - **Read:** the owner (never `by`; `senderIp` only on their own stories' entries) and
+    api-admin; housekeeping every entry that isn't pending for its `story`, `status` and `at`
+    only, never who, what was said, the action, the files or `publishedAt` (G3 B: to find the
+    stories due for deletion; a pending story never is), and a pending (`sent`) entry only while
+    it still holds a `senderIp` 30 days old (`fn::story::sender_ips_expire_before`), never the
+    address (block list: a field it may not read is NONE in its WHERE, so these rows are how it
+    picks what to clear); everyone else only an entry's `story`, `status` and `publishedAt`,
+    while it is its story's current approved entry.
   - **Create:** the owner, live, only `sent` and `editStarted`; api-admin only a moderator's
     actions. System and history-only entries come only from the database's own events (elevated),
     never from a direct write. `storyStatusLog_step` checks who may take which

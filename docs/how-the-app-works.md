@@ -121,9 +121,11 @@ code does what it does today; nobody should build on either reading.
     written (after the file checks at Bunny), so a block added meanwhile counts; a retry of a send
     that already went through (same Idempotency-Key) still gets its success back.
   - **The address a story was sent from:** api-user keeps it on the story's "sent" status entry for
-    30 days, readable only by Admins, so an Admin can block a recent abuser's address; the nightly
-    clean-up clears it after that. An Admin sees it on the story's moderation view, with a link
-    that fills it in on the Block list page; Moderators never see it. The address is the one
+    30 days, so an Admin can block a recent abuser's address; the nightly clean-up clears it after
+    that. An Admin sees it on the story's moderation view, with a link that fills it in on the
+    Block list page; Moderators never see it, and no other staff page shows it. The person who
+    sent the story gets it too, in their own "Download my data" file, on their own stories' "sent"
+    entries while it is still kept (BL-4, Joel 2026-11-14); never anyone else's. The address is the one
     Google's front end saw: api-user runs on Cloud Run with no load balancer, so it takes the last
     entry of `X-Forwarded-For` (the one Google appends; anything before it was sent by the client
     and can say anything). Addresses are compared exactly, in one form (IPv6 short and lower-case).
@@ -377,7 +379,8 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 - **Download my data** gives one file of everything we hold about the person, explained in plain
   words: their stories in every status, each story's whole status history (their own sends and
   edits, moderators' decisions with their comments, signed "moderator" and never who made
-  them, and the site's own hides and shows while a video can't play; R6, Joel 2026-11-05), what
+  them, and the site's own hides and shows while a video can't play; R6, Joel 2026-11-05; on
+  their own sends, the IP address they sent from while it is still kept, 30 days, BL-4), what
   they agreed to and when, their hearts, their limits and their sign-in details from Clerk. Videos,
   audio and pictures come as links that last 7 days (B, Joel 2026-11-06), in dev and in
   production: a named exception to the one-hour rule for the links to files that aren't public

@@ -2193,6 +2193,7 @@ components:
                       at,
                       publishedAt,
                       hiddenReason,
+                      senderIp,
                     ]
                   properties:
                     action:
@@ -2220,6 +2221,12 @@ components:
                       type: [string, 'null']
                       enum: [media_unavailable, media_changed, null]
                       description: On the system's hidden entries, why.
+                    senderIp:
+                      type: [string, 'null']
+                      description: |
+                        Block list (BL-4, Joel 2026-11-14): on the person's own `sent` entries, the IP address
+                        they sent the story from, while it is still kept (30 days; then `null`, and the
+                        nightly housekeeping clears it). `null` on every other entry.
               createdAt:
                 type: string
                 format: date-time

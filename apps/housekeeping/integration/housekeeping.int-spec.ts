@@ -861,7 +861,7 @@ describe('housekeeping: the IP addresses stories were sent from (block list)', (
       await run(
         days ? migrator : ann,
         `CREATE storyStatusLog CONTENT object::extend({ story: type::record('story', $id),
-           status: 'pending', senderIp: $ip }, $old)`,
+           action: 'sent', senderIp: $ip }, $old)`,
         {
           id,
           ip,
