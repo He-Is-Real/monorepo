@@ -29,7 +29,10 @@ export default async function AdminConsentPage() {
   await connection();
   return (
     <main id="main" className="flex-1 py-10 sm:py-16">
-      <WideColumn>
+      {/* Desktop (1280 px and up): twice the standard content width, so the edit box and the
+          preview side by side each get up to the standard width (Joel, 2026-11-14). Phones and
+          tablets keep the standard column. */}
+      <WideColumn className="xl:max-w-[calc(var(--container-narrow)*2)]">
         <AdminNav />
         <h1 className="mb-3 text-[2rem] leading-tight font-normal text-balance sm:text-[2.5rem]">
           Consent &amp; legal

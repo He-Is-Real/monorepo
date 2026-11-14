@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { connection } from 'next/server';
 import { BrowseFilters } from '@/components/browse/browse-filters';
 import { BrowseResults } from '@/components/browse/browse-results';
+import { BrowseView } from '@/components/browse/browse-view';
 import { ThemeFilter } from '@/components/browse/theme-filter';
 import {
   browseStories,
@@ -89,7 +90,7 @@ async function loadPages(filters: Filters, pages: number) {
 /**
  * Browse (plan 1.2): every published story, newest first, with search, sort, format and a theme,
  * in a balanced masonry (D55). Server-rendered from api-public-read (D32) for the URL's filters
- * and page count; BrowseResults loads more.
+ * and page count; BrowseResults loads more. Signed in, BrowseView adds "Favourites only".
  */
 export default async function BrowsePage({ searchParams }: Props) {
   await connection();
@@ -116,61 +117,67 @@ export default async function BrowsePage({ searchParams }: Props) {
         <p className="mt-3 text-lg text-secondary-text">{INTRO}</p>
       </header>
 
-      <div className="border-b border-border pb-6">
-        <BrowseFilters filters={filters} />
-        <ThemeFilter categories={categories} filters={filters} />
-      </div>
-
-      {summary && (
-        <p className="mt-6 text-sm text-muted-foreground">
-          <strong className="font-semibold text-foreground">{summary}</strong>
-        </p>
-      )}
-
-      <div className="mt-8">
-        {result instanceof StoriesUnavailableError &&
-        result.restartingSeconds !== undefined ? (
-          <RestartingMessage
-            seconds={result.restartingSeconds}
-            variant="inline"
-          />
-        ) : result instanceof StoriesUnavailableError ? (
-          <p
-            role="status"
-            className="mx-auto max-w-measure rounded-xl bg-raised px-4 py-6 text-center text-secondary-text"
-          >
-            {TRY_AGAIN_LATER}
-          </p>
-        ) : result.cards.length === 0 ? (
-          <div className="mx-auto max-w-measure rounded-xl bg-raised px-4 py-10 text-center">
-            <p className="text-lg">
-              {/* A highlighted theme no story uses yet says so plainly (A14). */}
-              {filters.q || filters.format
-                ? 'No stories match these filters yet.'
-                : 'No stories yet.'}
+      <BrowseView
+        filters={
+          <>
+            <BrowseFilters filters={filters} />
+            <ThemeFilter categories={categories} filters={filters} />
+          </>
+        }
+        summary={
+          summary && (
+            <p className="mt-6 text-sm text-muted-foreground">
+              <strong className="font-semibold text-foreground">
+                {summary}
+              </strong>
             </p>
-            {filtered && (
-              <p className="mt-3">
-                <Link
-                  href="/stories"
-                  className="inline-flex min-h-11 items-center font-medium"
-                >
-                  Clear filters
-                </Link>
+          )
+        }
+        results={
+          result instanceof StoriesUnavailableError &&
+          result.restartingSeconds !== undefined ? (
+            <RestartingMessage
+              seconds={result.restartingSeconds}
+              variant="inline"
+            />
+          ) : result instanceof StoriesUnavailableError ? (
+            <p
+              role="status"
+              className="mx-auto max-w-measure rounded-xl bg-raised px-4 py-6 text-center text-secondary-text"
+            >
+              {TRY_AGAIN_LATER}
+            </p>
+          ) : result.cards.length === 0 ? (
+            <div className="mx-auto max-w-measure rounded-xl bg-raised px-4 py-10 text-center">
+              <p className="text-lg">
+                {/* A highlighted theme no story uses yet says so plainly (A14). */}
+                {filters.q || filters.format
+                  ? 'No stories match these filters yet.'
+                  : 'No stories yet.'}
               </p>
-            )}
-          </div>
-        ) : (
-          <BrowseResults
-            // New on every server render: the list restarts from these cards (BrowseResults).
-            snapshot={randomUUID()}
-            filters={filters}
-            cards={result.cards}
-            nextCursor={result.cursor}
-            pagesLoaded={result.loaded}
-          />
-        )}
-      </div>
+              {filtered && (
+                <p className="mt-3">
+                  <Link
+                    href="/stories"
+                    className="inline-flex min-h-11 items-center font-medium"
+                  >
+                    Clear filters
+                  </Link>
+                </p>
+              )}
+            </div>
+          ) : (
+            <BrowseResults
+              // New on every server render: the list restarts from these cards (BrowseResults).
+              snapshot={randomUUID()}
+              filters={filters}
+              cards={result.cards}
+              nextCursor={result.cursor}
+              pagesLoaded={result.loaded}
+            />
+          )
+        }
+      />
     </main>
   );
 }

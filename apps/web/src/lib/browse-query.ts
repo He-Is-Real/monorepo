@@ -20,6 +20,11 @@ export interface BrowseFilters {
 /** Cards per page. */
 export const PAGE_SIZE = 15;
 /**
+ * "Favourites only" (`?favourites=1`; Joel, 2026-11-14): read in the browser alone
+ * (browse-view.tsx). The server renders browse the same whatever it says.
+ */
+export const FAVOURITES_PARAM = 'favourites';
+/**
  * How many pages a URL may ask the server to rebuild (`?pages=`). The list itself loads on past
  * it as the reader scrolls (no page cap since Joel, 2026-10-31); a reload shows the first 10.
  */

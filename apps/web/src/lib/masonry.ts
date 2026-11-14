@@ -51,7 +51,7 @@ export const ROW_UNIT = 4;
 /** The space between cards, both ways, in px. */
 export const GAP = 24;
 /**
- * The pages around the list (browse, My favourites): 40 px of padding a side from 640 px
+ * The pages around the list (browse, with or without Favourites only): 40 px of padding a side from 640 px
  * (`sm:px-10`), content at most 1200 px wide (`max-w-site`). Only the band ranges come from
  * these: the bands themselves follow the list's real width.
  */

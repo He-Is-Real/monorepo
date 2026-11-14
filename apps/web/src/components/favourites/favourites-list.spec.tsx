@@ -90,7 +90,7 @@ function Page({ userId }: { userId: string }) {
   return (
     <>
       <SignedIn userId={userId} />
-      <FavouritesList />
+      <FavouritesList onShowAll={() => undefined} />
       <HeartOf storyId="a_story" />
     </>
   );
@@ -177,7 +177,7 @@ it('a next page asked for the person signed in before never holds up the person 
     const { rerender } = render(
       <>
         <SignedIn userId="user_a" />
-        <FavouritesList />
+        <FavouritesList onShowAll={() => undefined} />
       </>,
     );
     const aFirst = await callFor('user_a', LIST);
@@ -188,7 +188,7 @@ it('a next page asked for the person signed in before never holds up the person 
     rerender(
       <>
         <SignedIn userId="user_b" />
-        <FavouritesList />
+        <FavouritesList onShowAll={() => undefined} />
       </>,
     );
     const bFirst = await callFor('user_b', LIST);

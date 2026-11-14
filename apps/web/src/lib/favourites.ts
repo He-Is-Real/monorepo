@@ -277,7 +277,7 @@ export function useHeart(storyId: string): {
 }
 
 /**
- * The "My favourites" page loaded these for `userId`: every story it lists is hearted, no lookup
+ * Browse's "Favourites only" loaded these for `userId`: every story it lists is hearted, no lookup
  * needed. Ignored if someone else is signed in now (an answer that arrived late).
  */
 export function markHearted(userId: string, storyIds: readonly string[]) {
