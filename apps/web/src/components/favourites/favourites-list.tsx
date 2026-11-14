@@ -62,10 +62,13 @@ const ownerOf = (s: PersonalSession) =>
  */
 export function FavouritesList({
   filters,
+  themeIds,
   onShowAll,
 }: {
   /** Browse's filters, from the address. */
   filters: BrowseFilters;
+  /** The themes browse lists, or null when they couldn't be read (favourites-filter.ts). */
+  themeIds: readonly string[] | null;
   /** Back to every story (the empty list's button). */
   onShowAll: () => void;
 }) {
@@ -153,12 +156,15 @@ export function FavouritesList({
   }, [owner, start]);
 
   // Laid out again only when the list or the filters change (StoryMasonry lays out new cards).
-  const filterKey = JSON.stringify(filters);
+  const filterKey = JSON.stringify([filters, themeIds]);
   const cards = list.status === 'ready' ? list.cards : null;
   const shown = useMemo(
     () =>
       cards
-        ? filterFavourites(cards, JSON.parse(filterKey) as BrowseFilters)
+        ? filterFavourites(
+            cards,
+            ...(JSON.parse(filterKey) as [BrowseFilters, string[] | null]),
+          )
         : [],
     [cards, filterKey],
   );

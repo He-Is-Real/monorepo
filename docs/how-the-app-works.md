@@ -429,11 +429,13 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 - With "Favourites only" on, browse's search, sort, format and theme filters stay and work on the
   favourites, kept in the address like browse's (Joel, 2026-11-14). The whole list is loaded and
   filtered in the browser (people aren't expected to have more than about 100; optimising comes
-  later). The filters mean what they mean on browse: format and theme as browse; "Latest first"
-  and "Oldest first" by when the story was published; search finds stories with every word of
-  the search in the title, description or theme names (not the written text, which the list
-  doesn't carry), ignoring case and accents and matching inside longer words; "Best match" puts
-  stories where the words appear most often first.
+  later). The filters mean what they mean on browse: format and theme as browse (a theme that
+  doesn't exist, or was deleted, filters nothing; a real theme none of the favourites has shows
+  none); "Latest first" and "Oldest first" by when the story was published, not when it was
+  hearted (Joel, 2026-11-14); search finds stories with every word of the search in the title,
+  description or theme names, but not a written story's full text, which the list doesn't carry
+  (Joel, 2026-11-14), ignoring case and accents and matching inside longer words; "Best match"
+  puts stories where the words appear most often first.
 - A heart's time is the moment it was made, taken from its id; nobody can set it by hand.
   (Joel, 2026-11-05)
 - Deleting the account deletes the person's hearts; deleting a story deletes the hearts on it.

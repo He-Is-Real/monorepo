@@ -23,12 +23,15 @@ import { usePersonalSession } from '@/lib/personal-session';
  */
 export function BrowseView({
   query,
+  themeIds,
   filters,
   summary,
   results,
 }: {
   /** The address's filters, which favourites are filtered by too. */
   query: BrowseFilters;
+  /** The themes browse lists, or null when they couldn't be read (favourites-filter.ts). */
+  themeIds: readonly string[] | null;
   /** The search, sort, format and theme filters. */
   filters: React.ReactNode;
   /** What the list shows, in words, when filtered. */
@@ -80,7 +83,13 @@ export function BrowseView({
       {summary}
 
       <div className="mt-8">
-        {on && <FavouritesList filters={query} onShowAll={() => set(false)} />}
+        {on && (
+          <FavouritesList
+            filters={query}
+            themeIds={themeIds}
+            onShowAll={() => set(false)}
+          />
+        )}
         {!on && results}
       </div>
     </>

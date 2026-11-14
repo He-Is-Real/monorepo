@@ -82,6 +82,7 @@ function Page({ signedIn }: { signedIn: boolean }) {
       {signedIn && <SignedIn />}
       <BrowseView
         query={filters}
+        themeIds={[]}
         filters={null}
         summary={null}
         results={

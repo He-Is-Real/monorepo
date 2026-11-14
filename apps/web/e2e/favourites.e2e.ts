@@ -823,6 +823,14 @@ async function filtersOverFavourites(page: Page, base: string) {
   await expect(cards).toHaveText(titlesOf(4));
   await page.goto(`${base}/stories?favourites=1&theme=salvation`);
   await expect(cards).toHaveText(titlesOf(4));
+  // A theme that doesn't exist filters nothing, as browse; a real one no favourite has
+  // (Gratitude: highlighted, no story) shows none.
+  await page.goto(`${base}/stories?favourites=1&theme=no_such_theme`);
+  await expect(cards).toHaveText(titlesOf(1, 2, 3, 4, 5, 6, 7, 8));
+  await page.goto(`${base}/stories?favourites=1&theme=gratitude`);
+  await expect(
+    page.getByText('None of your favourites match these filters.'),
+  ).toBeVisible();
 
   // Nothing matches: Clear filters keeps Favourites only.
   await page.goto(`${base}/stories?favourites=1&theme=salvation&format=video`);

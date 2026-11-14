@@ -95,10 +95,11 @@ async function loadPages(filters: Filters, pages: number) {
 export default async function BrowsePage({ searchParams }: Props) {
   await connection();
   const { filters, pages } = parseBrowseSearch(await searchParams);
-  const [categories, result] = await Promise.all([
-    listThemes().catch(whenUnavailable('browse', [] as ThemeCategory[])),
+  const [themes, result] = await Promise.all([
+    listThemes().catch(whenUnavailable('browse', null)),
     loadPages(filters, pages),
   ]);
+  const categories = themes ?? [];
   const summary = summaryOf(filters, categories);
   const filtered = summary !== null;
 
@@ -119,6 +120,7 @@ export default async function BrowsePage({ searchParams }: Props) {
 
       <BrowseView
         query={filters}
+        themeIds={themes && themes.flatMap((c) => c.themes.map((t) => t.id))}
         filters={
           <>
             <BrowseFilters filters={filters} />

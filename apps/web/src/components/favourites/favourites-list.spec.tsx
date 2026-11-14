@@ -86,6 +86,7 @@ function Page({ userId }: { userId: string }) {
       <SignedIn userId={userId} />
       <FavouritesList
         filters={{ q: '', theme: null, format: null, sort: 'latest' }}
+        themeIds={[]}
         onShowAll={() => undefined}
       />
       <HeartOf storyId="a_story" />
