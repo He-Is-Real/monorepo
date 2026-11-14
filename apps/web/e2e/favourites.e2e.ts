@@ -32,6 +32,8 @@ import {
 
 const FAVOURITES = '/v1/account/favourites';
 const HEART_PAGE = '/stories?theme=heart_test';
+/** Browse with "Favourites only" on (Joel, 2026-11-14), signed in. */
+const FAVOURITES_ONLY = `${WEB_SIGNED_IN_URL}/stories?favourites=1`;
 const DEVICE_HEARTS_KEY = 'heisreal:device-hearts';
 
 /** This test's own session at the stub api-user. */
@@ -229,7 +231,7 @@ test.describe('hearts', () => {
     );
   });
 
-  test('a heart fills at once, stays after a reload, is on the story page and in My favourites, and comes off there', async ({
+  test('a heart fills at once, stays after a reload, is on the story page and in Favourites only, and comes off there', async ({
     page,
   }, info) => {
     const project = info.project.name;
@@ -271,18 +273,24 @@ test.describe('hearts', () => {
     });
     await expect(storyHeart).toHaveAttribute('aria-pressed', 'true');
 
-    // My favourites, from the account menu (the header's own link is for signed-out visitors).
+    // Favourites only, on browse (Joel, 2026-11-14): the menu has no My favourites any more.
     const account = page.getByRole('button', { name: /^Account: / });
     await expect(account).toBeVisible();
-    await expect(
-      page.getByRole('banner').getByRole('link', { name: 'My favourites' }),
-    ).toHaveCount(0);
     await account.click();
-    await page.getByRole('link', { name: 'My favourites' }).click();
-    await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}/favourites`);
-    await expect(
-      page.getByRole('heading', { level: 2, name: title }),
-    ).toBeVisible();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'My favourites' })).toHaveCount(
+      0,
+    );
+    await page.keyboard.press('Escape');
+    await page.goto(`${WEB_SIGNED_IN_URL}/stories`);
+    const only = page.getByRole('switch', { name: 'Favourites only' });
+    await expect(only).not.toBeChecked();
+    await expect(page.getByRole('search', { name: 'Stories' })).toBeVisible();
+    await only.check();
+    await expect(page).toHaveURL(FAVOURITES_ONLY);
+    // Only the hearted story, and no filters: favourites can't be filtered.
+    await expect(page.locator('main article h2')).toHaveText([title]);
+    await expect(page.getByRole('search', { name: 'Stories' })).toHaveCount(0);
     const listed = cardHeart(page, title);
     await expect(listed).toHaveAttribute('aria-pressed', 'true');
     const del = page.waitForResponse((r) =>
@@ -292,13 +300,47 @@ test.describe('hearts', () => {
     // It stays on screen, empty, so a slip can be undone.
     await expect(listed).toHaveAttribute('aria-pressed', 'false');
     expect((await del).status()).toBe(204);
+    // A reload keeps the switch on (it's in the address).
     await page.reload();
+    await expect(only).toBeChecked();
     await expect(
       page.getByText('You haven’t hearted any stories yet.', { exact: false }),
     ).toBeVisible();
+    // "Show all stories" turns it off again: every story, with the filters.
+    await page.getByRole('button', { name: 'Show all stories' }).click();
+    await expect(only).not.toBeChecked();
+    await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}/stories`);
+    await expect(page.getByRole('search', { name: 'Stories' })).toBeVisible();
+    await expect(page.locator('main article').nth(1)).toBeVisible();
   });
 
-  test('a story that stops being public leaves My favourites', async ({
+  test('Favourites only turns off with the switch, back to browse with its filters', async ({
+    page,
+    request,
+  }, info) => {
+    const session = sessionFor(info, 'switch-off');
+    await useSession(page, session);
+    await heartAtStub(request, session, ['browse_05']);
+    await page.goto(`${WEB_SIGNED_IN_URL}${HEART_PAGE}&favourites=1`);
+    const only = page.getByRole('switch', { name: 'Favourites only' });
+    await expect(only).toBeChecked();
+    await expect(page.locator('main article h2')).toHaveText([
+      'Browse test story 05',
+    ]);
+    await only.uncheck();
+    await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}${HEART_PAGE}`);
+    // Browse as the address says: the heart_test theme's stories, theme chosen.
+    await expect(
+      cardHeart(page, `Heart test story (${info.project.name})`),
+    ).toBeVisible();
+    await expect(
+      page
+        .getByRole('navigation', { name: 'Themes' })
+        .locator('[aria-current]'),
+    ).toHaveCount(1);
+  });
+
+  test('a story that stops being public leaves Favourites only', async ({
     page,
     request,
   }, info) => {
@@ -309,7 +351,7 @@ test.describe('hearts', () => {
       'browse_05',
       slug.replaceAll('-', '_'),
     ]);
-    await page.goto(`${WEB_SIGNED_IN_URL}/favourites`);
+    await page.goto(FAVOURITES_ONLY);
     const cards = page.locator('[data-favourites] article h2');
     await expect(cards).toHaveText([
       `Heart temp story ${slug}`,
@@ -353,43 +395,26 @@ test.describe('hearts', () => {
       page.getByRole('button', { name: 'Favourite', exact: true }),
     ).toHaveAttribute('aria-pressed', 'true');
 
-    // My favourites, signed out: this device's list, reached from the header (Joel, 2026-11-07).
-    await page
-      .getByRole('banner')
-      .getByRole('link', { name: 'My favourites' })
-      .click();
-    await expect(page).toHaveURL('/favourites');
+    // Signed out there is no Favourites only, nor a My favourites link (Joel, 2026-11-14).
+    await page.goto('/stories?favourites=1');
+    await expect(page.locator('main article').first()).toBeVisible();
+    await expect(page.getByRole('search', { name: 'Stories' })).toBeVisible();
     await expect(
-      page.getByText('Your hearts are kept in this browser only.', {
-        exact: false,
-      }),
-    ).toBeVisible();
-    const listed = cardHeart(page, title);
-    await expect(
-      page.getByRole('heading', { level: 2, name: title }),
-    ).toBeVisible();
-    await expect(listed).toHaveAttribute('aria-pressed', 'true');
-    await listed.click(); // off: stays on screen until the next visit
-    await expect(listed).toHaveAttribute('aria-pressed', 'false');
-    expect(await deviceHearts(page)).toEqual([]);
-    await page.reload();
-    await expect(
-      page.getByText('You haven’t hearted any stories in this browser yet.', {
-        exact: false,
-      }),
-    ).toBeVisible();
+      page.getByRole('switch', { name: 'Favourites only' }),
+    ).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'My favourites' })).toHaveCount(
+      0,
+    );
     expect(sent, 'nothing reaches api-user').toEqual([]);
   });
 
-  test('the old address, /account/favourites, lands on /favourites for good', async ({
+  test('the old My favourites page is gone: /favourites and /account/favourites are not found', async ({
     request,
   }) => {
-    const res = await request.get('/account/favourites', { maxRedirects: 0 });
-    expect(res.status()).toBe(308);
-    expect(res.headers()['location']).toBe('/favourites');
-    const followed = await request.get('/account/favourites');
-    expect(new URL(followed.url()).pathname).toBe('/favourites');
-    expect(followed.status()).toBe(200);
+    for (const path of ['/favourites', '/account/favourites']) {
+      const res = await request.get(path, { maxRedirects: 0 });
+      expect(res.status(), path).toBe(404);
+    }
   });
 
   test('signed out, a heart from long ago is still kept (no expiry)', async ({
@@ -402,30 +427,6 @@ test.describe('hearts', () => {
     await expect(
       cardHeart(page, `Heart test story (${project})`),
     ).toHaveAttribute('data-heart-state', 'on');
-  });
-
-  test('a story that stops being public leaves the device’s My favourites', async ({
-    page,
-    request,
-  }, info) => {
-    const slug = await ownStory(request, info, 'gone-device');
-    await seedDeviceHearts(page, [
-      { id: slug.replaceAll('-', '_') },
-      { id: 'browse_05' },
-    ]);
-    await page.goto('/favourites');
-    const cards = page.locator('[data-favourites] article h2');
-    await expect(cards).toHaveText([
-      `Heart temp story ${slug}`,
-      'Browse test story 05',
-    ]);
-    await request.post(`${STUB_URL}/__test/hide?slug=${slug}`);
-    try {
-      await page.reload();
-      await expect(cards).toHaveText(['Browse test story 05']);
-    } finally {
-      await request.post(`${STUB_URL}/__test/show?slug=${slug}`);
-    }
   });
 
   test('signed in, the device’s hearts are offered to the account, and Add saves them', async ({
@@ -478,7 +479,7 @@ test.describe('hearts', () => {
       'browse_03',
       'no_such_story',
     ]);
-    await page.goto(`${WEB_SIGNED_IN_URL}/favourites`);
+    await page.goto(FAVOURITES_ONLY);
     await expect(page.locator('[data-favourites] article h2')).toHaveCount(3);
     await page.goto(`${WEB_SIGNED_IN_URL}/about`);
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
@@ -724,11 +725,11 @@ test.describe('hearts', () => {
   });
 });
 
-// Joel, 2026-10-31: My favourites shows stories as browse does (the same masonry and cards):
+// Joel, 2026-10-31: favourites show stories as browse does (the same masonry and cards):
 // each card at its media's own clamped shape (D53), a written story without a picture as text
 // only, and the cards stacked in staggered columns, not in even rows. Every device, as the
 // column count changes with the width. Stub: `aspect-test`'s stories (stub-api.mjs).
-test('My favourites keeps each card at its media’s shape, in browse’s masonry', async ({
+test('Favourites only keeps each card at its media’s shape, in browse’s masonry', async ({
   page,
   request,
 }, info) => {
@@ -745,7 +746,7 @@ test('My favourites keeps each card at its media’s shape, in browse’s masonr
     session,
     shapes.map(([id]) => id),
   );
-  await page.goto(`${WEB_SIGNED_IN_URL}/favourites`);
+  await page.goto(FAVOURITES_ONLY);
   const list = page.locator('[data-favourites] ul.masonry');
   await expect(list.locator('> li')).toHaveCount(shapes.length);
   await expectNoHorizontalOverflow(page);
@@ -779,7 +780,7 @@ const browseIds = (n: number) =>
     (_, i) => `browse_${String(i + 1).padStart(2, '0')}`,
   );
 
-/** Brings the end of My favourites into view, as a reader scrolling down does. */
+/** Brings the end of the favourites into view, as a reader scrolling down does. */
 async function scrollToEnd(list: Locator) {
   await list
     .locator('> li')
@@ -809,7 +810,7 @@ test('the next page of favourites adds cards under the columns, the others stayi
     await held;
     await route.continue();
   });
-  await page.goto(`${WEB_SIGNED_IN_URL}/favourites`);
+  await page.goto(FAVOURITES_ONLY);
   const list = page.locator('[data-favourites] ul.masonry');
   const width = page.viewportSize()?.width ?? 0;
   await expect(list.locator('> li')).toHaveCount(24);
@@ -849,7 +850,7 @@ test.describe('loading more favourites', () => {
 
   // 52 hearts (the stub's 48 browse stories and 4 others) are 3 pages (24, 24, 4): each loads
   // on its own, with no button on the way.
-  test('My favourites loads the next page on its own whenever the end comes near, to the end', async ({
+  test('Favourites only loads the next page on its own whenever the end comes near, to the end', async ({
     page,
     request,
   }, info) => {
@@ -862,7 +863,7 @@ test.describe('loading more favourites', () => {
       'audio_story',
       'image_story',
     ]);
-    await page.goto(`${WEB_SIGNED_IN_URL}/favourites`);
+    await page.goto(FAVOURITES_ONLY);
     const list = page.locator('[data-favourites] ul.masonry');
     const cards = list.locator('> li');
     await expect(cards).toHaveCount(24);
@@ -909,7 +910,7 @@ test.describe('loading more favourites', () => {
         ? route.abort('internetdisconnected')
         : route.continue();
     });
-    await page.goto(`${WEB_SIGNED_IN_URL}/favourites`);
+    await page.goto(FAVOURITES_ONLY);
     const list = page.locator('[data-favourites] ul.masonry');
     await expect(list.locator('> li')).toHaveCount(24);
     await scrollToEnd(list);
@@ -943,7 +944,7 @@ for (const scheme of ['light', 'dark'] as const) {
   test.describe(`${scheme} scheme`, () => {
     test.use({ colorScheme: scheme });
 
-    test('My favourites and the hearts fit the screen, with 44 px targets', async ({
+    test('Favourites only and the hearts fit the screen, with 44 px targets', async ({
       page,
       request,
     }, info) => {
@@ -956,13 +957,13 @@ for (const scheme of ['light', 'dark'] as const) {
         'browse_02',
         'browse_03',
       ]);
-      await page.goto(`${WEB_SIGNED_IN_URL}/favourites`);
+      await page.goto(FAVOURITES_ONLY);
       const hearts = page.locator('[data-favourites] [data-heart]');
       await expect(hearts).toHaveCount(3);
       await expect(hearts.first()).toHaveAttribute('aria-pressed', 'true');
       if (SCREENSHOT_DEVICES.includes(project))
         await page.screenshot({
-          path: `test-output/e2e/screenshots/${project}/${scheme}-my-favourites.jpg`,
+          path: `test-output/e2e/screenshots/${project}/${scheme}-favourites-only.jpg`,
           fullPage: true,
           type: 'jpeg',
           scale: 'css',
@@ -985,32 +986,6 @@ for (const scheme of ['light', 'dark'] as const) {
       });
       await expectTarget(page, storyHeart);
       await expectNoHorizontalOverflow(page);
-    });
-
-    test('signed out: the device’s My favourites fits the screen, with 44 px targets', async ({
-      page,
-    }, info) => {
-      const project = info.project.name;
-      await seedDeviceHearts(page, [
-        { id: 'browse_01' },
-        { id: 'browse_02' },
-        { id: 'browse_03' },
-      ]);
-      await page.goto('/favourites');
-      const hearts = page.locator('[data-favourites] [data-heart]');
-      await expect(hearts).toHaveCount(3);
-      await expect(hearts.first()).toHaveAttribute('aria-pressed', 'true');
-      if (SCREENSHOT_DEVICES.includes(project))
-        await page.screenshot({
-          path: `test-output/e2e/screenshots/${project}/${scheme}-my-favourites-device.jpg`,
-          fullPage: true,
-          type: 'jpeg',
-          scale: 'css',
-          quality: 50,
-        });
-      await expectNoHorizontalOverflow(page);
-      await expectAllTargets(page);
-      for (const heart of await hearts.all()) await expectTarget(page, heart);
     });
 
     test('signed in: the prompt to add the device’s hearts fits the screen, with 44 px targets', async ({

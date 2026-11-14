@@ -1,17 +1,12 @@
 'use client';
 
-import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FAVOURITES_HREF } from '@/components/nav/site-nav';
 import { StoryMasonry } from '@/components/stories/story-masonry';
 import { useNearEnd } from '@/components/stories/use-near-end';
 import { Button } from '@/components/ui/button';
-import { deviceHeartCards } from '@/app/stories/actions';
 import type { ApiSummary, StorySummary } from '@/lib/browse';
-import { deviceHeartIds } from '@/lib/device-hearts';
 import { markHearted } from '@/lib/favourites';
 import { personalApiUser, usePersonalSession } from '@/lib/personal-session';
-import { signInHref } from '@/lib/return-path';
 import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 
 /** Cards per page. */
@@ -32,7 +27,8 @@ type List =
 type Page = { data: StorySummary[]; nextCursor: string | null };
 
 /**
- * The person's hearted stories, from api-user in the browser (D83), shown as browse shows stories
+ * Browse's "Favourites only" (Joel, 2026-11-14): the signed-in person's hearted stories, from
+ * api-user in the browser (D83), in place of browse's list. Shown as browse shows stories
  * (Joel, 2026-10-31): its masonry, each card at its media's own shape, written stories without a
  * picture as text only. Newest heart first; the next page loads on its own as the reader nears
  * the end, as browse's does (Joel, 2026-10-31). A heart taken off here stays on screen, empty,
@@ -42,7 +38,12 @@ type Page = { data: StorySummary[]; nextCursor: string | null };
  * it was asked for, and one that arrives after someone else signed in (or out) is dropped
  * before it reaches the screen or the hearts.
  */
-export function FavouritesList() {
+export function FavouritesList({
+  onShowAll,
+}: {
+  /** Back to every story (the empty list's button). */
+  onShowAll: () => void;
+}) {
   const session = usePersonalSession();
   const [list, setList] = useState<List>({ status: 'loading' });
   const load = useRef(0); // the current load; answers to older ones are dropped
@@ -169,8 +170,8 @@ export function FavouritesList() {
     );
   };
 
-  // Signed out: this device's hearts (Joel, 2026-10-28).
-  if (session.status === 'signed-out') return <DeviceFavourites />;
+  // Only for someone signed in (browse shows the toggle to them alone).
+  if (session.status === 'signed-out') return null;
 
   // Someone else's list (the person changed a moment ago) is never shown: loading instead.
   if (
@@ -213,8 +214,8 @@ export function FavouritesList() {
           You haven’t hearted any stories yet. Press the heart on a story you
           want to find again, and it will be here.
         </p>
-        <Button asChild className="h-11 px-5">
-          <Link href="/stories">Browse stories</Link>
+        <Button className="h-11 px-5" onClick={onShowAll}>
+          Show all stories
         </Button>
       </Notice>
     );
@@ -318,173 +319,6 @@ function Cards({
           </p>
         )}
       </div>
-    </>
-  );
-}
-
-type DeviceList =
-  | { status: 'loading' }
-  | { status: 'failed' }
-  | {
-      status: 'ready';
-      cards: StorySummary[];
-      /** The device's ids still to show, newest heart first. */
-      rest: string[];
-      more: 'idle' | 'loading' | 'failed';
-    };
-
-/**
- * Signed out: the hearts kept on this device (device-hearts.ts), newest first, as cards that
- * web's server reads from api-public-read by id (`deviceHeartCards`): anonymous, no login (D83).
- * A story no longer public is left out. Taken off here, a heart stays on screen until the next
- * visit, as when signed in.
- */
-function DeviceFavourites() {
-  const [list, setList] = useState<DeviceList>({ status: 'loading' });
-  const load = useRef(0);
-  const busy = useRef<number | null>(null); // as FavouritesList's
-
-  /** The cards for the next page of ids, in the device's order. */
-  const fetchCards = async (ids: string[]) => {
-    const answer = await deviceHeartCards(ids);
-    if (!answer.ok) throw new Error('Stories unavailable');
-    const byId = new Map(answer.cards.map((c) => [c.id, c]));
-    return ids.flatMap((id) => {
-      const card = byId.get(id);
-      return card ? [card] : [];
-    });
-  };
-
-  const start = useCallback(() => {
-    const mine = ++load.current;
-    busy.current = null;
-    const ids = deviceHeartIds();
-    setList({ status: 'loading' });
-    fetchCards(ids.slice(0, PAGE_SIZE)).then(
-      (cards) => {
-        if (load.current === mine)
-          setList({
-            status: 'ready',
-            cards,
-            rest: ids.slice(PAGE_SIZE),
-            more: 'idle',
-          });
-      },
-      () => {
-        if (load.current === mine) setList({ status: 'failed' });
-      },
-    );
-  }, []);
-
-  useEffect(() => {
-    start();
-    return () => {
-      load.current += 1;
-    };
-  }, [start]);
-
-  const showMore = () => {
-    if (
-      busy.current !== null ||
-      list.status !== 'ready' ||
-      list.rest.length === 0
-    )
-      return;
-    const mine = load.current;
-    busy.current = mine;
-    const next = list.rest.slice(0, PAGE_SIZE);
-    setList({ ...list, more: 'loading' });
-    fetchCards(next).then(
-      (cards) => {
-        if (busy.current === mine) busy.current = null;
-        if (load.current !== mine) return;
-        setList((now) =>
-          now.status === 'ready'
-            ? {
-                ...now,
-                cards: [
-                  ...now.cards,
-                  ...cards.filter((c) => !now.cards.some((n) => n.id === c.id)),
-                ],
-                rest: now.rest.slice(next.length),
-                more: 'idle',
-              }
-            : now,
-        );
-      },
-      () => {
-        if (busy.current === mine) busy.current = null;
-        if (load.current === mine)
-          setList((now) =>
-            now.status === 'ready' ? { ...now, more: 'failed' } : now,
-          );
-      },
-    );
-  };
-
-  const signIn = (
-    <a
-      href={signInHref(FAVOURITES_HREF)}
-      className="inline-flex min-h-11 items-center px-1 font-semibold"
-    >
-      Sign in
-    </a>
-  );
-
-  if (list.status === 'loading')
-    return (
-      <div
-        data-favourites-loading=""
-        aria-busy="true"
-        className="min-h-[24rem]"
-      >
-        <p className="sr-only" role="status">
-          Loading your favourites…
-        </p>
-      </div>
-    );
-
-  if (list.status === 'failed')
-    return (
-      <Notice>
-        <p className="mb-5" role="alert">
-          {TRY_AGAIN_LATER}
-        </p>
-        <Button variant="outline" className="h-11 px-5" onClick={start}>
-          Try again
-        </Button>
-      </Notice>
-    );
-
-  if (list.cards.length === 0 && list.rest.length === 0)
-    return (
-      <Notice>
-        <p className="mb-5">
-          You haven’t hearted any stories in this browser yet. Press the heart
-          on a story you want to find again, and it will be here. No account
-          needed.
-        </p>
-        <Button asChild className="h-11 px-5">
-          <Link href="/stories">Browse stories</Link>
-        </Button>
-      </Notice>
-    );
-
-  return (
-    <>
-      <p
-        data-device-favourites=""
-        className="mx-auto mb-8 max-w-measure text-center text-secondary-text"
-      >
-        Your hearts are kept in this browser only. {signIn} to keep them in your
-        account.
-      </p>
-      <Cards
-        cards={list.cards}
-        hasMore={list.rest.length > 0}
-        more={list.more}
-        onMore={showMore}
-      />
     </>
   );
 }
