@@ -17,7 +17,8 @@ import { PICTURE_START_BYTES, type PictureStart } from './picture-check';
  * Without `BUNNY_STORAGE_PASSWORD_SECRET`, image uploads are off and RequestUpload answers `503`.
  * api-user never deletes a replaced or removed picture (one may still be on an approved story's
  * public copy; the clean-up sweep removes orphans, media-runbook), only the folders of stories that
- * are gone, from the deletion queue (D40), straight after an erasure.
+ * are gone: from the deletion queue (D40) straight after an erasure, and a story's own folder
+ * straight after its owner deletes it (OD-1, Joel 2026-11-14).
  */
 export const BUNNY_STORAGE = Symbol('BUNNY_STORAGE');
 
@@ -47,9 +48,10 @@ export interface ImageStore {
    */
   start(path: string): Promise<PictureStart | null>;
   /**
-   * A deleted story's queued folder (pendingDeletion `image`, D40), `stories/<id>/`, always from
-   * the database, which queues it when the story goes (story_picture_folder): deletes the folder
-   * with every picture in it (`deleteStoryFolder`). Throws unless it's done.
+   * A deleted story's folder, `stories/<id>/`: one the database queued when the story went
+   * (pendingDeletion `image`, D40, story_picture_folder), or the folder of a story its owner has
+   * just deleted (OD-1). Deletes the folder with every picture in it (`deleteStoryFolder`).
+   * Throws unless it's done.
    */
   deleteFolder(folder: string): Promise<void>;
 }

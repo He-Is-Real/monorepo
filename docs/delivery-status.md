@@ -305,6 +305,11 @@ as its owner can (it removes the story's videos and pictures at Bunny at once, a
 whether the story changed since the page opened); and a story the site took off itself (its video or audio can't play) can be
 rejected, which then lets the nightly clean-up delete it like any rejected story.
 
+**In progress: a person's Delete removes their story's pictures at once (Joel, 14 November
+2026).** Like an Admin's Delete, deleting your own story now deletes its picture folder at Bunny
+straight away, not the next night (its videos already went at once). If Bunny fails or is slow
+then, the Delete still succeeds and the nightly clean-up removes the pictures.
+
 **Still to come:**
 
 - "Your video couldn't be used" (part 1a): a video Bunny can't use sends the story back to the

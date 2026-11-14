@@ -22,19 +22,30 @@ import {
   type BunnyStream,
   signUpload,
 } from '@heisreal/story-cards/bunny-stream';
+import { STORY_MEDIA_BUDGET_MS } from '@heisreal/story-cards/story-media';
+import {
+  BUNNY_STORAGE,
+  type ImageStore,
+} from '../src/app/stories/bunny-storage';
 
 /**
  * The profile's commands on the person's own stories (M2 plan PR 8), through api-user's real
  * AppModule as /account calls them: Edit (ED-1, ED-4) and DeleteStory (ED-3, every state). The
  * database is the behaviour: which steps a story may take is its status log's rule, and a delete
  * reaches every copy
- * (story_erasure_cascade). Bunny Stream is an in-memory stand-in that records deletes. Every
+ * (story_erasure_cascade). Bunny (Stream and the images zone) is an in-memory stand-in that
+ * records deletes, fails every call while `down`, as in an outage, or never answers while
+ * `stalled`. Every
  * answer is checked against api-user.yaml. The list also says when each draft, story being edited
  * after it was sent, and rejected story will be deleted (fn::story::deletes_at, the rule
  * housekeeping deletes by).
  */
+const NEVER = new Promise<never>(() => undefined);
 class FakeStream implements BunnyStream {
+  down = false;
+  stalled = false;
   readonly deleted: string[] = [];
+  readonly folders: string[] = [];
   async createVideo() {
     return randomUUID();
   }
@@ -42,11 +53,21 @@ class FakeStream implements BunnyStream {
     return null;
   }
   async deleteVideo(id: string) {
+    if (this.stalled) return NEVER;
+    if (this.down) throw new Error('Bunny Stream delete answered 503');
     this.deleted.push(id);
   }
   sign(videoId: string, now?: number) {
     return signUpload('42', 'library-key', videoId, now);
   }
+  /** The images zone: only the owner's Delete (OD-1) reaches it in these tests. */
+  readonly zone = {
+    deleteFolder: async (folder: string) => {
+      if (this.stalled) return NEVER;
+      if (this.down) throw new Error('The images zone answered 503');
+      this.folders.push(folder);
+    },
+  } as unknown as ImageStore;
 }
 
 describe('my stories: edit and delete', () => {
@@ -150,6 +171,25 @@ describe('my stories: edit and delete', () => {
     );
   const mine = async (who: string, id: string) =>
     (await call('GET', `/v1/account/stories/${id}`, who)).body;
+  const queuedFolder = (id: string) =>
+    rows(migrator, `SELECT VALUE ref FROM pendingDeletion WHERE ref = $ref`, {
+      ref: `stories/${id}/`,
+    });
+  /** Ann's video draft with its video made at Bunny: the story id and the video's. */
+  const videoDraft = async () => {
+    const id = await create('ann', 'video');
+    const upload = await call('POST', `/v1/stories/${id}/upload-url`, 'ann', {
+      body: {
+        format: 'video',
+        contentType: 'video/mp4',
+        fileSizeBytes: 2_000_000,
+        durationSeconds: 30,
+      },
+      headers: { 'if-match': '"1"', 'idempotency-key': key() },
+    });
+    expect(upload.status).toBe(200);
+    return { id, videoId: upload.body.headers.VideoId as string };
+  };
 
   beforeAll(async () => {
     t = await TestDatabase.create();
@@ -176,6 +216,11 @@ describe('my stories: edit and delete', () => {
       .useValue('test-project')
       .overrideProvider(BUNNY_STREAM)
       .useValue(bunny)
+      .overrideProvider(BUNNY_STORAGE)
+      .useValue(bunny.zone)
+      // A short wait for Bunny, so the stalled-Bunny case is quick (8 s in the service).
+      .overrideProvider(STORY_MEDIA_BUDGET_MS)
+      .useValue(300)
       .compile();
     app = moduleRef.createNestApplication({ logger: false });
     await app.listen(0, '127.0.0.1');
@@ -333,23 +378,16 @@ describe('my stories: edit and delete', () => {
     });
   });
 
-  it('deletes a draft and the video made for it at Bunny; its upload still counts', async () => {
-    const id = await create('ann', 'video');
-    const upload = await call('POST', `/v1/stories/${id}/upload-url`, 'ann', {
-      body: {
-        format: 'video',
-        contentType: 'video/mp4',
-        fileSizeBytes: 2_000_000,
-        durationSeconds: 30,
-      },
-      headers: { 'if-match': '"1"', 'idempotency-key': key() },
-    });
-    expect(upload.status).toBe(200);
-    const videoId = upload.body.headers.VideoId as string;
+  it('deletes a draft, the video made for it and its picture folder at Bunny at once; its upload still counts', async () => {
+    const { id, videoId } = await videoDraft();
 
     expect((await remove('ann', id, 2)).status).toBe(204);
     expect(await statusOf(id)).toBeUndefined();
     expect(bunny.deleted).toContain(videoId);
+    // OD-1: the picture folder goes at once too, and stays queued for housekeeping's final pass
+    // (a late upload) and as the backup.
+    expect(bunny.folders).toContain(`stories/${id}/`);
+    expect(await queuedFolder(id)).toEqual([`stories/${id}/`]);
     // D113: the grant stays, so deleting a story frees no upload.
     expect(
       await rows(
@@ -360,24 +398,57 @@ describe('my stories: edit and delete', () => {
     ).toEqual([videoId]);
   });
 
+  it('Bunny down: the owner’s Delete still succeeds, and the clean-up still has the folder and the video', async () => {
+    const { id, videoId } = await videoDraft();
+    bunny.down = true;
+    try {
+      expect((await remove('ann', id, 2)).status).toBe(204);
+    } finally {
+      bunny.down = false;
+    }
+    expect(await statusOf(id)).toBeUndefined();
+    expect(bunny.deleted).not.toContain(videoId);
+    expect(bunny.folders).not.toContain(`stories/${id}/`);
+    // Housekeeping deletes the folder from the queue; the video, no story's now, goes in the
+    // nightly orphan sweep (its file row stays for the upload limits, D113).
+    expect(await queuedFolder(id)).toEqual([`stories/${id}/`]);
+    expect(
+      await rows(
+        migrator,
+        `SELECT VALUE record::id(id) FROM type::record('storyFile', $v)`,
+        { v: videoId },
+      ),
+    ).toEqual([videoId]);
+  });
+
+  it('Bunny stalled: the owner’s Delete answers once its wait for Bunny runs out, and the clean-up still has the files', async () => {
+    const { id, videoId } = await videoDraft();
+    bunny.stalled = true;
+    try {
+      // Bunny never answers; without the wait's limit this request would never end.
+      expect((await remove('ann', id, 2)).status).toBe(204);
+    } finally {
+      bunny.stalled = false;
+    }
+    expect(await statusOf(id)).toBeUndefined();
+    expect(await queuedFolder(id)).toEqual([`stories/${id}/`]);
+    expect(
+      await rows(
+        migrator,
+        `SELECT VALUE record::id(id) FROM type::record('storyFile', $v)`,
+        { v: videoId },
+      ),
+    ).toEqual([videoId]);
+  });
+
   it('deletes a story sent back for changes, and its video at Bunny', async () => {
-    const id = await create('ann', 'video');
-    const upload = await call('POST', `/v1/stories/${id}/upload-url`, 'ann', {
-      body: {
-        format: 'video',
-        contentType: 'video/mp4',
-        fileSizeBytes: 2_000_000,
-        durationSeconds: 30,
-      },
-      headers: { 'if-match': '"1"', 'idempotency-key': key() },
-    });
-    expect(upload.status).toBe(200);
-    const videoId = upload.body.headers.VideoId as string;
+    const { id, videoId } = await videoDraft();
     await moderate(id, 'changesRequested');
 
     expect((await remove('ann', id, await versionOf(id))).status).toBe(204);
     expect(await statusOf(id)).toBeUndefined();
     expect(bunny.deleted).toContain(videoId);
+    expect(bunny.folders).toContain(`stories/${id}/`);
   });
 
   it('tells the owner when each draft, story being edited after it was sent, and rejected story will be deleted', async () => {

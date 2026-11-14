@@ -25,6 +25,11 @@
       "import": "./src/lib/images-zone.ts",
       "default": "./src/lib/images-zone.ts"
     },
+    "./story-media": {
+      "types": "./src/lib/story-media.ts",
+      "import": "./src/lib/story-media.ts",
+      "default": "./src/lib/story-media.ts"
+    },
     "./package.json": "./package.json"
   },
   "nx": {

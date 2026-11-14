@@ -437,14 +437,15 @@ through its file row (`storyFile`, R12; D80: the person's browser never names a 
   `SELECT * FROM storyFile WHERE detachedAt < time::now() - 1d AND removedAt = NONE`.
 - **Deleted stories:** when a person deletes a story, in any state (D71, ED-3),
   api-user deletes every video it made for that story (its file rows) at Bunny straight
-  after the database commits. Only those videos: dev's seeded media and site assets are never
-  touched. The rows stay for the upload limits. An Admin's Delete on the review page does the
-  same from api-admin (DEL-1, Joel 2026-11-14): its videos at once, and its picture folder at
-  once too (the folder also stays queued for housekeeping's final pass); it no longer waits for
-  the nightly sweep. These deletions run side by side and the Delete waits at most 8 seconds for
-  them. A failure there, or one Bunny hadn't answered in time (`… Bunny hadn’t answered within 8 s`),
-  is logged (`Couldn’t delete the deleted story’s video …`, `Couldn’t delete stories/<id>/ …`) and
-  left to the sweep and the queue.
+  after the database commits, and the story's picture folder too (OD-1, Joel 2026-11-14; the
+  folder also stays queued for housekeeping's final pass). Only those videos and that folder:
+  dev's seeded media and site assets are never touched. The rows stay for the upload limits. An
+  Admin's Delete on the review page does the same from api-admin (DEL-1, Joel 2026-11-14). Both
+  use the same code (`discardDeletedStoryMedia`, `@heisreal/story-cards/story-media`): the
+  deletions run side by side and the Delete waits at most 8 seconds for them. A failure there, or
+  one Bunny hadn't answered in time (`… Bunny hadn’t answered within 8 s`), is logged
+  (`Couldn’t delete the deleted story’s video …`, `Couldn’t delete stories/<id>/ …`) and left to
+  the sweep and the queue.
 - **Orphans** (a video on Bunny that no story shows) happen when that delete fails (api-user
   logs `Couldn’t delete replaced video …` or `… a deleted story’s video …`), when the database refused the file row after the video
   was created and the delete after it failed (`… after a refused upload`), when api-user lost the
@@ -500,9 +501,11 @@ after they stop counting (a queue built from those rows missed files).
 
 - **Erasure** (D39, D40): api-user deletes the erased person's stories' folders straight after
   the commit, and the nightly housekeeping retries what failed.
-- **A person deleting their own story**, and **abandoned drafts** housekeeping deletes (D71): the
-  next night's pending-deletions chore deletes the folder (the dry-run rule applies: in a dry
-  run it only logs it).
+- **A person deleting their own story** (OD-1, Joel 2026-11-14) and **an Admin's Delete** (DEL-1):
+  the service deletes the folder at once, straight after the commit (see "Deleted stories"
+  above); its row stays queued for the final pass below and as the backup if Bunny failed then.
+- **Abandoned drafts** housekeeping deletes (D71): the next night's pending-deletions chore
+  deletes the folder (the dry-run rule applies: in a dry run it only logs it).
 - **Late uploads:** a picture's PUT link lasts 10 minutes, so one signed just before the story's
   delete could still put a file in the folder after it was deleted. So a folder's row stays
   queued after a delete until its **final pass**, 15 minutes after the story went

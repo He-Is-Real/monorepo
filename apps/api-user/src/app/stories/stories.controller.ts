@@ -9,6 +9,7 @@ import {
   Headers,
   HttpStatus,
   Inject,
+  Logger,
   type MiddlewareConsumer,
   Module,
   type NestModule,
@@ -49,6 +50,12 @@ import {
   type BunnyStream,
   createBunnyStream,
 } from '@heisreal/story-cards/bunny-stream';
+import {
+  DEFAULT_STORY_MEDIA_BUDGET_MS,
+  type DeletedStoryMedia,
+  discardDeletedStoryMedia,
+  STORY_MEDIA_BUDGET_MS,
+} from '@heisreal/story-cards/story-media';
 import { mergePatchBody } from './merge-patch-body';
 import { senderIp } from './sender-ip';
 import {
@@ -158,6 +165,7 @@ function reused(err: unknown): unknown {
 export class StoriesController {
   private readonly uploads: Uploads;
   private readonly service: Surreal;
+  private readonly deletedMedia: DeletedStoryMedia;
 
   constructor(
     private readonly people: PersonSessions,
@@ -168,9 +176,17 @@ export class StoriesController {
     private readonly urls: MediaUrls,
     /** The media checks and picture videos a submit or a picture change writes down. */
     @Inject(MEDIA_JOBS) private readonly jobs: MediaJobs | null,
+    /** How long DeleteStory waits for Bunny (OD-1): all its deletions together. */
+    @Inject(STORY_MEDIA_BUDGET_MS) budgetMs: number,
   ) {
     this.service = service;
     this.uploads = new Uploads(service, bunny, images);
+    this.deletedMedia = {
+      stream: bunny,
+      folders: images,
+      budgetMs,
+      logger: new Logger('DeleteStory'),
+    };
   }
 
   @Get('v1/themes')
@@ -423,8 +439,9 @@ export class StoriesController {
     const { videos } = await this.people.run(req, ({ session }) =>
       new StoryStore(session).delete(sid, version),
     );
-    // Only once the delete has committed: its media at Bunny (D71; media-runbook.md).
-    await this.uploads.discardDeleted(videos);
+    // Only once the delete has committed: its videos and picture folder at Bunny, at once, under
+    // one time budget, never failing the Delete (D71, OD-1; media-runbook.md).
+    await discardDeletedStoryMedia(this.deletedMedia, sid, videos);
     res.status(HttpStatus.NO_CONTENT);
   }
 
@@ -506,8 +523,9 @@ export class StoriesController {
       inject: [SecretsService],
       useFactory: (secrets: SecretsService) => createImageStore(secrets),
     },
+    { provide: STORY_MEDIA_BUDGET_MS, useValue: DEFAULT_STORY_MEDIA_BUDGET_MS },
   ],
-  exports: [BUNNY_STREAM, BUNNY_STORAGE],
+  exports: [BUNNY_STREAM, BUNNY_STORAGE, STORY_MEDIA_BUDGET_MS],
 })
 export class BunnyStreamModule {}
 

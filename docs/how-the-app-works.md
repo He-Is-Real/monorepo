@@ -386,7 +386,9 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   changing the title keeps the address.
 - **Delete (ED-3):** a person can delete their own story in any state, after one "This can't be
   undone" question. Deleting a story also deletes its videos and pictures and everyone's hearts on
-  it, and takes it off the site at once. (D71)
+  it, and takes it off the site at once. Its videos and pictures are deleted at Bunny at once too
+  (OD-1, Joel 2026-11-14), waiting at most 8 seconds for Bunny; if Bunny fails or is still busy
+  then, the Delete still succeeds and the nightly clean-up removes them. (D71)
 - **Delete my account** is the one account-wide withdrawal. The page says what goes and what
   stays and asks the person to type "delete". It deletes their stories, videos, pictures, hearts,
   limits and records, deletes them at Clerk (which signs them out everywhere), and keeps a
@@ -624,7 +626,7 @@ Built (M3 plan, pull requests 1 and 6; Joel, 2026-11-09 and 2026-11-11):
   and picture folder at Bunny are deleted at once too (DEL-1, Joel 2026-11-14), side by side, waiting
   at most 8 seconds for Bunny so the Admin isn't kept waiting. If Bunny fails or is still busy at
   that moment the Delete still succeeds: the nightly orphan sweep removes the videos and the
-  queued picture folder is removed by the nightly clean-up, as for the owner's Delete. The person
+  queued picture folder is removed by the nightly clean-up, exactly as for the owner's Delete. The person
   isn't told, beyond the story leaving My submissions. Unlike a decision, it doesn't check what the
   Admin saw: the story goes even if it changed since the page opened (DEL-3, Joel 2026-11-14);
   a story already gone answers that it wasn't found. Moderators have no Delete (DEL-2 A).

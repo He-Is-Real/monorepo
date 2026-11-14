@@ -630,9 +630,9 @@ export class StoryStore {
    * DeleteStory at `ifMatch` (ED-3, Joel 2026-11-11): the person's own story in any state, straight
    * away, gone with its status log and others' hearts
    * (story_erasure_cascade). Answers the Bunny videos api-user made for it (its video and audio
-   * storyFile rows, D80, R12), for the caller to delete at Bunny once this has committed. Its
-   * picture folder is queued by the delete itself (story_picture_folder), for housekeeping. The
-   * rows themselves stay: the upload limits count them for 7 days (D113).
+   * storyFile rows, D80, R12), for the caller to delete at Bunny once this has committed, with its
+   * picture folder (OD-1). The delete itself queues that folder too (story_picture_folder), for
+   * housekeeping's final pass after late uploads and as the backup. The rows themselves stay: the upload limits count them for 7 days (D113).
    */
   async delete(id: string, ifMatch: number): Promise<{ videos: string[] }> {
     try {
