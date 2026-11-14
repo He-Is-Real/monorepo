@@ -452,7 +452,6 @@ aspectStory('aspect-test-portrait', {
     url: sized(900, 1200),
     width: 900,
     height: 1200,
-    alt: 'A dummy picture, 900 by 1200',
   },
   publishedAt: '2026-10-22T17:00:00Z',
 });

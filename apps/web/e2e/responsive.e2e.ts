@@ -97,7 +97,7 @@ for (const scheme of ['light', 'dark'] as const) {
 
       await page.goto('/stories/image-story');
       const image = page.getByRole('img', {
-        name: 'A wide test pattern (dummy image)',
+        name: 'A photo shared with this story',
       });
       await expect(image).toBeVisible();
       expect(
