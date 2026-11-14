@@ -1,3 +1,4 @@
+import { writeLog } from '@heisreal/logging';
 import {
   type CallHandler,
   type ExecutionContext,
@@ -210,7 +211,7 @@ export class DatabaseAvailability implements OnModuleInit, OnModuleDestroy {
   markUnavailable(now = new Date()): void {
     if (this.since) return;
     this.since = now;
-    log('WARNING', 'The database became unavailable', {
+    writeLog('WARNING', 'The database became unavailable', {
       event: 'database_unavailable',
       since: now.toISOString(),
     });
@@ -220,7 +221,7 @@ export class DatabaseAvailability implements OnModuleInit, OnModuleDestroy {
   markAvailable(now = new Date()): void {
     if (!this.since) return;
     const seconds = Math.round((now.getTime() - this.since.getTime()) / 1000);
-    log('NOTICE', `The database is available again after ${seconds} s`, {
+    writeLog('NOTICE', `The database is available again after ${seconds} s`, {
       event: 'database_available',
       since: this.since.toISOString(),
       unavailableSeconds: seconds,
@@ -233,15 +234,6 @@ export class DatabaseAvailability implements OnModuleInit, OnModuleDestroy {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
-}
-
-/** One Cloud Logging structured line (a JSON object on stdout); never personal data. */
-function log(
-  severity: 'WARNING' | 'NOTICE',
-  message: string,
-  fields: Record<string, unknown>,
-): void {
-  process.stdout.write(`${JSON.stringify({ severity, message, ...fields })}\n`);
 }
 
 const AVAILABLE_WITHOUT_DATABASE = 'heisreal:availableWithoutDatabase';

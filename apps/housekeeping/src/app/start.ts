@@ -55,6 +55,7 @@ export async function startHousekeeping({
     // Cloud Logging reads `severity` from a JSON line: this one shows as an error.
     log({
       severity: 'ERROR',
+      message: "Bunny Stream's key can't be used",
       error: `Bunny Stream's key (secret ${config.stream.keySecret}) can't be used, so video deletions wait: ${(err as Error).message}`,
     });
   }
@@ -73,6 +74,7 @@ export async function startHousekeeping({
       // Cloud Logging reads `severity` from a JSON line: this one shows as an error.
       log({
         severity: 'ERROR',
+        message: "Clerk's key can't be used",
         error: `Clerk's key (secret ${config.clerkKeySecret}) can't be used, so Clerk deletions wait: ${(err as Error).message}`,
       });
     }
@@ -89,6 +91,7 @@ export async function startHousekeeping({
       // Cloud Logging reads `severity` from a JSON line: this one shows as an error.
       log({
         severity: 'ERROR',
+        message: "The images zone's password can't be used",
         error: `The images zone's password (secret ${passwordSecret}) can't be used, so picture deletions wait: ${(err as Error).message}`,
       });
     }
@@ -100,6 +103,7 @@ export async function startHousekeeping({
   const db = await connectDatabase(new Surreal(), config.database, secrets);
   try {
     log({
+      message: 'housekeeping started',
       run: config.run,
       start: chores.map((c) => c.name),
       dryRun: config.dryRun,

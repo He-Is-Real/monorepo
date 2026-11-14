@@ -343,6 +343,9 @@ importers:
 
   apps/cert-signer:
     dependencies:
+      '@heisreal/logging':
+        specifier: workspace:*
+        version: link:../../libs/logging
       '@heisreal/worker-identity':
         specifier: workspace:*
         version: link:../../libs/worker-identity
@@ -380,6 +383,9 @@ importers:
       '@google-cloud/secret-manager':
         specifier: ^7.2.0
         version: 7.2.0
+      '@heisreal/logging':
+        specifier: workspace:*
+        version: link:../../libs/logging
       '@heisreal/secrets':
         specifier: workspace:*
         version: link:../../libs/secrets
@@ -414,6 +420,9 @@ importers:
       '@heisreal/database':
         specifier: workspace:*
         version: link:../../libs/database
+      '@heisreal/logging':
+        specifier: workspace:*
+        version: link:../../libs/logging
       '@heisreal/secrets':
         specifier: workspace:*
         version: link:../../libs/secrets
@@ -435,6 +444,9 @@ importers:
       '@google-cloud/secret-manager':
         specifier: ^7.2.0
         version: 7.2.0
+      '@heisreal/logging':
+        specifier: workspace:*
+        version: link:../../libs/logging
       '@heisreal/secrets':
         specifier: workspace:*
         version: link:../../libs/secrets
@@ -459,6 +471,9 @@ importers:
       '@dnd-kit/core':
         specifier: ^6.3.1
         version: 6.3.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@heisreal/logging':
+        specifier: workspace:*
+        version: link:../../libs/logging
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -584,6 +599,9 @@ importers:
 
   libs/database:
     dependencies:
+      '@heisreal/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@heisreal/secrets':
         specifier: workspace:*
         version: link:../secrets
@@ -638,6 +656,12 @@ importers:
       '@types/express':
         specifier: ^5.0.6
         version: 5.0.6
+
+  libs/logging:
+    dependencies:
+      '@nestjs/common':
+        specifier: ^12.3.2
+        version: 12.3.2(reflect-metadata@0.2.2)(rxjs@7.8.2)
 
   libs/roles:
     dependencies:

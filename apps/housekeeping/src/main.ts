@@ -7,15 +7,26 @@
  *
  * Exit status: 0 every chore done; 1 a chore or a deletion failed, or Clerk's key couldn't be read
  * (the next run tries again; every chore is safe to re-run); 2 refused (bad settings).
- * Logs one JSON line per chore with counts and ids only, never personal data or a key.
+ * Logs one line per chore in the shared JSON log format (libs/logging) with counts and ids only,
+ * never personal data or a key.
  */
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
+import { type Severity, writeLog } from '@heisreal/logging';
+import { JsonLogger } from '@heisreal/logging/nest';
+import { Logger } from '@nestjs/common';
 import { SecretsService } from '@heisreal/secrets';
 import { housekeepingConfig, RefusedError } from './app/config';
 import { startHousekeeping } from './app/start';
 
-const log = (entry: Record<string, unknown>) =>
-  console.log(JSON.stringify({ job: 'housekeeping', ...entry }));
+// The libraries' own Nest `Logger` lines (secrets, database) in the same format.
+Logger.overrideLogger(new JsonLogger());
+
+const log = ({ severity, message, ...entry }: Record<string, unknown>) =>
+  writeLog(
+    (severity as Severity | undefined) ?? 'INFO',
+    typeof message === 'string' ? message : 'housekeeping',
+    { job: 'housekeeping', ...entry },
+  );
 
 async function main(): Promise<number> {
   let config;
@@ -23,7 +34,11 @@ async function main(): Promise<number> {
     config = housekeepingConfig();
   } catch (err) {
     if (err instanceof RefusedError) {
-      log({ refused: err.message });
+      log({
+        severity: 'ERROR',
+        message: 'housekeeping refused its settings',
+        refused: err.message,
+      });
       return 2;
     }
     throw err;
@@ -42,7 +57,11 @@ async function main(): Promise<number> {
 main().then(
   (code) => process.exit(code),
   (err) => {
-    log({ severity: 'ERROR', error: (err as Error).message });
+    log({
+      severity: 'ERROR',
+      message: 'housekeeping failed',
+      error: (err as Error).message,
+    });
     process.exit(1);
   },
 );

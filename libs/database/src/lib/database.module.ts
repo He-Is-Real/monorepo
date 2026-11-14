@@ -5,6 +5,8 @@ import {
   Module,
   OnApplicationShutdown,
 } from '@nestjs/common';
+import { writeLog } from '@heisreal/logging';
+import { JsonLogger } from '@heisreal/logging/nest';
 import { SecretsService, withTimeout } from '@heisreal/secrets';
 import { type ProvidedAuth, ServerError, Surreal } from 'surrealdb';
 import { DatabaseAvailability } from './database-availability';
@@ -193,12 +195,14 @@ export class DatabaseRefusedError extends Error {
 /**
  * The services' `NestFactory.create` options for start-up: a failure rejects (rather than Nest's
  * default `process.abort()`), and Nest's own logs wait in a buffer until `app.flushLogs()`, so
- * {@link failedToStart} decides what a failed start prints.
+ * {@link failedToStart} decides what a failed start prints. Every log line, buffered or not, is
+ * the shared JSON format (`JsonLogger`, libs/logging; Joel, 2026-11-14).
  */
 export const START_UP_OPTIONS = {
   abortOnError: false,
   bufferLogs: true,
   autoFlushLogs: false,
+  logger: new JsonLogger(),
 } as const;
 
 /**
@@ -209,18 +213,14 @@ export const START_UP_OPTIONS = {
  */
 export function failedToStart(err: unknown): never {
   if (err instanceof DatabaseRefusedError) {
-    process.stdout.write(
-      `${JSON.stringify({
-        severity: 'CRITICAL',
-        message: `${err.message}; not starting`,
-        event: DATABASE_REFUSED,
-        code: DATABASE_REFUSED,
-        kind: err.kind,
-        detail: err.detail,
-        url: err.url,
-        username: err.username,
-      })}\n`,
-    );
+    writeLog('CRITICAL', `${err.message}; not starting`, {
+      event: DATABASE_REFUSED,
+      code: DATABASE_REFUSED,
+      kind: err.kind,
+      detail: err.detail,
+      url: err.url,
+      username: err.username,
+    });
   } else {
     Logger.flush();
   }

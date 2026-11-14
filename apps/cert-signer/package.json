@@ -84,6 +84,7 @@
     ]
   },
   "dependencies": {
+    "@heisreal/logging": "workspace:*",
     "@heisreal/worker-identity": "workspace:*",
     "@nestjs/common": "^12.3.2",
     "@nestjs/core": "^12.3.2",

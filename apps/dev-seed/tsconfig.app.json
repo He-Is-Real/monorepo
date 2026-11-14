@@ -35,6 +35,9 @@
     },
     {
       "path": "../../libs/story-cards/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/logging/tsconfig.lib.json"
     }
   ]
 }

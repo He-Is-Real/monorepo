@@ -108,6 +108,7 @@
     "@google-cloud/pubsub": "^6.3.2",
     "@google-cloud/secret-manager": "^7.2.0",
     "@heisreal/database": "workspace:*",
+    "@heisreal/logging": "workspace:*",
     "@heisreal/secrets": "workspace:*",
     "@heisreal/story-cards": "workspace:*",
     "@nestjs/common": "^12.3.2",

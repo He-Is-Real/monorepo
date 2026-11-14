@@ -7,12 +7,16 @@
  */
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { writeLog } from '@heisreal/logging';
+import { JsonLogger } from '@heisreal/logging/nest';
 import { AppModule } from './app/app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     abortOnError: false,
     bufferLogs: true,
+    // The shared JSON log format (libs/logging; Joel, 2026-11-14).
+    logger: new JsonLogger(),
   });
   app.flushLogs();
   app.enableShutdownHooks();
@@ -23,12 +27,9 @@ async function bootstrap() {
 
 bootstrap().catch((err: unknown) => {
   // A bad setting (config.ts) stops it here; Cloud Run keeps the previous revision.
-  console.log(
-    JSON.stringify({
-      severity: 'ERROR',
-      step: 'failed_to_start',
-      error: err instanceof Error ? err.message : 'error',
-    }),
-  );
+  writeLog('ERROR', 'failed_to_start', {
+    step: 'failed_to_start',
+    error: err instanceof Error ? err.message : 'error',
+  });
   process.exit(1);
 });

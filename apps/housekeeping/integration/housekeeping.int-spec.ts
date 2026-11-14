@@ -1546,10 +1546,12 @@ describe('housekeeping startup without Clerk’s or Bunny’s key', () => {
     expect(await exitCode).toBe(1);
     expect(logs[0]).toEqual({
       severity: 'ERROR',
+      message: expect.any(String),
       error: expect.stringContaining('bunny-stream-api-key'),
     });
     expect(logs[2]).toEqual({
       severity: 'ERROR',
+      message: expect.any(String),
       error: expect.stringContaining('bunny-storage-password'),
     });
     expect(logs[3]).toMatchObject({
@@ -1579,6 +1581,7 @@ describe('housekeeping startup without Clerk’s or Bunny’s key', () => {
     expect(await exitCode).toBe(1);
     expect(logs[0]).toEqual({
       severity: 'ERROR',
+      message: expect.any(String),
       error: expect.stringContaining('clerk-secret-key'),
     });
     expect(logs[2]).toMatchObject({ clerk: false, images: false });
