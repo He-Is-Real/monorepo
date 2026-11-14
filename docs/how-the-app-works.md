@@ -355,7 +355,13 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   submit" each attached file has a success confirmation: a tick and "Video attached", "Audio file
   attached", "Thumbnail attached" (a video's picture) or "Picture attached", with the file's name
   under it. The name is kept only in that browser tab, never on our servers: after a reload in
-  another tab or on another device, the confirmation is shown without the name.
+  another tab or on another device, the confirmation is shown without the name. The tick shows
+  only when the file is known to have arrived: a picture our server found in storage, or a video
+  or audio file this tab finished uploading or that Bunny has started processing. Otherwise there's
+  no tick but a highlighted line with a button back to the upload step: "Your video may not have
+  finished uploading. We'll check when you submit." (another tab or device started it, and
+  only submitting asks Bunny), "We couldn't read that video file…" (Bunny couldn't process it),
+  or "Your picture hasn't finished uploading."
 - **Videos and audio lose where and on what they were recorded before they leave the device**
   (M2, Joel 2026-11-06): the browser blanks an MP4, MOV or M4A file's location and device
   metadata in place, without re-encoding, so the file is the same size and plays the same. Bunny's

@@ -289,7 +289,9 @@ dev cluster root, so apply that root).
 A story's picture (a video's thumbnail, or the picture for an audio or written story) can now be
 dragged and dropped onto its own box, as the video or audio file can.
 On "Review and submit" each attached file now has a clear "attached" confirmation with a tick,
-and "See your story as others will" is a plain button that says it opens a new tab.
+and "See your story as others will" is a plain button that says it opens a new tab. The tick
+shows only when the file is known to have arrived; otherwise a highlighted line says it may not
+have finished uploading (or couldn't be read), with a button back to the upload step.
 
 **In progress: the moderators' decisions** (built on Edit and Delete). On the review page a
 moderator approves, sends back or rejects a waiting story (a kind note to the person for the last

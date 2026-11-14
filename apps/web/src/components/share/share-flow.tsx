@@ -1329,6 +1329,15 @@ function useEarlierPicture(
 }
 
 /**
+ * A story's picture as its last read says: added once its file arrived (api-user checks the
+ * storage when one story is read; `null` where it isn't checked, as submit allows), else not
+ * finished. The rule Continue, the steps at the top and "Review and submit" all use.
+ */
+function storedPicture(image: StoryPicture | null): PictureState {
+  return !image ? 'none' : image.uploaded === false ? 'unfinished' : 'done';
+}
+
+/**
  * The upload step's picture: its state as the panel last said, kept in a ref so Continue reads it
  * again after each wait (a picture chosen meanwhile is uploading, Codex #211), and the problem
  * shown. Kept by the flow, not the step, so the steps at the top check it as Continue does.
@@ -1349,10 +1358,7 @@ function usePictureGate(noun: string) {
   }, []);
   /** The story's own picture, as read while the step's panel isn't on the page. */
   const stored = useCallback(
-    (image: StoryPicture | null) =>
-      onState(
-        !image ? 'none' : image.uploaded === false ? 'unfinished' : 'done',
-      ),
+    (image: StoryPicture | null) => onState(storedPicture(image)),
     [onState],
   );
   /** Whether the picture still holds the step back, now (nothing shown). */
@@ -1952,6 +1958,23 @@ export function ReviewStep({
     draft.format !== 'written' && draft.draftId
       ? mediaName(owner, draft.draftId)
       : null;
+  // "Attached" only with evidence the file arrived (Codex, PR 228): this tab finished uploading it,
+  // or Bunny has it (processing starts only once it's there). Otherwise only submit can tell (it
+  // asks Bunny), so it isn't confirmed; nothing is said while the story is still being read.
+  const media = own?.media[0];
+  const mediaState: 'done' | 'failed' | 'unconfirmed' | null =
+    draft.format === 'written'
+      ? null
+      : media?.processing === 'failed'
+        ? 'failed'
+        : mediaFile ||
+            media?.processing === 'ready' ||
+            media?.processing === 'processing'
+          ? 'done'
+          : own
+            ? 'unconfirmed'
+            : null;
+  const pictureState = storedPicture(picture);
   const themeNames = f.themeIds
     .flatMap((id) => themes.flatMap((c) => c.themes).filter((t) => t.id === id))
     .map((t) => t.name);
@@ -2327,10 +2350,22 @@ export function ReviewStep({
               `Your ${NOUN[draft.format]}`,
               <>
                 {own && <OwnMediaPreview story={own} />}
-                <Attached
-                  kind={draft.format === 'video' ? 'Video' : 'Audio file'}
-                  name={mediaFile}
-                />
+                {mediaState === 'done' && (
+                  <Attached
+                    kind={draft.format === 'video' ? 'Video' : 'Audio file'}
+                    name={mediaFile}
+                  />
+                )}
+                {(mediaState === 'failed' || mediaState === 'unconfirmed') && (
+                  <NotAttached
+                    action="Go to your upload"
+                    onAction={() => onEdit('write')}
+                  >
+                    {mediaState === 'failed'
+                      ? `We couldn’t read that ${NOUN[draft.format]} file. Please upload it again, or try another file.`
+                      : `Your ${NOUN[draft.format]} may not have finished uploading. We’ll check when you submit.`}
+                  </NotAttached>
+                )}
               </>,
               'write',
             )}
@@ -2354,10 +2389,20 @@ export function ReviewStep({
                   />
                 )}
               </div>
-              <Attached
-                kind={draft.format === 'video' ? 'Thumbnail' : 'Picture'}
-                name={pictureFile}
-              />
+              {pictureState === 'done' ? (
+                <Attached
+                  kind={draft.format === 'video' ? 'Thumbnail' : 'Picture'}
+                  name={pictureFile}
+                />
+              ) : (
+                <NotAttached
+                  action="Go to your picture"
+                  onAction={() => onEdit('write')}
+                >
+                  Your {draft.format === 'video' ? 'thumbnail' : 'picture'}{' '}
+                  hasn’t finished uploading.
+                </NotAttached>
+              )}
             </>,
             'write',
           )}
@@ -2512,6 +2557,36 @@ function Attached({ kind, name }: { kind: string; name: string | null }) {
           </span>
         )}
       </span>
+    </p>
+  );
+}
+
+/**
+ * On "Review and submit", a file not confirmed as attached (Codex, PR 228): no tick, what's
+ * wrong or unknown (submit's own words), and the way back to the upload step.
+ */
+function NotAttached({
+  action,
+  onAction,
+  children,
+}: {
+  action: string;
+  onAction: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <p
+      data-not-attached=""
+      className="mt-2 rounded-xl border border-warning/50 bg-warning/10 px-4 py-2 text-foreground"
+    >
+      {children}{' '}
+      <button
+        type="button"
+        className="min-h-11 font-semibold text-link underline"
+        onClick={onAction}
+      >
+        {action}
+      </button>
     </p>
   );
 }

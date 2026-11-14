@@ -214,6 +214,35 @@ test.describe('behaviour', () => {
     );
   });
 
+  test('in a new tab a video whose upload never finished isn’t shown as attached: it says so, with the way back to the upload (Codex, PR 228)', async ({
+    page,
+    request,
+  }) => {
+    // Its upload stopped in another tab: the file never arrived at Bunny.
+    await person(page, request, videoDraft(false, { uploaded: false }));
+    await page.goto(`${SHARE}?draft=v1`);
+    await shown(page, 'Upload your video');
+    await hasItsFile(page);
+    await stepButton(page, /^5\. Review/).click();
+    await step(page, 'Review and submit');
+    const notAttached = page.locator('[data-not-attached]');
+    await expect(notAttached).toContainText(
+      'Your video may not have finished uploading. We’ll check when you submit.',
+    );
+    await expect(page.locator('[data-attached]')).toHaveCount(0);
+    await expectAllTargets(page);
+
+    // Submit checks it, as before; the line's button goes back to the upload step.
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await expect(
+      alert(page, 'Your video hasn’t finished uploading yet.'),
+    ).toBeVisible();
+    await notAttached
+      .getByRole('button', { name: 'Go to your upload' })
+      .click();
+    await step(page, 'Upload your video');
+  });
+
   test('while Bunny still has the video: “check back later”, and the story can be sent anyway', async ({
     page,
     request,
