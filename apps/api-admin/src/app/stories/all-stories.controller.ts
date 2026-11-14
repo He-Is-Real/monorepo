@@ -67,7 +67,6 @@ interface DetailRow extends SummaryRow {
     path: string;
     width: number;
     height: number;
-    alt?: Opt<string>;
     processing?: Opt<string>;
   }>;
   sharingVersion?: Opt<number>;
@@ -217,7 +216,6 @@ export class AllStoriesController {
             path: s.image.path,
             width: s.image.width,
             height: s.image.height,
-            alt: or(s.image.alt),
             processing: or(s.image.processing),
           }
         : null,

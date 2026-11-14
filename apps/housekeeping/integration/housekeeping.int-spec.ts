@@ -1131,7 +1131,7 @@ describe('housekeeping: files stories stopped showing', () => {
        CREATE type::record('storyFile', $other) CONTENT { story: story:seed_a, person: user:dot,
          format: 'video', contentType: 'video/mp4', sizeBytes: 1, storyVersion: 1 };
        UPDATE story:seed_a SET mediaFile = type::record('storyFile', $placeholder),
-         image = { file: type::record('storyFile', $seed), alt: 'Hills' };
+         image = { file: type::record('storyFile', $seed) };
        UPDATE story:seed_a SET mediaFile = type::record('storyFile', $other), image = NONE;`,
       {
         placeholder: PLACEHOLDER,

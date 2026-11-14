@@ -199,6 +199,15 @@ function readKept(owner: string, draftId: string): Kept | null {
     return null;
   }
 }
+/**
+ * The name of the video or audio file this tab uploaded to the draft, for "check your story"
+ * (Joel, 2026-11-14); null if this tab didn't finish one (another tab or device, or a reload in
+ * a new tab: the name is never stored at the server).
+ */
+export function mediaName(owner: string, draftId: string): string | null {
+  const k = readKept(owner, draftId);
+  return k?.done ? k.name : null;
+}
 function writeKept(owner: string, draftId: string, kept: Kept | null) {
   try {
     if (kept) {

@@ -193,13 +193,12 @@ describe('dev-seed reset on SurrealDB (dev, the real agreement rules)', () => {
     const [w01] = await rows<{ image: unknown }>(
       reader,
       `SELECT { path: record::id(image.file), width: image.file.width,
-         height: image.file.height, alt: image.alt } AS image FROM story:seed_w01`,
+         height: image.file.height } AS image FROM story:seed_w01`,
     );
     expect(w01.image).toEqual({
       path: 'dev-seed/image-01.webp',
       width: 1200,
       height: 1600,
-      alt: 'A test pattern with a label (dummy image)',
     });
   });
 

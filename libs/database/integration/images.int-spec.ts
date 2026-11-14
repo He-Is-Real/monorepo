@@ -41,7 +41,7 @@ describe('images: server-assigned, in the story’s own folder, only through a g
         // The picture as the story shows it (R12: through its pointer).
         `SELECT version, IF image != NONE { {
              path: record::id(image.file), width: image.file.width, height: image.file.height,
-             alt: image.alt, processing: image.file.processing } } AS image
+             processing: image.file.processing } } AS image
          FROM type::record('story', $id)`,
         { id },
       )
@@ -69,7 +69,6 @@ describe('images: server-assigned, in the story’s own folder, only through a g
         path: `stories/ann_w/${'a'.repeat(32)}.webp`,
         width: 900,
         height: 1200,
-        alt: 'A sunrise over the hills',
       },
     });
 
@@ -80,7 +79,6 @@ describe('images: server-assigned, in the story’s own folder, only through a g
         story: 'ann_a',
         person: 'ann',
         version: 1,
-        alt: null,
         width: 1280,
         height: 720,
       }),
@@ -186,7 +184,7 @@ describe('images: server-assigned, in the story’s own folder, only through a g
     }
   });
 
-  it('refuses another type, too big, or the wrong shape or size; takes one with no description', async () => {
+  it('refuses another type, too big, or the wrong shape or size', async () => {
     const dan = await person('dan');
     await draft(dan, 'dan_w');
     const cases: [Partial<Parameters<typeof grantImage>[1]>, RegExp][] = [
@@ -209,19 +207,9 @@ describe('images: server-assigned, in the story’s own folder, only through a g
       ).toMatch(refused);
     }
     expect((await image('dan_w')).image).toBeUndefined();
-    // A description is never required, on any type (Joel, 2026-10-30).
-    expect(
-      await grantImage(apiUser, {
-        story: 'dan_w',
-        person: 'dan',
-        version: 1,
-        alt: null,
-      }),
-    ).toMatchObject({ ok: true });
-    expect((await image('dan_w')).image).not.toHaveProperty('alt');
   });
 
-  it('puts an image on a story only through a grant: the person may change only its description, or remove it', async () => {
+  it('puts an image on a story only through a grant: the person may only remove it', async () => {
     const eve = await person('eve');
     const fay = await person('fay');
     await draft(eve, 'eve_w');
@@ -236,12 +224,12 @@ describe('images: server-assigned, in the story’s own folder, only through a g
 
     // The person's session: not on create, not by update, not even a path granted to them.
     await draft(eve, 'eve_w2', {
-      image: { path: fays, width: 900, height: 1200, alt: 'x' },
+      image: { path: fays, width: 900, height: 1200 },
     });
     expect((await image('eve_w2')).image).toBeUndefined();
     for (const set of [
-      `image = { path: '${fays}', width: 900, height: 1200, alt: 'x' }`,
-      `image = { path: 'stories/eve_w/${hex(8)}.webp', width: 900, height: 1200, alt: 'x' }`,
+      `image = { path: '${fays}', width: 900, height: 1200 }`,
+      `image = { path: 'stories/eve_w/${hex(8)}.webp', width: 900, height: 1200 }`,
     ]) {
       await run(eve, `UPDATE story:eve_w SET ${set}`);
       expect((await image('eve_w')).image).toBeUndefined();
@@ -258,7 +246,7 @@ describe('images: server-assigned, in the story’s own folder, only through a g
     const eves = `stories/eve_w/${hex(9)}.webp`;
     for (const set of [
       `image.path = '${fays}'`,
-      `image = { path: '${fays}', width: 900, height: 1200, alt: 'x' }`,
+      `image = { path: '${fays}', width: 900, height: 1200 }`,
       `image.width = 3000`,
     ]) {
       await run(eve, `UPDATE story:eve_w SET ${set}`);
@@ -271,14 +259,11 @@ describe('images: server-assigned, in the story’s own folder, only through a g
     await run(workflow, `UPDATE story:eve_w SET image.path = '${fays}'`);
     expect((await image('eve_w')).image).toMatchObject({ path: eves });
 
-    // The description is the person's, and they may remove the image.
+    // No description is stored (Joel, 2026-11-14); the person may remove the image.
     await run(eve, `UPDATE story:eve_w SET image.alt = 'Our church at dawn'`);
-    expect((await image('eve_w')).image).toEqual({
-      path: eves,
-      width: 900,
-      height: 1200,
-      alt: 'Our church at dawn',
-    });
+    expect(await rows(migrator, `SELECT VALUE image FROM story:eve_w`)).toEqual(
+      [{ file: expect.anything() }],
+    );
     await run(eve, `UPDATE story:eve_w SET image = NONE`);
     expect((await image('eve_w')).image).toBeUndefined();
   });
@@ -310,7 +295,6 @@ describe('images: server-assigned, in the story’s own folder, only through a g
       path: `stories/gus_w/${hex(11)}.webp`,
       width: 900,
       height: 1200,
-      alt: 'A sunrise over the hills',
     });
     // Both rows stay (the limits count them); the old one is detached, for the clean-up.
     expect(

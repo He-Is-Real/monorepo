@@ -80,7 +80,6 @@ export interface StoryPicture {
   url: string | null;
   width: number;
   height: number;
-  alt: string | null;
   /** Its file's path at the server: what tells two pictures apart (`expectedImage`). */
   path: string;
   /** Whether its file arrived (api-user checks the storage); null where it isn't checked. */
@@ -138,10 +137,9 @@ export interface UploadRequest {
   fileSizeBytes: number;
   durationSeconds?: number;
   resume?: boolean;
-  /** Images: the WebP's real pixel size, and its description. */
+  /** Images: the WebP's real pixel size. */
   width?: number;
   height?: number;
-  alt?: string;
   /** Images: the path of the picture the page showed (null: none); `409 image_changed` if not the story's. */
   expectedImage?: string | null;
 }

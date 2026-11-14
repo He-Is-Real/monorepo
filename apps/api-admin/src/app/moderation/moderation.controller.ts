@@ -62,7 +62,7 @@ const STORY_SQL = `
     } ELSE { [] } AS media,
     IF image != NONE {
       object::extend(image.file.{ width, height, processing },
-        { path: record::id(image.file), alt: image.alt })
+        { path: record::id(image.file) })
     } AS image
   FROM $s;
   SELECT id, action, status, actor, comment, at,
@@ -105,7 +105,6 @@ interface StoryRow {
     path: string;
     width: number;
     height: number;
-    alt?: Opt<string>;
     processing?: Opt<string>;
   }>;
 }
@@ -284,7 +283,6 @@ export class ModerationController {
               url: urls.imageUrl(s.image.path),
               width: s.image.width,
               height: s.image.height,
-              alt: or(s.image.alt),
               processing: or(s.image.processing),
             }
           : null,

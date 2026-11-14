@@ -142,7 +142,6 @@ stories['image-story'] = {
     url: `${stub}/images/wide.svg?token=HS256-stub&expires=4102444800`,
     width: 1600,
     height: 640,
-    alt: 'A wide test pattern (dummy image)',
   },
 };
 
@@ -268,7 +267,6 @@ for (let i = 0; i < 48; i++) {
           url: sized(...kind.image),
           width: kind.image[0],
           height: kind.image[1],
-          alt: `A dummy picture, ${kind.image[0]} by ${kind.image[1]}`,
         }
       : null,
   };
@@ -454,7 +452,6 @@ aspectStory('aspect-test-portrait', {
     url: sized(900, 1200),
     width: 900,
     height: 1200,
-    alt: 'A dummy picture, 900 by 1200',
   },
   publishedAt: '2026-10-22T17:00:00Z',
 });

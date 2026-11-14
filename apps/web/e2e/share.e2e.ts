@@ -317,6 +317,141 @@ test.describe('behaviour', () => {
     );
   });
 
+  // Drafts (Joel, 2026-11-14): people needn't write their story in one go. The page says what
+  // autosave is doing ("Saving…", "Draft saved"), and "Save and exit" waits for the save, then
+  // goes to My submissions, where the draft is listed to carry on with.
+  test('“Save and exit” waits for the save, then My submissions lists the draft to continue', async ({
+    page,
+    request,
+  }) => {
+    await person(page, request, SIGNED_UP);
+    await toWrite(page);
+    const status = page.locator('[data-save-state]');
+    // Every save is held until the test lets it through.
+    let release!: () => void;
+    let held = new Promise<void>((r) => (release = r));
+    let arrived!: () => void;
+    let saving = new Promise<void>((r) => (arrived = r));
+    await page.route(`${STUB_USER_URL}/v1/stories**`, async (route) => {
+      const method = route.request().method();
+      if (method !== 'POST' && method !== 'PATCH') return route.fallback();
+      if (route.request().url().includes('/upload-url'))
+        return route.fallback();
+      arrived();
+      await held;
+      return route.fallback();
+    });
+    const next = () => {
+      held = new Promise<void>((r) => (release = r));
+      saving = new Promise<void>((r) => (arrived = r));
+    };
+
+    await page.getByLabel('Title').fill('Come back to it');
+    await page.getByLabel('Your story').fill(TEXT);
+    await saving;
+    await expect(status).toHaveText('Saving…');
+    const first = release;
+    next();
+    first();
+    await expect(status).toHaveText('Draft saved');
+
+    // A change not saved yet: Save and exit waits for it before leaving.
+    await page.getByLabel('Title').fill('Come back to it later');
+    const exit = page.getByRole('button', { name: 'Save and exit' });
+    await exit.click();
+    await saving;
+    await expect(page.getByRole('button', { name: 'Saving…' })).toBeDisabled();
+    await expect(page).toHaveURL(/\/share/);
+    release();
+    await expect(page).toHaveURL(/\/account#my-submissions$/);
+    await expect(
+      page.getByRole('heading', { name: 'My submissions' }),
+    ).toBeVisible();
+    const row = page.locator('li').filter({ hasText: 'Come back to it later' });
+    await expect(row.getByText('Draft', { exact: true })).toBeVisible();
+    await row.getByRole('link', { name: 'Continue' }).click();
+    // Opened from a link, as after a reload: the step is shown (focus moves only between steps).
+    await expect(
+      page.getByRole('heading', { level: 2, name: 'Write your story' }),
+    ).toBeVisible();
+    await expect(page.getByLabel('Title')).toHaveValue('Come back to it later');
+    await expect(page.getByLabel('Your story')).toHaveValue(TEXT);
+  });
+
+  test('“Save and exit” before a draft can be saved stays, and says what it needs', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, SIGNED_UP);
+    await toWrite(page);
+    await page.getByLabel('Title').fill('Only a title');
+    await page.getByRole('button', { name: 'Save and exit' }).click();
+    await expect(
+      page
+        .getByRole('alert')
+        .filter({ hasText: 'Add a title and some of your story first' }),
+    ).toBeVisible();
+    await expect(page).toHaveURL(/\/share/);
+    expect(await me.stories()).toEqual([]);
+  });
+
+  // Codex review of the share flow tidy, round 1: text brought back after a reload counts as
+  // typed, so "Save and exit" never leaves it behind unsaved.
+  test('“Save and exit” on an incomplete draft brought back after a reload stays, and says what it needs', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, SIGNED_UP);
+    await toWrite(page);
+    await page.getByLabel('Title').fill('Only a title');
+    await expect(page.locator('[data-save-state]')).toHaveAttribute(
+      'data-save-state',
+      'unsaved',
+    );
+    await page.reload();
+    await page.getByRole('button', { name: 'Write my story' }).click();
+    await page.getByRole('button', { name: 'Start writing' }).click();
+    await expect(page.getByLabel('Title')).toHaveValue('Only a title');
+    await page.getByRole('button', { name: 'Save and exit' }).click();
+    await expect(
+      page
+        .getByRole('alert')
+        .filter({ hasText: 'Add a title and some of your story first' }),
+    ).toBeVisible();
+    await expect(page).toHaveURL(/\/share/);
+    expect(await me.stories()).toEqual([]);
+  });
+
+  test('“Save and exit” on a complete draft brought back after a reload saves it, then My submissions lists it', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, SIGNED_UP);
+    await toWrite(page);
+    // Kept in this tab only while the server can't be reached.
+    await page.route(`${STUB_USER_URL}/v1/stories**`, (route) =>
+      route.abort('connectionrefused'),
+    );
+    await page.getByLabel('Title').fill('Kept for later');
+    await page.getByLabel('Your story').fill(TEXT);
+    await expect(page.locator('[data-save-state]')).toHaveAttribute(
+      'data-save-state',
+      'offline',
+    );
+    await page.reload();
+    await page.unroute(`${STUB_USER_URL}/v1/stories**`);
+    await page.getByRole('button', { name: 'Write my story' }).click();
+    await page.getByRole('button', { name: 'Start writing' }).click();
+    await expect(page.getByLabel('Your story')).toHaveValue(TEXT);
+    await page.getByRole('button', { name: 'Save and exit' }).click();
+    await expect(page).toHaveURL(/\/account#my-submissions$/);
+    const row = page.locator('li').filter({ hasText: 'Kept for later' });
+    await expect(row.getByText('Draft', { exact: true })).toBeVisible();
+    expect(await me.stories()).toMatchObject([
+      { status: 'editing', title: 'Kept for later', body: TEXT },
+    ]);
+  });
+
   test('the 200-character minimum is explained, not just refused', async ({
     page,
     request,

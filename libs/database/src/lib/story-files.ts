@@ -11,8 +11,7 @@ export const OWNER_FILE_FIELDS = `
       { bunnyVideoId: record::id(mediaFile), durationSeconds: mediaFile.lengthSeconds })]
   } ELSE { [] } AS media,
   IF image != NONE {
-    object::extend(image.file.{ width, height, processing },
-      { path: record::id(image.file), alt: image.alt })
+    object::extend(image.file.{ width, height, processing }, { path: record::id(image.file) })
   } AS image`;
 
 /** A detached file the nightly clean-up may delete now (DETACHED_FILES_DUE). */
