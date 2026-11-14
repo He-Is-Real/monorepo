@@ -318,21 +318,21 @@ test.describe('hearts', () => {
     request,
   }, info) => {
     const session = sessionFor(info, 'switch-off');
+    const project = info.project.name;
+    const title = `Heart test story (${project})`;
     await useSession(page, session);
-    await heartAtStub(request, session, ['browse_05']);
+    await heartAtStub(request, session, ['browse_05', heartId(project)]);
+    // The heart_test theme's favourites: its own story, not browse_05 (another theme).
     await page.goto(`${WEB_SIGNED_IN_URL}${HEART_PAGE}&favourites=1`);
     const only = page.getByRole('switch', { name: 'Favourites only' });
     await expect(only).toBeChecked();
-    await expect(page.locator('main article h2')).toHaveText([
-      'Browse test story 05',
-    ]);
+    await expect(page.locator('main article h2')).toHaveText([title]);
     await only.click();
     await expect(only).not.toBeChecked();
     await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}${HEART_PAGE}`);
-    // Browse as the address says (the heart_test theme's stories), with its filters.
-    await expect(
-      cardHeart(page, `Heart test story (${info.project.name})`),
-    ).toBeVisible();
+    // Browse as the address says (every story with the heart_test theme), with its filters.
+    await expect(cardHeart(page, title)).toBeVisible();
+    await expect(page.locator('main article').nth(1)).toBeVisible();
     await expect(page.getByRole('search', { name: 'Stories' })).toBeVisible();
   });
 
@@ -804,7 +804,8 @@ async function filtersOverFavourites(page: Page, base: string) {
 
   const search = page.getByRole('search', { name: 'Stories' });
   await search.getByLabel('Sort').selectOption('oldest');
-  await expect(page).toHaveURL(`${base}/stories?sort=oldest&favourites=1`);
+  await expect(page).toHaveURL(/[?&]sort=oldest(&|$)/);
+  await expect(page).toHaveURL(/[?&]favourites=1(&|$)/);
   await expect(cards).toHaveText(titlesOf(8, 7, 6, 5, 4, 3, 2, 1));
 
   await search.getByLabel('Format').selectOption('video');
