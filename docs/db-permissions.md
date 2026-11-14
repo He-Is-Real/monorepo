@@ -195,13 +195,15 @@ their fence (see "Transactions").
     `slugHistory` keeps old slugs for a 301 (D30); only system users write it.
 - **`storyStatusLog` (R6): one entry per step, append-only (Story states, Joel 2026-11-11).**
   Fields: `story`, `action` (what happened: `sent`, `editStarted`, `changesRequested`,
-  `fileUnusable` (reserved), `approved`, `rejected`, `hiddenBySystem`, `shownBySystem`,
+  `fileUnusable` (Part 1a), `approved`, `rejected`, `hiddenBySystem`, `shownBySystem`,
   `hiddenByModerator`, `shownByModerator`, and the history-only `fileReplaced`, `pictureReplaced`
   and `wordsChanged`), `status` (computed from the action: `editing`, `pending`,
   `approved`, `hidden`, `rejected`; a history-only entry keeps the story's), `actor` (set by the database: `person`, `moderator`, `system`), `by` (the person or
   moderator; api-admin alone reads it), `storyVersion`, `comment`, `at` (server time),
   `publishedAt` (approved entries: the first approval's time, kept on later ones), `hiddenReason`
-  (`media_unavailable`, `media_changed`), `reviewedMediaFile`/`reviewedImageFile` (approved
+  (`media_unavailable`, `media_changed`), `unusableFile` (the system's `fileUnusable` entries
+  only, required there: `recording` or `picture`, which file couldn't be used; P1-2, Joel
+  2026-11-14; owner and api-admin read it), `reviewedMediaFile`/`reviewedImageFile` (approved
   entries: the files approved), `skippedMediaWait` (an Admin's approval during the media wait;
   api-admin alone reads it), `senderIp` (block list, G21 D: the IP address a person's own
   `sent` entry was sent from, as api-user supplies it, lower-case; dropped on any other entry;
@@ -213,8 +215,11 @@ their fence (see "Transactions").
     stories due for deletion; a pending story never is), and a pending (`sent`) entry only while
     it still holds a `senderIp` 30 days old (`fn::story::sender_ips_expire_before`), never the
     address (block list: a field it may not read is NONE in its WHERE, so these rows are how it
-    picks what to clear); everyone else only an entry's `story`, `status` and `publishedAt`,
-    while it is its story's current approved entry.
+    picks what to clear), and `hiddenReason` (P1-8, Joel 2026-11-14: set only on the system's
+    own hides, to find the stories the site took off itself whose media check gave up; so for
+    housekeeping a story's current entry it can't read is pending, `fn::story::waiting`);
+    everyone else only an entry's `story`, `status` and `publishedAt`, while it is its story's
+    current approved entry.
   - **Create:** the owner, live, only `sent` and `editStarted`; api-admin only a moderator's
     actions. System and history-only entries come only from the database's own events (elevated),
     never from a direct write. `storyStatusLog_step` checks who may take which
@@ -223,9 +228,12 @@ their fence (see "Transactions").
     rejects (from pending, so of two decisions the first wins, D-1; and from hidden only when its
     current entry is the system's `hiddenBySystem`: P1-9, P1-11, Joel 2026-11-14), hides (from approved, with
     a note) and shows again (from hidden); the system hides and shows again for media
-    (`hiddenBySystem` needs a `hiddenReason`). Sending back and rejecting need a note. History-only
-    entries (`storyFile_attach`'s new file or picture, actor `system`, and `story_words_changed`'s
-    once-per-round changed words, actor `person`, while editing a story sent before) never
+    (`hiddenBySystem` needs a `hiddenReason`) and sends a story back when its video or audio file
+    can't be used (`fileUnusable`, from pending, approved or hidden: `fn::story::check_files`, in
+    the same write as the file becomes `failed`; Part 1a). Sending back and rejecting need a note.
+    History-only entries (`storyFile_attach`'s new file or picture, actor `system`, and
+    `story_words_changed`'s once-per-round changed words, actor `person`, while editing a story
+    sent before) never
     move the pointer; every other entry moves `story.currentStatus` in the same write, so the
     story's own events (shape, limits, agreements, approval gate) check the step too. No delete
     while its story exists. **The one update:** housekeeping clears `senderIp` 30 days after the
@@ -311,14 +319,23 @@ their fence (see "Transactions").
   `resent`, `rendered`), `queuedAt`, `sentAt`, `sends`, `failures`, `lastError` (a short code),
   `madeFile` (a render job's new Bunny video, made before its row; housekeeping never deletes it
   while the job is open), `doneAt` and `outcome` (`applied`, `stale`, `gone`, `gave_up`; set once,
-  together). No person's session, api-admin or the public reads it. **Create:** api-user and
+  together), `errorType` (Part 1a, Joel 2026-11-10, P1a-4 A: why it gave up, set with `gave_up`
+  and only then, once: `file_unusable`, `bunny_unavailable`, `worker_error`, `other`; only workflow
+  writes it, only api-admin reads it). No person's session or the public reads a job; api-admin
+  reads them for the moderators' list's "a problem on our side" (`fn::media::our_problem`).
+  **Create:** api-user and
   workflow, and housekeeping only a `check` with the reason `resent` (the nightly re-check of a
   video whose picture at Bunny is unfinished; Joel 2026-11-09, T4), through `fn::media::queue_job`, which adds a reason to the file's open job of that
   kind instead (the `mediaJob_rules` event refuses a second open one). **Update:** api-user (new
   reasons, `sentAt`, `sends`), housekeeping (the 18:00 resend: `sentAt`, `sends`, the reason
   `resent`), workflow (all of it); only workflow writes
-  `failures`, `lastError`, `madeFile`, `doneAt` and `outcome`. **Delete:** housekeeping, a job 30
-  days after it ended (J2); a file's row going deletes its jobs (`storyFile_jobs`). Every write
+  `failures`, `lastError`, `madeFile`, `doneAt`, `outcome` and `errorType`. **Delete:** housekeeping, a job 30
+  days after it ended (J2), but never while its file's story is waiting for review (P1-3, Joel
+  2026-11-14) or off the site because the site took it off itself (P1-9, 2026-11-14), so its
+  give-ups keep counting and its 3 nightly retries never start again, and never the check that
+  recorded the file's one re-encode (P1-10 A, 2026-11-14: `lastError` `bunny_encode_failed`, so
+  Bunny is never asked for a second one); `fn::media::job_kept`. A file's row going deletes its
+  jobs (`storyFile_jobs`). Every write
   needs the file's person live and bumps their fence, which also serialises two writes racing to
   open the same job. The result writer saves an answer and ends its job in one transaction.
   An open job holds a moderator's approval of its story (J6, above).

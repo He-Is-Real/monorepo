@@ -89,7 +89,23 @@ How a video or audio file becomes `ready` (M2 plan item 13; D78, D126, D129; des
    transaction: `applied` (the answer is saved), `stale` (an answer that reached the writer later
    is already in: `storyFile.checkedAt`) or `gone` (the story no longer shows that file, or the
    video's title isn't the story's id). The database then hides or shows the story again as
-   above. Its log is one JSON line per call, ids only:
+   above. A `failed` answer (Part 1a, Joel 2026-11-10) is believed only once the writer asks Bunny
+   itself (library key) and Bunny says failed too, else the reply is "try again later". The first
+   confirmed failure of a file: the writer first records it (the file goes back to `processing`,
+   the job ends `applied` with `lastError` `bunny_encode_failed`, the marker that the one
+   automatic re-encode was asked for, and a follow-up check job opens with reason `resent`), then
+   asks Bunny to re-encode it (`POST …/videos/<id>/reencode`; a failed request counts on the
+   follow-up, and it is never asked again: one re-encode request per file). Bunny's notice when the re-encode ends joins the follow-up (or opens a check). A
+   later confirmed failure is final only once Bunny's own "failed" notice (reason `bunny_failed`)
+   reached a check job opened after the marker: then the file becomes `failed`, the job
+   `gave_up` with `errorType` `file_unusable`, and the database sends the story back to its owner
+   ("Needs a new file"). Before that notice, Bunny may still be showing the first failure: the
+   writer only reads Bunny's status (no second re-encode request) and counts a failure on the job (`bunny_reencode_pending`, so it gives up after 5 like any job, as ours: `bunny_unavailable`), replying "try again later" with the job left open. A
+   Accepted risk (P1-4, Joel 2026-11-14): Bunny gives no attempt number, so a late or duplicated
+   copy of the FIRST failure notice arriving just after the re-encode request counts as the
+   re-encode's failure; the person is then asked for a new file that might have worked. No guard.
+   `gone` answer (Bunny has no such video) leaves the file `processing` and ends the job
+   `gave_up` with `errorType` `other`. Its log is one JSON line per call, ids only:
    `gcloud logging read 'resource.labels.service_name="workflow"' --limit 20`.
 4. If the worker can't do a job it calls `.../failed` with a short code: `bunny_unreachable`
    (no answer, a timeout, Bunny's 5xx or 429), `bunny_refused` (Bunny refused the read-only key),
@@ -362,8 +378,14 @@ webhook` (bad signature: check the secret `bunny-stream-readonly-key` has the li
 --update-env-vars HOUSEKEEPING_CHORES=media-resend` ([apps/housekeeping/README.md](../apps/housekeeping/README.md)).
    - **Open with failures:** the worker keeps failing; `lastError` says why, and the worker's own
      log says more.
-   - **`gave_up`:** it failed 5 times. Fix the cause, then re-encode the video at Bunny (above):
-     Bunny's next "finished" notice opens a fresh job.
+   - **`gave_up`:** `errorType` says why (api-admin reads it): `file_unusable` (Bunny failed the
+     file twice, the person was asked for a new one: nothing to do), or ours, after 5 failures
+     (`bunny_unavailable`, `worker_error`, `other`). For ours, the nightly housekeeping
+     (`media-retry`) opens a new check of the file of a waiting story, or of a published story the
+     site took off itself (P1-5), on up to 3 nights; after that the moderation queue shows "Can't
+     be reviewed yet: a problem on our side", and a story off the site stays off. A waiting
+     story's jobs aren't tidied away after 30 days (P1-3), so the count holds. Fix the cause, then
+     re-encode the video at Bunny (above): Bunny's next "finished" notice opens a fresh job.
    - **`gone` or `stale`:** the story no longer shows that video (replaced, removed), the video's
      title isn't the story's id, or a newer answer was already in. Nothing to do.
 

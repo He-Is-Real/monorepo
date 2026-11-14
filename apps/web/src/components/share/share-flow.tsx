@@ -1312,6 +1312,7 @@ function SaveState({
 function useEarlierPicture(
   calls: ReturnType<typeof shareApi>,
   draftId: string | null,
+  uploaded = false,
 ) {
   const [story, setStory] = useState<MyStory | null>(null);
   useEffect(() => {
@@ -1324,7 +1325,7 @@ function useEarlierPicture(
     return () => {
       live = false;
     };
-  }, [calls, draftId]);
+  }, [calls, draftId, uploaded]);
   return story;
 }
 
@@ -1606,8 +1607,9 @@ function MediaStep({
     if (checks > 0) check();
     // Only when the steps at the top ask (`checks` changes), with the values of that moment.
   }, [checks]);
-  // Whether the story has a file (and a picture) from before (another tab or device).
-  const story = useEarlierPicture(calls, draftId);
+  // Whether the story has a file (and a picture) from before (another tab or device); read again
+  // once this tab's upload is done (Part 1a: whether it replaced a file that couldn't be used).
+  const story = useEarlierPicture(calls, draftId, file === 'uploaded');
   const earlier = (story?.media.length ?? 0) > 0;
 
   const prepare = async () => {
@@ -1659,6 +1661,35 @@ function MediaStep({
         </div>
         <div>
           <p className="mb-1.5 font-semibold">Your {noun}</p>
+          {/* Part 1a: the file sent before couldn't be used. P1-6 A (Joel, 2026-11-14): for an
+              audio story's picture video, the recording is asked for again (and a picture if they
+              like). Codex r4 F2: "your new file is in" only once api-user says the failed file was
+              replaced (a new upload since the failure: `mediaProblem` null again while the story
+              is still sent back for its file) and this tab's upload is done, never for an upload
+              this tab kept from before the failure. */}
+          {story?.mediaProblem === 'unusable' ? (
+            <p
+              data-media-problem={
+                story.unusableFile === 'picture' ? 'picture' : 'unusable'
+              }
+              className="mb-3 rounded-xl border-l-4 border-link bg-raised px-4 py-3"
+            >
+              {story.unusableFile === 'picture'
+                ? 'We couldn’t use your picture. Please upload your recording again, and a picture if you like.'
+                : `We couldn’t use your ${format === 'audio' ? 'recording' : 'video'}. Please upload another file.`}
+            </p>
+          ) : (
+            story?.unusableFile &&
+            file === 'uploaded' && (
+              <p
+                role="status"
+                data-media-problem="replaced"
+                className="mb-3 rounded-xl bg-surface px-4 py-3"
+              >
+                Thanks, your new file is in. Send it when you’re ready.
+              </p>
+            )
+          )}
           <UploadPanel
             calls={calls}
             owner={owner}

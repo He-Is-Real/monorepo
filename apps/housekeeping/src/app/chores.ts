@@ -5,6 +5,7 @@ import { detachedFilesTask, oldFileRowsTask } from './files';
 import {
   mediaResendTask,
   oldMediaJobsTask,
+  ourGiveUpsTask,
   unfinishedPicturesTask,
 } from './media-jobs';
 import { expiredRequestKeysTask } from './request-keys';
@@ -18,8 +19,9 @@ import { orphanVideosTask } from './videos';
  * then expired drafts, rejected stories and abandoned stories (G3 B) before orphaned videos, so
  * their videos are orphans the same night; the
  * files stories stopped showing (R12), then the file rows that no longer count (whose media jobs
- * go with them), a check of each video whose picture at Bunny is unfinished (T4), then ended
- * media jobs 30 days old (J2), last.
+ * go with them), a check of each video whose picture at Bunny is unfinished (T4), a new check of
+ * each waiting story whose media job gave up on our side (Part 1a), then ended media jobs 30 days
+ * old (J2), last.
  *
  * To add a chore: a Task in its own file, listed here, with the database permission it needs
  * for service:housekeeping (docs/db-permissions.md) and any secret granted to the housekeeping
@@ -36,6 +38,7 @@ export const CHORES: readonly Task[] = [
   detachedFilesTask,
   oldFileRowsTask,
   unfinishedPicturesTask,
+  ourGiveUpsTask,
   oldMediaJobsTask,
 ];
 

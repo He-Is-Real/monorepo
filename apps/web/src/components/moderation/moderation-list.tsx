@@ -271,6 +271,17 @@ function Table({
               <td className={cell} data-list-state="">
                 <span className={heading}>State: </span>
                 {stateLabel(s.state, s.action)}
+                {s.mediaProblem === 'ours' && (
+                  // Part 1a (P1-5, P1-9): our own give-ups, never the person's file.
+                  <span
+                    className="block text-sm font-semibold text-secondary-text"
+                    data-list-problem="ours"
+                  >
+                    {s.state === 'pending'
+                      ? 'Can’t be reviewed yet: a problem on our side'
+                      : 'A problem on our side'}
+                  </span>
+                )}
               </td>
               <td className={`${cell} [overflow-wrap:anywhere]`}>
                 <span className={heading}>Themes: </span>

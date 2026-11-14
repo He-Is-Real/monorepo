@@ -78,6 +78,9 @@ const LIST_FIELDS = (
  * the status log's (status, at) index (storyStatusLog_queue): for `pending` the same order as the
  * old queue. An old entry of a story that has moved on is skipped. Bind `$state`, `$theme` (or
  * NONE), `$after` = [at, entry id] or NONE, `$take`.
+ * `ours` (Part 1a, P1-5, P1-9): a story waiting for review or taken off the site by the system
+ * whose file's check gave up on our side and the nightly retries are used up
+ * (fn::media::our_problem): "a problem on our side".
  */
 const LIST_LOGGED_SQL = `
   LET $c = IF $after != NONE { <datetime> $after[0] };
@@ -85,7 +88,10 @@ const LIST_LOGGED_SQL = `
   SELECT record::id(id) AS key, record::id(story) AS id, action, at AS since,
     ${LIST_FIELDS('story')},
     array::max(SELECT VALUE at FROM storyStatusLog WHERE story = $parent.story AND action = 'sent')
-      AS sentAt
+      AS sentAt,
+    IF fn::story::keeps_media_jobs(story) {
+      fn::media::our_problem(story.mediaFile).ours
+    } AS ours
   FROM storyStatusLog WITH INDEX storyStatusLog_queue
   WHERE status = $state AND story.currentStatus = id
     AND ($theme = NONE OR $theme IN story.themeIds)
@@ -142,6 +148,7 @@ interface ListRow {
   title: string;
   primaryFormat: string;
   themes: { id: string; name?: Opt<string> }[];
+  ours?: boolean | null;
 }
 
 interface StoryRow {
@@ -468,6 +475,8 @@ export class ModerationController {
           since: iso(r.since),
           sentAt: isoOr(r.sentAt),
           updatedAt: iso(r.updatedAt),
+          // Part 1a: "a problem on our side".
+          mediaProblem: r.ours ? 'ours' : null,
         })),
         nextCursor: rows.length > take && last ? encodeCursor(last) : null,
       },

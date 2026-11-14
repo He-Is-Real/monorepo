@@ -31,6 +31,11 @@ export interface ListItem {
   since: string;
   sentAt: string | null;
   updatedAt: string;
+  /**
+   * Part 1a: `ours` when it waits for review or the site took it off, and its file's check keeps
+   * giving up on our side (after the nightly retries): "A problem on our side".
+   */
+  mediaProblem?: 'ours' | null;
 }
 
 export interface ListPage {
