@@ -47,7 +47,7 @@ const ADMIN_PAGES: { href: string; label: string; min: StaffRole }[] = [
  * Moderator or Admin without a verified @heisreal.today email comes back as a User and sees no
  * staff links or pages.
  */
-function useRole(): Role | undefined {
+export function useRole(): Role | undefined {
   const session = usePersonalSession();
   const account = useAccountState(
     session.status === 'signed-in' ? session.userId : null,

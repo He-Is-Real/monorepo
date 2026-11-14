@@ -395,10 +395,26 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
     });
   });
 
-  describe('an Admin may skip the wait', () => {
-    it('approves during the cooldown with a job open, and the entry records it for api-admin only', async () => {
+  describe('an Admin may skip the processing, never the upload cooldown (G11 B)', () => {
+    it('during the cooldown approve anyway is refused too, saying when it can be approved', async () => {
       const id = await waiting({ video: '5m' });
       await openJob(`${id}-media`);
+      expect(await approve(id, { skippedMediaWait: true })).toMatchObject({
+        ok: false,
+        error: expect.stringContaining(
+          `media_recently_uploaded: the story’s file was uploaded recently; it can be approved after ${await linkEnds(`${id}-media`)}`,
+        ),
+      });
+      expect(await statusOf(id)).toBe('pending');
+    });
+
+    it('approves with a job still open once the cooldown is over, and the entry records it for api-admin only', async () => {
+      const id = await waiting({ video: '1d' });
+      await openJob(`${id}-media`);
+      expect(await approve(id)).toMatchObject({
+        ok: false,
+        error: expect.stringContaining('media_still_processing:'),
+      });
       expect(await approve(id, { skippedMediaWait: true })).toMatchObject({
         ok: true,
       });

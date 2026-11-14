@@ -214,22 +214,30 @@ export async function answered(
 }
 
 /**
- * A moderator approves a pending story (R6: approved, straight from pending), as api-admin will
+ * A moderator approves a pending story (R6: approved, straight from pending), as api-admin does
  * (M3). The approval publishes it: the public rules read its newest entry (R11).
- * `superAdminSkip`: an Admin approves while the media wait (a file's upload link still
- * usable, or an open media job) would refuse it, and the entry records that (skippedMediaWait).
  */
-export async function approve(
-  admin: SurrealQueryable,
-  id: string,
-  { superAdminSkip = false }: { superAdminSkip?: boolean } = {},
-) {
+export async function approve(admin: SurrealQueryable, id: string) {
   await run(
     admin,
     `CREATE type::record('storyStatusLog', rand::ulid()) CONTENT {
-       story: type::record('story', $id), action: 'approved', by: user:moderator,
-       skippedMediaWait: $skip };`,
-    { id, skip: superAdminSkip ? true : undefined },
+       story: type::record('story', $id), action: 'approved', by: user:moderator };`,
+    { id },
+  );
+}
+
+/**
+ * A moderator's approval as a system user loads it (the migrator, dev-seed): as given, with no
+ * media wait. For a story whose files were uploaded moments ago, which no moderator may approve
+ * until their upload links have run out (decision 5; G11 B: not even an Admin).
+ */
+export async function loadApproval(migrator: SurrealQueryable, id: string) {
+  await run(
+    migrator,
+    `CREATE type::record('storyStatusLog', rand::ulid()) CONTENT {
+       story: type::record('story', $id), action: 'approved', actor: 'moderator',
+       by: user:moderator };`,
+    { id },
   );
 }
 

@@ -61,11 +61,24 @@
 //   session from a small catalogue (Topics, Feelings, Journeys and Other, with story counts); a
 //   save of the whole picture is checked like the real one (Other kept, names tidied, no
 //   duplicates ignoring case, 428 without If-Match, 412 unless it's the version read).
-// - api-admin's moderation read side (M3 plan PR 1): `GET /v1/moderation/queue` (pages of 20, or
-//   `limit`, oldest sent first; a cursor it gave out) and `GET /v1/moderation/stories/{id}`, the
-//   same fixed queue for every session, Moderators and up only (sessions starting `moderator`
-//   are Moderators, `admin` Admins; everyone else 403 `role_required`). Its player and picture
+// - api-admin's moderation read side (MD-3, MD-4): `GET /v1/moderation/stories` (the moderators'
+//   list: `state`, default pending, and `theme`; pages of 20, or `limit`, oldest first; a cursor
+//   it gave out; drafts Admins only) and `GET /v1/moderation/stories/{id}` (any state; a draft
+//   Admins only), the same fixed stories for every session as its decisions left them,
+//   Moderators and up only (sessions starting `moderator` are Moderators, `admin` Admins;
+//   everyone else 403 `role_required`). Its player and picture
 //   links point at the stub api-public-read's stand-in player and pictures.
+// - api-admin's decisions (M3 plan PR 6): `POST /v1/moderation/stories/{id}/{approve,
+//   request-changes,reject,hide,show}`, per session, with the real one's checks: `If-Match` the
+//   story's `reviewTag` (428 / 412), a note of 1–2000 characters, the step allowed from the
+//   story's state (409 `wrong_status`; reject also from hidden by the site, P1-9), `approveAnyway`
+//   Admins only. An Admin's `DELETE /v1/moderation/stories/{id}` (P1-11; Moderators 403) takes the
+//   story out of that session (428 / 412 on `If-Match` as above). A story sent back or
+//   rejected is no longer found. Fixed refusals: `mod_raced` was just decided by another
+//   moderator (409 `already_decided`), `mod_cooldown`'s video was uploaded recently (409
+//   `media_recently_uploaded`, even for an Admin), `mod_processing`'s audio is still being
+//   processed (409 `media_still_processing` unless an Admin approves anyway). Besides the queue,
+//   `mod_published` is on the site and `mod_taken_down` was hidden by a moderator.
 // - api-admin's staff list (M3 plan PR 4): `GET /v1/admin/staff`, `PUT`/`DELETE
 //   /v1/admin/staff/{email}`, Admins only, kept per session from two baseline admins and a
 //   Moderator; checked like the real one (@heisreal.today only, the two roles, never the last
@@ -765,33 +778,336 @@ const MODERATION = [
   };
 });
 
-/** `GET /v1/moderation/queue` (getModerationQueue): pages, oldest sent first. */
-function sendQueue(req, res, url) {
+/**
+ * More stories moderators open: published (one of them the stub api-public-read's walking
+ * skeleton, for MD-1's Take down on its public page), taken down (G5) and the other states the
+ * list shows (MD-3), and two waiting ones the decisions' tests use, sent after the rest.
+ */
+const MOD_EXTRA = [
+  {
+    id: 'dev_seed',
+    title: 'Test story: walking skeleton',
+    status: 'approved',
+    log: [
+      ['sent', 'pending', 'person', null],
+      ['approved', 'approved', 'moderator', null],
+    ],
+  },
+  {
+    id: 'mod_sent_back',
+    title: 'Waiting for a word',
+    status: 'editing',
+    themes: [{ id: 'doubt', name: 'Doubt' }],
+    log: [
+      ['sent', 'pending', 'person', null],
+      ['changesRequested', 'editing', 'moderator', MOD_NOTE],
+    ],
+  },
+  {
+    id: 'mod_editing',
+    title: 'Changing a line',
+    status: 'editing',
+    log: [
+      ['sent', 'pending', 'person', null],
+      ['editStarted', 'editing', 'person', null],
+    ],
+  },
+  {
+    id: 'mod_rejected',
+    title: 'Not for this site',
+    status: 'rejected',
+    log: [
+      ['sent', 'pending', 'person', null],
+      ['rejected', 'rejected', 'moderator', 'Thank you for sharing this.'],
+    ],
+  },
+  {
+    id: 'mod_hidden_by_site',
+    title: 'A video that stopped playing',
+    status: 'hidden',
+    log: [
+      ['sent', 'pending', 'person', null],
+      ['approved', 'approved', 'moderator', null],
+      ['hiddenBySystem', 'hidden', 'system', null],
+    ],
+  },
+  {
+    id: 'mod_draft',
+    title: 'Half written',
+    status: 'editing',
+    log: [],
+  },
+  {
+    id: 'mod_published',
+    title: 'Found on a Tuesday',
+    status: 'approved',
+    log: [
+      ['sent', 'pending', 'person', null],
+      ['approved', 'approved', 'moderator', null],
+    ],
+  },
+  {
+    id: 'mod_taken_down',
+    title: 'The letter I never sent',
+    status: 'hidden',
+    log: [
+      ['sent', 'pending', 'person', null],
+      ['approved', 'approved', 'moderator', null],
+      [
+        'hiddenByModerator',
+        'hidden',
+        'moderator',
+        'Someone named in it asked us to check it first.',
+      ],
+    ],
+  },
+  {
+    id: 'mod_raced',
+    title: 'Two moderators at once',
+    status: 'pending',
+    log: [['sent', 'pending', 'person', null]],
+    late: true,
+  },
+  {
+    id: 'mod_cooldown',
+    title: 'Just uploaded',
+    status: 'pending',
+    primaryFormat: 'video',
+    log: [['sent', 'pending', 'person', null]],
+    late: true,
+  },
+].map((s, n) => ({
+  id: s.id,
+  version: 3,
+  status: s.status,
+  title: s.title,
+  description: `How ${s.title.toLowerCase()} came about`,
+  body: s.primaryFormat ? null : MOD_TEXT,
+  bylineName: 'Robin',
+  primaryFormat: s.primaryFormat ?? 'written',
+  media: [],
+  image: null,
+  themes: s.themes ?? [],
+  // Each its own hours; the decisions' two waiting ones after the list's 24.
+  submittedAt: s.log.length ? modHour(s.late ? 40 + n : -50 + 3 * n) : null,
+  statusLog: s.log.map(([action, status, actor, comment], i) => ({
+    action,
+    status,
+    actor,
+    comment,
+    at: modHour((s.late ? 40 + n : -50 + 3 * n) + i),
+  })),
+}));
+
+/** The tag a decision names (G14 B): the stub's stands for the story's newest entry. */
+const tagOf = (story) => `${story.id}-${story.statusLog.length}`;
+
+/** Each session's stories under moderation, as its decisions left them. */
+const moderationState = new Map();
+function moderationFor(token) {
+  if (!moderationState.has(token)) {
+    moderationState.set(
+      token,
+      new Map(
+        [...MODERATION, ...MOD_EXTRA].map((s) => [s.id, structuredClone(s)]),
+      ),
+    );
+  }
+  return moderationState.get(token);
+}
+/** A story as moderators open it, or undefined (not found; a draft, unless an Admin's). */
+function moderated(token, id) {
+  const story = moderationFor(token).get(id);
+  if (!story || (story.statusLog.length === 0 && roleOf(token) !== 'Admin'))
+    return undefined;
+  return { ...story, reviewTag: tagOf(story) };
+}
+
+const DECISIONS = {
+  approve: { from: 'pending', action: 'approved', to: 'approved' },
+  'request-changes': {
+    from: 'pending',
+    action: 'changesRequested',
+    to: 'editing',
+    note: 'feedbackToSubmitter',
+  },
+  reject: {
+    from: 'pending',
+    action: 'rejected',
+    to: 'rejected',
+    note: 'feedbackToSubmitter',
+  },
+  hide: {
+    from: 'approved',
+    action: 'hiddenByModerator',
+    to: 'hidden',
+    note: 'reason',
+  },
+  show: { from: 'hidden', action: 'shownByModerator', to: 'approved' },
+};
+
+/** `POST /v1/moderation/stories/{id}/{decision}`: as api-admin decides (M3 plan PR 6). */
+async function decideStory(req, res, token, id, route) {
+  const d = DECISIONS[route];
+  const text = await readBody(req);
+  let body;
+  try {
+    body = text ? JSON.parse(text) : undefined;
+  } catch {
+    return invalid(res, '', 'validation_failed', 'The body is JSON');
+  }
+  const story = moderationFor(token).get(id);
+  if (!story) return problem(res, 404, 'Not found', 'not_found');
+  const ifMatch = req.headers['if-match'];
+  if (!ifMatch)
+    return problem(res, 428, 'Precondition required', 'if_match_required');
+  let comment = null;
+  if (d.note) {
+    const note = body?.[d.note];
+    if (typeof note !== 'string' || note.trim() === '')
+      return invalid(
+        res,
+        `/${d.note}`,
+        'validation_failed',
+        'Write a note to go with this decision',
+      );
+    if ([...note.trim()].length > 2000)
+      return invalid(
+        res,
+        `/${d.note}`,
+        'validation_failed',
+        'Keep the note to 2000 characters',
+      );
+    comment = note.trim();
+  }
+  const anyway = body?.approveAnyway === true;
+  if (anyway && roleOf(token) !== 'Admin')
+    return problem(res, 403, 'Forbidden', 'role_required');
+  if (id === 'mod_raced' && story.status === 'pending') {
+    // Another moderator decided it a moment ago (D-1).
+    story.status = 'rejected';
+    story.statusLog.push({
+      action: 'rejected',
+      status: 'rejected',
+      actor: 'moderator',
+      comment: 'Not this time.',
+      at: new Date().toISOString(),
+    });
+    return problem(res, 409, 'Conflict', 'already_decided');
+  }
+  if (ifMatch !== `"${tagOf(story)}"`)
+    return problem(res, 412, 'Precondition failed', 'stale_version');
+  // P1-9: a story the site took off itself may be rejected too.
+  const hiddenBySite =
+    story.status === 'hidden' &&
+    story.statusLog.at(-1)?.action === 'hiddenBySystem';
+  if (story.status !== d.from && !(route === 'reject' && hiddenBySite))
+    return problem(res, 409, 'Conflict', 'wrong_status');
+  if (d.to === 'approved') {
+    if (id === 'mod_cooldown') {
+      res.writeHead(409, {
+        'content-type': 'application/problem+json',
+        'cache-control': 'no-store',
+      });
+      return res.end(
+        JSON.stringify({
+          type: 'about:blank',
+          title: 'Conflict',
+          status: 409,
+          code: 'media_recently_uploaded',
+          availableAt: '2026-11-01T14:05:59.000Z',
+        }),
+      );
+    }
+    if (id === 'mod_processing' && !anyway)
+      return problem(res, 409, 'Conflict', 'media_still_processing');
+  }
+  story.status = d.to;
+  story.statusLog.push({
+    action: d.action,
+    status: d.to,
+    actor: 'moderator',
+    comment,
+    at: new Date().toISOString(),
+  });
+  return sendJson(
+    res,
+    200,
+    { id, version: story.version },
+    { etag: `"${tagOf(story)}"` },
+  );
+}
+
+/** `DELETE /v1/moderation/stories/{id}`: an Admin's Delete (P1-11), as api-admin's. */
+function deleteModerated(req, res, token, id) {
+  if (roleOf(token) !== 'Admin')
+    return problem(res, 403, 'Forbidden', 'role_required');
+  const story = moderationFor(token).get(id);
+  if (!story) return problem(res, 404, 'Not found', 'not_found');
+  const ifMatch = req.headers['if-match'];
+  if (!ifMatch)
+    return problem(res, 428, 'Precondition required', 'if_match_required');
+  if (ifMatch !== `"${tagOf(story)}"`)
+    return problem(res, 412, 'Precondition failed', 'stale_version');
+  moderationFor(token).delete(id);
+  res.writeHead(204, { 'cache-control': 'no-store' });
+  return res.end();
+}
+
+const LIST_STATES = ['pending', 'editing', 'hidden', 'rejected', 'draft'];
+const DRAFT_STARTED = modHour(-60);
+
+/** `GET /v1/moderation/stories` (listModerationStories): one state, oldest first, pages. */
+function sendList(req, res, url, token) {
+  const state = url.searchParams.get('state') ?? 'pending';
+  if (!LIST_STATES.includes(state))
+    return invalid(res, '/state', 'validation_failed');
+  const theme = url.searchParams.get('theme');
+  if (theme !== null && !/^[0-9A-Za-z_]{1,40}$/.test(theme))
+    return invalid(res, '/theme', 'validation_failed');
   const limit = url.searchParams.get('limit') ?? '20';
   const take = Number(limit);
   if (!Number.isInteger(take) || take < 1 || take > 50)
     return invalid(res, '/limit', 'validation_failed', 'limit is 1–50');
+  if (state === 'draft' && roleOf(token) !== 'Admin')
+    return problem(res, 403, 'Forbidden', 'role_required');
+  const rows = [...moderationFor(token).values()]
+    .filter((s) =>
+      state === 'draft'
+        ? s.statusLog.length === 0
+        : s.statusLog.length > 0 && s.status === state,
+    )
+    .filter((s) => !theme || s.themes.some((t) => t.id === theme))
+    .map((s) => {
+      const moved = s.statusLog.at(-1);
+      const sent = s.statusLog.filter((e) => e.action === 'sent').at(-1);
+      const since = moved?.at ?? DRAFT_STARTED;
+      return {
+        id: s.id,
+        state,
+        action: moved?.action ?? null,
+        title: s.title,
+        primaryFormat: s.primaryFormat,
+        themes: s.themes,
+        since,
+        sentAt: sent?.at ?? null,
+        updatedAt: since,
+      };
+    })
+    .sort((a, b) => a.since.localeCompare(b.since) || a.id.localeCompare(b.id));
   const cursor = url.searchParams.get('cursor');
   let from = 0;
   if (cursor !== null) {
     const n = Number(Buffer.from(cursor, 'base64url').toString('utf8'));
-    if (!Number.isInteger(n) || n < 1 || n >= MODERATION.length)
+    if (!Number.isInteger(n) || n < 1 || n >= rows.length)
       return invalid(res, '/cursor', 'validation_failed');
     from = n;
   }
-  const page = MODERATION.slice(from, from + take);
   const next = from + take;
   return cached(req, res, {
-    data: page.map((s) => ({
-      id: s.id,
-      version: s.version,
-      status: s.status,
-      title: s.title,
-      primaryFormat: s.primaryFormat,
-      submittedAt: s.submittedAt,
-    })),
+    data: rows.slice(from, next),
     nextCursor:
-      next < MODERATION.length
+      next < rows.length
         ? Buffer.from(String(next)).toString('base64url')
         : null,
   });
@@ -1161,6 +1477,7 @@ function storyMine(s, id, st, uploaded = () => null, own = false) {
     // A deleted theme is left out, as api-user does.
     themes: st.themeIds.map((id) => themeRef(s, id)).filter(Boolean),
     rejectionFeedback: st.rejectionFeedback ?? null,
+    takenDown: st.status === 'hidden' && st.takenDown === true,
     submittedAt: st.submittedAt,
     approvedAt: null,
     createdAt: st.createdAt,
@@ -1213,7 +1530,12 @@ function myDataOf(s, token, mine) {
       lastActiveAt: null,
     },
     stories: [...s.stories].reverse().map(([id, st]) => {
-      const { version: _v, media, ...rest } = storyMine(s, id, st);
+      const {
+        version: _v,
+        takenDown: _t,
+        media,
+        ...rest
+      } = storyMine(s, id, st);
       return {
         ...rest,
         onSiteNow: st.status === 'approved',
@@ -2326,20 +2648,22 @@ createServer(async (req, res) => {
       return problem(res, 403, 'Forbidden', 'role_required');
     return void changeStaff(req, res, token, staffMember[1]);
   }
-  if (path === '/v1/moderation/queue' && req.method === 'GET') {
+  if (path === '/v1/moderation/stories' && req.method === 'GET') {
     if (!signedIn()) return;
     if (roleOf(token) === 'User')
       return problem(res, 403, 'Forbidden', 'role_required');
-    return sendQueue(req, res, url);
+    return sendList(req, res, url, token);
   }
   const reviewed = /^\/v1\/moderation\/stories\/([^/]+)$/.exec(path);
+  if (reviewed && req.method === 'DELETE') {
+    if (!signedIn()) return;
+    return deleteModerated(req, res, token, decodeURIComponent(reviewed[1]));
+  }
   if (reviewed && req.method === 'GET') {
     if (!signedIn()) return;
     if (roleOf(token) === 'User')
       return problem(res, 403, 'Forbidden', 'role_required');
-    const story = MODERATION.find(
-      (s) => s.id === decodeURIComponent(reviewed[1]),
-    );
+    const story = moderated(token, decodeURIComponent(reviewed[1]));
     if (!story) return problem(res, 404, 'Not found', 'not_found');
     // Block list (G21 D): an Admin sees the address the first story was sent from.
     return cached(req, res, {
@@ -2349,6 +2673,22 @@ createServer(async (req, res) => {
           ? '203.0.113.7'
           : null,
     });
+  }
+  const decision =
+    /^\/v1\/moderation\/stories\/([^/]+)\/(approve|request-changes|reject|hide|show)$/.exec(
+      path,
+    );
+  if (decision && req.method === 'POST') {
+    if (!signedIn()) return;
+    if (roleOf(token) === 'User')
+      return problem(res, 403, 'Forbidden', 'role_required');
+    return void decideStory(
+      req,
+      res,
+      token,
+      decodeURIComponent(decision[1]),
+      decision[2],
+    );
   }
   if (path === '/v1/account/favourites' && req.method === 'GET') {
     const mine = signedIn();

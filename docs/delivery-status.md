@@ -20,20 +20,20 @@ until then.
 
 ## Milestones
 
-| Milestone                         | Status         | In short                                                                                                                                                        |
-| --------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| M0 Walking skeleton               | ✅ Done        | The foundations: the code base, the cloud set-up, the database, sign-in and a first public page.                                                                |
-| M1 Browse & view                  | ✅ Done        | Anyone can read, watch and listen to stories, browse and search them, and read the information pages. Done 2026-10-24.                                          |
-| M2 Accounts & submission          | 🟡 In progress | People can sign up, agree to the terms, share stories, manage them, keep favourites, download their data and delete their account. Two parts left.              |
-| M3 Moderation                     | 🟡 In progress | Moderators review stories before they go public. The queue, a read-only review page, staff roles and the Staff page are built; Edit and Delete are being built. |
-| M4 Donations                      | 🟡 In progress | Giving through Stripe works on dev in Stripe's test mode. Recording donors and Gift Aid are not started.                                                        |
-| M5 Admin dashboard                | ⚪ Not started | Three admin pages already exist from M2 (limits, themes, consent texts); the dashboard itself is not started.                                                   |
-| M6 Community vetting              | ⚪ Not started |                                                                                                                                                                 |
-| M7 Async processing (AI)          | ⚪ Not started | A transcription worker was tried out in the `project` repo. Background work will run on Joel's machine, later church hardware, not Google Cloud.                |
-| M8 Embeddable widgets             | ⚪ Not started | Can start any time.                                                                                                                                             |
-| Real stories (the 24 testimonies) | ⚪ Not started | After M8: bring in the 24 existing testimonies. See "What blocks Go live" below.                                                                                |
-| Go live                           | ⚪ Not started | After Real stories: the heisreal.today domain, the production sign-in service and switching off Squarespace.                                                    |
-| Emails                            | ⚪ Not started | After Go live, once the domain can send mail: submission confirmations, moderation results, the draft-deletion reminder.                                        |
+| Milestone                         | Status         | In short                                                                                                                                                                           |
+| --------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M0 Walking skeleton               | ✅ Done        | The foundations: the code base, the cloud set-up, the database, sign-in and a first public page.                                                                                   |
+| M1 Browse & view                  | ✅ Done        | Anyone can read, watch and listen to stories, browse and search them, and read the information pages. Done 2026-10-24.                                                             |
+| M2 Accounts & submission          | 🟡 In progress | People can sign up, agree to the terms, share stories, manage them, keep favourites, download their data and delete their account. Two parts left.                                 |
+| M3 Moderation                     | 🟡 In progress | Moderators review stories before they go public. The queue, a read-only review page, staff roles and the Staff page are built; decisions and the moderators' list are being built. |
+| M4 Donations                      | 🟡 In progress | Giving through Stripe works on dev in Stripe's test mode. Recording donors and Gift Aid are not started.                                                                           |
+| M5 Admin dashboard                | ⚪ Not started | Three admin pages already exist from M2 (limits, themes, consent texts); the dashboard itself is not started.                                                                      |
+| M6 Community vetting              | ⚪ Not started |                                                                                                                                                                                    |
+| M7 Async processing (AI)          | ⚪ Not started | A transcription worker was tried out in the `project` repo. Background work will run on Joel's machine, later church hardware, not Google Cloud.                                   |
+| M8 Embeddable widgets             | ⚪ Not started | Can start any time.                                                                                                                                                                |
+| Real stories (the 24 testimonies) | ⚪ Not started | After M8: bring in the 24 existing testimonies. See "What blocks Go live" below.                                                                                                   |
+| Go live                           | ⚪ Not started | After Real stories: the heisreal.today domain, the production sign-in service and switching off Squarespace.                                                                       |
+| Emails                            | ⚪ Not started | After Go live, once the domain can send mail: submission confirmations, moderation results, the draft-deletion reminder.                                                           |
 
 ## M0: Walking skeleton ✅
 
@@ -277,12 +277,27 @@ notice (version 0, edited in place on dev) now say this, and that AI tools may b
 transcripts, captions and summaries. Before it works on dev: dev's database is wiped and rebuilt
 once (the legal texts changed), when the cluster root is applied.
 
+**In progress: the moderators' decisions** (built on Edit and Delete). On the review page a
+moderator approves, sends back or rejects a waiting story (a kind note to the person for the last
+two, which they read as "What our team said"), takes a published story down with a reason and
+shows it again; the person sees "Taken down by our team". If two moderators decide the same story,
+the first wins and the second is told so. Refusals are plain ("The video is still being processed.
+You can approve it from 14:05."); an Admin may approve anyway while a file is still being
+processed, never within the hour its upload link still works. The page's history now also shows
+when the person changed the words, alongside new files and pictures. Joel's 14 November answers
+are in it too: the queue became the moderators' list, one page for Moderators and Admins of every
+story that isn't on the site (waiting for review, being edited, taken down, rejected; Admins also
+see drafts never sent), as a table they filter by state and theme; a published story's own page
+has a Take down button for moderators only; and the person sees the take-down reason on My
+submissions, like a sent-back note. Also from 14 November: an Admin (never a Moderator) can
+delete a story in any state from its review page, after a "This can't be undone" question, exactly
+as its owner can; and a story the site took off itself (its video or audio can't play) can be
+rejected, which then lets the nightly clean-up delete it like any rejected story.
+
 **Still to come:**
 
 - "Your video couldn't be used" (part 1a): a video Bunny can't use sends the story back to the
   person with a plain message.
-- The moderators' decisions (approve, send back, reject), the story's history shown as a timeline
-  including file changes, and hide and show again.
 
 **Deferred:** two-step verification and Google-only sign-in for staff, until we are happy to pay
 for them.

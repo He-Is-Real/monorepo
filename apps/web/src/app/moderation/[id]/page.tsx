@@ -15,7 +15,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     ...pageMetadata({
       title: 'Review a story',
-      description: 'A story waiting for review.',
+      description: 'A story for moderators.',
       path: `/moderation/${encodeURIComponent(id)}`,
     }),
     robots: { index: false, follow: false },
@@ -39,7 +39,7 @@ export default async function ModerationReviewPage({ params }: Props) {
             href="/moderation"
             className="inline-flex min-h-11 items-center"
           >
-            ← Back to the queue
+            ← Back to the list
           </Link>
         </p>
       </WideColumn>

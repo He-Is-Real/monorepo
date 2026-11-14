@@ -120,7 +120,11 @@ their fence (see "Transactions").
 
 - **`story`: one table (R11), its content only.** `currentStatus` points at its newest status
   entry that moved it (none = a draft, never sent); `image: {file, alt}` and `mediaFile` point at its `storyFile` rows.
-  - **Read:** the owner; api-admin, workflow, housekeeping all rows; everyone else (the public,
+  - **Read:** the owner; api-admin, workflow, housekeeping all rows (api-admin's read already
+    covers the moderators' list, MD-3/MD-4, Joel 2026-11-14, so it needed no new database
+    permission: the database knows moderators only as api-admin's login, so api-admin itself
+    keeps drafts never sent, `currentStatus` NONE, to Admin sessions, on the list and on a story's
+    review answer); everyone else (the public,
     api-user's login, other people) only stories whose current entry is `approved`, and only the
     published fields. Private fields (`submitter`, the sharing consent and its date, `createdAt`)
     are the owner's and those services' only; api-user reads `submitter` only once the owner is
@@ -168,11 +172,15 @@ their fence (see "Transactions").
     review, or "show again" from hidden) is refused while an upload link for the story's video,
     audio file or picture could still be used (its row's `at` or `renewedAt` plus the link's length,
     `fn::upload::link_lifetime`: 1 hour, a picture 10 minutes; `media_recently_uploaded:`, with the
-    time it can be approved) or a media job for those files is open (`media_still_processing:`). A
-    Admin may approve anyway: api-admin sets `skippedMediaWait` (roles live in Clerk), which
-    the database accepts only on a moderator's approval that the wait would refuse. The system's
+    time it can be approved) or a media job for those files is open (`media_still_processing:`). An
+    Admin may approve anyway while the media is still being processed: api-admin sets
+    `skippedMediaWait` (roles live in Clerk), which the database accepts only on a moderator's
+    approval that the wait would refuse, and never for the upload cooldown (G11 B, Joel
+    2026-11-11: `media_recently_uploaded:` stands). The system's
     hide and show again, and system users, are never held. Specs: `approval-wait`.
-  - **Delete:** erasure (api-user, api-admin); the owner, live, in any state (ED-3, Joel
+  - **Delete:** erasure (api-user, api-admin; api-admin's is also an Admin's Delete on the review
+    page, P1-11, Joel 2026-11-14: the role check is api-admin's, as for every moderator action);
+    the owner, live, in any state (ED-3, Joel
     2026-11-11; D71); housekeeping only for `fn::story::deletion_due(id)`, past
     `fn::story::deletes_at`: a draft (never sent) untouched for 186 days
     (`fn::story::draft_retention`) since the later of `updatedAt` and its files' `renewedAt`; a
@@ -211,7 +219,8 @@ their fence (see "Transactions").
     never from a direct write. `storyStatusLog_step` checks who may take which
     step (`fn::story::step_allowed`): the owner sends (from editing) and starts editing (Edit, from
     pending, approved or hidden); a moderator (api-admin, naming `by`) approves, sends back or
-    rejects (from pending only, so of two decisions the first wins, D-1), hides (from approved, with
+    rejects (from pending, so of two decisions the first wins, D-1; and from hidden only when its
+    current entry is the system's `hiddenBySystem`: P1-9, P1-11, Joel 2026-11-14), hides (from approved, with
     a note) and shows again (from hidden); the system hides and shows again for media
     (`hiddenBySystem` needs a `hiddenReason`). Sending back and rejecting need a note. History-only
     entries (`storyFile_attach`'s new file or picture, actor `system`, and `story_words_changed`'s

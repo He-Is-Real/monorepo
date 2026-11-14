@@ -193,6 +193,9 @@ DEFINE FUNCTION OVERWRITE fn::story::step_allowed($actor: string, $action: strin
         OR ($action = 'editStarted' AND $from IN ['pending', 'approved', 'hidden'])
     } ELSE IF $actor = 'moderator' {
       ($action IN ['approved', 'changesRequested', 'rejected'] AND $from = 'pending')
+        -- P1-9, P1-11 (Joel, 2026-11-14): a story the site took off itself is resolved by
+        -- rejecting it (storyStatusLog_step allows it only from the site's own hiddenBySystem).
+        OR ($action = 'rejected' AND $from = 'hidden')
         OR ($action = 'hiddenByModerator' AND $from = 'approved')
         OR ($action = 'shownByModerator' AND $from = 'hidden')
     } ELSE {
@@ -334,7 +337,8 @@ DEFINE FUNCTION OVERWRITE fn::story::approval_problem($s: any) {
 --   writer recorded empties it. Here, not in approval_problem: like an open job it is a moment of
 --   the review, not the files being unfit to show, so it must never hide an approved story or stop
 --   one coming back (check_files, restorable).
--- An Admin may approve anyway, and the entry records it (storyStatusLog.skippedMediaWait).
+-- An Admin may approve anyway while the media is still being processed (not during the upload
+-- cooldown: G11 B), and the entry records it (storyStatusLog.skippedMediaWait).
 -- Messages start with a code for api-admin (409). $now: the time to judge at (the approval's).
 -- Runs elevated from the event (only the services read mediaJob).
 DEFINE FUNCTION OVERWRITE fn::story::approval_wait($s: any, $now: datetime) {
@@ -841,6 +845,7 @@ DEFINE EVENT OVERWRITE storySearch_theme_renamed ON theme
 --     (pending, approved or hidden -> editing: Edit, ED-1/ED-4; it leaves the site at once);
 --   a moderator (api-admin, naming the moderator in `by`): approved, changesRequested or rejected
 --     (from pending: the first decision wins, D-1; a second finds the story no longer pending),
+--     rejected also from hidden when the site hid it (hiddenBySystem; P1-9, P1-11),
 --     hiddenByModerator (from approved) and shownByModerator (from hidden); changesRequested,
 --     rejected and hiddenByModerator carry the moderator's note (`comment`);
 --   the system: hiddenBySystem (from approved) when the media fails or changes, shownBySystem
@@ -962,9 +967,10 @@ DEFINE FIELD OVERWRITE reviewedMediaFile ON storyStatusLog TYPE option<record<st
 DEFINE FIELD OVERWRITE reviewedImageFile ON storyStatusLog TYPE option<record<storyFile>> READONLY
   VALUE IF fn::story::approves($this.action) { $this.story.image.file }
   PERMISSIONS FOR select WHERE story.submitter = $auth OR $auth = service:api_admin;
--- On a moderator's approved entry: true when an Admin approved while the media wait (the
--- upload cooldown or an open media job, fn::story::approval_wait) would have refused it (Joel,
--- 2026-11-07: decision 5 and J6, "an Admin may skip both; the approval records that it did").
+-- On a moderator's approved (or shown again) entry: true when an Admin approved anyway while
+-- the media was still being processed (an open media job or the picture at Bunny unconfirmed,
+-- fn::story::approval_wait; Joel, 2026-11-07: decision 5 and J6, "the approval records that it
+-- did"). Never the upload cooldown (G11 B, Joel 2026-11-11): that refusal stands for Admins too.
 -- Roles live in Clerk (D1), so api-admin sets it, only for an Admin (as it names the
 -- moderator in `by`); the database refuses it on any other entry, or when there was nothing to
 -- skip, so it is true exactly when the wait was skipped. api-admin's alone to read.
@@ -1010,6 +1016,11 @@ DEFINE EVENT OVERWRITE storyStatusLog_step ON storyStatusLog
     IF !fn::story::step_allowed($after.actor, $action, $from) {
       THROW 'status_step: a ' + $after.actor + ' can’t ' + $action + ' a story that is ' + $from;
     };
+    -- Rejecting a hidden story: only one the site hid (P1-9); a moderator's take-down ends with
+    -- Show again.
+    IF $action = 'rejected' AND $from = 'hidden' AND $s.currentStatus.action != 'hiddenBySystem' {
+      THROW 'status_step: a moderator can reject a hidden story only when the site hid it';
+    };
     IF $after.actor != 'moderator' AND $after.comment != NONE {
       THROW 'status_step: only a moderator’s entry has a comment';
     };
@@ -1024,14 +1035,17 @@ DEFINE EVENT OVERWRITE storyStatusLog_step ON storyStatusLog
     };
     -- A moderator's approval waits for the media (decision 5, J6): refused while
     -- fn::story::approval_wait says so, unless an Admin skips it (skippedMediaWait). System
-    -- users (the migrator, dev-seed) load approved stories as given.
+    -- users (the migrator, dev-seed) load approved stories as given. G11 B (Joel, 2026-11-11):
+    -- "approve anyway" never skips the upload-link hour, only the processing (an open media job,
+    -- the picture at Bunny), so what was watched is what gets published.
     LET $wait = IF $action IN ['approved', 'shownByModerator'] AND $auth != NONE {
       fn::story::approval_wait($s, time::now())
     };
     IF $after.skippedMediaWait = true AND $wait = NONE {
       THROW 'status_step: skippedMediaWait is only for a moderator’s approval that the media wait would refuse';
     };
-    IF $wait != NONE AND $after.skippedMediaWait != true { THROW $wait };
+    IF $wait != NONE AND ($after.skippedMediaWait != true
+        OR string::starts_with($wait, 'media_recently_uploaded:')) { THROW $wait };
     -- Shown again: by the system only with the files that were reviewed, ready; a moderator's
     -- "show again" is their review of what the story shows now (its approval checks still run,
     -- on the moved pointer, and the entry records the files it shows), so a hidden story with

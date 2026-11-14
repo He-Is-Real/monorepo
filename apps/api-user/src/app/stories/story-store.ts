@@ -85,6 +85,8 @@ export interface StoryMine {
   } | null;
   themes: ThemeRef[];
   rejectionFeedback: string | null;
+  /** Hidden by a moderator (G5): the person sees "Taken down by our team". */
+  takenDown: boolean;
   submittedAt: string | null;
   approvedAt: string | null;
   createdAt: string;
@@ -191,6 +193,7 @@ interface RawStory {
   }[];
   image?: { path: string; width: number; height: number; alt?: string } | null;
   rejectionFeedback?: string | null;
+  takenDown?: boolean | null;
   submittedAt?: string | null;
   approvedAt?: string | null;
   createdAt: string;
@@ -204,13 +207,18 @@ interface RawStory {
  * What its owner sees of a story's status log (R6), in their own session (they read their own
  * entries, never who moderated): the real status (G2: a hidden story shows as hidden), the
  * moderator's note while the story is sent back for changes or rejected ("What our team said"),
+ * whether a moderator took it down (G5: "Taken down by our team") and their reason (MD-2, Joel
+ * 2026-11-14: shown like a sent-back note),
  * the first time it was sent and the first publication's. A story being edited that was never sent
  * (no `submittedAt`) is a "Draft". GetStory and "download my data" (my-data.ts).
  */
 export const OWNER_STATUS_FIELDS = `
   ${STORY_STATUS} AS status,
-  IF currentStatus.action IN ['changesRequested', 'rejected'] { currentStatus.comment }
+  IF currentStatus.action IN ['changesRequested', 'rejected', 'hiddenByModerator'] {
+    currentStatus.comment
+  }
     AS rejectionFeedback,
+  currentStatus.action = 'hiddenByModerator' AS takenDown,
   array::min(SELECT VALUE at FROM storyStatusLog WHERE story = $parent.id AND action = 'sent')
     AS submittedAt,
   array::min(SELECT VALUE publishedAt FROM storyStatusLog
@@ -825,6 +833,7 @@ export class StoryStore {
       themes: r.themeRefs.flatMap((ref) => byRef.get(ref) ?? []),
       themeRefCount: r.themeRefs.length,
       rejectionFeedback: r.rejectionFeedback ?? null,
+      takenDown: r.takenDown === true,
       submittedAt: iso(r.submittedAt),
       approvedAt: iso(r.approvedAt),
       createdAt: iso(r.createdAt) as string,
