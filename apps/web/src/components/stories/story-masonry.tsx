@@ -34,7 +34,7 @@ const basePx = (px: number) =>
  * Layouts for `more` cards added after the ones on screen in `ul` (laid out as `layouts`, ending
  * at the predicted `heights`). They continue from the measured bottoms of the columns on screen,
  * predicted ones otherwise, so each new card goes under the column that is really shortest and
- * the cards already there keep their columns. Browse's next pages and favourites' "Show more".
+ * the cards already there keep their columns. Browse's next pages.
  */
 export function continueLayout(
   ul: HTMLUListElement | null,

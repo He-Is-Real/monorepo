@@ -24,6 +24,10 @@ export const PAGE_SIZE = 15;
  * (browse-view.tsx). The server renders browse the same whatever it says.
  */
 export const FAVOURITES_PARAM = 'favourites';
+
+/** Whether this address (its search part) has "Favourites only" on. */
+export const favouritesOn = (search: URLSearchParams | null): boolean =>
+  search?.get(FAVOURITES_PARAM) === '1';
 /**
  * How many pages a URL may ask the server to rebuild (`?pages=`). The list itself loads on past
  * it as the reader scrolls (no page cap since Joel, 2026-10-31); a reload shows the first 10.
@@ -78,10 +82,13 @@ export function parseBrowseSearch(sp: SearchParams): {
   return { filters, pages: Math.min(MAX_PAGES, Math.max(1, n)) };
 }
 
-/** The browse URL for these filters (defaults left out), optionally with a page count. */
+/**
+ * The browse URL for these filters (defaults left out), optionally with a page count and with
+ * "Favourites only" kept on (Codex, #223: every browse link the browser builds keeps it).
+ */
 export function browseHref(
   filters: BrowseFilters,
-  extra: { pages?: number } = {},
+  extra: { pages?: number; favourites?: boolean } = {},
 ): string {
   const sp = new URLSearchParams();
   if (filters.q) sp.set('q', filters.q);
@@ -90,6 +97,7 @@ export function browseHref(
   const defaultSort = filters.q ? 'relevance' : 'latest';
   if (filters.sort !== defaultSort) sp.set('sort', filters.sort);
   if (extra.pages && extra.pages > 1) sp.set('pages', String(extra.pages));
+  if (extra.favourites) sp.set(FAVOURITES_PARAM, '1');
   return sp.size ? `/stories?${sp}` : '/stories';
 }
 

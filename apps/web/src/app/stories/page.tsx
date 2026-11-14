@@ -90,7 +90,7 @@ async function loadPages(filters: Filters, pages: number) {
 /**
  * Browse (plan 1.2): every published story, newest first, with search, sort, format and a theme,
  * in a balanced masonry (D55). Server-rendered from api-public-read (D32) for the URL's filters
- * and page count; BrowseResults loads more. Signed in, BrowseView adds "Favourites only".
+ * and page count; BrowseResults loads more. BrowseView adds "Favourites only".
  */
 export default async function BrowsePage({ searchParams }: Props) {
   await connection();
@@ -118,6 +118,7 @@ export default async function BrowsePage({ searchParams }: Props) {
       </header>
 
       <BrowseView
+        query={filters}
         filters={
           <>
             <BrowseFilters filters={filters} />
