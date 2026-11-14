@@ -36,7 +36,7 @@ export interface MyStoryRow {
    * When the nightly clean-up deletes it (api-user's rule; never recomputed here): a draft or a
    * story being edited after it was sent, if nobody touches it; a rejected story (G3 B).
    */
-  draftExpiresAt?: string | null;
+  deletesAt?: string | null;
   /**
    * Plan 4e: the social media sharing consent ticked for this story at the end of its upload, or
    * null. It can't be withdrawn: deleting the story stops any future use.
@@ -336,23 +336,22 @@ function StoryRow({
           </p>
         </div>
       )}
-      {label === 'draft' && story.draftExpiresAt && (
+      {label === 'draft' && story.deletesAt && (
         <p data-draft-expiry="" className="mb-3 text-sm text-secondary-text">
           If you don’t change this draft, we’ll delete it after{' '}
-          {LONG_DATE.format(new Date(story.draftExpiresAt))}.
+          {LONG_DATE.format(new Date(story.deletesAt))}.
         </p>
       )}
-      {(label === 'sent_back' || label === 'editing') &&
-        story.draftExpiresAt && (
-          <p data-draft-expiry="" className="mb-3 text-sm text-secondary-text">
-            If you don’t change this story, we’ll delete it after{' '}
-            {LONG_DATE.format(new Date(story.draftExpiresAt))}.
-          </p>
-        )}
-      {label === 'rejected' && story.draftExpiresAt && (
+      {(label === 'sent_back' || label === 'editing') && story.deletesAt && (
+        <p data-draft-expiry="" className="mb-3 text-sm text-secondary-text">
+          If you don’t change this story, we’ll delete it after{' '}
+          {LONG_DATE.format(new Date(story.deletesAt))}.
+        </p>
+      )}
+      {label === 'rejected' && story.deletesAt && (
         <p data-draft-expiry="" className="mb-3 text-sm text-secondary-text">
           We’ll delete this story after{' '}
-          {LONG_DATE.format(new Date(story.draftExpiresAt))}. To keep our team’s
+          {LONG_DATE.format(new Date(story.deletesAt))}. To keep our team’s
           note, download your data before then.
         </p>
       )}

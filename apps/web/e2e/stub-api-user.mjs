@@ -1102,7 +1102,7 @@ function storyMine(s, id, st, uploaded = () => null, own = false) {
     updatedAt: st.updatedAt,
     // api-user's rule (fn::story::deletes_at) with the default times, from the last edit (this
     // stub doesn't renew uploads), or for a rejected story its decision (`decidedAt`, seeded).
-    draftExpiresAt: deletesAt(st),
+    deletesAt: deletesAt(st),
     socialMediaSharingConsent: st.socialMediaSharingConsent ?? null,
   };
 }

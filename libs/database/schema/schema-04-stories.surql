@@ -1051,7 +1051,7 @@ DEFINE FUNCTION OVERWRITE fn::story::drafts_expire_before() {
 -- last activity, the later of its last edit (updatedAt) and the last time an upload link was
 -- signed for it again (storyFile.renewedAt, a resume). NONE if it isn't a draft. The one rule:
 -- housekeeping deletes by it (draft_expired) and the profile shows it (api-user's
--- StoryMine.draftExpiresAt, R5). The owner's session reads its own files.
+-- StoryMine.deletesAt, R5). The owner's session reads its own files.
 DEFINE FUNCTION OVERWRITE fn::story::draft_expires_at($story: record<story>) {
   LET $s = (SELECT currentStatus, updatedAt FROM ONLY $story);
   IF $s = NONE OR $s.currentStatus != NONE { RETURN NONE };
@@ -1062,7 +1062,7 @@ DEFINE FUNCTION OVERWRITE fn::story::draft_expires_at($story: record<story>) {
 };
 -- G3 B (Joel, 2026-11-11, "More M3 answers"): when the nightly housekeeping deletes `$story`, or
 -- NONE if it never does. One rule, which housekeeping deletes by (deletion_due) and the person
--- sees on My submissions (api-user's StoryMine.draftExpiresAt):
+-- sees on My submissions (api-user's StoryMine.deletesAt):
 --   a draft (never sent): fn::story::draft_expires_at (D71: 186 days after it was last touched);
 --   rejected: the settings' rejectedRetentionDays (90) after its rejection (its status entry's
 --     time; it can't change after that);

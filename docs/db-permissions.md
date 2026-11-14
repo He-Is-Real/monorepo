@@ -166,7 +166,7 @@ their fence (see "Transactions").
     story in editing after it was sent, untouched by the same clock for the settings'
     `editingRetentionDays`; a rejected story the settings' `rejectedRetentionDays` after its status
     entry's `at` (G3 B, Joel 2026-11-11). The owner's page shows the same `fn::story::deletes_at`
-    (api-user's `draftExpiresAt`). A delete takes the status log and
+    (api-user's `deletesAt`). A delete takes the status log and
     others' hearts (`story_erasure_cascade`) and the search row (`story_search`), and queues the
     picture folder; its `storyFile` rows stay for the upload limits. Specs: `person-session`, api-user's `my-stories`, housekeeping's suite.
   - `themeIds` (text copies of `themeRefs`, computed) exists for the element index (gotchas).

@@ -425,18 +425,18 @@ describe('my stories: edit and delete', () => {
       (body.data as any[]).map((s) => [s.id, s]),
     );
     const mine = byId.get(written);
-    expect(Date.parse(mine.draftExpiresAt)).toBe(
+    expect(Date.parse(mine.deletesAt)).toBe(
       Date.parse(mine.updatedAt) + 186 * DAY,
     );
-    expect(Date.parse(byId.get(video).draftExpiresAt)).toBe(
+    expect(Date.parse(byId.get(video).deletesAt)).toBe(
       Date.parse(renewedAt) + 186 * DAY,
     );
-    expect(byId.get(submitted).draftExpiresAt).toBeNull();
+    expect(byId.get(submitted).deletesAt).toBeNull();
     const back = byId.get(sentBack);
-    expect(Date.parse(back.draftExpiresAt)).toBe(
+    expect(Date.parse(back.deletesAt)).toBe(
       Date.parse(back.updatedAt) + 186 * DAY,
     );
-    expect(Date.parse(byId.get(rejected).draftExpiresAt)).toBe(
+    expect(Date.parse(byId.get(rejected).deletesAt)).toBe(
       Date.parse(rejectedAt) + 90 * DAY,
     );
   });

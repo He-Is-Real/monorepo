@@ -91,7 +91,7 @@ paths:
         `status` narrows it to one state (Story states, Joel 2026-11-11: `editing`, `pending`,
         `approved`, `hidden`, `rejected`). A story being edited that was never sent (`submittedAt`
         null) is a draft. A draft, a story being edited after it was sent and a rejected story carry
-        `draftExpiresAt`, when the nightly housekeeping deletes it (the profile shows it, R5; G3 B).
+        `deletesAt`, when the nightly housekeeping deletes it (the profile shows it, R5; G3 B).
       x-required-role: User
       x-milestone: M2
       parameters:

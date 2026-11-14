@@ -773,7 +773,7 @@ components:
         updatedAt:
           type: string
           format: date-time
-        draftExpiresAt:
+        deletesAt:
           type: [string, 'null']
           format: date-time
           description: |
@@ -2023,7 +2023,7 @@ components:
                 submittedAt,
                 approvedAt,
                 publishedAt,
-                draftExpiresAt,
+                deletesAt,
                 socialMediaSharingConsent,
               ]
             properties:
@@ -2184,7 +2184,7 @@ components:
               publishedAt:
                 type: [string, 'null']
                 format: date-time
-              draftExpiresAt:
+              deletesAt:
                 type: [string, 'null']
                 format: date-time
               socialMediaSharingConsent:

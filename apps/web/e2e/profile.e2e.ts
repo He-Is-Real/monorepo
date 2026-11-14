@@ -33,7 +33,7 @@ const LONG =
 const SENT = '2026-10-20T12:00:00.000Z';
 /** A story of each owner label, as the stub keeps them (Story states: five states, seven labels). */
 const EVERY_STATUS = [
-  // Never sent. Last changed 29 October 2026: kept 186 days (api-user's draftExpiresAt; the
+  // Never sent. Last changed 29 October 2026: kept 186 days (api-user's deletesAt; the
   // stub's 6 months).
   {
     id: 's_draft',
