@@ -156,6 +156,34 @@ async function toWrite(page: Page) {
   await step(page, 'Write your story');
 }
 
+/**
+ * Files dropped onto the picture's drop area (Joel, 2026-11-14), as a browser hands them over
+ * when they're dragged from the desktop.
+ */
+async function dropPictures(
+  page: Page,
+  files: { name: string; type: string; bytes: Buffer }[],
+) {
+  const dropped = await page.evaluateHandle(
+    (all) => {
+      const t = new DataTransfer();
+      for (const f of all) {
+        t.items.add(
+          new File([new Uint8Array(f.bytes)], f.name, { type: f.type }),
+        );
+      }
+      return t;
+    },
+    files.map((f) => ({ ...f, bytes: [...f.bytes] })),
+  );
+  const zone = page.locator('[data-picture-phase] [data-drop-zone]');
+  await zone.dispatchEvent('dragover', { dataTransfer: dropped });
+  // Highlighted while a file is over it.
+  await expect(zone).toHaveClass(/border-teal/);
+  await zone.dispatchEvent('drop', { dataTransfer: dropped });
+  await expect(zone).not.toHaveClass(/border-teal/);
+}
+
 test('a written story’s picture is previewed at its real shape, and the step fits the screen', async ({
   page,
   request,
@@ -166,11 +194,18 @@ test('a written story’s picture is previewed at its real shape, and the step f
   await page
     .getByLabel('Your story')
     .fill('It happened on a hill. '.repeat(10));
+  // The drop area with no picture yet fits too.
+  await expect(page.getByText('Drag it here, or')).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expectAllTargets(page);
   await page.getByLabel('Choose a picture').setInputFiles({
     name: 'hill.jpg',
     mimeType: 'image/jpeg',
     buffer: await drawn(page, 900, 1200, 'image/jpeg'),
   });
+  await expect(
+    page.getByText('Want to use a different picture? Drag it here, or'),
+  ).toBeVisible();
   // At its real shape (3:4).
   const preview = page.locator('[data-picture-preview]');
   await expect(preview.locator('img')).toBeVisible();
@@ -242,6 +277,59 @@ test.describe('behaviour', () => {
       buffer: await drawn(page, 1300, 400, 'image/png'),
     });
     await expect(alert(page, 'That picture is too wide')).toBeVisible();
+    await expect(page.locator('[data-picture-preview]')).toHaveCount(0);
+    expect(await me.uploads()).toMatchObject({ requests: 0, images: [] });
+  });
+
+  test('a picture dropped on a written story is added as a chosen one is: the first of several, as WebP without its EXIF or GPS', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request);
+    await toWrite(page);
+    await page.getByLabel('Title').fill('A picture of where it happened');
+    await page
+      .getByLabel('Your story')
+      .fill('It happened on a hill. '.repeat(10));
+    await dropPictures(page, [
+      {
+        name: 'hill.jpg',
+        type: 'image/jpeg',
+        bytes: withExif(await drawn(page, 900, 1200, 'image/jpeg')),
+      },
+      {
+        name: 'other.png',
+        type: 'image/png',
+        bytes: await drawn(page, 800, 600, 'image/png'),
+      },
+    ]);
+    await expect(page.getByText('Picture added.')).toBeVisible();
+    await expect(page.locator('[data-attached-name]')).toHaveText(
+      'Attached: hill.jpg',
+    );
+    const { requests, images } = await me.uploads();
+    expect([requests, images.length]).toEqual([1, 1]);
+    const sent = Buffer.from(images[0].bytes ?? '', 'base64');
+    expect(sent.subarray(8, 12).toString('ascii')).toBe('WEBP');
+    for (const marker of MARKERS) expect(sent.includes(marker)).toBe(false);
+  });
+
+  test('a dropped file that isn’t a picture is refused with the chooser’s message, before anything is sent', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request);
+    await toWrite(page);
+    await dropPictures(page, [
+      {
+        name: 'notes.txt',
+        type: 'text/plain',
+        bytes: Buffer.from('Not a picture at all.'),
+      },
+    ]);
+    await expect(
+      alert(page, 'We can’t read that file as a picture.'),
+    ).toBeVisible();
     await expect(page.locator('[data-picture-preview]')).toHaveCount(0);
     expect(await me.uploads()).toMatchObject({ requests: 0, images: [] });
   });
@@ -632,6 +720,46 @@ test.describe('behaviour', () => {
       'Attached: clip.mp4',
       'Attached: thumb.png',
     ]);
+  });
+
+  test('a video’s thumbnail can be dropped onto its own drop area, not the video’s', async ({
+    page,
+    request,
+  }, info) => {
+    const me = await person(page, request);
+    await page.goto(SHARE);
+    await page
+      .locator('label')
+      .filter({ hasText: 'Upload a video file' })
+      .click();
+    await page.getByRole('button', { name: 'Share my video' }).click();
+    await page.locator('label').filter({ hasText: ART9 }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByRole('button', { name: 'Upload my video' }).click();
+    await step(page, 'Upload your video');
+    await page.getByLabel('Title').fill('Twenty years of searching');
+    const clip = info.outputPath('clip.mp4');
+    writeFileSync(clip, Buffer.alloc(64 * 1024, 7));
+    await page.getByLabel('Choose a file').setInputFiles(clip);
+    await expect(page.getByText(/^Uploaded: clip\.mp4/)).toBeVisible();
+
+    await dropPictures(page, [
+      {
+        name: 'thumb.png',
+        type: 'image/png',
+        bytes: await drawn(page, 1280, 720, 'image/png'),
+      },
+    ]);
+    await expect(page.getByText('Thumbnail added.')).toBeVisible();
+    await expect(
+      page.getByText('Want to use a different thumbnail? Drag it here, or'),
+    ).toBeVisible();
+    await expect(page.getByLabel('Choose another thumbnail')).toBeVisible();
+    // The video stays as it was.
+    await expect(page.getByText(/^Uploaded: clip\.mp4/)).toBeVisible();
+    expect((await me.uploads()).images).toHaveLength(1);
+    await expectNoHorizontalOverflow(page);
+    await expectAllTargets(page);
   });
 
   // Plan 4e: a newer testimony consent or terms of use saved while the person was writing makes

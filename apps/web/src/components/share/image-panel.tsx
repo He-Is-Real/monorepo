@@ -10,6 +10,7 @@ import {
 } from '@/lib/api-user';
 import { PREFIX } from '@/lib/share-storage';
 import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
+import { DropZone } from './drop-zone';
 import type { ShareApi, StoryFormat, StoryPicture } from './share-api';
 import { formatBytes } from './upload-panel';
 import {
@@ -704,25 +705,17 @@ export function ImagePanel({
           <span className="font-semibold">Attached:</span> {shown.name}
         </p>
       )}
-      <div className="flex flex-wrap gap-3">
-        {phase.at === 'preview' && (
-          <button
-            type="button"
-            className={primary}
-            onClick={() => void add(phase.picture, phase.granted)}
-          >
-            Try again
-          </button>
-        )}
-        {phase.at === 'done' && pending && (
-          <button
-            type="button"
-            className={primary}
-            onClick={() => void add(pending, false)}
-          >
-            Replace with my {noun}
-          </button>
-        )}
+      <DropZone
+        // Like the chooser, which is off while a picture is prepared or sent.
+        onFile={(file) => {
+          if (!busy) void choose(file);
+        }}
+      >
+        <p className="text-secondary-text">
+          {shown
+            ? `Want to use a different ${noun}? Drag it here, or`
+            : 'Drag it here, or'}
+        </p>
         <label
           className={`${shown ? secondary : primary} cursor-pointer has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 ${busy ? 'pointer-events-none opacity-60' : ''}`}
         >
@@ -740,7 +733,34 @@ export function ImagePanel({
             }}
           />
         </label>
-        {shown && (
+        {!shown && phase.at === 'idle' && (
+          <p className="text-sm text-secondary-text">
+            A JPEG, PNG or WebP photo, no more than 3 times as wide as it is
+            tall (or as tall as it is wide). We remove the photo’s hidden
+            details, such as where it was taken, before it leaves your device.
+          </p>
+        )}
+      </DropZone>
+      {shown && (
+        <div className="flex flex-wrap gap-3">
+          {phase.at === 'preview' && (
+            <button
+              type="button"
+              className={primary}
+              onClick={() => void add(phase.picture, phase.granted)}
+            >
+              Try again
+            </button>
+          )}
+          {phase.at === 'done' && pending && (
+            <button
+              type="button"
+              className={primary}
+              onClick={() => void add(pending, false)}
+            >
+              Replace with my {noun}
+            </button>
+          )}
           <button
             type="button"
             className={secondary}
@@ -751,8 +771,8 @@ export function ImagePanel({
               ? `Keep the earlier ${noun}`
               : `Remove ${noun}`}
           </button>
-        )}
-      </div>
+        </div>
+      )}
       {phase.at === 'reading' && (
         <p className="text-sm text-secondary-text" role="status">
           Preparing your {noun}…
@@ -761,13 +781,6 @@ export function ImagePanel({
       {phase.at === 'sending' && (
         <p className="text-sm text-secondary-text" role="status">
           Uploading your {noun}…
-        </p>
-      )}
-      {!shown && phase.at === 'idle' && (
-        <p className="text-sm text-secondary-text">
-          A JPEG, PNG or WebP photo, no more than 3 times as wide as it is tall
-          (or as tall as it is wide). We remove the photo’s hidden details, such
-          as where it was taken, before it leaves your device.
         </p>
       )}
       {phase.at === 'done' && !pending && phase.arrived && (

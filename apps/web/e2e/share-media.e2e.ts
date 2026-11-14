@@ -335,7 +335,7 @@ test.describe('behaviour', () => {
       );
       return t;
     });
-    await page.dispatchEvent('[data-drop-zone]', 'drop', {
+    await page.dispatchEvent('[data-upload-phase] [data-drop-zone]', 'drop', {
       dataTransfer: dropped,
     });
     await expect(page.getByText(/^Uploaded: second\.m4a/)).toBeVisible();
