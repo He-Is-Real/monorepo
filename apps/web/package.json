@@ -19,7 +19,10 @@
         ],
         "options": {
           "command": "tsc --noEmit -p apps/web/tsconfig.json && tsc -p apps/web/e2e/tsconfig.json"
-        }
+        },
+        "dependsOn": [
+          "^typecheck"
+        ]
       },
       "prune": {
         "dependsOn": [
@@ -96,6 +99,12 @@
           "command": "playwright test -c apps/web/e2e/playwright.config.ts",
           "cwd": "{workspaceRoot}"
         }
+      },
+      "build": {
+        "dependsOn": [
+          "^build",
+          "^typecheck"
+        ]
       }
     }
   },
