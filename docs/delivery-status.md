@@ -244,6 +244,8 @@ basic for now: no pick-up locking, escalation or assignment of stories to modera
   (`@heisreal.today` emails only) on a new Staff page; roles live in Clerk
   ([#214](https://github.com/He-Is-Real/monorepo/pull/214)). Before it works on dev: apply the gcp
   root and the Clerk settings (`infra/clerk/clerk-config.mjs`).
+- **Staff links in the site's navigation** (Joel, 2026-11-14): Moderators and Admins see
+  "Moderation", Admins also "Consent & legal", after the public links.
 
 **In progress: JSON logs everywhere** (Joel, 2026-11-14, ops question 2). Every service, job,
 the media worker and the dev data seeder write one JSON line per log entry with a severity and a
