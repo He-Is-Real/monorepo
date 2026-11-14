@@ -28,10 +28,8 @@ import {
 import type { Surreal } from 'surrealdb';
 import { AppModule } from '../src/app/app.module';
 import { useBodyParser } from '../src/app/body-parser';
-import {
-  STORY_FOLDERS,
-  STORY_MEDIA_BUDGET_MS,
-} from '../src/app/moderation/story-media';
+import { STORY_FOLDERS } from '../src/app/moderation/story-media';
+import { STORY_MEDIA_BUDGET_MS } from '@heisreal/story-cards/story-media';
 
 /**
  * Bunny, in memory (DEL-1): records what an Admin's Delete removes at Bunny Stream and in the
