@@ -275,8 +275,9 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   autosave is doing, "Saving…" then "Draft saved". **"Save and exit"** on every step from writing
   to review waits for the save, then goes to My submissions, where the draft is listed with
   "Continue". Before a draft can be saved (a written story needs its title and some text, a video
-  or audio story its title) it stays and says what's needed; if the save fails it stays and says
-  so. A picture still uploading is waited for; a video or audio upload stops and carries on when
+  or audio story its title) it stays and says what's needed, also for text brought back after a
+  reload; it only leaves straight away when nothing has been typed. If the save fails it stays and
+  says so. A picture still uploading is waited for; a video or audio upload stops and carries on when
   the person comes back and chooses the same file.
 - **Autosave:** the draft is saved once it has a title and text, then after each pause. If the
   same draft is open in two tabs, each keeps its own changes, and the person is asked only when

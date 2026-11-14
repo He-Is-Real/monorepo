@@ -1164,8 +1164,9 @@ const MY_SUBMISSIONS = '/account#my-submissions';
 
 /**
  * "Save and exit" (Joel, 2026-11-14: people needn't write their story in one go): waits for the
- * draft's save, then goes to My submissions, where the draft is listed to carry on with. Nothing
- * typed and no draft yet: nothing to save, so it just goes. A draft that can't be saved yet (no
+ * draft's save, then goes to My submissions, where the draft is listed to carry on with. No draft
+ * yet and nothing in the fields (text brought back after a reload counts): nothing to save, so it
+ * just goes. A draft that can't be saved yet (no
  * title, or no text for a written story) or whose save failed stays here, saying why. A picture
  * still uploading is waited for (leaving would stop it); a video or audio file carries on where it
  * stopped when the person comes back to it.
@@ -1177,7 +1178,8 @@ function useSaveAndExit(draft: DraftState, picture?: PictureGate) {
   async function saveAndExit() {
     setProblem(null);
     if (picture?.uploading()) return;
-    if (!draft.current().draftId && draft.status === 'idle') {
+    const { title, body, description } = draft.fields;
+    if (!draft.current().draftId && !title && !body && !description) {
       router.push(MY_SUBMISSIONS);
       return;
     }
