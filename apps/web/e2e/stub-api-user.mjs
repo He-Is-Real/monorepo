@@ -71,7 +71,9 @@
 // - api-admin's decisions (M3 plan PR 6): `POST /v1/moderation/stories/{id}/{approve,
 //   request-changes,reject,hide,show}`, per session, with the real one's checks: `If-Match` the
 //   story's `reviewTag` (428 / 412), a note of 1–2000 characters, the step allowed from the
-//   story's state (409 `wrong_status`), `approveAnyway` Admins only. A story sent back or
+//   story's state (409 `wrong_status`; reject also from hidden by the site, P1-9), `approveAnyway`
+//   Admins only. An Admin's `DELETE /v1/moderation/stories/{id}` (P1-11; Moderators 403) takes the
+//   story out of that session (428 / 412 on `If-Match` as above). A story sent back or
 //   rejected is no longer found. Fixed refusals: `mod_raced` was just decided by another
 //   moderator (409 `already_decided`), `mod_cooldown`'s video was uploaded recently (409
 //   `media_recently_uploaded`, even for an Admin), `mod_processing`'s audio is still being
@@ -995,7 +997,11 @@ async function decideStory(req, res, token, id, route) {
   }
   if (ifMatch !== `"${tagOf(story)}"`)
     return problem(res, 412, 'Precondition failed', 'stale_version');
-  if (story.status !== d.from)
+  // P1-9: a story the site took off itself may be rejected too.
+  const hiddenBySite =
+    story.status === 'hidden' &&
+    story.statusLog.at(-1)?.action === 'hiddenBySystem';
+  if (story.status !== d.from && !(route === 'reject' && hiddenBySite))
     return problem(res, 409, 'Conflict', 'wrong_status');
   if (d.to === 'approved') {
     if (id === 'mod_cooldown') {
@@ -1030,6 +1036,22 @@ async function decideStory(req, res, token, id, route) {
     { id, version: story.version },
     { etag: `"${tagOf(story)}"` },
   );
+}
+
+/** `DELETE /v1/moderation/stories/{id}`: an Admin's Delete (P1-11), as api-admin's. */
+function deleteModerated(req, res, token, id) {
+  if (roleOf(token) !== 'Admin')
+    return problem(res, 403, 'Forbidden', 'role_required');
+  const story = moderationFor(token).get(id);
+  if (!story) return problem(res, 404, 'Not found', 'not_found');
+  const ifMatch = req.headers['if-match'];
+  if (!ifMatch)
+    return problem(res, 428, 'Precondition required', 'if_match_required');
+  if (ifMatch !== `"${tagOf(story)}"`)
+    return problem(res, 412, 'Precondition failed', 'stale_version');
+  moderationFor(token).delete(id);
+  res.writeHead(204, { 'cache-control': 'no-store' });
+  return res.end();
 }
 
 const LIST_STATES = ['pending', 'editing', 'hidden', 'rejected', 'draft'];
@@ -2633,6 +2655,10 @@ createServer(async (req, res) => {
     return sendList(req, res, url, token);
   }
   const reviewed = /^\/v1\/moderation\/stories\/([^/]+)$/.exec(path);
+  if (reviewed && req.method === 'DELETE') {
+    if (!signedIn()) return;
+    return deleteModerated(req, res, token, decodeURIComponent(reviewed[1]));
+  }
   if (reviewed && req.method === 'GET') {
     if (!signedIn()) return;
     if (roleOf(token) === 'User')

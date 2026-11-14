@@ -57,15 +57,17 @@ const ACTOR_LABEL: Record<StatusEntry['actor'], string> = {
 /** Entries that record a change without moving the story (they carry its state as it was). */
 const HISTORY_ONLY = ['fileReplaced', 'pictureReplaced', 'wordsChanged'];
 
+/** The newest entry that moved the story: what put it in its state. */
+const currentAction = (story: ModerationStory): string | null =>
+  [...story.statusLog].reverse().find((e) => !HISTORY_ONLY.includes(e.action))
+    ?.action ?? null;
+
 /** What the page says the story is now, from its newest entry that moved it (MD-4's labels). */
 function statusLabel(story: ModerationStory): string {
   if (story.status === 'editing' && !story.submittedAt) {
     return stateLabel('draft', null);
   }
-  const moved = [...story.statusLog]
-    .reverse()
-    .find((e) => !HISTORY_ONLY.includes(e.action));
-  return stateLabel(story.status, moved?.action ?? null);
+  return stateLabel(story.status, currentAction(story));
 }
 
 /** The states with something to decide (G5, G24); the rest are read only (MD-4). */
@@ -81,8 +83,8 @@ const DECIDABLE: ModerationStory['status'][] = [
  * (api-admin checks it too, M3 plan concern C2). The story shows as the public would see it,
  * through the story page's own parts, with the player's speed menu on; then what the moderator
  * can do with it (approve, send back or reject a waiting story; hide a published one, G5; show a
- * hidden one again; nothing for one being edited or rejected) and its history, with moderators'
- * notes.
+ * hidden one again, or reject one the site hid, P1-9; nothing for one being edited or rejected;
+ * Admins can also delete it in any state, P1-11) and its history, with moderators' notes.
  */
 export function ModerationReview({
   id,
@@ -224,14 +226,12 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
         }
         after={
           <>
-            {DECIDABLE.includes(story.status) && (
-              <Decisions
-                key={story.reviewTag}
-                story={story}
-                client={client}
-                onSettled={settled}
-              />
-            )}
+            <Decisions
+              key={story.reviewTag}
+              story={story}
+              client={client}
+              onSettled={settled}
+            />
             <History entries={story.statusLog} />
           </>
         }
@@ -366,7 +366,8 @@ export function NoteForm({
 
 /**
  * What the moderator can do with the story in its state (G24: Moderators approve, send back,
- * reject, hide and show again; Admins also approve anyway). Each decision names what the page
+ * reject, hide and show again; Admins also approve anyway, and delete it in any state after one
+ * "This can't be undone" question, P1-11). Each decision (and Delete) names what the page
  * showed (`reviewTag`, G14 B). A refusal says why in plain words; when the story moved on (D-1:
  * another moderator decided first) the page says so and refreshes.
  */
@@ -381,9 +382,10 @@ function Decisions({
 }) {
   const isAdmin = useRole() === 'Admin';
   const [open, setOpen] = useState<Open>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<
-    (Refusal & { route: DecisionRoute }) | null
+    (Refusal & { route: DecisionRoute | 'delete' }) | null
   >(null);
   async function decide(route: DecisionRoute, body?: unknown) {
     setBusy(true);
@@ -395,15 +397,41 @@ function Decisions({
       );
       onSettled({ text: DONE[route], tone: 'done' });
     } catch (err) {
-      const why = decisionRefusal(err, story, route);
-      if (why.refresh) {
-        onSettled({ text: why.message, tone: 'refreshed' });
-      } else {
-        setRefusal({ ...why, route });
-        setBusy(false);
-      }
+      refused(err, route);
     }
   }
+  function refused(err: unknown, route: DecisionRoute | 'delete') {
+    const why = decisionRefusal(err, story, route);
+    if (why.refresh) {
+      onSettled({ text: why.message, tone: 'refreshed' });
+    } else {
+      setRefusal({ ...why, route });
+      setBusy(false);
+    }
+  }
+  /** P1-11: an Admin's Delete, as the owner's (ED-3); the page then says it's gone. */
+  async function remove() {
+    setBusy(true);
+    setRefusal(null);
+    try {
+      await client.command(
+        `/v1/moderation/stories/${encodeURIComponent(story.id)}`,
+        { method: 'DELETE', tag: story.reviewTag },
+      );
+      onSettled({ text: DONE.delete, tone: 'done' });
+    } catch (err) {
+      refused(err, 'delete');
+    }
+  }
+
+  /** Approve or Show again, refused while the media is processing: an Admin may go anyway. */
+  const anywayRoute =
+    refusal?.anyway && refusal.route !== 'delete' ? refusal.route : null;
+  const decidable = DECIDABLE.includes(story.status);
+  if (!decidable && !isAdmin) return null;
+  // P1-9: a story the site took off itself is resolved by rejecting it.
+  const hiddenBySite =
+    story.status === 'hidden' && currentAction(story) === 'hiddenBySystem';
 
   return (
     <section
@@ -412,9 +440,48 @@ function Decisions({
       data-decisions={story.status}
     >
       <h2 id="decide-heading" className="mb-4 text-xl font-semibold">
-        {story.status === 'pending' ? 'Your decision' : 'On the site'}
+        {story.status === 'pending'
+          ? 'Your decision'
+          : decidable
+            ? 'On the site'
+            : 'Admin'}
       </h2>
-      {!open && (
+      {confirmDelete && (
+        <div
+          data-confirm-delete=""
+          className="rounded-xl border border-border-hover p-4"
+        >
+          <p className="mb-3">
+            Delete this story for good? Its text and any video or audio go too
+            {story.status === 'approved' ? ', and it comes off the site' : ''}.
+            The person isn’t told, beyond it leaving their submissions. This
+            can’t be undone.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <Button
+              autoFocus
+              variant="destructive"
+              className={WRAPPING_BUTTON}
+              disabled={busy}
+              onClick={() => void remove()}
+            >
+              {busy ? 'Deleting…' : 'Delete story'}
+            </Button>
+            <Button
+              variant="outline"
+              className={WRAPPING_BUTTON}
+              disabled={busy}
+              onClick={() => {
+                setConfirmDelete(false);
+                setRefusal(null);
+              }}
+            >
+              Keep it
+            </Button>
+          </div>
+        </div>
+      )}
+      {!open && !confirmDelete && (
         <div className="flex flex-wrap gap-3">
           {story.status === 'pending' && (
             <>
@@ -462,6 +529,26 @@ function Decisions({
               Show again
             </Button>
           )}
+          {hiddenBySite && (
+            <Button
+              variant="outline"
+              className={WRAPPING_BUTTON}
+              disabled={busy}
+              onClick={() => setOpen('reject')}
+            >
+              Reject
+            </Button>
+          )}
+          {isAdmin && (
+            <Button
+              variant="outline"
+              className={WRAPPING_BUTTON}
+              disabled={busy}
+              onClick={() => setConfirmDelete(true)}
+            >
+              Delete
+            </Button>
+          )}
         </div>
       )}
       {open && (
@@ -478,16 +565,14 @@ function Decisions({
       {refusal && (
         <div role="alert" className="mt-4" data-decision-refused="">
           <p>{refusal.message}</p>
-          {refusal.anyway && isAdmin && (
+          {anywayRoute && isAdmin && (
             <Button
               variant="outline"
               className={`${WRAPPING_BUTTON} mt-3`}
               disabled={busy}
-              onClick={() =>
-                void decide(refusal.route, { approveAnyway: true })
-              }
+              onClick={() => void decide(anywayRoute, { approveAnyway: true })}
             >
-              {refusal.route === 'show' ? 'Show anyway' : 'Approve anyway'}
+              {anywayRoute === 'show' ? 'Show anyway' : 'Approve anyway'}
             </Button>
           )}
         </div>

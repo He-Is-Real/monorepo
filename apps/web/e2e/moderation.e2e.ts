@@ -11,7 +11,8 @@ import { fixtureToken, STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 // own parts, with the player's speed menu), what the moderator can do with it, and its history
 // with moderators' notes. Approve, Send back and Reject a waiting story (a note for the last two),
 // Take down a published one and Show it again (G5); refusals in plain words; the first decision
-// wins (D-1); only an Admin approves anyway, never in the upload-link hour (G11 B, G24).
+// wins (D-1); only an Admin approves anyway, never in the upload-link hour (G11 B, G24); a story
+// the site hid can be rejected (P1-9); only an Admin deletes, after one question (P1-11).
 // Moderators and up only; the admin menu shows Moderation to them. The pages fit every device;
 // the behaviour runs on one phone and one desktop. The stub api-admin (stub-api-user.mjs) serves
 // fixed stories and keeps each session's decisions; a published story's public page offers its
@@ -367,7 +368,68 @@ test.describe('moderation', () => {
       'Draft, never sent',
     );
     await expect(page.getByRole('main')).toContainText('Never sent for review');
-    await expect(page.locator('[data-decisions]')).toHaveCount(0);
+    // Nothing to decide: only an Admin's Delete (P1-11).
+    await expect(decisions(page).getByRole('button')).toHaveText(['Delete']);
+  });
+
+  // P1-11: Admins delete a story in any state, after one question; Moderators never see it.
+  test('an Admin deletes a story after “This can’t be undone”; a moderator has no Delete', async ({
+    page,
+  }) => {
+    await useSession(page, fresh('admin-deletes'));
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_published`);
+    await decisions(page).getByRole('button', { name: 'Delete' }).click();
+    const confirm = page.locator('[data-confirm-delete]');
+    await expect(confirm).toContainText('This can’t be undone.');
+    await expect(confirm).toContainText('it comes off the site');
+    // Keep it: nothing happens.
+    await confirm.getByRole('button', { name: 'Keep it' }).click();
+    await expect(confirm).toHaveCount(0);
+    await expect(page.locator('[data-review-status]')).toHaveText('Published');
+    await decisions(page).getByRole('button', { name: 'Delete' }).click();
+    await expect(
+      confirm.getByRole('button', { name: 'Delete story' }),
+    ).toBeFocused();
+    await confirm.getByRole('button', { name: 'Delete story' }).click();
+    await expect(notice(page)).toHaveText(
+      'Deleted. The story and its files are gone.',
+    );
+    await expect(page.locator('[data-review-gone]')).toBeVisible();
+
+    // A moderator, on any story: no Delete.
+    await useSession(page, fresh('moderator-no-delete'));
+    for (const id of ['mod_published', 'mod_video', 'mod_rejected']) {
+      await page.goto(`${WEB_SIGNED_IN_URL}/moderation/${id}`);
+      await expect(page.locator('[data-review-status]')).toBeVisible();
+      await expect(
+        page.getByRole('button', { name: 'Delete', exact: true }),
+      ).toHaveCount(0);
+    }
+  });
+
+  // P1-9: a story the site took off itself is resolved by rejecting it.
+  test('a story the site hid can be rejected with a note; one a moderator took down can’t', async ({
+    page,
+  }) => {
+    await useSession(page, fresh('moderator-rejects-hidden'));
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_hidden_by_site`);
+    await decisions(page).getByRole('button', { name: 'Reject' }).click();
+    await page
+      .getByLabel('Your note to the person')
+      .fill('Thank you for sharing this. The video can’t be played.');
+    await decisions(page).getByRole('button', { name: 'Reject' }).click();
+    await expect(notice(page)).toHaveText(
+      'Rejected. The person can read your note.',
+    );
+    await expect(page.locator('[data-review-status]')).toHaveText('Rejected');
+
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_taken_down`);
+    await expect(
+      decisions(page).getByRole('button', { name: 'Show again' }),
+    ).toBeVisible();
+    await expect(
+      decisions(page).getByRole('button', { name: 'Reject' }),
+    ).toHaveCount(0);
   });
 
   // MD-1: Take down on the story's public page, for moderators only.
@@ -604,4 +666,36 @@ test('the stub api-admin’s moderation answers fit the contract', async ({
   ).toBe(409);
   expect((await check('/v1/moderation/stories/no_such')).status).toBe(404);
   expect((await check('/v1/moderation/stories', 'user-x')).status).toBe(403);
+  // An Admin's Delete (P1-11): Moderators refused, a stale tag refused, then deleted.
+  const admin = fresh('admin-contract-delete');
+  const remove = async (session: string, ifMatch: string) => {
+    const res = await request.delete(
+      `${STUB_USER_URL}/v1/moderation/stories/mod_written`,
+      {
+        headers: {
+          authorization: `Bearer ${fixtureToken(session)}`,
+          'if-match': ifMatch,
+        },
+      },
+    );
+    const text = await res.text();
+    expect(
+      contract.problems({
+        method: 'DELETE',
+        path: new URL(res.url()).pathname,
+        status: res.status(),
+        contentType: res.headers()['content-type'] ?? null,
+        body: text === '' ? undefined : JSON.parse(text),
+      }),
+    ).toEqual([]);
+    return res.status();
+  };
+  const written = (await check('/v1/moderation/stories/mod_written', admin))
+    .body;
+  expect(await remove(mine, `"${written.reviewTag}"`)).toBe(403);
+  expect(await remove(admin, '"old"')).toBe(412);
+  expect(await remove(admin, `"${written.reviewTag}"`)).toBe(204);
+  expect(
+    (await check('/v1/moderation/stories/mod_written', admin)).status,
+  ).toBe(404);
 });

@@ -30,7 +30,7 @@ const NOTE =
  * M3 plan PR 6: the moderators' decisions through api-admin's real AppModule on its own login,
  * against the real database rules: approve, send back and reject from pending, hide and show
  * again (G5), the first decision wins (D-1), decisions name what was reviewed (G14 B), and only an
- * Admin approves anyway, never during the upload-link hour (G11 B, G24). Every answer is checked
+ * Admin approves anyway, never during the upload-link hour (G11 B, G24), or deletes (P1-11). Every answer is checked
  * against api-admin.yaml.
  */
 describe('moderation, the decisions (api-admin)', () => {
@@ -48,7 +48,7 @@ describe('moderation, the decisions (api-admin)', () => {
   const ADMIN = { role: 'Admin', sub: 'user_boss' };
 
   async function call(
-    method: 'GET' | 'POST',
+    method: 'GET' | 'POST' | 'DELETE',
     path: string,
     {
       who = MOD,
@@ -386,6 +386,126 @@ describe('moderation, the decisions (api-admin)', () => {
         { id },
       ),
     ).toEqual([true]);
+  });
+
+  it('a story the site took off itself can be rejected (P1-9, P1-11); a moderator’s take-down can’t', async () => {
+    const hidBySite = await waiting();
+    expect(
+      (await decide(hidBySite, 'approve', (await open(hidBySite)).tag)).status,
+    ).toBe(200);
+    // The site takes it off: its video or audio can't play.
+    await run(
+      migrator,
+      `CREATE storyStatusLog CONTENT { story: type::record('story', $id), action: 'hiddenBySystem',
+         actor: 'system', hiddenReason: 'media_unavailable' }`,
+      { id: hidBySite },
+    );
+    const site = await open(hidBySite);
+    expect(site.story.status).toBe('hidden');
+    expect(
+      (
+        await decide(hidBySite, 'reject', site.tag, {
+          feedbackToSubmitter: NOTE,
+        })
+      ).status,
+    ).toBe(200);
+    expect(await statusOf(migrator, hidBySite)).toBe('rejected');
+
+    const hidByMod = await waiting();
+    expect(
+      (await decide(hidByMod, 'approve', (await open(hidByMod)).tag)).status,
+    ).toBe(200);
+    const live = await open(hidByMod);
+    expect(
+      (await decide(hidByMod, 'hide', live.tag, { reason: NOTE })).status,
+    ).toBe(200);
+    const taken = await open(hidByMod);
+    const refused = await decide(hidByMod, 'reject', taken.tag, {
+      feedbackToSubmitter: NOTE,
+    });
+    expect([refused.status, refused.body.code]).toEqual([409, 'wrong_status']);
+    expect(await statusOf(migrator, hidByMod)).toBe('hidden');
+  });
+
+  it('an Admin deletes a story as its owner would (P1-11): its log, hearts and search row go; a Moderator is refused', async () => {
+    const id = await waiting();
+    expect((await decide(id, 'approve', (await open(id)).tag)).status).toBe(
+      200,
+    );
+    // Bob hearts it.
+    await run(
+      await t.person('user_bob'),
+      `CREATE favourite:ulid() CONTENT { person: $auth, story: type::record('story', $id) }`,
+      { id },
+    );
+    const { tag } = await open(id, ADMIN);
+    const remove = (ifMatch?: string, who = ADMIN) =>
+      call('DELETE', `/v1/moderation/stories/${id}`, { who, ifMatch });
+
+    // A Moderator has no Delete.
+    expect(await remove(tag, MOD)).toMatchObject({
+      status: 403,
+      body: { code: 'role_required' },
+    });
+    // It names what the Admin reviewed (G14 B).
+    expect((await remove()).status).toBe(428);
+    expect((await remove('"forged"')).status).toBe(412);
+    expect(await statusOf(migrator, id)).toBe('approved');
+
+    expect((await remove(tag)).status).toBe(204);
+    expect(
+      await rows(
+        migrator,
+        `RETURN [
+           (SELECT id FROM type::record('story', $id)),
+           (SELECT id FROM storyStatusLog WHERE story = type::record('story', $id)),
+           (SELECT id FROM favourite WHERE story = type::record('story', $id)),
+           (SELECT id FROM type::record('storySearch', $id))
+         ]`,
+        { id },
+      ),
+    ).toEqual([[], [], [], []]);
+    // Its picture folder is queued for housekeeping, as for the owner's Delete.
+    expect(
+      await rows(
+        migrator,
+        `SELECT VALUE ref FROM pendingDeletion WHERE ref = $ref`,
+        { ref: `stories/${id}/` },
+      ),
+    ).toEqual([`stories/${id}/`]);
+    // Already gone.
+    expect((await remove(tag)).status).toBe(404);
+  });
+
+  it('an Admin deletes a draft never sent; a story that changed since it was opened is refused', async () => {
+    const id = `dec_${++n}`;
+    await draft(ann, id);
+    const opened = await open(id, ADMIN);
+    // Ann sends it meanwhile: not what the Admin looked at.
+    await submit(ann, id);
+    const stale = await call('DELETE', `/v1/moderation/stories/${id}`, {
+      who: ADMIN,
+      ifMatch: opened.tag,
+    });
+    expect([stale.status, stale.body.code]).toEqual([412, 'stale_version']);
+    expect(await statusOf(migrator, id)).toBe('pending');
+
+    const never = `dec_${++n}`;
+    await draft(ann, never);
+    const page = await open(never, ADMIN);
+    expect(
+      (
+        await call('DELETE', `/v1/moderation/stories/${never}`, {
+          who: ADMIN,
+          ifMatch: page.tag,
+        })
+      ).status,
+    ).toBe(204);
+    expect(
+      await rows(migrator, `SELECT id FROM type::record('story', $id)`, {
+        id: never,
+      }),
+    ).toEqual([]);
   });
 
   it('a User is refused on every decision', async () => {

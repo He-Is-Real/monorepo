@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   HttpCode,
@@ -32,7 +33,9 @@ import type { Surreal } from 'surrealdb';
 import { isCursorTime } from '../cursor-time';
 import {
   type Decision,
+  type Reviewed,
   decide,
+  deleteReviewed,
   parseAnyway,
   parseNote,
   parseReviewTag,
@@ -239,6 +242,31 @@ function requireAdmin(role?: string): void {
   }
 }
 
+/** What a command names in `If-Match` (`reviewTag`, G14 B): `428` missing, `412` not ours. */
+function reviewedOf(
+  ifMatch: string | undefined,
+  opts?: { draft?: boolean },
+): Reviewed {
+  const reviewed = parseReviewTag(ifMatch, opts);
+  if (reviewed === undefined) {
+    throw new ProblemException(
+      HttpStatus.PRECONDITION_REQUIRED,
+      'if_match_required',
+      'Precondition required',
+      'This command needs If-Match with the story’s reviewTag.',
+    );
+  }
+  if (reviewed === 'invalid') {
+    throw new ProblemException(
+      HttpStatus.PRECONDITION_FAILED,
+      'stale_version',
+      'Precondition failed',
+      'This story changed since you opened it',
+    );
+  }
+  return reviewed;
+}
+
 /** `ETag` and `Cache-Control` for a query; `undefined` (and `304`) if the client has it. */
 function conditional<T>(
   res: Response,
@@ -257,8 +285,8 @@ function conditional<T>(
 
 /**
  * api-admin.yaml, tag Moderation (M3 plan PRs 1 and 6; MD-3, MD-4): the moderators' list, one
- * story, and the decisions on it: approve, send back, reject (from pending), hide (from approved) and show again
- * (from hidden). Moderator and above on all: the database knows moderators only as api-admin's
+ * story, and the decisions on it: approve, send back, reject (from pending, or hidden by the site:
+ * P1-9), hide (from approved) and show again (from hidden); an Admin also deletes it (P1-11). Moderator and above on all: the database knows moderators only as api-admin's
  * login (M3 plan concern C2), so this role check is the one gate, and the integration tests refuse
  * a User on each route. "Approve anyway" and drafts never sent are Admin only (G24, MD-3).
  */
@@ -284,23 +312,7 @@ export class ModerationController {
     { comment, anyway = false }: { comment?: string; anyway?: boolean } = {},
   ) {
     if (!isStoryId(id)) throw new NotFoundException();
-    const reviewed = parseReviewTag(ifMatch);
-    if (reviewed === undefined) {
-      throw new ProblemException(
-        HttpStatus.PRECONDITION_REQUIRED,
-        'if_match_required',
-        'Precondition required',
-        'This command needs If-Match with the story’s reviewTag.',
-      );
-    }
-    if (reviewed === 'invalid') {
-      throw new ProblemException(
-        HttpStatus.PRECONDITION_FAILED,
-        'stale_version',
-        'Precondition failed',
-        'This story changed since you opened it',
-      );
-    }
+    const reviewed = reviewedOf(ifMatch);
     const { role } = await this.people.authenticate(req);
     requireAdminForAnyway(anyway, role);
     // Who decides: the moderator's own user record, from their own database session (D27).
@@ -391,6 +403,23 @@ export class ModerationController {
     return this.decision(req, res, id, ifMatch, 'shownByModerator', {
       anyway,
     });
+  }
+
+  /**
+   * An Admin's Delete (P1-11, Joel 2026-11-14): the story in any state an Admin can open, gone as
+   * its owner's Delete takes it (decisions.ts, deleteReviewed). Names what the Admin reviewed
+   * (`reviewTag`, G14 B), as the decisions do. Moderators are refused (403).
+   */
+  @Delete('stories/:id')
+  @HttpCode(204)
+  @RequiresRole('Admin')
+  async deleteModerationStory(
+    @Param('id') id: string,
+    @Headers('if-match') ifMatch?: string,
+  ): Promise<void> {
+    if (!isStoryId(id)) throw new NotFoundException();
+    const reviewed = reviewedOf(ifMatch, { draft: true });
+    await deleteReviewed(this.db, id, reviewed);
   }
 
   @Get('stories')

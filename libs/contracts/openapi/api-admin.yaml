@@ -182,6 +182,42 @@ paths:
         '503':
           $ref: './components.yaml#/components/responses/ServiceRestarting'
 
+    delete:
+      tags: [Moderation]
+      operationId: deleteModerationStory
+      summary: Delete a story (Admins)
+      description: |
+        Command `DeleteStoryAsAdmin` (P1-11, Joel 2026-11-14: Admins have a Delete button,
+        Moderators don't). An Admin deletes a story in any state they can open, as its owner's
+        `DeleteStory` does (ED-3): the story goes with its status log and others' hearts, it leaves
+        the site and search at once, and its files at Bunny go too (its picture folder is queued,
+        its videos are deleted by the nightly sweep). The owner isn't told beyond the story leaving
+        My submissions. Names what the Admin reviewed in `If-Match` (`reviewTag`, G14 B; a draft
+        never sent has one too): `412 stale_version` when the story changed since, nothing deleted.
+        `403 role_required` for a Moderator.
+      x-required-role: Admin
+      x-milestone: M3
+      parameters:
+        - $ref: './components.yaml#/components/parameters/storyId'
+        - $ref: './components.yaml#/components/parameters/ifMatchReviewTag'
+      responses:
+        '204':
+          description: Deleted.
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './components.yaml#/components/responses/Conflict'
+        '412':
+          $ref: './components.yaml#/components/responses/PreconditionFailed'
+        '428':
+          $ref: './components.yaml#/components/responses/PreconditionRequired'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
+
   /v1/moderation/stories/{id}/approve:
     post:
       tags: [Moderation]
@@ -255,7 +291,10 @@ paths:
       description: |
         Command `RejectStory` (→ `rejected`, final: the person can only delete it). Feedback to the
         submitter is required (1–2000 characters; `400` otherwise), which they see as "What our team
-        said" with "Not accepted". Straight from `pending`.
+        said" with "Not accepted". From `pending`, or from `hidden` when the site took it off itself
+        (its newest entry is the system's `hiddenBySystem`: P1-9 and P1-11, Joel 2026-11-14, a
+        moderator or Admin resolves such a story by rejecting it; a moderator's take-down is refused,
+        `409 wrong_status`).
         Every decision names what the moderator reviewed in `If-Match` (`reviewTag`, G14 B), and is
         refused, nothing written, when the story has moved on: `409` `already_decided` when another
         moderator's decision is the story's newest entry (the first decision wins, D-1; the web

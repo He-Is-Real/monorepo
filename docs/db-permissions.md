@@ -178,7 +178,9 @@ their fence (see "Transactions").
     approval that the wait would refuse, and never for the upload cooldown (G11 B, Joel
     2026-11-11: `media_recently_uploaded:` stands). The system's
     hide and show again, and system users, are never held. Specs: `approval-wait`.
-  - **Delete:** erasure (api-user, api-admin); the owner, live, in any state (ED-3, Joel
+  - **Delete:** erasure (api-user, api-admin; api-admin's is also an Admin's Delete on the review
+    page, P1-11, Joel 2026-11-14: the role check is api-admin's, as for every moderator action);
+    the owner, live, in any state (ED-3, Joel
     2026-11-11; D71); housekeeping only for `fn::story::deletion_due(id)`, past
     `fn::story::deletes_at`: a draft (never sent) untouched for 186 days
     (`fn::story::draft_retention`) since the later of `updatedAt` and its files' `renewedAt`; a
@@ -217,7 +219,8 @@ their fence (see "Transactions").
     never from a direct write. `storyStatusLog_step` checks who may take which
     step (`fn::story::step_allowed`): the owner sends (from editing) and starts editing (Edit, from
     pending, approved or hidden); a moderator (api-admin, naming `by`) approves, sends back or
-    rejects (from pending only, so of two decisions the first wins, D-1), hides (from approved, with
+    rejects (from pending, so of two decisions the first wins, D-1; and from hidden only when its
+    current entry is the system's `hiddenBySystem`: P1-9, P1-11, Joel 2026-11-14), hides (from approved, with
     a note) and shows again (from hidden); the system hides and shows again for media
     (`hiddenBySystem` needs a `hiddenReason`). Sending back and rejecting need a note. History-only
     entries (`storyFile_attach`'s new file or picture, actor `system`, and `story_words_changed`'s

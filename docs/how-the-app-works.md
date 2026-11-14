@@ -81,11 +81,11 @@ code does what it does today; nobody should build on either reading.
   staff menu), so taking that email off an account ends their staff powers at the next token,
   within about a minute.
 
-  | Role      | Can do (G24, Joel 2026-11-11)                                                                                                                                           |
-  | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-  | User      | Share stories, hearts, their own account                                                                                                                                |
-  | Moderator | The moderators' list (every story not on the site, except drafts never sent): approve, send back, reject, take down and show again                                      |
-  | Admin     | Everything a Moderator can, plus drafts never sent on the moderators' list, themes, submission limits, legal texts, "approve anyway", the block list and the Staff page |
+  | Role      | Can do (G24, Joel 2026-11-11)                                                                                                                                                                     |
+  | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | User      | Share stories, hearts, their own account                                                                                                                                                          |
+  | Moderator | The moderators' list (every story not on the site, except drafts never sent): approve, send back, reject, take down and show again                                                                |
+  | Admin     | Everything a Moderator can, plus drafts never sent on the moderators' list, deleting a story (P1-11), themes, submission limits, legal texts, "approve anyway", the block list and the Staff page |
 
 - **Staff (S-1 to S-4, G7, G8 B; Joel 2026-11-11):** Admins add, change and remove Moderators and
   Admins on the Staff page (`/admin/staff`). Only `@heisreal.today` emails can be staff (G7). There
@@ -481,8 +481,9 @@ Built in the database (the decisions and their pages are planned, M3):
   story it was about. A moderator's entry can carry a note to the person. The story's state is that
   of its newest entry that moved it; a story with none is a draft. Who may take which step is
   fixed in the database: the person sends (from editing) and starts editing (Edit, from pending,
-  approved or hidden); a moderator approves, sends back or rejects (from pending), hides (from
-  approved) and shows again (from hidden); the system hides and shows again when media breaks and
+  approved or hidden); a moderator approves, sends back or rejects (from pending; rejects also a
+  story the site hid itself, P1-9 and P1-11, Joel 2026-11-14), hides (from approved) and shows
+  again (from hidden); the system hides and shows again when media breaks and
   works again. Sending back, rejecting and a moderator's hide need a note.
 - **History-only entries:** once a story has been sent, a new video or audio file or a new
   picture while it is being edited adds an entry that doesn't change its state, so moderators see
@@ -580,7 +581,18 @@ Built (M3 plan, pull requests 1 and 6; Joel, 2026-11-09 and 2026-11-11):
   it as "What our team said". Moderators and admins may decide on their own stories. On a
   published story, Take down with a reason (G5); their profile says "Taken down by our team" with
   the reason under "What our team said", like a sent-back note (MD-2, Joel 2026-11-14), and it is
-  in Download my data. Only a moderator shows it again (Show again, on the hidden story). The page confirms each decision and shows the story as it now is.
+  in Download my data. Only a moderator shows it again (Show again, on the hidden story). A story
+  the site took off itself (its video or audio can't play) can also be rejected, with a note, and
+  is then deleted with the other rejected stories (P1-9, P1-11, Joel 2026-11-14); one a moderator
+  took down can't (Show again ends it). The page confirms each decision and shows the story as it
+  now is.
+- **Admins delete (P1-11, Joel 2026-11-14):** an Admin, never a Moderator, has a Delete button on
+  the review page of a story in any state they can open, after one "This can't be undone"
+  question (as the owner's Delete). It deletes the story exactly as the owner's Delete does: its
+  status log and others' hearts go with it, it leaves the site and search at once, its picture
+  folder is deleted by the nightly clean-up, and its videos at Bunny by the nightly orphan sweep.
+  The person isn't told, beyond the story leaving My submissions. Like a decision, it names what
+  the Admin saw, so a story that changed since the page opened is refused and the page refreshes.
 - **Approve anyway is Admin only (G24)**, offered after an approval was refused because the media
   is still being processed; never during the upload link's time (G11 B).
 - **Refusals in plain words** (Joel, 2026-11-09: never codes): for example "The video is still

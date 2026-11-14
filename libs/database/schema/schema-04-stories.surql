@@ -193,6 +193,9 @@ DEFINE FUNCTION OVERWRITE fn::story::step_allowed($actor: string, $action: strin
         OR ($action = 'editStarted' AND $from IN ['pending', 'approved', 'hidden'])
     } ELSE IF $actor = 'moderator' {
       ($action IN ['approved', 'changesRequested', 'rejected'] AND $from = 'pending')
+        -- P1-9, P1-11 (Joel, 2026-11-14): a story the site took off itself is resolved by
+        -- rejecting it (storyStatusLog_step allows it only from the site's own hiddenBySystem).
+        OR ($action = 'rejected' AND $from = 'hidden')
         OR ($action = 'hiddenByModerator' AND $from = 'approved')
         OR ($action = 'shownByModerator' AND $from = 'hidden')
     } ELSE {
@@ -842,6 +845,7 @@ DEFINE EVENT OVERWRITE storySearch_theme_renamed ON theme
 --     (pending, approved or hidden -> editing: Edit, ED-1/ED-4; it leaves the site at once);
 --   a moderator (api-admin, naming the moderator in `by`): approved, changesRequested or rejected
 --     (from pending: the first decision wins, D-1; a second finds the story no longer pending),
+--     rejected also from hidden when the site hid it (hiddenBySystem; P1-9, P1-11),
 --     hiddenByModerator (from approved) and shownByModerator (from hidden); changesRequested,
 --     rejected and hiddenByModerator carry the moderator's note (`comment`);
 --   the system: hiddenBySystem (from approved) when the media fails or changes, shownBySystem
@@ -1011,6 +1015,11 @@ DEFINE EVENT OVERWRITE storyStatusLog_step ON storyStatusLog
     LET $history = fn::story::history_only($action);
     IF !fn::story::step_allowed($after.actor, $action, $from) {
       THROW 'status_step: a ' + $after.actor + ' can’t ' + $action + ' a story that is ' + $from;
+    };
+    -- Rejecting a hidden story: only one the site hid (P1-9); a moderator's take-down ends with
+    -- Show again.
+    IF $action = 'rejected' AND $from = 'hidden' AND $s.currentStatus.action != 'hiddenBySystem' {
+      THROW 'status_step: a moderator can reject a hidden story only when the site hid it';
     };
     IF $after.actor != 'moderator' AND $after.comment != NONE {
       THROW 'status_step: only a moderator’s entry has a comment';

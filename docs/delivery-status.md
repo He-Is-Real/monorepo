@@ -289,7 +289,10 @@ are in it too: the queue became the moderators' list, one page for Moderators an
 story that isn't on the site (waiting for review, being edited, taken down, rejected; Admins also
 see drafts never sent), as a table they filter by state and theme; a published story's own page
 has a Take down button for moderators only; and the person sees the take-down reason on My
-submissions, like a sent-back note.
+submissions, like a sent-back note. Also from 14 November: an Admin (never a Moderator) can
+delete a story in any state from its review page, after a "This can't be undone" question, exactly
+as its owner can; and a story the site took off itself (its video or audio can't play) can be
+rejected, which then lets the nightly clean-up delete it like any rejected story.
 
 **Still to come:**
 
