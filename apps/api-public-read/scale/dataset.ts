@@ -157,7 +157,6 @@ function story(i: number) {
               width: 900,
               height: 1200,
             },
-            alt: 'A picture',
           }
         : undefined,
     steps: steps.map((s, k) => ({
@@ -187,7 +186,7 @@ FOR $s IN $stories {
   IF $s.image != NONE {
     CREATE type::record('storyFile', $s.image.key) CONTENT object::extend($s.image.row, {
       story: $story, person: $person }) RETURN NONE;
-    UPDATE $story SET image = { file: type::record('storyFile', $s.image.key), alt: $s.image.alt }
+    UPDATE $story SET image = { file: type::record('storyFile', $s.image.key) }
       RETURN NONE;
   };
   FOR $step IN $s.steps {

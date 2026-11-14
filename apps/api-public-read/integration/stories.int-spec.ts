@@ -157,7 +157,6 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
       url: null,
       width: 1200,
       height: 1600,
-      alt: null,
     });
     expect(JSON.stringify(story)).not.toContain('dev-seed.webp');
     expect(JSON.stringify(story)).not.toContain('processing');

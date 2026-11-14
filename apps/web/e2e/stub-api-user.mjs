@@ -28,7 +28,7 @@
 //   standing in for Bunny's S3 endpoint: it checks the signature, the type, the exact size and
 //   one use (412), keeps the bytes, and serves them back (GET) as the draft's signed image link.
 //   `GET /__e2e/sessions/<id>/uploads` reads them back (base64), so a test can check what left
-//   the browser. `PATCH` takes `image: null` (remove) and `image: { alt }`. As api-user, a
+//   the browser. `PATCH` takes `image: null` (remove). As api-user, a
 //   picture's request names the picture it replaces (`expectedImage`; `409 image_changed` if the
 //   story has another), and `GET` of one story says whether its picture's file arrived.
 // - The profile (M2 plan PR 8; Edit and Delete, M3): `POST /v1/stories/{id}/edit` and
@@ -672,7 +672,6 @@ const MODERATION = [
       url: `${publicUrl}/media/900x1200.svg`,
       width: 900,
       height: 1200,
-      alt: 'A church in the snow',
       processing: 'ready',
     },
     // Sent back once with a note, then sent again.
@@ -1153,7 +1152,6 @@ function storyMine(s, id, st, uploaded = () => null, own = false) {
           url: st.image.url,
           width: st.image.width,
           height: st.image.height,
-          alt: st.image.alt ?? null,
           path: st.image.path,
           uploaded: uploaded(st.image.path),
         }
@@ -1610,8 +1608,7 @@ async function handleShare(req, res, path, url, s) {
       st,
     );
     if (b && 'image' in b && b.image !== null) {
-      if (!st.image)
-        errors.push({ pointer: '/image', message: 'no picture to describe' });
+      errors.push({ pointer: '/image', message: 'null (removes the picture)' });
     }
     if (b && 'body' in b && !trimmed(b.body))
       errors.push({
@@ -1629,11 +1626,7 @@ async function handleShare(req, res, path, url, s) {
     if ('bylineName' in b) st.bylineName = b.bylineName?.trim() || null;
     if ('themeIds' in b) st.themeIds = b.themeIds;
     // The picture's file stays (api-user never deletes one: the clean-up sweep does).
-    if ('image' in b)
-      st.image =
-        b.image === null
-          ? null
-          : { ...st.image, alt: b.image.alt?.trim() || null };
+    if ('image' in b) st.image = null;
     st.version += 1;
     st.updatedAt = new Date().toISOString();
     return sendJson(
@@ -1847,7 +1840,6 @@ async function handleShare(req, res, path, url, s) {
           url,
           width: w,
           height: h,
-          alt: b.alt?.trim() || null,
         };
         st.version += 1;
         st.updatedAt = new Date().toISOString();

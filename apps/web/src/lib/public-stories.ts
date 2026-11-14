@@ -16,12 +16,11 @@ export interface MediaPlayback {
   durationSeconds: number | null;
 }
 
-/** `StoryImage`: a written story's image (D53). `alt: null` → `imageAlt()`'s default. */
+/** `StoryImage`: a written story's image (D53); readers show `IMAGE_ALT` for it. */
 export interface StoryImage {
   url: string | null;
   width: number;
   height: number;
-  alt: string | null;
 }
 
 /** `StoryPublic` in libs/contracts/openapi/components.yaml. */

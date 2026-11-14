@@ -277,6 +277,13 @@ notice (version 0, edited in place on dev) now say this, and that AI tools may b
 transcripts, captions and summaries. Before it works on dev: dev's database is wiped and rebuilt
 once (the legal texts changed), when the cluster root is applied.
 
+**In progress: share flow tidy (Joel, 14 November 2026).** The "describe the picture" box is
+gone, and a picture's description is no longer stored or sent anywhere (readers' pages use one
+neutral alternative text). The upload step and "Review and submit" show the attached file's name.
+Each step says "Saving…" or "Draft saved", and "Save and exit" saves the draft and goes to My
+submissions to carry on later. Dev's database is wiped and rebuilt for it (a new reset name in the
+dev cluster root, so apply that root).
+
 **Still to come:**
 
 - "Your video couldn't be used" (part 1a): a video Bunny can't use sends the story back to the

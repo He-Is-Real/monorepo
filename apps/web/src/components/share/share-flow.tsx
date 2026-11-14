@@ -53,9 +53,15 @@ import {
   uploadsState,
 } from './allowance';
 import { ThemePicker } from '@/components/themes/theme-picker';
-import { type SubmitAttempt, useDraft } from './use-draft';
-import { ImagePanel, type PictureSave, type PictureState } from './image-panel';
-import { fileLimits, type FileState, UploadPanel } from './upload-panel';
+import { canCreate, type SubmitAttempt, useDraft } from './use-draft';
+import { useRouter } from 'next/navigation';
+import { ImagePanel, type PictureState, pictureName } from './image-panel';
+import {
+  fileLimits,
+  type FileState,
+  mediaName,
+  UploadPanel,
+} from './upload-panel';
 import { AgreeAgain } from './upload-request';
 import { OwnMediaPreview, previewHref } from './own-media';
 
@@ -611,7 +617,7 @@ function SignedInFlow({
     const first = decide(complete);
     if (!first) return;
     // As each step's Continue does: the draft is saved before going on past it, and past the
-    // upload step only once its picture is added and its description saved (#211's rules).
+    // upload step only once its picture is added (#211's rules).
     const passed = steps.slice(from, at(first.next));
     if (passed.includes('write')) {
       if (!(await picture.ready(draft.flush))) return;
@@ -846,6 +852,7 @@ function SignedInFlow({
                 <ReviewStep
                   heading={heading}
                   draft={draft}
+                  owner={owner}
                   themes={themes}
                   sharing={legal.sharing}
                   calls={calls}
@@ -1152,8 +1159,81 @@ function PrepareStep({
   );
 }
 
-/** What autosave is doing, said plainly (a polite live region). */
-function SaveState({ draft }: { draft: DraftState }) {
+/** Where "Save and exit" goes: My submissions, which lists the draft (Joel, 2026-11-14). */
+const MY_SUBMISSIONS = '/account#my-submissions';
+
+/**
+ * "Save and exit" (Joel, 2026-11-14: people needn't write their story in one go): waits for the
+ * draft's save, then goes to My submissions, where the draft is listed to carry on with. Nothing
+ * typed and no draft yet: nothing to save, so it just goes. A draft that can't be saved yet (no
+ * title, or no text for a written story) or whose save failed stays here, saying why. A picture
+ * still uploading is waited for (leaving would stop it); a video or audio file carries on where it
+ * stopped when the person comes back to it.
+ */
+function useSaveAndExit(draft: DraftState, picture?: PictureGate) {
+  const router = useRouter();
+  const [exiting, setExiting] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  async function saveAndExit() {
+    setProblem(null);
+    if (picture?.uploading()) return;
+    if (!draft.current().draftId && draft.status === 'idle') {
+      router.push(MY_SUBMISSIONS);
+      return;
+    }
+    setExiting(true);
+    const saved = await draft.flush();
+    if (saved && !picture?.uploading()) {
+      router.push(MY_SUBMISSIONS);
+      return;
+    }
+    setExiting(false);
+    if (saved) return;
+    if (!draft.current().draftId && !canCreate(draft.fields, draft.format)) {
+      setProblem(
+        draft.format === 'written'
+          ? 'Add a title and some of your story first, so it can be saved as a draft.'
+          : 'Add a title first, so your story can be saved as a draft.',
+      );
+    } else if (draft.status !== 'conflict') {
+      setProblem('Your latest changes aren’t saved yet. Please try again.');
+    }
+  }
+  return { exiting, problem, saveAndExit };
+}
+
+/** The "Save and exit" button (useSaveAndExit). */
+function SaveAndExitButton({
+  exit,
+  disabled,
+}: {
+  exit: ReturnType<typeof useSaveAndExit>;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className={secondary}
+      disabled={disabled || exit.exiting}
+      onClick={() => void exit.saveAndExit()}
+    >
+      {exit.exiting ? 'Saving…' : 'Save and exit'}
+    </button>
+  );
+}
+
+/**
+ * What autosave is doing, said plainly (a polite live region): "Saving…", then "Draft saved"
+ * (Joel, 2026-11-14), with "Save and exit" beside it.
+ */
+function SaveState({
+  draft,
+  picture,
+}: {
+  draft: DraftState;
+  picture?: PictureGate;
+}) {
+  const exit = useSaveAndExit(draft, picture);
   const text: Record<string, string> = {
     idle: '',
     unsaved:
@@ -1161,7 +1241,7 @@ function SaveState({ draft }: { draft: DraftState }) {
         ? 'Kept on this device. It’s saved to your account once it has a title and some text.'
         : 'Kept on this device. It’s saved to your account once it has a title.',
     saving: 'Saving…',
-    saved: 'Saved',
+    saved: 'Draft saved',
     offline: `${TRY_AGAIN_LATER} Your story is kept on this device.`,
     conflict: '',
     error: draft.error ?? '',
@@ -1169,13 +1249,23 @@ function SaveState({ draft }: { draft: DraftState }) {
   };
   return (
     <div className="mt-3 min-h-11">
-      <p
-        role="status"
-        data-save-state={draft.status}
-        className={`text-sm ${draft.status === 'error' ? 'text-destructive' : 'text-secondary-text'}`}
-      >
-        {text[draft.status]}
-      </p>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <p
+          role="status"
+          data-save-state={draft.status}
+          className={`text-sm ${draft.status === 'error' ? 'text-destructive' : 'text-secondary-text'}`}
+        >
+          {text[draft.status]}
+        </p>
+        <div className="flex shrink-0">
+          <SaveAndExitButton exit={exit} />
+        </div>
+      </div>
+      {exit.problem && (
+        <p role="alert" className="mt-2 text-sm text-destructive">
+          {exit.problem}
+        </p>
+      )}
       {(draft.status === 'offline' || draft.status === 'error') && (
         <button
           type="button"
@@ -1244,7 +1334,6 @@ function useEarlierPicture(
 function usePictureGate(noun: string) {
   const [problem, setProblem] = useState<string | null>(null);
   const state = useRef<PictureState>('none');
-  const saveRef = useRef<PictureSave | null>(null);
   // A problem about the picture is about the picture as it was: gone once it changes.
   const onState = useCallback((next: PictureState) => {
     if (next === state.current) return;
@@ -1284,20 +1373,33 @@ function usePictureGate(noun: string) {
     return false;
   };
   /**
-   * Whether the step may move on: the picture is added (or there's none), its description is
-   * saved and the draft flushed, checked again after every wait until nothing changed meanwhile.
+   * Whether the step may move on: the picture is added (or there's none) and the draft flushed,
+   * checked again after the wait (a picture chosen meanwhile is uploading).
    */
   const ready = async (flush: () => Promise<boolean>) => {
-    for (;;) {
-      if (blocked()) return false;
-      setProblem(null);
-      if (saveRef.current && !(await saveRef.current.save())) return false;
-      if (!(await flush())) return false;
-      if (blocked()) return false;
-      if (!saveRef.current || saveRef.current.clean()) return true;
-    }
+    if (blocked()) return false;
+    setProblem(null);
+    if (!(await flush())) return false;
+    return !blocked();
   };
-  return { problem, onState, saveRef, reset, stored, pending, blocked, ready };
+  /** Whether the picture is uploading now (leaving would stop it), saying so. */
+  const uploading = () => {
+    if (state.current !== 'uploading') return false;
+    setProblem(
+      `Your ${noun} is still uploading. Wait for it to finish, then save and exit.`,
+    );
+    return true;
+  };
+  return {
+    problem,
+    onState,
+    reset,
+    stored,
+    pending,
+    blocked,
+    ready,
+    uploading,
+  };
 }
 type PictureGate = ReturnType<typeof usePictureGate>;
 
@@ -1428,7 +1530,6 @@ function WriteStep({
             current={draft.current}
             reload={draft.load}
             onState={picture.onState}
-            saveRef={picture.saveRef}
           />
           {picture.problem && (
             <p role="alert" className="mt-2 text-destructive">
@@ -1437,7 +1538,7 @@ function WriteStep({
           )}
         </div>
       </div>
-      <SaveState draft={draft} />
+      <SaveState draft={draft} picture={picture} />
       <Actions>
         <button type="button" className={secondary} onClick={onBack}>
           Back
@@ -1589,12 +1690,11 @@ function MediaStep({
               current={draft.current}
               reload={draft.load}
               onState={picture.onState}
-              saveRef={picture.saveRef}
             />
           </div>
         )}
       </div>
-      <SaveState draft={draft} />
+      <SaveState draft={draft} picture={picture} />
       {(problem ?? picture.problem) && (
         <p role="alert" className="mt-2 text-destructive">
           {problem ?? picture.problem}
@@ -1775,6 +1875,7 @@ function DetailsStep({
 export function ReviewStep({
   heading,
   draft,
+  owner,
   themes,
   sharing: initialSharing,
   calls,
@@ -1786,6 +1887,8 @@ export function ReviewStep({
 }: {
   heading: HeadingRef;
   draft: DraftState;
+  /** The signed-in person's Clerk user id: whose kept file names this tab shows. */
+  owner: string;
   themes: ThemeCategory[];
   /** The latest social media sharing consent, read by the page's server; null if unreadable. */
   sharing: SharingConsent | null;
@@ -1831,13 +1934,22 @@ export function ReviewStep({
   const [social, setSocial] = useState(() => !!kept?.share);
   const [problem, setProblem] = useState<React.ReactNode>(null);
   const [busy, setBusy] = useState(false);
-  const [savedAsDraft, setSavedAsDraft] = useState(false);
+  const router = useRouter();
   const [savingDraft, setSavingDraft] = useState(false);
   const f = draft.fields;
   // The story as api-user has it now: the picture (M2 plan PR 10) and the person's own video or
   // audio, signed for them once Bunny has processed it (M3 plan PR 2).
   const own = useEarlierPicture(calls, draft.draftId);
   const picture = own?.image ?? null;
+  // The attached files' names, as this tab knows them (never stored at the server).
+  const pictureFile =
+    picture && draft.draftId
+      ? pictureName(owner, draft.draftId, picture.path)
+      : null;
+  const mediaFile =
+    draft.format !== 'written' && draft.draftId
+      ? mediaName(owner, draft.draftId)
+      : null;
   const themeNames = f.themeIds
     .flatMap((id) => themes.flatMap((c) => c.themes).filter((t) => t.id === id))
     .map((t) => t.name);
@@ -1910,13 +2022,13 @@ export function ReviewStep({
   }
 
   /**
-   * Nothing waits on Bunny (Joel, 2026-11-10): the draft is kept as it is, to come back to (it's
-   * saved as the person goes; this makes sure of it). Not while a submission's outcome is unknown:
-   * that submission is settled first, and if it went through, it's "Thank you", not a draft; if
-   * it can't be settled yet, nothing is confirmed.
+   * "Save and exit" (Joel, 2026-11-14; nothing waits on Bunny, Joel 2026-11-10): the draft is kept
+   * as it is, to come back to from My submissions (it's saved as the person goes; this makes sure
+   * of it), and the page goes there. Not while a submission's outcome is unknown: that submission
+   * is settled first, and if it went through, it's "Thank you", not a draft; if it can't be settled
+   * yet, nothing is confirmed.
    */
   async function saveAsDraft() {
-    setSavedAsDraft(false);
     setProblem(null);
     setSavingDraft(true);
     try {
@@ -1927,14 +2039,15 @@ export function ReviewStep({
         onDone();
         return;
       }
-      if (await draft.flush()) setSavedAsDraft(true);
-      else
-        setProblem('Your latest changes aren’t saved yet. Please try again.');
+      if (await draft.flush()) {
+        router.push(MY_SUBMISSIONS);
+        return;
+      }
+      setProblem('Your latest changes aren’t saved yet. Please try again.');
     } catch (err) {
       setProblem(failure(err, 'Your story is kept on this device.'));
-    } finally {
-      setSavingDraft(false);
     }
+    setSavingDraft(false);
   }
 
   async function submit() {
@@ -2210,28 +2323,34 @@ export function ReviewStep({
             )
           : row(
               `Your ${NOUN[draft.format]}`,
-              own ? <OwnMediaPreview story={own} /> : 'Uploaded',
+              <>
+                {own ? <OwnMediaPreview story={own} /> : 'Uploaded'}
+                <AttachedName name={mediaFile} />
+              </>,
               'write',
             )}
         {picture &&
           row(
             draft.format === 'video' ? 'Thumbnail' : 'Picture',
-            <div
-              data-review-picture=""
-              className="max-w-64 overflow-hidden rounded-lg bg-surface"
-              style={{ aspectRatio: `${picture.width} / ${picture.height}` }}
-            >
-              {picture.url && (
-                // A signed link, at a size already known.
-                <img
-                  src={picture.url}
-                  alt={picture.alt ?? 'Your picture'}
-                  width={picture.width}
-                  height={picture.height}
-                  className="block h-full w-full object-cover"
-                />
-              )}
-            </div>,
+            <>
+              <div
+                data-review-picture=""
+                className="max-w-64 overflow-hidden rounded-lg bg-surface"
+                style={{ aspectRatio: `${picture.width} / ${picture.height}` }}
+              >
+                {picture.url && (
+                  // A signed link, at a size already known.
+                  <img
+                    src={picture.url}
+                    alt={`Your ${draft.format === 'video' ? 'thumbnail' : 'picture'}`}
+                    width={picture.width}
+                    height={picture.height}
+                    className="block h-full w-full object-cover"
+                  />
+                )}
+              </div>
+              <AttachedName name={pictureFile} />
+            </>,
             'write',
           )}
       </dl>
@@ -2315,19 +2434,6 @@ export function ReviewStep({
           {problem}
         </p>
       )}
-      <p role="status" data-saved-draft="" className="mt-4 empty:hidden">
-        {savedAsDraft && (
-          <>
-            Saved as a draft. Carry on whenever you like.{' '}
-            <a
-              href="/account"
-              className="inline-flex min-h-11 items-center font-semibold"
-            >
-              Go to My submissions
-            </a>
-          </>
-        )}
-      </p>
       <Actions>
         <button
           type="button"
@@ -2343,7 +2449,7 @@ export function ReviewStep({
             disabled={busy || savingDraft}
             onClick={() => void saveAsDraft()}
           >
-            Save as draft
+            {savingDraft ? 'Saving…' : 'Save and exit'}
           </button>
           <button
             type="submit"
@@ -2359,6 +2465,16 @@ export function ReviewStep({
         Our team reads every story before it’s published.
       </p>
     </form>
+  );
+}
+
+/** An attached file's name on "check your story" (Joel, 2026-11-14), when this tab knows it. */
+function AttachedName({ name }: { name: string | null }) {
+  if (!name) return null;
+  return (
+    <p data-attached-name="" className="mt-2 text-sm">
+      <span className="font-semibold">Attached:</span> {name}
+    </p>
   );
 }
 

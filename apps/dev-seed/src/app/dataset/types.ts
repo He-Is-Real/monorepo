@@ -64,7 +64,7 @@ export interface StoryFixture {
    */
   media?: { clip: ClipId; processing?: Processing; placeholder?: string };
   /** Written only: the optional image. */
-  image?: { file: ImageId; alt?: string; processing?: Processing };
+  image?: { file: ImageId; processing?: Processing };
   /**
    * Where the story ends up. The seed walks it there the way the services will (sent, then a
    * moderator's decisions, then the owner's Edit), so its status log and versions look real.

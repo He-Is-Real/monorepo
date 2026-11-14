@@ -637,9 +637,20 @@ describe('video and audio uploads', () => {
       fileSizeBytes: 40_000,
       width: 900,
       height: 1200,
-      alt: 'A hill at dawn',
       expectedImage: null,
     };
+    // A picture has no description any more (Joel, 2026-11-14): one sent is refused.
+    const described = await upload(
+      'pia',
+      id,
+      1,
+      { ...PICTURE, alt: 'A hill at dawn' },
+      key(),
+    );
+    expect(described.status).toBe(400);
+    expect(described.body.errors).toEqual([
+      { pointer: '/alt', message: 'unknown field' },
+    ]);
     const k = key();
     const res = await upload('pia', id, 1, PICTURE, k);
     expect(res.status).toBe(200);
@@ -665,7 +676,6 @@ describe('video and audio uploads', () => {
       url: null,
       width: 900,
       height: 1200,
-      alt: 'A hill at dawn',
       path,
       uploaded: false,
     });

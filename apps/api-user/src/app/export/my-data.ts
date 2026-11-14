@@ -102,7 +102,6 @@ interface Held {
       path: string;
       width: number;
       height: number;
-      alt?: Opt<string>;
     }>;
     rejectionFeedback?: Opt<string>;
     createdAt: string;
@@ -305,7 +304,6 @@ export function toExport(
               url: urls.imageUrl(s.image.path),
               width: s.image.width,
               height: s.image.height,
-              alt: or(s.image.alt),
             }
           : null,
         rejectionFeedback: or(s.rejectionFeedback),

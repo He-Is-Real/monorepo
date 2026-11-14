@@ -53,7 +53,6 @@ export interface StoryImage {
   url: string | null;
   width: number;
   height: number;
-  alt: string | null;
 }
 
 // Approved stories only (R11; isPublished), and only the published fields (its files: playback
@@ -108,7 +107,6 @@ function toPublic(row: Row, urls: MediaUrls): StoryPublic {
           url: urls.imageUrl(row.image.path),
           width: row.image.width,
           height: row.image.height,
-          alt: row.image.alt ?? null,
         }
       : null,
     themes: row.themes ?? [],

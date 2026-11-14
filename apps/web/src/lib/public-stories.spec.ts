@@ -54,7 +54,7 @@ describe('getPublicStory', () => {
 
   it.each([
     ['media that isn’t a list', { media: 'x' }],
-    ['an image without a size', { image: { url: null, alt: null } }],
+    ['an image without a size', { image: { url: null } }],
   ])('throws StoriesUnavailableError on %s', async (_name, change) => {
     respond(200, { ...story, ...change });
     await expect(getPublicStory('test-story')).rejects.toBeInstanceOf(

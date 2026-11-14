@@ -1,6 +1,6 @@
 import Image from 'next/image';
 import type { CSSProperties } from 'react';
-import { audioSize, imageAlt } from '@/lib/shape';
+import { audioSize, IMAGE_ALT } from '@/lib/shape';
 import type { PublicStory } from '@/lib/public-stories';
 
 // D52: api-public-read signs every media link (Bunny token auth); web shows them as given.
@@ -100,7 +100,7 @@ export function StoryMedia({
       <Image
         data-story-media=""
         src={image.url}
-        alt={imageAlt(image)}
+        alt={IMAGE_ALT}
         width={image.width}
         height={image.height}
         unoptimized

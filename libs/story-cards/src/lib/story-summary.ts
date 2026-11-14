@@ -17,13 +17,12 @@ export interface StoredMedia {
 /**
  * A story's stored image: a written story's image, an audio story's picture or a video's own
  * thumbnail (M2 plan PR 10). R12: the storyFile row `story.image.file` points at (its id is the
- * path; its size), with the story's own `image.alt`. Never sent as it is.
+ * path; its size). Never sent as it is.
  */
 export interface StoredImage {
   path: string;
   width: number;
   height: number;
-  alt?: string;
 }
 
 /**
@@ -46,7 +45,6 @@ export interface StorySummary {
     url: string | null;
     width: number;
     height: number;
-    alt: string | null;
   } | null;
   textLength: number;
   themes: ThemeRef[];
@@ -73,7 +71,7 @@ export const FILE_FIELDS = `
   } ELSE { [] } AS media,
   mediaFile.lengthSeconds AS durationSeconds,
   IF image != NONE {
-    object::extend(image.file.{ width, height }, { path: record::id(image.file), alt: image.alt })
+    object::extend(image.file.{ width, height }, { path: record::id(image.file) })
   } AS image`;
 
 /**
@@ -156,7 +154,6 @@ export function toSummary(row: SummaryRow, urls: MediaUrls): StorySummary {
           url: urls.imageUrl(row.image.path),
           width: row.image.width,
           height: row.image.height,
-          alt: row.image.alt ?? null,
         }
       : null,
     textLength: row.textLength,
