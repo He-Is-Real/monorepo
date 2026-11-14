@@ -143,10 +143,18 @@ module "bunny" {
   upload_key_readers = ["serviceAccount:api-user@heisreal-dev.iam.gserviceaccount.com"]
   # The nightly housekeeping Job lists and deletes orphaned story videos with the library's
   # API key (modules/gcp/housekeeping.tf; the gcp root makes its service account).
-  stream_key_readers = ["serviceAccount:housekeeping@heisreal-dev.iam.gserviceaccount.com"]
+  # An Admin's Delete (DEL-1, Joel 2026-11-14): api-admin deletes the story's videos with it
+  # at once, and its picture folder with the zone's password (below).
+  stream_key_readers = [
+    "serviceAccount:housekeeping@heisreal-dev.iam.gserviceaccount.com",
+    "serviceAccount:api-admin@heisreal-dev.iam.gserviceaccount.com",
+  ]
   # ...and deletes the images-zone folders of stories that are gone (erasure's pictures and
   # abandoned drafts') with the zone's password.
-  storage_password_readers = ["serviceAccount:housekeeping@heisreal-dev.iam.gserviceaccount.com"]
+  storage_password_readers = [
+    "serviceAccount:housekeeping@heisreal-dev.iam.gserviceaccount.com",
+    "serviceAccount:api-admin@heisreal-dev.iam.gserviceaccount.com",
+  ]
 
   # Media ready (M2 plan item 13): api-user checks Bunny's webhook signatures with the library's
   # read-only key, and Bunny posts each video's events to api-user. The media worker reads a

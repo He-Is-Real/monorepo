@@ -29,6 +29,8 @@ export interface MyStoryRow {
   themes: { id: string; name: string }[];
   /** The moderator's note while sent back for changes or rejected ("What our team said"). */
   rejectionFeedback: string | null;
+  /** Hidden by a moderator (G5): "Taken down by our team". */
+  takenDown?: boolean;
   /** When it was first sent for review; null for a story never sent (a "Draft"). */
   submittedAt?: string | null;
   createdAt: string;
@@ -47,7 +49,8 @@ export interface MyStoryRow {
 /**
  * What the owner sees of each state (Story states, Joel 2026-11-11). A story being edited is a
  * "Draft" if it was never sent, "Sent back" while a moderator's note is on it, and "Being edited"
- * once its owner took it down with Edit. G2: a hidden story shows as it is.
+ * once its owner took it down with Edit. G2: a hidden story shows as it is; G5: one a moderator
+ * took down says so.
  */
 type Label =
   | 'draft'
@@ -56,6 +59,7 @@ type Label =
   | 'pending'
   | 'approved'
   | 'hidden'
+  | 'taken_down'
   | 'rejected';
 const LABEL: Record<Label, { label: string; tone: string }> = {
   draft: { label: 'Draft', tone: 'border-border text-secondary-text' },
@@ -67,6 +71,10 @@ const LABEL: Record<Label, { label: string; tone: string }> = {
     label: 'Not on the site right now',
     tone: 'border-border text-foreground',
   },
+  taken_down: {
+    label: 'Taken down by our team',
+    tone: 'border-border text-foreground',
+  },
   rejected: { label: 'Not accepted', tone: 'border-border text-foreground' },
 };
 function labelOf(story: MyStoryRow): Label {
@@ -74,6 +82,7 @@ function labelOf(story: MyStoryRow): Label {
     if (!story.submittedAt) return 'draft';
     return story.rejectionFeedback ? 'sent_back' : 'editing';
   }
+  if (story.status === 'hidden' && story.takenDown) return 'taken_down';
   return story.status as Label;
 }
 /** api-user's own rule (story-store.ts): Edit takes these down to edit (ED-1, ED-4). */

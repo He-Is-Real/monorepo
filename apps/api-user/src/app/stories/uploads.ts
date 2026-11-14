@@ -26,7 +26,10 @@ import { recordKey } from '@heisreal/http';
 import { STORY_IMAGE_PATH } from '@heisreal/story-cards';
 import type { ImageStore, SignedImageUpload } from './bunny-storage';
 import { pictureProblem, type RecordedPicture } from './picture-check';
-import type { BunnyStream, SignedUpload } from './bunny-stream';
+import type {
+  BunnyStream,
+  SignedUpload,
+} from '@heisreal/story-cards/bunny-stream';
 import { StaleVersionException } from './story-store';
 import { agreementRefusalOf } from '../account/agreements';
 

@@ -25,7 +25,7 @@ import {
   type BunnyStream,
   signUpload,
   type StreamVideo,
-} from '../src/app/stories/bunny-stream';
+} from '@heisreal/story-cards/bunny-stream';
 
 /**
  * Decision T, option B: a person's request isn't cut off when their Clerk pass (60 s, often

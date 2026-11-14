@@ -27,6 +27,8 @@ import { fixtureToken, STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 const PROFILE = `${WEB_SIGNED_IN_URL}/account`;
 const FEEDBACK =
   'Thank you for sharing this. We felt it needs a little more about what changed for you.';
+const TAKE_DOWN_REASON =
+  'Someone named in your story asked us to check it with you first.';
 const LONG =
   'When everything I had built came apart in a single winter and I could not find a reason to carry on Supercalifragilisticexpialidociously';
 
@@ -75,6 +77,14 @@ const EVERY_STATUS = [
     status: 'hidden',
     title: 'Hidden one',
     submittedAt: SENT,
+  },
+  {
+    id: 's_taken_down',
+    status: 'hidden',
+    title: 'Taken down one',
+    submittedAt: SENT,
+    takenDown: true,
+    rejectionFeedback: TAKE_DOWN_REASON,
   },
   {
     id: 's_rejected',
@@ -162,7 +172,7 @@ test.describe('behaviour', () => {
     await page.getByRole('button', { name: /^Account: / }).click();
     await page.getByRole('link', { name: 'My profile' }).click();
     await expect(page).toHaveURL(PROFILE);
-    await expect(page.locator('[data-submission]')).toHaveCount(7);
+    await expect(page.locator('[data-submission]')).toHaveCount(8);
 
     const offers = async (title: string) => {
       const r = row(page, title);
@@ -198,18 +208,27 @@ test.describe('behaviour', () => {
       status: 'Not on the site right now',
       actions: ['Preview', 'Edit', 'Delete'],
     });
+    // G5: one a moderator took down says so.
+    expect(await offers('Taken down one')).toEqual({
+      status: 'Taken down by our team',
+      actions: ['Preview', 'Edit', 'Delete'],
+    });
     // Rejected stories can only be deleted.
     expect(await offers('Not accepted one')).toEqual({
       status: 'Not accepted',
       actions: ['Preview', 'Delete'],
     });
-    // The moderator's note, under "What our team said", while sent back or not accepted.
+    // The moderator's note, under "What our team said", while sent back or not accepted, and
+    // why a moderator took it down (MD-2).
     for (const title of ['Sent back one', 'Not accepted one']) {
       await expect(row(page, title).locator('[data-feedback]')).toContainText(
         `What our team said${FEEDBACK}`,
       );
     }
-    await expect(page.locator('[data-feedback]')).toHaveCount(2);
+    await expect(
+      row(page, 'Taken down one').locator('[data-feedback]'),
+    ).toContainText(`What our team said${TAKE_DOWN_REASON}`);
+    await expect(page.locator('[data-feedback]')).toHaveCount(3);
     // A draft or a story being edited says when it goes if nobody touches it, and a rejected
     // story when it goes (G3 B); nothing waiting, published or hidden does.
     await expect(
@@ -657,7 +676,7 @@ for (const scheme of ['light', 'dark'] as const) {
         })),
       });
       await page.goto(PROFILE);
-      await expect(page.locator('[data-submission]')).toHaveCount(7);
+      await expect(page.locator('[data-submission]')).toHaveCount(8);
       await expect(page.locator('[data-shared-on-social]')).toBeVisible();
       // Open one confirmation too: it's part of the page someone sees.
       await page
@@ -690,6 +709,6 @@ test('200% text on the smallest phone: My profile still fits', async ({
     })),
   });
   await page.goto(PROFILE);
-  await expect(page.locator('[data-submission]')).toHaveCount(7);
+  await expect(page.locator('[data-submission]')).toHaveCount(8);
   await expectNoHorizontalOverflow(page);
 });

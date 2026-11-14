@@ -48,7 +48,7 @@ import {
   BUNNY_STREAM,
   type BunnyStream,
   createBunnyStream,
-} from './bunny-stream';
+} from '@heisreal/story-cards/bunny-stream';
 import { mergePatchBody } from './merge-patch-body';
 import { senderIp } from './sender-ip';
 import {

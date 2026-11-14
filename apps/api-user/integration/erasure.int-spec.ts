@@ -32,7 +32,7 @@ import {
   BUNNY_STREAM,
   type BunnyStream,
   signUpload,
-} from '../src/app/stories/bunny-stream';
+} from '@heisreal/story-cards/bunny-stream';
 
 /**
  * Erasure (M2 plan PR 11; D39, D40, D82) through api-user's real AppModule, for its two callers:

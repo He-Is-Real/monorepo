@@ -1,14 +1,17 @@
 import { Logger } from '@nestjs/common';
 import type { SecretsService } from '@heisreal/secrets';
-import { tusSignature } from '@heisreal/story-cards';
+import { tusSignature } from './upload-signing';
 
 /**
- * Bunny Stream for uploads (M2 plan PR 7; D68, D80, D89): api-user creates each story's video,
- * signs the browser's TUS upload for it, checks it arrived and deletes replaced ones. The library
- * key (`bunny-stream-api-key`, which only api-user may read: `upload_key_readers`, bunny root)
- * comes from Secret Manager at startup and is never logged. Video and audio both go to the
- * library (in Frankfurt, D89): an audio story is an audio-only upload Bunny encodes like a video.
- * Without `BUNNY_STREAM_API_KEY_SECRET`, uploads are off and RequestUpload answers `503`.
+ * Bunny Stream (M2 plan PR 7; D68, D80, D89): api-user creates each story's video, signs the
+ * browser's TUS upload for it, checks it arrived and deletes replaced ones; api-user and api-admin
+ * delete a deleted story's videos at once (the owner's Delete, an Admin's Delete: DEL-1, Joel
+ * 2026-11-14). The library key (`bunny-stream-api-key`, which only those two may read:
+ * `upload_key_readers`, bunny root, and api-admin's own grant) comes from Secret Manager at startup
+ * and is never logged. Video and audio both go to the library (in Frankfurt, D89): an audio story
+ * is an audio-only upload Bunny encodes like a video. Without `BUNNY_STREAM_API_KEY_SECRET` the
+ * client is off (null): uploads answer `503`, and deleted stories' videos wait for the nightly
+ * orphan sweep.
  */
 export const BUNNY_STREAM = Symbol('BUNNY_STREAM');
 
@@ -180,29 +183,29 @@ export function signUpload(
 type Env = Record<string, string | undefined>;
 
 /**
- * Uploads on when `BUNNY_STREAM_API_KEY_SECRET` names the key's secret, with the library in
- * `BUNNY_STREAM_LIBRARY_ID` (the same variable media signing uses). Off (null) without it.
+ * On when `BUNNY_STREAM_API_KEY_SECRET` names the key's secret, with the library in
+ * `BUNNY_STREAM_LIBRARY_ID` (the same variable media signing uses). Off (null) without it; `off`
+ * says in the log what that means for the service.
  */
 export async function createBunnyStream(
   secrets: Pick<SecretsService, 'get'>,
   env: Env = process.env,
+  off = 'Uploads are off (no BUNNY_STREAM_API_KEY_SECRET): RequestUpload answers 503',
 ): Promise<BunnyStream | null> {
   const logger = new Logger('BunnyStream');
   const secret = env['BUNNY_STREAM_API_KEY_SECRET']?.trim() ?? '';
   const libraryId = env['BUNNY_STREAM_LIBRARY_ID']?.trim() ?? '';
   if (secret === '') {
-    logger.warn(
-      'Uploads are off (no BUNNY_STREAM_API_KEY_SECRET): RequestUpload answers 503',
-    );
+    logger.warn(off);
     return null;
   }
   if (!SECRET.test(secret) || !LIBRARY.test(libraryId)) {
     throw new Error(
-      'Uploads need BUNNY_STREAM_API_KEY_SECRET (a secret name) and a numeric BUNNY_STREAM_LIBRARY_ID',
+      'Bunny Stream needs BUNNY_STREAM_API_KEY_SECRET (a secret name) and a numeric BUNNY_STREAM_LIBRARY_ID',
     );
   }
   const key = (await secrets.get(secret)).trim();
   if (key === '') throw new Error(`Secret ${secret} is empty`);
-  logger.log(`Uploads on: Stream library ${libraryId}`);
+  logger.log(`Bunny Stream on: library ${libraryId}`);
   return new BunnyStreamApi(libraryId, key);
 }
