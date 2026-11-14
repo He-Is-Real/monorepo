@@ -42,9 +42,13 @@ export function NavLinks({ className = '' }: { className?: string }) {
   // only for the roles they're for, once the role is known (Joel, 2026-11-14). They stay together
   // and wrap as one group: where the row has no room for them (1280 px), they go under the
   // public links rather than squeezing every link's words onto two lines.
-  const staff = useStaffNavLinks();
+  const { links: staff, known } = useStaffNavLinks();
   return (
-    <nav aria-label="Main navigation" className={className}>
+    <nav
+      aria-label="Main navigation"
+      className={className}
+      data-role-known={known ? '' : undefined}
+    >
       <ul
         className={`flex flex-wrap items-center gap-x-5 gap-y-0 lg:gap-x-7 ${staff.length ? 'xl:justify-end' : 'xl:flex-nowrap'}`}
       >
@@ -116,10 +120,10 @@ function MenuLinks({
   pathname: string;
   onLink?: () => void;
 }) {
-  const staff = useStaffNavLinks();
+  const { links: staff, known } = useStaffNavLinks();
   return (
     <>
-      <nav aria-label="Menu">
+      <nav aria-label="Menu" data-role-known={known ? '' : undefined}>
         <ul>
           {NAV_LINKS.map((l) => (
             <li key={l.href} className="border-b border-border">

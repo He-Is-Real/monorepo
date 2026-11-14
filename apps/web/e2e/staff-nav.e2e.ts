@@ -6,7 +6,8 @@ import { WEB_SIGNED_IN_URL } from './servers';
 // Staff links in the site's main navigation (Joel, 2026-11-14): after the public links, set apart
 // by a thin line, Moderation for Moderators and Admins and Consent & legal (the legal text editor)
 // for Admins only. Nobody else sees them: not signed-out people, not Users, and nobody until their
-// role is known. The navigation with both links fits every device (the desktop's one row, the
+// role is known. The navigation marks itself `data-role-known` once the links are final for the
+// page load (signed out, or api-user has answered), so "no staff links" is checked only then. The navigation with both links fits every device (the desktop's one row, the
 // tablet's second row, the phone's menu); the behaviour runs on one phone and one desktop. The
 // stub api-user (stub-api-user.mjs) makes sessions starting `admin` Admins and `moderator`
 // Moderators; everyone else is a User.
@@ -141,9 +142,40 @@ test.describe('staff links', () => {
     ).toHaveCount(0);
   });
 
+  test('an admin sees no staff links while their role is unknown', async ({
+    page,
+  }) => {
+    // api-user's answer is held: until it comes, no staff link shows (no flash), then both do.
+    let release!: () => void;
+    const held = new Promise<void>((r) => {
+      release = r;
+    });
+    await page.route(
+      (url) => url.pathname === '/v1/account',
+      async (route) => {
+        await held;
+        await route.continue();
+      },
+    );
+    await useSession(page, 'admin-nav-held');
+    const account = page.waitForRequest(
+      (r) => new URL(r.url()).pathname === '/v1/account',
+    );
+    await page.goto(`${WEB_SIGNED_IN_URL}/`);
+    await account;
+    const nav = await openNav(page);
+    await expect(nav.getByRole('link', { name: 'Stories' })).toBeVisible();
+    await expect(nav).not.toHaveAttribute('data-role-known');
+    await expect(nav.locator('[data-staff-link]')).toHaveCount(0);
+    release();
+    await expect(nav).toHaveAttribute('data-role-known', '');
+    await expect(nav.locator('[data-staff-link]')).toHaveCount(2);
+  });
+
   test('a signed-in user sees no staff links', async ({ page }) => {
     await signedInHome(page, 'user-nav');
     const nav = await openNav(page);
+    await expect(nav).toHaveAttribute('data-role-known', '');
     await expect(nav.getByRole('link', { name: 'Stories' })).toBeVisible();
     await expect(nav.locator('[data-staff-link]')).toHaveCount(0);
   });
@@ -152,6 +184,7 @@ test.describe('staff links', () => {
     await page.goto('/');
     await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
     const nav = await openNav(page);
+    await expect(nav).toHaveAttribute('data-role-known', '');
     await expect(nav.getByRole('link', { name: 'Stories' })).toBeVisible();
     await expect(nav.locator('[data-staff-link]')).toHaveCount(0);
   });

@@ -609,6 +609,8 @@ Planned (M3):
   line) or a gap and line (phone menu). Moderators and Admins see
   "Moderation"; Admins also see "Consent & legal" (the legal text editor). Signed-out people and
   Users see neither, and nobody sees them until api-user has said their role (no flash of links).
+  The staff links reflect the role when the page was loaded; after a role change they update on
+  the next full page load or sign-in (the staff pages' servers check the role on every call).
   The other staff pages are reached from the staff menu on these pages.
 - **Limits** (Admins): the submission limits in plain words with their units, and the two
   deletion times (rejected stories, stories left in editing; G3 B, Joel 2026-11-11); Save
