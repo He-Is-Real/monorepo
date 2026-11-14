@@ -24,7 +24,13 @@ describe('a refused database sign-in at start-up', () => {
         ],
         {
           cwd: join(__dirname, '../..'),
-          env: { ...process.env, SWC_NODE_PROJECT: 'tsconfig.lib.json' },
+          // FORCE_COLOR is dropped: with NO_COLOR also set, Node prints a plain-text warning that
+          // isn't a log line, so the result would depend on the shell (local == CI).
+          env: {
+            ...process.env,
+            FORCE_COLOR: undefined,
+            SWC_NODE_PROJECT: 'tsconfig.lib.json',
+          },
           timeout: 60_000,
         },
         (err, stdout, stderr) =>
