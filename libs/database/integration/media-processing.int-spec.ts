@@ -705,7 +705,7 @@ describe('approval waits for media processing (A2, R12)', () => {
   describe('a file that can’t be used sends the story back (Part 1a)', () => {
     const entries = async (id: string) =>
       truth<{ action: string; status: string; actor: string }>(
-        `SELECT action, status, actor, at FROM storyStatusLog
+        `SELECT action, status, actor, unusableFile, at FROM storyStatusLog
            WHERE story = type::record('story', $id) ORDER BY at`,
         { id },
       );
@@ -715,6 +715,8 @@ describe('approval waits for media processing (A2, R12)', () => {
         action: 'fileUnusable',
         status: 'editing',
         actor: 'system',
+        // P1-2: the story's own video or audio file, not an audio story's picture video.
+        unusableFile: 'recording',
       });
       expect(await published(id)).toEqual([]);
     };

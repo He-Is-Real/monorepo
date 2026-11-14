@@ -101,6 +101,9 @@ How a video or audio file becomes `ready` (M2 plan item 13; D78, D126, D129; des
    `gave_up` with `errorType` `file_unusable`, and the database sends the story back to its owner
    ("Needs a new file"). Before that notice, Bunny may still be showing the first failure: the
    writer only reads Bunny's status (no second re-encode request) and counts a failure on the job (`bunny_reencode_pending`, so it gives up after 5 like any job, as ours: `bunny_unavailable`), replying "try again later" with the job left open. A
+   Accepted risk (P1-4, Joel 2026-11-14): Bunny gives no attempt number, so a late or duplicated
+   copy of the FIRST failure notice arriving just after the re-encode request counts as the
+   re-encode's failure; the person is then asked for a new file that might have worked. No guard.
    `gone` answer (Bunny has no such video) leaves the file `processing` and ends the job
    `gave_up` with `errorType` `other`. Its log is one JSON line per call, ids only:
    `gcloud logging read 'resource.labels.service_name="workflow"' --limit 20`.
@@ -378,8 +381,10 @@ webhook` (bad signature: check the secret `bunny-stream-readonly-key` has the li
    - **`gave_up`:** `errorType` says why (api-admin reads it): `file_unusable` (Bunny failed the
      file twice, the person was asked for a new one: nothing to do), or ours, after 5 failures
      (`bunny_unavailable`, `worker_error`, `other`). For ours, the nightly housekeeping
-     (`media-retry`) opens a new check of a waiting story's file on up to 3 nights; after that the
-     moderation queue shows "Can't be reviewed yet: a problem on our side". Fix the cause, then
+     (`media-retry`) opens a new check of the file of a waiting story, or of a published story the
+     site took off itself (P1-5), on up to 3 nights; after that the moderation queue shows "Can't
+     be reviewed yet: a problem on our side", and a story off the site stays off. A waiting
+     story's jobs aren't tidied away after 30 days (P1-3), so the count holds. Fix the cause, then
      re-encode the video at Bunny (above): Bunny's next "finished" notice opens a fresh job.
    - **`gone` or `stale`:** the story no longer shows that video (replaced, removed), the video's
      title isn't the story's id, or a newer answer was already in. Nothing to do.

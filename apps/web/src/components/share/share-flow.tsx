@@ -1550,8 +1550,10 @@ function MediaStep({
         </div>
         <div>
           <p className="mb-1.5 font-semibold">Your {noun}</p>
-          {/* Part 1a: the file sent before couldn't be used; a new upload clears it. */}
+          {/* Part 1a: the file sent before couldn't be used; a new upload clears it. A picture
+              video's failure (P1-2) is shown with the picture below. */}
           {story?.mediaProblem === 'unusable' &&
+            story.unusableFile !== 'picture' &&
             (file === 'uploaded' ? (
               <p
                 role="status"
@@ -1593,6 +1595,17 @@ function MediaStep({
                 ? 'Add a thumbnail (optional)'
                 : 'Add a picture (optional)'}
             </p>
+            {/* P1-2 (G17 B): the picture video made with this picture couldn't be used. */}
+            {format === 'audio' &&
+              story?.mediaProblem === 'unusable' &&
+              story.unusableFile === 'picture' && (
+                <p
+                  data-media-problem="picture"
+                  className="mb-3 rounded-xl border-l-4 border-link bg-raised px-4 py-3"
+                >
+                  We couldn’t use your picture. Please upload another picture.
+                </p>
+              )}
             <p className="mb-3 text-sm text-secondary-text">
               {format === 'video'
                 ? 'The picture shown before your video plays. Without one, our video host picks a frame.'

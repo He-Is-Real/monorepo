@@ -1084,6 +1084,9 @@ function storyMine(s, id, st, uploaded = () => null, own = false) {
     status: st.status,
     // Part 1a: a seeded story's `mediaProblem: 'unusable'` (its file failed for good).
     mediaProblem: st.mediaProblem ?? null,
+    // P1-1, P1-2: a seeded story's `unusableFile` (the system sent it back for that file); null
+    // once it is sent again.
+    unusableFile: st.unusableFile ?? null,
     title: st.title,
     description: st.description,
     body: st.body ?? null,
@@ -1171,11 +1174,12 @@ function myDataOf(s, token, mine) {
       lastActiveAt: null,
     },
     stories: [...s.stories].reverse().map(([id, st]) => {
-      // The export has no mediaProblem (StoryMine only, Part 1a).
+      // The export has no mediaProblem or unusableFile (StoryMine only, Part 1a).
       const {
         version: _v,
         media,
         mediaProblem: _p,
+        unusableFile: _u,
         ...rest
       } = storyMine(s, id, st);
       return {
@@ -1716,6 +1720,7 @@ async function handleShare(req, res, path, url, s) {
         });
       st.status = 'pending';
       st.rejectionFeedback = null; // the note shows only while it's sent back
+      st.unusableFile = null; // P1-1: worked out from the newest status entry
       st.submittedAt ??= new Date().toISOString();
       st.version += 1;
       if (share)

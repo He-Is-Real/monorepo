@@ -67,6 +67,11 @@ export interface MyStory {
    * api-user works it out from the file, so it is null again once a new one is on it.
    */
   mediaProblem?: 'unusable' | null;
+  /**
+   * Part 1a (P1-1, P1-2): which file the system sent it back for, `recording` or `picture` (an
+   * audio story's picture video), while it is still sent back for it; null otherwise.
+   */
+  unusableFile?: 'recording' | 'picture' | null;
 }
 
 /** The contract's `MediaPlayback` as api-user gives the person their own file. */

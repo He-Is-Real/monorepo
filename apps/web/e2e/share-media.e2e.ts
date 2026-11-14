@@ -363,6 +363,51 @@ test.describe('behaviour', () => {
     );
   });
 
+  // P1-2 (G17 B): an audio story's picture video couldn't be used: the picture is asked for, not
+  // the recording.
+  test('a story whose picture couldn’t be used asks for another picture, not the recording', async ({
+    page,
+    request,
+  }) => {
+    const id = randomUUID().replace(/-/g, '');
+    expect(
+      (
+        await request.post(`${STUB_USER_URL}/__e2e/sessions/${id}`, {
+          data: {
+            testimony: 3,
+            stories: [
+              {
+                id: 's_picture',
+                status: 'editing',
+                title: 'Singing again',
+                primaryFormat: 'audio',
+                videoId: randomUUID(),
+                uploaded: true,
+                themeIds: ['healing'],
+                submittedAt: '2026-10-20T12:00:00.000Z',
+                mediaProblem: 'unusable',
+                unusableFile: 'picture',
+              },
+            ],
+          },
+        })
+      ).status(),
+    ).toBe(204);
+    await page.addInitScript((session) => {
+      window.localStorage.setItem('e2e-session', session);
+    }, id);
+    await page.goto(`${SHARE}?draft=s_picture`);
+    await expect(
+      page.getByRole('heading', { level: 2, name: 'Upload your audio file' }),
+    ).toBeVisible();
+    await expect(page.locator('[data-media-problem="picture"]')).toHaveText(
+      'We couldn’t use your picture. Please upload another picture.',
+    );
+    await expect(page.locator('[data-media-problem="unusable"]')).toHaveCount(
+      0,
+    );
+  });
+
   test('another file replaces the first, dropped onto the page', async ({
     page,
     request,

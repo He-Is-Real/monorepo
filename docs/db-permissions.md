@@ -176,13 +176,16 @@ their fence (see "Transactions").
   `approved`, `hidden`, `rejected`; a history-only entry keeps the story's), `actor` (set by the database: `person`, `moderator`, `system`), `by` (the person or
   moderator; api-admin alone reads it), `storyVersion`, `comment`, `at` (server time),
   `publishedAt` (approved entries: the first approval's time, kept on later ones), `hiddenReason`
-  (`media_unavailable`, `media_changed`), `reviewedMediaFile`/`reviewedImageFile` (approved
+  (`media_unavailable`, `media_changed`), `unusableFile` (the system's `fileUnusable` entries
+  only, required there: `recording` or `picture`, which file couldn't be used; P1-2, Joel
+  2026-11-14; owner and api-admin read it), `reviewedMediaFile`/`reviewedImageFile` (approved
   entries: the files approved), `skippedMediaWait` (an Admin's approval during the media wait;
   api-admin alone reads it).
   - **Read:** the owner (never `by`) and api-admin; housekeeping every entry's `story`, `status`
-    and `at` only, never who, what was said, the action, the files or `publishedAt` (Part 1a: to
-    find the stories waiting for review whose media job gave up on our side; the same read G3 B's
-    deletion chores use); everyone else only an entry's `story`, `status` and `publishedAt`, while it is its
+    and `at`, and `hiddenReason` (set only on the system's own hides), never who, what was said,
+    the action, the files or `publishedAt` (Part 1a: to find the stories waiting for review, or
+    taken off the site by the system (P1-5, Joel 2026-11-14), whose media job gave up on our side;
+    the story, status and time are the same read G3 B's deletion chores use); everyone else only an entry's `story`, `status` and `publishedAt`, while it is its
     story's current approved entry.
   - **Create:** the owner, live, only `sent` and `editStarted`; api-admin only a moderator's
     actions. System and history-only entries come only from the database's own events (elevated),
@@ -288,7 +291,8 @@ their fence (see "Transactions").
   reasons, `sentAt`, `sends`), housekeeping (the 18:00 resend: `sentAt`, `sends`, the reason
   `resent`), workflow (all of it); only workflow writes
   `failures`, `lastError`, `madeFile`, `doneAt`, `outcome` and `errorType`. **Delete:** housekeeping, a job 30
-  days after it ended (J2); a file's row going deletes its jobs (`storyFile_jobs`). Every write
+  days after it ended (J2), but never while its file's story is waiting for review (P1-3, Joel
+  2026-11-14: its give-ups count towards the nightly retries); a file's row going deletes its jobs (`storyFile_jobs`). Every write
   needs the file's person live and bumps their fence, which also serialises two writes racing to
   open the same job. The result writer saves an answer and ends its job in one transaction.
   An open job holds a moderator's approval of its story (J6, above).

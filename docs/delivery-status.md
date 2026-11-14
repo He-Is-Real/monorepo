@@ -260,8 +260,11 @@ Delete: a video or audio file Bunny still can't process after one automatic re-e
 story back to the person ("Needs a new file"), straight away even if it was published; problems
 on our side never reach the person: the nightly clean-up tries again for 3 nights, then the
 moderation queue says "Can't be reviewed yet: a problem on our side". A published story whose
-video is being fixed shows its owner "We're fixing your video". Still open: the "Ready to send
-again" label, and a bad picture on an audio story (questions for Joel).
+video is being fixed shows its owner "We're fixing your video", and the nightly retry covers it
+too (3 nights, then it stays off). My submissions shows "Ready to send again" once a new file is
+in, and a bad picture video on an audio story says "We couldn't use your picture" (Joel's P1
+answers, 14 November). Still to come: the moderators' "a problem on our side" for a story off the
+site waits for their list of such stories (MD-1).
 
 **Still to come:**
 

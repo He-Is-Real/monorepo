@@ -376,7 +376,7 @@ components:
         What a status log entry records (Story states, Joel 2026-11-11; ED-2 B): `sent` (the person,
         editing → pending), `editStarted` (the person pressed Edit: pending, approved or hidden →
         editing), `changesRequested` (a moderator sent it back, with a note: pending → editing),
-        `fileUnusable` (the system: its file can't be used, → editing; not written yet),
+        `fileUnusable` (the system: its file can’t be used, pending, approved or hidden → editing),
         `approved` and `rejected` (a moderator, from pending; rejected with a note),
         `hiddenBySystem` / `shownBySystem` (approved ↔ hidden while its video can't play),
         `hiddenByModerator` / `shownByModerator` (a moderator, with a reason when hiding; not written
@@ -726,6 +726,7 @@ components:
           createdAt,
           updatedAt,
           mediaProblem,
+          unusableFile,
         ]
       properties:
         id:
@@ -746,6 +747,18 @@ components:
             The story was sent back (`editing`); the person sees "Needs a new file" and uploads
             another with the existing upload route. Worked out from the current file, never stored:
             `null` again as soon as a new file is on it.
+        unusableFile:
+          type: [string, 'null']
+          enum: [recording, picture, null]
+          readOnly: true
+          description: |
+            Part 1a (P1-1 and P1-2, Joel, 2026-11-14): set while the story is still where the system
+            sent it back because a file couldn't be used (its current status entry is
+            `fileUnusable`): which file, `recording` (its video or audio file) or `picture` (an audio
+            story's picture video, made with its picture: "We couldn't use your picture"). Worked out
+            from the status history, never stored on the story; `null` otherwise, and again once it
+            is sent. With `mediaProblem` `unusable` the person sees "Needs a new file"; with
+            `mediaProblem` `null` the new file is in: "Ready to send again".
         title:
           type: string
         description:

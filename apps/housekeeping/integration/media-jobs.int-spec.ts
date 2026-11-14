@@ -248,6 +248,35 @@ describe('housekeeping: media jobs', () => {
     ).toEqual([old.job, oldGaveUp.job].sort());
   });
 
+  // P1-3 (Joel, 2026-11-14): a story's checks stay while it waits for review, so its give-ups keep
+  // counting towards the nightly retries; they go 30 days after they ended once it is decided.
+  it('the 30-day tidy-up skips the jobs of a story still waiting for review', async () => {
+    const waiting = await openJob();
+    await run(
+      pat,
+      `CREATE storyStatusLog CONTENT { story: type::record('story', $story), action: 'sent' }`,
+      { story: waiting.story },
+    );
+    await ended(waiting.job, 'gave_up', '31d');
+
+    expect(await sweep(RUNS.nightly)).toBe(0);
+    expect(await job(waiting.job)).toBeDefined();
+    // The database refuses it too, whatever housekeeping asks.
+    await run(housekeeping, `DELETE type::record('mediaJob', $job)`, {
+      job: waiting.job,
+    }).catch(() => undefined);
+    expect(await job(waiting.job)).toBeDefined();
+
+    // Its owner takes it back to edit: no longer waiting, so it goes.
+    await run(
+      pat,
+      `CREATE storyStatusLog CONTENT { story: type::record('story', $story), action: 'editStarted' }`,
+      { story: waiting.story },
+    );
+    expect(await sweep(RUNS.nightly)).toBe(0);
+    expect(await job(waiting.job)).toBeUndefined();
+  });
+
   it('the nightly run opens a check of each video whose picture at Bunny is unfinished (T4), and only those', async () => {
     /** The result writer's lock on the video, until `delta` from now (SurrealQL). */
     const lockUntil = (video: string, delta: string) =>
@@ -384,7 +413,92 @@ describe('housekeeping: media jobs', () => {
     ).toEqual([{ retry: false, ours: true }]);
   });
 
-  it('housekeeping reads only an entry’s story, status and time from the status log (never publishedAt)', async () => {
+  // P1-5 (Joel, 2026-11-14): the same nightly retry for a published story the site took off itself
+  // while Bunny re-encodes its file; never for one a moderator hid. After 3 nights it stays off.
+  it('the nightly run also re-checks a story the site took off itself, for 3 nights, never one a moderator hid', async () => {
+    const admin = await t.service('api_admin');
+    const openCheck = async (video: string) =>
+      (
+        await rows<{ id: string }>(
+          migrator,
+          `SELECT <string> record::id(id) AS id FROM mediaJob
+             WHERE file = type::record('storyFile', $video) AND kind = 'check'
+               AND doneAt = NONE`,
+          { video },
+        )
+      )[0];
+    const statusOf = async (story: string) =>
+      (
+        await rows<string>(
+          migrator,
+          `SELECT VALUE currentStatus.status FROM ONLY type::record('story', $story)`,
+          { story },
+        )
+      )[0];
+    /** A published story of pat's whose open check then gives up on our side. */
+    const published = async () => {
+      const j = await openJob();
+      await run(
+        migrator,
+        `UPDATE type::record('storyFile', $video) SET processing = 'ready', width = 1920,
+           height = 1080, lengthSeconds = 60`,
+        { video: j.video },
+      );
+      await run(
+        pat,
+        `CREATE storyStatusLog CONTENT { story: type::record('story', $story), action: 'sent' }`,
+        { story: j.story },
+      );
+      await approve(admin, j.story, { superAdminSkip: true });
+      expect(await statusOf(j.story)).toBe('approved');
+      return j;
+    };
+    const retried = async () => {
+      expect(await sweep(RUNS.nightly)).toBe(0);
+      return (lastLog('media-retry')?.['ids'] as string[]) ?? [];
+    };
+
+    // Taken off by the site: Bunny is re-encoding its file (processing again), and the check
+    // waiting for the re-encode gave up.
+    const bySite = await published();
+    await run(
+      migrator,
+      `UPDATE type::record('storyFile', $video) SET processing = 'processing'`,
+      { video: bySite.video },
+    );
+    expect(await statusOf(bySite.story)).toBe('hidden');
+    await ended(bySite.job, 'gave_up', '0s', 'bunny_unavailable');
+    // Hidden by a moderator: never re-checked by the nightly run.
+    const byModerator = await published();
+    await run(
+      admin,
+      `CREATE storyStatusLog CONTENT { story: type::record('story', $story),
+         action: 'hiddenByModerator', comment: 'Taken down for now', by: user:moderator }`,
+      { story: byModerator.story },
+    );
+    expect(await statusOf(byModerator.story)).toBe('hidden');
+    await ended(byModerator.job, 'gave_up');
+
+    expect(await retried()).toEqual([bySite.video]);
+    expect(await openCheck(byModerator.video)).toBeUndefined();
+    for (let night = 2; night <= 3; night++) {
+      await ended((await openCheck(bySite.video))!.id, 'gave_up');
+      expect(await retried()).toEqual([bySite.video]);
+    }
+    await ended((await openCheck(bySite.video))!.id, 'gave_up');
+    expect(await retried()).toEqual([]);
+    // It stays off the site, marked as our problem.
+    expect(await statusOf(bySite.story)).toBe('hidden');
+    expect(
+      await rows(
+        admin,
+        `RETURN fn::media::our_problem(type::record('storyFile', $video))`,
+        { video: bySite.video },
+      ),
+    ).toEqual([{ retry: false, ours: true }]);
+  });
+
+  it('housekeeping reads only an entry’s story, status, time and system hide reason from the status log (never publishedAt)', async () => {
     const { story, video } = await openJob();
     // As the result writer marks it ready (only a system user may), so it can be approved.
     await run(

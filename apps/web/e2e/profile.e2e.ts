@@ -253,6 +253,19 @@ test.describe('behaviour', () => {
           mediaProblem: 'unusable',
         },
         {
+          ...media('s_picture', 'audio'),
+          status: 'editing',
+          title: 'Unusable picture',
+          mediaProblem: 'unusable',
+          unusableFile: 'picture',
+        },
+        {
+          ...media('s_ready', 'video'),
+          status: 'editing',
+          title: 'New file in',
+          unusableFile: 'recording',
+        },
+        {
           ...media('s_fixing', 'video'),
           status: 'hidden',
           title: 'Video being fixed',
@@ -272,6 +285,28 @@ test.describe('behaviour', () => {
     await expect(
       row(page, 'Unusable recording').locator('[data-media-problem]'),
     ).toHaveText('We couldn’t use your recording. Please upload another file.');
+    // P1-2 (G17 B): an audio story's picture video failed, not its recording.
+    const picture = row(page, 'Unusable picture');
+    await expect(picture.locator('[data-status]')).toHaveText(
+      'Needs a new file',
+    );
+    await expect(picture.locator('[data-media-problem]')).toHaveText(
+      'We couldn’t use your picture. Please upload another picture.',
+    );
+    await expect(
+      picture.getByRole('link', { name: 'Upload another picture' }),
+    ).toHaveAttribute('href', '/share?draft=s_picture');
+    // P1-1: sent back for its file, and the new one is in.
+    const ready = row(page, 'New file in');
+    await expect(ready.locator('[data-status]')).toHaveText(
+      'Ready to send again',
+    );
+    await expect(ready.locator('[data-media-problem]')).toHaveText(
+      'Thanks, your new file is in. Send it when you’re ready.',
+    );
+    await expect(
+      ready.getByRole('link', { name: 'Send again' }),
+    ).toHaveAttribute('href', '/share?draft=s_ready');
     const fixing = row(page, 'Video being fixed');
     await expect(fixing.locator('[data-status]')).toHaveText(
       'Not on the site right now',
