@@ -1,10 +1,15 @@
 'use client';
 
 import Form from 'next/form';
+import { useSearchParams } from 'next/navigation';
 import { type ChangeEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { NativeSelect } from '@/components/ui/native-select';
-import type { BrowseFilters as Filters } from '@/lib/browse-query';
+import {
+  type BrowseFilters as Filters,
+  FAVOURITES_PARAM,
+  favouritesOn,
+} from '@/lib/browse-query';
 
 const field =
   'h-11 rounded-lg border border-input bg-input-background px-3 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30';
@@ -13,9 +18,11 @@ const field =
  * Search, sort and format (browse mockup's filter bar). A plain GET form to /stories, so it
  * works without JavaScript; with it, Next navigates without a full reload and the selects apply
  * as soon as they change. The chosen theme rides along as a hidden field. Changing a filter
- * starts again from the first page.
+ * starts again from the first page. With "Favourites only" on, they filter the favourites and
+ * the switch rides along too.
  */
 export function BrowseFilters({ filters }: { filters: Filters }) {
+  const favourites = favouritesOn(useSearchParams());
   const submitOnChange = (e: ChangeEvent<HTMLSelectElement>) =>
     e.currentTarget.form?.requestSubmit();
   return (
@@ -31,6 +38,7 @@ export function BrowseFilters({ filters }: { filters: Filters }) {
       {filters.theme && (
         <input type="hidden" name="theme" value={filters.theme} />
       )}
+      {favourites && <input type="hidden" name={FAVOURITES_PARAM} value="1" />}
       <div className="min-w-[min(100%,16rem)] flex-1 sm:max-w-sm">
         <label htmlFor="browse-q" className="sr-only">
           Search stories

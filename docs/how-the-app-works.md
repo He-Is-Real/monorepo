@@ -177,7 +177,9 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   The time recorded is the database's.
 - **Admins publish new versions** at the consent admin page: a text box, the
   changes against the current version, a preview, then confirm. A saved version is in force at
-  once, and records which admin published it.
+  once, and records which admin published it. On desktop (1280 px and wider) the page is twice
+  the standard content width, so the text box and the preview side by side each get up to the
+  standard width; phones and tablets keep the standard column (Joel, 2026-11-14).
 - **Withdrawing:** deleting the account withdraws everything; deleting a story withdraws it for
   that story, and taking it down to edit stops its use until it is approved again. There is no
   other withdrawal.
@@ -403,11 +405,20 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   they are added only if the person chooses to.
 - Seeing or removing your hearts never needs an agreement.
 - Planned: a story's owner sees how many hearts each of their stories has, never who gave them.
-- My favourites shows the newest heart first, laid out like browse, and loads more on its own.
-- My favourites lives at /favourites, for everyone: signed-out visitors reach it from the header
-  (a heart and "My favourites" next to Sign in), signed-in people from the account menu. Signed
-  out, it says the hearts are kept in this browser only and offers Sign in. The old address,
-  /account/favourites, redirects there permanently. (Joel, 2026-11-07)
+- There is no favourites page (Joel, 2026-11-14). Browse has a "Favourites only" switch that
+  shows the person's hearted stories instead of every story, laid out like browse (3 columns on
+  desktop, then 2, then 1). Signed in, it lists the account's hearts; signed out, the hearts kept
+  in this browser (Joel, 2026-11-14). After signing in, hearts kept in the browser are still
+  offered to the account as before. The switch is kept in the address, so Back and reloads keep
+  it. /favourites and the old /account/favourites show the normal "not found" page.
+- With "Favourites only" on, browse's search, sort, format and theme filters stay and work on the
+  favourites, kept in the address like browse's (Joel, 2026-11-14). The whole list is loaded and
+  filtered in the browser (people aren't expected to have more than about 100; optimising comes
+  later). The filters mean what they mean on browse: format and theme as browse; "Latest first"
+  and "Oldest first" by when the story was published; search finds stories with every word of
+  the search in the title, description or theme names (not the written text, which the list
+  doesn't carry), ignoring case and accents and matching inside longer words; "Best match" puts
+  stories where the words appear most often first.
 - A heart's time is the moment it was made, taken from its id; nobody can set it by hand.
   (Joel, 2026-11-05)
 - Deleting the account deletes the person's hearts; deleting a story deletes the hearts on it.
@@ -427,7 +438,7 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   at each picture's own shape (limited between tall 9:16 and wide 2:1) and never move once shown.
   More stories load on their own as the reader nears the end, to the end of the list, with an end
   message. Without JavaScript there is a link to the next page. (D55)
-- **Story grids** (browse and My favourites): 3 columns from 1024 px wide, 2 from 640 px, 1
+- **Story grids** (browse, with or without Favourites only): 3 columns from 1024 px wide, 2 from 640 px, 1
   below, whatever the text size (Joel, 2026-11-07/08). The column count follows the screen's width
   only; larger text makes the cards narrower, never fewer columns.
 - **Search looks at published stories only.** Its "best match" order compares each story only

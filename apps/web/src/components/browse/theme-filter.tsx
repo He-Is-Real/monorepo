@@ -1,18 +1,21 @@
 'use client';
 
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { ThemePicker } from '@/components/themes/theme-picker';
 import { THEME_CHIP, THEME_CHIP_ON } from '@/components/themes/theme-chip';
 import type { ThemeCategory } from '@/lib/browse';
 import {
   type BrowseFilters,
   browseHref,
+  favouritesOn,
   toggleTheme,
 } from '@/lib/browse-query';
 
 /**
  * Browse by theme (themes plan v3, mockup 3): the shared picker, each theme a link that shows
- * only stories with it (`?theme=`); the chosen one, pressed again, shows every story.
+ * only stories with it (`?theme=`); the chosen one, pressed again, shows every story. With
+ * "Favourites only" on, it filters the favourites.
  */
 export function ThemeFilter({
   categories,
@@ -21,6 +24,8 @@ export function ThemeFilter({
   categories: ThemeCategory[];
   filters: BrowseFilters;
 }) {
+  // "Favourites only" stays on: its list is filtered by theme too.
+  const favourites = favouritesOn(useSearchParams());
   if (categories.length === 0) return null;
   return (
     <nav aria-label="Themes" className="mt-5">
@@ -33,7 +38,7 @@ export function ThemeFilter({
           const on = filters.theme === t.id;
           return (
             <Link
-              href={browseHref(toggleTheme(filters, t.id))}
+              href={browseHref(toggleTheme(filters, t.id), { favourites })}
               className={on ? THEME_CHIP_ON : THEME_CHIP}
               aria-current={on ? 'true' : undefined}
               scroll={false}

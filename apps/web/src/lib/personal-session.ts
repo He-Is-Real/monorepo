@@ -4,7 +4,7 @@ import { useEffect, useSyncExternalStore } from 'react';
 import { apiUser, type GetToken, NotSignedIn } from '@/lib/api-user';
 
 /**
- * Who is looking, for the personal parts of pages outside the header (hearts, "My favourites";
+ * Who is looking, for the personal parts of pages outside the header (hearts, "Favourites only";
  * D83). The header's account control (site-header.tsx) reads the site's Clerk session (D115) and
  * publishes the person's state here, as the e2e fixtures do in Clerk's place, and the rest of
  * the page reads it. Browser only: web's

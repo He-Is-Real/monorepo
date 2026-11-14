@@ -82,10 +82,10 @@ export function SiteHeader() {
 
 /**
  * The account area has one width whatever it holds (this placeholder while it streams in or
- * Clerk loads, and all a visitor without JavaScript gets; My favourites and "Sign in"; or the
- * signed-in control, whose name truncates to fit), so Share and the theme toggle never move when
- * it resolves: 128 px on phones (the heart and Sign in, or the avatar alone), 176 px from 640 px
- * (avatar, first name, ▾), 240 px from 1024 px (the heart with its words, and Sign in).
+ * Clerk loads, and all a visitor without JavaScript gets; "Sign in"; or the signed-in control,
+ * whose name truncates to fit), so Share and the theme toggle never move when it resolves:
+ * 128 px on phones (Sign in, or the avatar alone), 176 px from 640 px (avatar, first name, ▾),
+ * 240 px from 1024 px.
  * Its width is in rem, so it grows with the text; on a screen narrower than that it takes the
  * screen's width instead.
  */

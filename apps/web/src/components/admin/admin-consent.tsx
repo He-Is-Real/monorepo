@@ -346,7 +346,7 @@ function EditVersion({
       </div>
 
       <form onSubmit={askConfirm} className="space-y-6" noValidate>
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid gap-6 lg:grid-cols-2" data-editor-panes="">
           <div className="min-w-0">
             <label
               htmlFor={`${id}-text`}

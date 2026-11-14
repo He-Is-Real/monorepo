@@ -87,10 +87,7 @@ for (const scheme of ['light', 'dark'] as const) {
         Promise.all(el.getAnimations({ subtree: true }).map((x) => x.finished)),
       );
       await expectTarget(page, panel.getByRole('button', { name: 'Sign out' }));
-      await expectTarget(
-        page,
-        panel.getByRole('link', { name: 'My favourites' }),
-      );
+      await expectTarget(page, panel.getByRole('link', { name: 'My profile' }));
       const box = await panel.boundingBox();
       const { width, height } = page.viewportSize() ?? { width: 0, height: 0 };
       expect(
@@ -231,10 +228,6 @@ for (const [state, baseURL, resolved] of [
       home: header.getByRole('link', { name: 'He Is Real Today, home' }),
       theme: header.getByRole('button', { name: /theme/i }),
       account: header.getByRole(resolved.role, { name: resolved.name }),
-      // Signed out, My favourites sits next to Sign in (Joel, 2026-11-07).
-      ...(state === 'signed out'
-        ? { favourites: header.getByRole('link', { name: 'My favourites' }) }
-        : {}),
       ...(width < 640
         ? { menu: header.getByRole('button', { name: 'Menu' }) }
         : {
