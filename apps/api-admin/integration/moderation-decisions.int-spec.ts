@@ -28,14 +28,20 @@ import {
 import type { Surreal } from 'surrealdb';
 import { AppModule } from '../src/app/app.module';
 import { useBodyParser } from '../src/app/body-parser';
-import { STORY_FOLDERS } from '../src/app/moderation/story-media';
+import {
+  STORY_FOLDERS,
+  STORY_MEDIA_BUDGET_MS,
+} from '../src/app/moderation/story-media';
 
 /**
  * Bunny, in memory (DEL-1): records what an Admin's Delete removes at Bunny Stream and in the
- * images zone, or fails every call while `down`, as Bunny would in an outage.
+ * images zone, fails every call while `down`, as Bunny would in an outage, or never answers
+ * while `stalled`.
  */
+const NEVER = new Promise<never>(() => undefined);
 class FakeBunny implements BunnyStream {
   down = false;
+  stalled = false;
   readonly videos: string[] = [];
   readonly folders: string[] = [];
   async createVideo(): Promise<string> {
@@ -45,6 +51,7 @@ class FakeBunny implements BunnyStream {
     return null;
   }
   async deleteVideo(id: string) {
+    if (this.stalled) return NEVER;
     if (this.down) throw new Error('Bunny Stream delete answered 503');
     this.videos.push(id);
   }
@@ -53,6 +60,7 @@ class FakeBunny implements BunnyStream {
   }
   readonly zone = {
     deleteFolder: async (folder: string) => {
+      if (this.stalled) return NEVER;
       if (this.down) throw new Error('The images zone answered 503');
       this.folders.push(folder);
     },
@@ -175,6 +183,9 @@ describe('moderation, the decisions (api-admin)', () => {
       .useValue(bunny)
       .overrideProvider(STORY_FOLDERS)
       .useValue(bunny.zone)
+      // A short wait for Bunny, so the stalled-Bunny case is quick (8 s in the service).
+      .overrideProvider(STORY_MEDIA_BUDGET_MS)
+      .useValue(300)
       .compile();
     app = moduleRef.createNestApplication<NestExpressApplication>({
       logger: false,
@@ -600,6 +611,28 @@ describe('moderation, the decisions (api-admin)', () => {
     expect(bunny.folders).not.toContain(`stories/${id}/`);
     // Housekeeping deletes the folder from the queue; the video, no story's now, goes in the
     // nightly orphan sweep (its file row stays for the upload limits, D113).
+    expect(await queuedFolder(id)).toEqual([`stories/${id}/`]);
+    expect(
+      await rows(
+        migrator,
+        `SELECT VALUE [record::id(id), story] FROM type::record('storyFile', $video)`,
+        { video },
+      ),
+    ).toEqual([[video, expect.anything()]]);
+  });
+
+  it('Bunny stalled: an Admin’s Delete answers once its wait for Bunny runs out, and the clean-up still has the files', async () => {
+    const { id, video } = await videoStory();
+    bunny.stalled = true;
+    try {
+      // Bunny never answers; without the wait's limit this request would never end.
+      expect((await remove(id)).status).toBe(204);
+    } finally {
+      bunny.stalled = false;
+    }
+    expect(
+      await rows(migrator, `SELECT id FROM type::record('story', $id)`, { id }),
+    ).toEqual([]);
     expect(await queuedFolder(id)).toEqual([`stories/${id}/`]);
     expect(
       await rows(

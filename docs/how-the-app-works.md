@@ -621,7 +621,8 @@ Built (M3 plan, pull requests 1 and 6; Joel, 2026-11-09 and 2026-11-11):
   the review page of a story in any state they can open, after one "This can't be undone"
   question (as the owner's Delete). It deletes the story exactly as the owner's Delete does: its
   status log and others' hearts go with it, it leaves the site and search at once, and its videos
-  and picture folder at Bunny are deleted at once too (DEL-1, Joel 2026-11-14). If Bunny fails at
+  and picture folder at Bunny are deleted at once too (DEL-1, Joel 2026-11-14), side by side, waiting
+  at most 8 seconds for Bunny so the Admin isn't kept waiting. If Bunny fails or is still busy at
   that moment the Delete still succeeds: the nightly orphan sweep removes the videos and the
   queued picture folder is removed by the nightly clean-up, as for the owner's Delete. The person
   isn't told, beyond the story leaving My submissions. Unlike a decision, it doesn't check what the
