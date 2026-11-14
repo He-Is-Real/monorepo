@@ -429,9 +429,12 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 - With "Favourites only" on, browse's search, sort, format and theme filters stay and work on the
   favourites, kept in the address like browse's (Joel, 2026-11-14). The whole list is loaded and
   filtered in the browser (people aren't expected to have more than about 100; optimising comes
-  later). The filters mean what they mean on browse: format and theme as browse (a theme that
-  doesn't exist, or was deleted, filters nothing; a real theme none of the favourites has shows
-  none); "Latest first" and "Oldest first" by when the story was published, not when it was
+  later). The filters mean what they mean on browse. Format as browse. A theme in the address
+  applies only if browse lists that theme, one of the favourites carries it, or the theme list
+  couldn't be read; otherwise it filters nothing, as browse does for a theme that doesn't exist
+  or was deleted. A theme that applies but none of the favourites has shows none. Known
+  exception: a real theme that isn't highlighted and that no published story uses filters nothing
+  on favourites, while browse shows no stories for it. "Latest first" and "Oldest first" by when the story was published, not when it was
   hearted (Joel, 2026-11-14); search finds stories with every word of the search in the title,
   description or theme names, but not a written story's full text, which the list doesn't carry
   (Joel, 2026-11-14), ignoring case and accents and matching inside longer words; "Best match"

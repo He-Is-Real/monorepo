@@ -784,8 +784,12 @@ const browseIds = (n: number) =>
     (_, i) => `browse_${String(i + 1).padStart(2, '0')}`,
   );
 
-/** The stub's browse stories `browse_01`…`browse_08` (browse_01 published last). */
-const EIGHT = browseIds(8);
+/**
+ * The stub's browse stories `browse_01`…`browse_08` (browse_01 published last), hearted in an
+ * order unlike publication's, newest heart first (05 newest, 04 oldest), so the sort tests tell
+ * "by publish date" (FV-3 A) from "by when hearted".
+ */
+const HEART_ORDER = [5, 3, 8, 2, 6, 1, 7, 4].map((n) => `browse_0${n}`);
 /** Each card's title, from its number (03 and 08 have a long title that wraps). */
 const titleOf = (n: number) => new RegExp(`^Browse test story 0${n}\\b`);
 const titlesOf = (...ns: number[]) => ns.map(titleOf);
@@ -858,17 +862,19 @@ test.describe('filters over favourites', () => {
   }, info) => {
     const session = sessionFor(info, 'filters');
     await useSession(page, session);
-    // Hearted oldest story first, so the newest heart is browse_08.
-    await heartAtStub(request, session, [...EIGHT].reverse());
+    // Hearted oldest heart first, so the newest heart is browse_05 (HEART_ORDER).
+    await heartAtStub(request, session, [...HEART_ORDER].reverse());
     await filtersOverFavourites(page, WEB_SIGNED_IN_URL);
   });
 
   test('signed out: search, sort, format and theme filter this browser’s hearts', async ({
     page,
   }) => {
+    // Newest heart first, a minute apart (HEART_ORDER).
+    const now = Date.now();
     await seedDeviceHearts(
       page,
-      EIGHT.map((id) => ({ id })),
+      HEART_ORDER.map((id, i) => ({ id, at: now - i * 60_000 })),
     );
     await filtersOverFavourites(page, '');
   });
