@@ -3,7 +3,7 @@
 [tools]
 node = "24" # same major as .nvmrc; pnpm comes from package.json's packageManager (corepack)
 kubeconform = "0.8.0"
-opentofu = "1.13.2"
+opentofu = "1.13.9"
 gitleaks = "8.30.1"
 # Vendor CLIs used by hand (docs/tooling-and-accounts.md). CI doesn't need them.
 "npm:clerk" = "4.1.0"

@@ -23,7 +23,7 @@ env:
   KUBECONFORM_VERSION: v0.8.0
   KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
   # Keep in step with mise.toml (tf.sh refuses any other OpenTofu version).
-  TOFU_VERSION: 1.13.2
+  TOFU_VERSION: 1.13.9
   # Keep in step with mise.toml (Renovate bumps both; the checksum by hand, from the release's
   # gitleaks_<version>_checksums.txt).
   GITLEAKS_VERSION: 8.30.1
