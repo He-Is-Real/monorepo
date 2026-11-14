@@ -12,8 +12,13 @@ import {
   TestDatabase,
   trustSubmitters,
   edit,
+  step,
 } from '@heisreal/database/integration-testing';
-import type { Surreal, SurrealTransaction } from 'surrealdb';
+import {
+  StringRecordId,
+  type Surreal,
+  type SurrealTransaction,
+} from 'surrealdb';
 import { CHORES } from '../src/app/chores';
 import type { ClerkUsers } from '../src/app/clerk';
 import { pendingDeletionsTask } from '../src/app/erasure';
@@ -200,8 +205,9 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
     ).not.toHaveProperty('error');
     await media('young_draft', V.youngRef);
     await touched('young_draft', 184);
-    // Never a draft: sent 200 days ago, and sent then taken down to edit 200 days ago (only a
-    // story never sent expires, Story states 2026-11-11).
+    // Never a draft: sent 200 days ago, and sent then taken down to edit 180 days ago (only a
+    // story never sent expires as a draft, Story states 2026-11-11; a story being edited after it
+    // was sent has its own 186 days, G3 B: the suite below).
     await draft(bob, 'old_pending', 'video');
     await media('old_pending', V.pendingRef);
     await submit(bob, 'old_pending');
@@ -209,7 +215,7 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
     await draft(bob, 'old_editing', 'written');
     await submit(bob, 'old_editing');
     await edit(bob, 'old_editing');
-    await touched('old_editing', 200);
+    await touched('old_editing', 180);
     // RequestUpload twice on Bob's video draft: the first video is replaced, its row recent.
     await draft(bob, 'bob_video', 'video');
     for (const k of ['replaced', 'current']) {
@@ -424,6 +430,235 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
       }),
     ]);
     expect(library.deleted).toHaveLength(before);
+  });
+});
+
+/**
+ * G3 B (Joel, 2026-11-11, "More M3 answers"): a rejected story is deleted the settings' days (90)
+ * after its rejection, and a story left in editing after it was sent the settings' days (186)
+ * after it was last touched. Admins change both on the Limits page. Never a pending, approved or
+ * hidden story.
+ */
+describe('housekeeping: old rejected and abandoned stories', () => {
+  let t: TestDatabase;
+  let migrator: Surreal;
+  let housekeeping: Surreal;
+  let library: FakeLibrary;
+  const V = {} as Record<string, string>;
+  const logs: Record<string, unknown>[] = [];
+  const exists = async (id: string) =>
+    (await rows(migrator, `SELECT id FROM type::record('story', $id)`, { id }))
+      .length === 1;
+  const last = (...tasks: string[]) =>
+    tasks.map((task) => [...logs].reverse().find((l) => l['task'] === task));
+  const sweep = (over: Partial<TaskContext> = {}) =>
+    runTasks(
+      CHORES,
+      {
+        db: housekeeping,
+        stream: library,
+        dryRun: false,
+        maxDeletions: 50,
+        now: NOW,
+        ...over,
+      },
+      (entry) => logs.push(entry),
+    );
+  /** A moderator's decision, as a system user may write it: with its time `daysAgo`. */
+  const decided = (id: string, action: string, daysAgo: number) =>
+    step(migrator, id, action, {
+      actor: 'moderator',
+      by: new StringRecordId('user:moderator'),
+      at: new Date(Date.now() - daysAgo * 86_400_000),
+    });
+  const deletesAt = async (id: string) => {
+    const [at] = await rows<string | null>(
+      migrator,
+      `SELECT VALUE fn::story::deletes_at(id) FROM type::record('story', $id)`,
+      { id },
+    );
+    return at;
+  };
+
+  beforeAll(async () => {
+    t = await TestDatabase.create();
+    migrator = await t.migrator();
+    housekeeping = await t.service('housekeeping');
+    await createPeople(t, { cat: 'user_cat' });
+    await trustSubmitters(t, 'cat');
+    const cat = await t.person('user_cat');
+    await agreeAll(cat);
+    const video = (id: string, v: string) =>
+      run(
+        migrator,
+        `CREATE type::record('storyFile', $v) CONTENT {
+           story: type::record('story', $id), person: user:cat, format: 'video',
+           contentType: 'video/mp4', sizeBytes: 1, storyVersion: 1, at: time::now() - 200d };
+         UPDATE type::record('story', $id) SET mediaFile = type::record('storyFile', $v);`,
+        { id, v },
+      );
+    V.rejected = guid();
+
+    // Rejected 91 and 85 days ago (one with its video at Bunny).
+    await createDraft(cat, 'old_rejected', 'video');
+    await video('old_rejected', V.rejected);
+    await submit(cat, 'old_rejected');
+    await decided('old_rejected', 'rejected', 91);
+    await createDraft(cat, 'young_rejected', 'written');
+    await submit(cat, 'young_rejected');
+    await decided('young_rejected', 'rejected', 85);
+    // Sent back 200 days ago, untouched for 187 days; taken down to edit, untouched for 185.
+    await createDraft(cat, 'old_sent_back', 'written');
+    await submit(cat, 'old_sent_back');
+    await decided('old_sent_back', 'changesRequested', 200);
+    await touch(migrator, 'old_sent_back', 187);
+    await createDraft(cat, 'young_editing', 'written');
+    await submit(cat, 'young_editing');
+    await edit(cat, 'young_editing');
+    await touch(migrator, 'young_editing', 185);
+    // Waiting for review for 400 days: never deleted.
+    await createDraft(cat, 'old_pending', 'written');
+    await submit(cat, 'old_pending');
+    await touch(migrator, 'old_pending', 400);
+    // Approved, then taken down to edit: its approval is history, with a publishedAt.
+    await createDraft(cat, 'approved_then_edited', 'written');
+    await submit(cat, 'approved_then_edited');
+    await decided('approved_then_edited', 'approved', 10);
+    await edit(cat, 'approved_then_edited');
+
+    library = new FakeLibrary([story(V.rejected, ago(240))]);
+  });
+  afterAll(() => t?.close());
+
+  it('lets housekeeping read a status entry’s state and time, never who wrote it, what it said or what happened', async () => {
+    const [entry] = await rows(
+      housekeeping,
+      `SELECT status, at, comment, by, actor, action, storyVersion
+       FROM ONLY (SELECT VALUE currentStatus FROM ONLY story:old_rejected)`,
+    );
+    expect(entry).toMatchObject({ status: 'rejected' });
+    expect(entry['at']).toBeDefined();
+    for (const field of ['comment', 'by', 'actor', 'action', 'storyVersion']) {
+      expect(entry[field]).toBeUndefined();
+    }
+  });
+
+  it('lets housekeeping read only the story, state and time of every status entry, an old approval’s publishedAt never', async () => {
+    // The approval really carries a publishedAt (as the migrator sees it).
+    const [approval] = await rows(
+      migrator,
+      `SELECT publishedAt FROM storyStatusLog
+       WHERE story = story:approved_then_edited AND action = 'approved'`,
+    );
+    expect(approval['publishedAt']).toBeDefined();
+    const entries = await rows(
+      housekeeping,
+      `SELECT * FROM storyStatusLog WHERE story = story:approved_then_edited`,
+    );
+    expect(entries.map((e) => e['status']).sort()).toEqual([
+      'approved',
+      'editing',
+      'pending',
+    ]);
+    for (const entry of entries) {
+      expect(Object.keys(entry).sort()).toEqual([
+        'at',
+        'id',
+        'status',
+        'story',
+      ]);
+    }
+  });
+
+  it('dates each deletion by the one rule: 90 days after a rejection, 186 after the last touch while editing, never while pending', async () => {
+    const days = async (id: string) => {
+      const at = await deletesAt(id);
+      return at === null || at === undefined
+        ? null
+        : Math.round((Date.parse(String(at)) - Date.now()) / 86_400_000);
+    };
+    expect(await days('old_rejected')).toBe(-1);
+    expect(await days('young_rejected')).toBe(5);
+    expect(await days('old_sent_back')).toBe(-1);
+    expect(await days('young_editing')).toBe(1);
+    expect(await days('old_pending')).toBeNull();
+  });
+
+  it('refuses its delete of a story not yet due, or of any pending story', async () => {
+    await run(
+      housekeeping,
+      `DELETE story:young_rejected; DELETE story:young_editing; DELETE story:old_pending`,
+    );
+    for (const id of [
+      'young_rejected',
+      'young_editing',
+      'old_pending',
+      'approved_then_edited',
+    ]) {
+      expect(await exists(id)).toBe(true);
+    }
+  });
+
+  it('in a dry run, only reports what it would delete', async () => {
+    expect(await sweep({ dryRun: true })).toBe(0);
+    expect(last('rejected-stories', 'abandoned-stories')).toEqual([
+      expect.objectContaining({
+        task: 'rejected-stories',
+        dryRun: true,
+        selected: 1,
+        deleted: 0,
+        ids: ['old_rejected'],
+      }),
+      expect.objectContaining({
+        task: 'abandoned-stories',
+        dryRun: true,
+        selected: 1,
+        deleted: 0,
+        ids: ['old_sent_back'],
+      }),
+    ]);
+    expect(await exists('old_rejected')).toBe(true);
+    expect(await exists('old_sent_back')).toBe(true);
+  });
+
+  it('deletes the due stories, the rejected one’s video at Bunny too, and keeps the rest', async () => {
+    expect(await sweep()).toBe(0);
+    expect(last('rejected-stories', 'abandoned-stories')).toEqual([
+      expect.objectContaining({ deleted: 1, ids: ['old_rejected'] }),
+      expect.objectContaining({ deleted: 1, ids: ['old_sent_back'] }),
+    ]);
+    expect(await exists('old_rejected')).toBe(false);
+    expect(await exists('old_sent_back')).toBe(false);
+    expect(library.deleted).toEqual([V.rejected]);
+    // Gone with the story, as when its owner deletes it.
+    expect(
+      await rows(
+        migrator,
+        `SELECT id FROM storyStatusLog WHERE story IN [story:old_rejected, story:old_sent_back]`,
+      ),
+    ).toEqual([]);
+    for (const id of [
+      'young_rejected',
+      'young_editing',
+      'old_pending',
+      'approved_then_edited',
+    ]) {
+      expect(await exists(id)).toBe(true);
+    }
+  });
+
+  it('uses the times an admin saved on the Limits page', async () => {
+    // Rejected stories kept 80 days, stories being edited 184 days.
+    await run(
+      migrator,
+      `UPDATE submissionSettings:current MERGE { rejectedRetentionDays: 80, editingRetentionDays: 184 }`,
+    );
+    expect(await sweep()).toBe(0);
+    expect(last('rejected-stories', 'abandoned-stories')).toEqual([
+      expect.objectContaining({ deleted: 1, ids: ['young_rejected'] }),
+      expect.objectContaining({ deleted: 1, ids: ['young_editing'] }),
+    ]);
+    expect(await exists('old_pending')).toBe(true);
   });
 });
 

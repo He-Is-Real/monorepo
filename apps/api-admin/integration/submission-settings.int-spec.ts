@@ -40,6 +40,9 @@ describe('submission settings (api-admin)', () => {
     videoMaxBytes: 4_294_967_296,
     audioMaxBytes: 524_288_000,
     mediaMaxSeconds: 900,
+    // G3 B: the deletion times, read as their defaults before any admin saved them.
+    rejectedRetentionDays: 90,
+    editingRetentionDays: 186,
   };
   const as = (clerkUserId: string, role = 'Admin') => ({
     authorization: `Bearer ${clerk.token(clerkUserId, { role })}`,
@@ -142,6 +145,7 @@ describe('submission settings (api-admin)', () => {
       submissionsPer7Days: 2,
       videoMaxBytes: 2048 * 1_048_576,
       mediaMaxSeconds: 20 * 60,
+      rejectedRetentionDays: 60,
     };
     const saved = await save(next, '"1"');
     expect(saved.status).toBe(200);
@@ -155,6 +159,13 @@ describe('submission settings (api-admin)', () => {
         `RETURN fn::settings::submission().submissionsPer7Days`,
       ),
     ).toEqual([2]);
+    // The nightly housekeeping's deletion dates move with it (fn::story::deletes_at).
+    expect(
+      await rows(
+        migrator,
+        `RETURN fn::settings::submission().rejectedRetentionDays`,
+      ),
+    ).toEqual([60]);
     expect(await changedBy()).toEqual([
       { by: 'admin', changedByRole: 'Admin' },
     ]);
@@ -176,6 +187,8 @@ describe('submission settings (api-admin)', () => {
       [{ ...DEFAULTS, videoMaxBytes: 10_737_418_241 }, '/videoMaxBytes'],
       [{ ...DEFAULTS, mediaMaxSeconds: 59 }, '/mediaMaxSeconds'],
       [{ ...DEFAULTS, audioMaxBytes: '500' }, '/audioMaxBytes'],
+      [{ ...DEFAULTS, rejectedRetentionDays: 6 }, '/rejectedRetentionDays'],
+      [{ ...DEFAULTS, editingRetentionDays: 3651 }, '/editingRetentionDays'],
       [{ ...DEFAULTS, featured: true }, '/featured'],
     ];
     for (const [body, pointer] of cases) {

@@ -39,21 +39,27 @@ oldest first; the rest wait for the next run. One chore failing doesn't stop the
    most a week), so a stuck row never holds up the others. A picture folder is deleted one last
    time 15 minutes after its story went, once any upload link signed before then has expired.
 3. **`expired-drafts`**: deletes drafts nobody has touched for 6 months (186 days), the way a
-   person deletes their own draft. Only drafts: a story that was ever submitted is never touched.
-4. **`orphan-videos`**: deletes story videos at Bunny that no story shows. Only videos titled
+   person deletes their own draft. Only drafts (never sent).
+4. **`rejected-stories`**: deletes a rejected story 90 days after it was rejected (G3 B, Joel
+   2026-11-11), files included, the way a person deletes their own story.
+5. **`abandoned-stories`**: deletes a story left in editing after it was sent at least once (sent
+   back, its file unusable, or taken down to edit) once nobody has touched it for 186 days, by the
+   drafts' clock. Pending, approved and hidden stories are never touched. Admins change both times
+   on the Limits page (`/admin/limits`); the database holds the rule (`fn::story::deletes_at`).
+6. **`orphan-videos`**: deletes story videos at Bunny that no story shows. Only videos titled
    with a story id and in no collection (so site videos and dev-seed's clips are never touched),
    made more than 48 hours ago, and named by no story or recent file record.
-5. **`detached-files`**: deletes a video, audio file or picture its story stopped showing (replaced
+7. **`detached-files`**: deletes a video, audio file or picture its story stopped showing (replaced
    or removed), once no upload link for it can still be used (2 hours), then records it as
    removed. Already gone counts as done. Dev-seed's own pictures are only marked removed.
-6. **`old-file-rows`**: deletes file records that no longer count towards the 7-day upload limits
+8. **`old-file-rows`**: deletes file records that no longer count towards the 7-day upload limits
    and whose file is removed or whose story is gone. Their media jobs go with them. No file is
    deleted here.
-7. **`unfinished-pictures`**: opens a check job (reason `resent`) for each video whose picture at
+9. **`unfinished-pictures`**: opens a check job (reason `resent`) for each video whose picture at
    Bunny is unfinished: the result writer's lock on it ran out without Bunny confirming the
    picture, and no check of it is open (the last one gave up, say). Approval waits until it is
    finished (Joel, 2026-11-09, T4). It sends nothing: the 18:00 resend sends the job that evening.
-8. **`old-media-jobs`**: deletes media jobs 30 days after they ended. Open jobs are never deleted.
+10. **`old-media-jobs`**: deletes media jobs 30 days after they ended. Open jobs are never deleted.
 
 **18:00:** **`media-resend`** sends every media job that hasn't ended, and was last sent (or, if
 never sent, written) over 12 hours ago, to the `media-jobs` queue again, and records the send.

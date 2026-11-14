@@ -252,19 +252,21 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 
 ### Limits (admins can change these)
 
-| Limit                         | Today                           |
-| ----------------------------- | ------------------------------- |
-| A written story's text        | 200 to 10,000 characters        |
-| Video and audio stories' text | no minimum, at most 10,000      |
-| Title                         | at most 140 characters          |
-| Themes on a story             | 1 to 5, counted when submitting |
-| Open drafts per person        | 3 (never-sent stories only)     |
-| Stories sent for review       | 1 in any 7 days                 |
-| Video and audio uploads       | 5 in any 7 days                 |
-| Upload requests (any file)    | 10 an hour                      |
-| Video file size               | 4 GB                            |
-| Audio file size               | 500 MB                          |
-| Video and audio length        | 15 minutes                      |
+| Limit                         | Today                            |
+| ----------------------------- | -------------------------------- |
+| A written story's text        | 200 to 10,000 characters         |
+| Video and audio stories' text | no minimum, at most 10,000       |
+| Title                         | at most 140 characters           |
+| Themes on a story             | 1 to 5, counted when submitting  |
+| Open drafts per person        | 3 (never-sent stories only)      |
+| Stories sent for review       | 1 in any 7 days                  |
+| Video and audio uploads       | 5 in any 7 days                  |
+| Upload requests (any file)    | 10 an hour                       |
+| Video file size               | 4 GB                             |
+| Audio file size               | 500 MB                           |
+| Video and audio length        | 15 minutes                       |
+| Keeping a rejected story      | 90 days after the decision       |
+| Keeping a story being edited  | 186 days untouched (sent before) |
 
 - Pictures never count towards the 7-day upload limit. (D113)
 - Invisible zero-width characters count towards the 200-character minimum. (A2)
@@ -321,7 +323,8 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   its media is fixed, or by a moderator; G2, the owner sees it as it is) and **Not accepted** (with
   the moderator's note).
 - **Drafts and stories being edited or sent back:** continue ("Continue editing" once it was sent
-  before). Only a draft says when it will be deleted if nobody touches it.
+  before). Each says the date after which the nightly clean-up deletes it if nobody touches it
+  ("Data kept and deleted", below).
 - **Preview:** every story that isn't on the site has "Preview", the person's own "see it as others
   will" page (see Sharing a story, Steps); a published one has "View" instead.
 - **Edit (ED-1 to ED-4; it replaced Withdraw):** a story waiting for review, published or not on
@@ -554,7 +557,8 @@ Planned (M3):
 
 ## Admin pages
 
-- **Limits** (Admins): the submission limits in plain words with their units; Save
+- **Limits** (Admins): the submission limits in plain words with their units, and the two
+  deletion times (rejected stories, stories left in editing; G3 B, Joel 2026-11-11); Save
   lists the changes and asks to confirm. If another admin saved meanwhile, the page asks to
   reload. The settings keep the name and role of the admin who changed them last; there is no
   history of changes (no audit log, see Moderation).
@@ -581,6 +585,14 @@ Planned (M3):
 - **Abandoned drafts:** a draft (a story never sent for review) nobody has touched (no edit, no
   resumed upload) for 186 days (about 6 months) is deleted, with its files, by the nightly clean-up at 03:30 London time.
   (D71) The emailed warning before that comes with the Emails milestone.
+- **Rejected stories** are deleted, with their files, by the same nightly clean-up 90 days after
+  the decision; until then the person can read the moderator's note and download it with their
+  data. **Stories left in editing** after being sent at least once (sent back, or taken down with
+  Edit) are deleted once nobody has touched them for 186 days, by the same clock as drafts (last
+  edit, or a resumed upload; being sent back or taken down counts as a touch). Admins change both
+  times on the Limits page (7 to 3,650 days), and a change moves every story's date at once.
+  Waiting, published and hidden stories are never deleted this way. My submissions shows the date
+  on each such story, as for drafts. (G3 B, Joel 2026-11-11)
 - **Leftover videos** at Bunny that no story uses, older than 48 hours, are deleted by the same
   nightly clean-up. It deletes at most 50 of each kind a night. It started in "report only" mode
   and switches to real deletions after a night whose report looks right (on dev it still only

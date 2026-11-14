@@ -217,6 +217,8 @@ const SETTING_BOUNDS = {
   videoMaxBytes: { min: MIB, max: 10 * 1024 * MIB },
   audioMaxBytes: { min: MIB, max: 2 * 1024 * MIB },
   mediaMaxSeconds: { min: 60, max: 10_800 },
+  rejectedRetentionDays: { min: 7, max: 3650 },
+  editingRetentionDays: { min: 7, max: 3650 },
 };
 /** Session → `{ version, changedBy, settings }`, starting from data 0006's values. */
 const settingsState = new Map();
@@ -237,6 +239,8 @@ const settingsFor = (session) => {
         videoMaxBytes: 4096 * MIB,
         audioMaxBytes: 500 * MIB,
         mediaMaxSeconds: 900,
+        rejectedRetentionDays: 90,
+        editingRetentionDays: 186,
       },
     });
   return settingsState.get(session);
@@ -827,6 +831,10 @@ async function listFavourites(req, res, url, mine) {
 const WEEK_MS = 7 * 24 * 3600 * 1000;
 /** An untouched draft is kept 186 days (fn::story::draft_retention, plan 4e). */
 const DRAFT_RETENTION_MS = 186 * 24 * 3600 * 1000;
+/** G3 B's defaults: a rejected story 90 days, a story being edited after it was sent 186. */
+const DAY_MS = 24 * 3600 * 1000;
+const REJECTED_RETENTION_MS = 90 * DAY_MS;
+const EDITING_RETENTION_MS = 186 * DAY_MS;
 /** The settings' defaults (W3, D112: submissionSettings); a test may seed others. */
 const SETTINGS = {
   storyTextMin: 200,
@@ -1038,6 +1046,15 @@ const trimmed = (t) => [...(t ?? '').trim()].length;
  */
 /** A draft: being edited and never sent (only these count as open drafts and expire). */
 const isDraft = (st) => st.status === 'editing' && !st.submittedAt;
+/** fn::story::deletes_at (G3 B), with the default times. */
+function deletesAt(st) {
+  const after = (at, ms) => new Date(Date.parse(at) + ms).toISOString();
+  if (isDraft(st)) return after(st.updatedAt, DRAFT_RETENTION_MS);
+  if (st.status === 'editing') return after(st.updatedAt, EDITING_RETENTION_MS);
+  if (st.status === 'rejected')
+    return after(st.decidedAt ?? st.updatedAt, REJECTED_RETENTION_MS);
+  return null;
+}
 
 function storyMine(s, id, st, uploaded = () => null, own = false) {
   const ready = own && st.processing === 'ready';
@@ -1083,11 +1100,9 @@ function storyMine(s, id, st, uploaded = () => null, own = false) {
     approvedAt: null,
     createdAt: st.createdAt,
     updatedAt: st.updatedAt,
-    // api-user's rule (fn::story::draft_expires_at) with the stand-in forms' 6 months, from the
-    // last edit (this stub doesn't renew uploads).
-    draftExpiresAt: isDraft(st)
-      ? new Date(Date.parse(st.updatedAt) + DRAFT_RETENTION_MS).toISOString()
-      : null,
+    // api-user's rule (fn::story::deletes_at) with the default times, from the last edit (this
+    // stub doesn't renew uploads), or for a rejected story its decision (`decidedAt`, seeded).
+    deletesAt: deletesAt(st),
     socialMediaSharingConsent: st.socialMediaSharingConsent ?? null,
   };
 }

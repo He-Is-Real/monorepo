@@ -121,6 +121,9 @@ export interface SubmissionSettings {
   videoMaxBytes: number;
   audioMaxBytes: number;
   mediaMaxSeconds: number;
+  /** G3 B: days housekeeping keeps a rejected story, and a story left in editing after it was sent. */
+  rejectedRetentionDays: number;
+  editingRetentionDays: number;
 }
 
 /** The query that returns them (any session: everyone reads the settings). */

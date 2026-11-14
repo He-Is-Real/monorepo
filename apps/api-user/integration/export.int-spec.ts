@@ -501,7 +501,7 @@ describe('download my data', () => {
         url: expect.stringContaining(`/${draftPicture}?token=HS256-`),
       },
     });
-    expect(story(annDraft.id).draftExpiresAt).not.toBeNull();
+    expect(story(annDraft.id).deletesAt).not.toBeNull();
     expect(story(annBack.id)).toMatchObject({
       rejectionFeedback: 'Please say a little more.',
       statusHistory: [

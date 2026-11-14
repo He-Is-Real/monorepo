@@ -58,6 +58,10 @@ DEFINE INDEX OVERWRITE idem_expiry ON idempotencyKey FIELDS expiresAt;     -- ho
 --     (overridable; none if trusted; Joel, 2026-10-30);
 --   videoMaxBytes / audioMaxBytes / mediaMaxSeconds: one file's size and length (A4: 4 GB and
 --     500 MB, 15 minutes; trusted submitters get the hard ceilings, fn::settings::upload_ceilings).
+--   rejectedRetentionDays / editingRetentionDays: how long the nightly housekeeping keeps a
+--     rejected story (from its rejection) and a story left in editing after it was sent at least
+--     once (from when it was last touched, the drafts' clock): 90 and 186 days (G3 B, Joel
+--     2026-11-11: "allow admins to edit this value"; fn::story::deletes_at).
 --   The upload limits (D113, Joel 2026-10-28/30: stop people filling our video storage) are
 --   checked when an upload is recorded (storyFile_attach) and again at submit by api-user, with
 --   the values in force then ("new rules apply to everyone", Joel 2026-10-30).
@@ -94,6 +98,12 @@ DEFINE FIELD OVERWRITE audioMaxBytes ON submissionSettings TYPE int DEFAULT 5242
   ASSERT $value >= 1 AND $value <= fn::settings::upload_ceilings().audioMaxBytes;
 DEFINE FIELD OVERWRITE mediaMaxSeconds ON submissionSettings TYPE int DEFAULT 900        -- 15 minutes
   ASSERT $value >= 1 AND $value <= fn::settings::upload_ceilings().mediaMaxSeconds;
+-- G3 B (Joel, 2026-11-11): days, 7 to 3650 (ten years) each, so a typo can neither delete a
+-- story days after its feedback nor keep it for ever.
+DEFINE FIELD OVERWRITE rejectedRetentionDays ON submissionSettings TYPE int DEFAULT 90
+  ASSERT $value >= 7 AND $value <= 3650;
+DEFINE FIELD OVERWRITE editingRetentionDays ON submissionSettings TYPE int DEFAULT 186
+  ASSERT $value >= 7 AND $value <= 3650;
 DEFINE FIELD OVERWRITE changedBy     ON submissionSettings TYPE option<record<user>>;
 -- The admin's role when they made the change (a snapshot of the Clerk claim, D1); api-admin sets
 -- it with changedBy.
@@ -119,7 +129,9 @@ DEFINE FUNCTION OVERWRITE fn::settings::submission() {
     uploadRequestsPerHour: $s.uploadRequestsPerHour ?? 10,
     uploadsPer7Days: $s.uploadsPer7Days ?? 5,
     videoMaxBytes: $s.videoMaxBytes ?? 4294967296, audioMaxBytes: $s.audioMaxBytes ?? 524288000,
-    mediaMaxSeconds: $s.mediaMaxSeconds ?? 900
+    mediaMaxSeconds: $s.mediaMaxSeconds ?? 900,
+    rejectedRetentionDays: $s.rejectedRetentionDays ?? 90,
+    editingRetentionDays: $s.editingRetentionDays ?? 186
   };
 };
 -- The most any setting may allow for one upload, and what a trusted submitter gets: 10 GiB of

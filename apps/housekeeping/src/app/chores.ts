@@ -1,5 +1,6 @@
 import { expiredDraftsTask } from './drafts';
 import { pendingDeletionsTask } from './erasure';
+import { abandonedStoriesTask, rejectedStoriesTask } from './old-stories';
 import { detachedFilesTask, oldFileRowsTask } from './files';
 import {
   mediaResendTask,
@@ -12,7 +13,8 @@ import { orphanVideosTask } from './videos';
 
 /**
  * The nightly chores, run in this order: expired request keys first (nothing depends on them),
- * then expired drafts before orphaned videos, so their videos are orphans the same night; the
+ * then expired drafts, rejected stories and abandoned stories (G3 B) before orphaned videos, so
+ * their videos are orphans the same night; the
  * files stories stopped showing (R12), then the file rows that no longer count (whose media jobs
  * go with them), a check of each video whose picture at Bunny is unfinished (T4), then ended
  * media jobs 30 days old (J2), last.
@@ -25,6 +27,8 @@ export const CHORES: readonly Task[] = [
   expiredRequestKeysTask,
   pendingDeletionsTask,
   expiredDraftsTask,
+  rejectedStoriesTask,
+  abandonedStoriesTask,
   orphanVideosTask,
   detachedFilesTask,
   oldFileRowsTask,

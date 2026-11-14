@@ -32,8 +32,11 @@ export interface MyStoryRow {
   /** When it was first sent for review; null for a story never sent (a "Draft"). */
   submittedAt?: string | null;
   createdAt: string;
-  /** A draft's deletion date if nobody touches it (api-user's rule; never recomputed here). */
-  draftExpiresAt?: string | null;
+  /**
+   * When the nightly clean-up deletes it (api-user's rule; never recomputed here): a draft or a
+   * story being edited after it was sent, if nobody touches it; a rejected story (G3 B).
+   */
+  deletesAt?: string | null;
   /**
    * Plan 4e: the social media sharing consent ticked for this story at the end of its upload, or
    * null. It can't be withdrawn: deleting the story stops any future use.
@@ -82,7 +85,7 @@ const DATE = new Intl.DateTimeFormat('en-GB', {
   month: 'short',
   year: 'numeric',
 });
-/** The day a draft goes, as the UK sees it (where the site and its nightly clean-up run). */
+/** The day a story goes, as the UK sees it (where the site and its nightly clean-up run). */
 const LONG_DATE = new Intl.DateTimeFormat('en-GB', {
   day: 'numeric',
   month: 'long',
@@ -333,11 +336,23 @@ function StoryRow({
           </p>
         </div>
       )}
-      {label === 'draft' && story.draftExpiresAt && (
+      {label === 'draft' && story.deletesAt && (
         <p data-draft-expiry="" className="mb-3 text-sm text-secondary-text">
-          We’ll keep this draft until{' '}
-          {LONG_DATE.format(new Date(story.draftExpiresAt))}. If you don’t
-          change it before then, it will be deleted.
+          If you don’t change this draft, we’ll delete it after{' '}
+          {LONG_DATE.format(new Date(story.deletesAt))}.
+        </p>
+      )}
+      {(label === 'sent_back' || label === 'editing') && story.deletesAt && (
+        <p data-draft-expiry="" className="mb-3 text-sm text-secondary-text">
+          If you don’t change this story, we’ll delete it after{' '}
+          {LONG_DATE.format(new Date(story.deletesAt))}.
+        </p>
+      )}
+      {label === 'rejected' && story.deletesAt && (
+        <p data-draft-expiry="" className="mb-3 text-sm text-secondary-text">
+          We’ll delete this story after{' '}
+          {LONG_DATE.format(new Date(story.deletesAt))}. To keep our team’s
+          note, download your data before then.
         </p>
       )}
       {label === 'editing' && (
