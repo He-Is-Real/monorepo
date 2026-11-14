@@ -16,7 +16,13 @@ type Loaded =
   | { status: 'loading' }
   | { status: 'gone' }
   | { status: 'failed'; message: string }
-  | { status: 'ready'; story: ModerationStory };
+  | { status: 'ready'; story: ModerationStory; left?: boolean };
+
+/**
+ * How often an open review page checks the story is still waiting (Part 1a: it can be sent back
+ * automatically while a moderator has it open), as well as whenever the tab comes back into view.
+ */
+const RECHECK_MS = 60_000;
 
 const STATUS_LABEL: Record<string, string> = {
   pending: 'Waiting for review',
@@ -27,7 +33,8 @@ const STEP_LABEL: Record<string, string> = {
   sent: 'Sent for review',
   editStarted: 'Taken down to edit',
   changesRequested: 'Sent back for changes',
-  fileUnusable: 'Sent back: the file can’t be used',
+  // Part 1a: the system's own line ("automatically" is in the label, so no actor after it).
+  fileUnusable: 'Sent back automatically: the video couldn’t be processed',
   approved: 'Approved',
   rejected: 'Rejected',
   hiddenBySystem: 'Hidden',
@@ -68,6 +75,40 @@ export function ModerationReview({
 function Review({ id, client }: { id: string; client: ApiUser }) {
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' });
   const load = useRef(0);
+
+  // Part 1a: while the page is open, check now and then (and whenever the tab is back in view)
+  // that the story is still waiting; if it was sent back or decided meanwhile, the page says so.
+  useEffect(() => {
+    if (loaded.status !== 'ready' || loaded.left) return;
+    let stopped = false;
+    const recheck = () => {
+      if (document.visibilityState !== 'visible') return;
+      client
+        .get<ModerationStory>(
+          `/v1/moderation/stories/${encodeURIComponent(id)}`,
+        )
+        .then(
+          ({ data }) => {
+            if (!stopped && data) setLoaded({ status: 'ready', story: data });
+          },
+          (err: unknown) => {
+            if (!stopped && err instanceof ApiUserProblem && err.status === 404)
+              setLoaded((l) =>
+                l.status === 'ready' ? { ...l, left: true } : l,
+              );
+          },
+        );
+    };
+    const timer = setInterval(recheck, RECHECK_MS);
+    window.addEventListener('focus', recheck);
+    document.addEventListener('visibilitychange', recheck);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+      window.removeEventListener('focus', recheck);
+      document.removeEventListener('visibilitychange', recheck);
+    };
+  }, [client, id, loaded]);
 
   useEffect(() => {
     const mine = ++load.current;
@@ -118,9 +159,22 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
       </p>
     );
   }
-  const { story } = loaded;
+  const { story, left } = loaded;
   return (
     <>
+      {left && (
+        <p
+          role="alert"
+          className="mx-auto mb-6 max-w-measure rounded-2xl border border-link bg-card p-4"
+          data-review-left=""
+        >
+          This story is no longer waiting for review: while you had it open, it
+          was sent back automatically (its{' '}
+          {story.primaryFormat === 'audio' ? 'recording' : 'video'} couldn’t be
+          processed) or its owner took it back.{' '}
+          <Link href="/moderation">Back to the queue</Link>
+        </p>
+      )}
       <p
         className="mx-auto mb-8 max-w-measure text-sm font-semibold text-link"
         data-review-status={story.status}
@@ -139,7 +193,9 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
             </time>
           </>
         }
-        after={<History entries={story.statusLog} />}
+        after={
+          <History entries={story.statusLog} format={story.primaryFormat} />
+        }
       />
     </>
   );
@@ -163,7 +219,13 @@ function MediaNote({ story }: { story: ModerationStory }) {
 }
 
 /** The story's status log, oldest first, with moderators' notes to the person. */
-function History({ entries }: { entries: StatusEntry[] }) {
+function History({
+  entries,
+  format,
+}: {
+  entries: StatusEntry[];
+  format: ModerationStory['primaryFormat'];
+}) {
   return (
     <section
       aria-labelledby="history-heading"
@@ -181,9 +243,11 @@ function History({ entries }: { entries: StatusEntry[] }) {
           >
             <p>
               <span className="font-semibold">
-                {STEP_LABEL[e.action] ?? e.action}
-              </span>{' '}
-              {ACTOR_LABEL[e.actor]}
+                {e.action === 'fileUnusable' && format === 'audio'
+                  ? 'Sent back automatically: the recording couldn’t be processed'
+                  : (STEP_LABEL[e.action] ?? e.action)}
+              </span>
+              {e.action !== 'fileUnusable' && <> {ACTOR_LABEL[e.actor]}</>}
             </p>
             <p className="text-sm text-secondary-text">
               <time dateTime={e.at}>{sentAt(e.at)}</time>

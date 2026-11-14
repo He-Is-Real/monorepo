@@ -144,7 +144,7 @@ describe('concurrent transactions are fenced per person', () => {
   });
 
   // Db review 2, section 6 item 2: a file's processing and a status entry bump the same fence.
-  it('a video failing while a moderator approves the story: one of them conflicts, and the retry sees the other', async () => {
+  it('a video breaking while a moderator approves the story: one of them conflicts, and the retry sees the other', async () => {
     vic = await t.person('user_vic');
     await agreeAll(vic);
     await run(
@@ -168,8 +168,11 @@ describe('concurrent transactions are fenced per person', () => {
         `CREATE storyStatusLog CONTENT { story: story:vic_story, action: 'approved', by: user:moderator }`,
       )
       .collect();
-    // The video fails meanwhile (commits first).
-    await run(workflow, `UPDATE storyFile:vidvic SET processing = 'failed'`);
+    // The video breaks meanwhile (Bunny re-encodes it; commits first).
+    await run(
+      workflow,
+      `UPDATE storyFile:vidvic SET processing = 'processing'`,
+    );
     expect(await commit(approving)).toMatch(CONFLICT);
     // The retry checks from scratch: the video isn't ready, so it can't be approved.
     expect(

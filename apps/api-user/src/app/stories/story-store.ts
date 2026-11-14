@@ -54,6 +54,19 @@ export interface StoryMine {
   version: number;
   slug: string;
   status: string;
+  /**
+   * Part 1a: `unusable` while its video or audio file can't be used (fn::story::file_unusable),
+   * worked out from the current file, never stored.
+   */
+  mediaProblem: 'unusable' | null;
+  /**
+   * Part 1a (P1-1 and P1-2, Joel, 2026-11-14): while the story is still where the system sent it
+   * back because a file couldn't be used (its current status entry is fileUnusable), which file:
+   * `recording` (its video or audio) or `picture` (an audio story's picture video). Worked out from
+   * the status history, never stored on the story: null once it is sent again. With
+   * `mediaProblem` null, the new file is in: "Ready to send again".
+   */
+  unusableFile: 'recording' | 'picture' | null;
   title: string;
   description: string;
   body: string | null;
@@ -174,6 +187,8 @@ interface RawStory {
   version: number;
   slug: string;
   status: string;
+  mediaProblem?: string | null;
+  unusableFile?: string | null;
   title: string;
   description: string;
   body?: string | null;
@@ -226,6 +241,8 @@ const STORY_FIELDS = `version, slug, title,
   createdAt, updatedAt, fn::story::draft_expires_at(id) AS draftExpiresAt,
   IF socialMediaSharingConsent != NONE { record::id(socialMediaSharingConsent) } AS sharingVersion,
   socialMediaSharingConsentAgreedAt AS sharingAt,
+  IF fn::story::file_unusable($this) { 'unusable' } AS mediaProblem,
+  IF currentStatus.action = 'fileUnusable' { currentStatus.unusableFile } AS unusableFile,
   <string> id AS storyRef`;
 
 function fail400(pointer: string, message: string): never {
@@ -785,6 +802,11 @@ export class StoryStore {
       version: r.version,
       slug: r.slug,
       status: r.status,
+      mediaProblem: r.mediaProblem === 'unusable' ? 'unusable' : null,
+      unusableFile:
+        r.unusableFile === 'recording' || r.unusableFile === 'picture'
+          ? r.unusableFile
+          : null,
       title: r.title,
       description: r.description,
       body: r.body ?? null,

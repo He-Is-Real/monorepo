@@ -15,6 +15,7 @@ import {
   processed,
   rows,
   run,
+  submit,
   TestDatabase,
 } from '@heisreal/database/integration-testing';
 import { SECRET_MANAGER_CLIENT, SECRETS_PROJECT } from '@heisreal/secrets';
@@ -163,6 +164,67 @@ describe('my story: my own preview links', () => {
   afterAll(async () => {
     await app?.close();
     await t?.close();
+  });
+
+  // Part 1a (Joel, 2026-11-10): my story says when its file can't be used; worked out from the
+  // file, so a new upload clears it. P1-1 (2026-11-14): and that the system sent it back for that
+  // file, worked out from the history, until I send it again ("Ready to send again").
+  it('says my sent-back story’s file can’t be used, in the list too, until I upload another and send it', async () => {
+    const bob = await t.person('user_bob');
+    const video = randomUUID();
+    await draft(bob, 'bob_clip', { primaryFormat: 'video', body: undefined });
+    expect(
+      await grantUpload(apiUser, {
+        video,
+        story: 'bob_clip',
+        person: 'bob',
+        version: 1,
+      }),
+    ).toMatchObject({ ok: true });
+    expect(await submit(bob, 'bob_clip')).toHaveLength(1);
+    const sent = await get('/v1/account/stories/bob_clip', 'bob');
+    expect(sent.body).toMatchObject({
+      status: 'pending',
+      mediaProblem: null,
+      unusableFile: null,
+    });
+
+    // Bunny failed it for good (the result writer's write).
+    await run(
+      workflow,
+      `UPDATE type::record('storyFile', $video) SET processing = 'failed'`,
+      { video },
+    );
+    const back = await get('/v1/account/stories/bob_clip', 'bob');
+    expect(back.body).toMatchObject({
+      status: 'editing',
+      mediaProblem: 'unusable',
+      unusableFile: 'recording',
+    });
+    const list = await get('/v1/account/stories', 'bob');
+    expect(
+      list.body.data.find((s: { id: string }) => s.id === 'bob_clip'),
+    ).toMatchObject({ mediaProblem: 'unusable', unusableFile: 'recording' });
+
+    expect(
+      await grantUpload(apiUser, {
+        video: randomUUID(),
+        story: 'bob_clip',
+        person: 'bob',
+        version: back.body.version,
+      }),
+    ).toMatchObject({ ok: true });
+    const replaced = await get('/v1/account/stories/bob_clip', 'bob');
+    // "Ready to send again": still sent back for its file, and the new one is in.
+    expect(replaced.body).toMatchObject({
+      status: 'editing',
+      mediaProblem: null,
+      unusableFile: 'recording',
+    });
+    expect(await submit(bob, 'bob_clip')).toHaveLength(1);
+    expect(
+      (await get('/v1/account/stories/bob_clip', 'bob')).body,
+    ).toMatchObject({ status: 'pending', unusableFile: null });
   });
 
   it('signs my own video for an hour once Bunny has processed it, in my story only', async () => {

@@ -53,7 +53,16 @@ oldest first; the rest wait for the next run. One chore failing doesn't stop the
    Bunny is unfinished: the result writer's lock on it ran out without Bunny confirming the
    picture, and no check of it is open (the last one gave up, say). Approval waits until it is
    finished (Joel, 2026-11-09, T4). It sends nothing: the 18:00 resend sends the job that evening.
-8. **`old-media-jobs`**: deletes media jobs 30 days after they ended. Open jobs are never deleted.
+8. **`media-retry`** (Part 1a, Joel 2026-11-10): opens a check job (reason `resent`) of the file of
+   each story waiting for review, or taken off the site by the system (a `hiddenBySystem` entry;
+   P1-5, Joel 2026-11-14; never one a moderator hid), whose newest media job gave up on our side
+   (never Bunny's final failure: that story went back to its owner) and has none open, while the
+   file has given up at most 3 times (`fn::media::our_problem`): a new check on up to 3 nights.
+   After that the moderation queue shows "Can't be reviewed yet: a problem on our side" (a story
+   off the site stays off). It sends nothing: the 18:00 resend sends the job that evening.
+9. **`old-media-jobs`**: deletes media jobs 30 days after they ended, except those of a story
+   still waiting for review (P1-3, Joel 2026-11-14: they go once it is decided or deleted, so its
+   give-ups keep counting for `media-retry`). Open jobs are never deleted.
 
 **18:00:** **`media-resend`** sends every media job that hasn't ended, and was last sent (or, if
 never sent, written) over 12 hours ago, to the `media-jobs` queue again, and records the send.

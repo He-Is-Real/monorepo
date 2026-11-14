@@ -255,10 +255,19 @@ team said"), Waiting for review, Published, Not on the site right now and Not ac
 legal texts say Edit instead of Withdraw, and "admins" instead of "super admins". Dev's database
 is wiped and rebuilt for it (a new reset name in the dev cluster root, so apply that root).
 
+**In progress: "Your video couldn't be used" (part 1a).** Built, waiting to merge after Edit and
+Delete: a video or audio file Bunny still can't process after one automatic re-encode sends the
+story back to the person ("Needs a new file"), straight away even if it was published; problems
+on our side never reach the person: the nightly clean-up tries again for 3 nights, then the
+moderation queue says "Can't be reviewed yet: a problem on our side". A published story whose
+video is being fixed shows its owner "We're fixing your video", and the nightly retry covers it
+too (3 nights, then it stays off). My submissions shows "Ready to send again" once a new file is
+in, and a bad picture video on an audio story says "We couldn't use your picture" (Joel's P1
+answers, 14 November). Still to come: the moderators' "a problem on our side" for a story off the
+site waits for their list of such stories (MD-1).
+
 **Still to come:**
 
-- "Your video couldn't be used" (part 1a): a video Bunny can't use sends the story back to the
-  person with a plain message.
 - The moderators' decisions (approve, send back, reject), the story's history shown as a timeline
   including file changes, and hide and show again.
 - The block list (emails and IP addresses, permanent) and the matching wording in the legal texts.

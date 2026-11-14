@@ -130,6 +130,15 @@ function Queue({ client }: { client: ApiUser }) {
                 {FORMAT_LABEL[s.primaryFormat]} · sent{' '}
                 <time dateTime={s.submittedAt}>{sentAt(s.submittedAt)}</time>
               </span>
+              {s.mediaProblem === 'ours' && (
+                // Part 1a: our own give-ups, never the person's file; they still see "Waiting".
+                <span
+                  className="mt-2 block text-sm font-semibold text-secondary-text"
+                  data-queue-problem="ours"
+                >
+                  Can’t be reviewed yet: a problem on our side
+                </span>
+              )}
             </Link>
           </li>
         ))}

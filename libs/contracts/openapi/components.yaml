@@ -376,7 +376,7 @@ components:
         What a status log entry records (Story states, Joel 2026-11-11; ED-2 B): `sent` (the person,
         editing → pending), `editStarted` (the person pressed Edit: pending, approved or hidden →
         editing), `changesRequested` (a moderator sent it back, with a note: pending → editing),
-        `fileUnusable` (the system: its file can't be used, → editing; not written yet),
+        `fileUnusable` (the system: its file can’t be used, pending, approved or hidden → editing),
         `approved` and `rejected` (a moderator, from pending; rejected with a note),
         `hiddenBySystem` / `shownBySystem` (approved ↔ hidden while its video can't play),
         `hiddenByModerator` / `shownByModerator` (a moderator, with a reason when hiding; not written
@@ -717,7 +717,17 @@ components:
         while it is still processing, and always `null` in the list. On that route the `image` link
         lasts one hour too.
       required:
-        [id, version, status, title, primaryFormat, createdAt, updatedAt]
+        [
+          id,
+          version,
+          status,
+          title,
+          primaryFormat,
+          createdAt,
+          updatedAt,
+          mediaProblem,
+          unusableFile,
+        ]
       properties:
         id:
           type: string
@@ -727,6 +737,28 @@ components:
           type: string
         status:
           $ref: '#/components/schemas/StoryStatus'
+        mediaProblem:
+          type: [string, 'null']
+          enum: [unusable, null]
+          readOnly: true
+          description: |
+            Part 1a (Joel, 2026-11-10): `unusable` while the story's video or audio file can't be
+            used (Bunny failed it for good, after one automatic re-encode: the file is `failed`).
+            The story was sent back (`editing`); the person sees "Needs a new file" and uploads
+            another with the existing upload route. Worked out from the current file, never stored:
+            `null` again as soon as a new file is on it.
+        unusableFile:
+          type: [string, 'null']
+          enum: [recording, picture, null]
+          readOnly: true
+          description: |
+            Part 1a (P1-1 and P1-2, Joel, 2026-11-14): set while the story is still where the system
+            sent it back because a file couldn't be used (its current status entry is
+            `fileUnusable`): which file, `recording` (its video or audio file) or `picture` (an audio
+            story's picture video, made with its picture: "We couldn't use your picture"). Worked out
+            from the status history, never stored on the story; `null` otherwise, and again once it
+            is sent. With `mediaProblem` `unusable` the person sees "Needs a new file"; with
+            `mediaProblem` `null` the new file is in: "Ready to send again".
         title:
           type: string
         description:
@@ -796,7 +828,8 @@ components:
       description: |
         M3 (task 3.1): a story waiting for review, as the moderators' queue lists it. Only what
         choosing the next story needs: no words, files or submitter.
-      required: [id, version, status, title, primaryFormat, submittedAt]
+      required:
+        [id, version, status, title, primaryFormat, submittedAt, mediaProblem]
       properties:
         id:
           type: string
@@ -812,6 +845,16 @@ components:
           type: string
           format: date-time
           description: When it was sent for review (its newest `sent` status entry); the queue's order.
+        mediaProblem:
+          type: [string, 'null']
+          enum: [ours, null]
+          description: |
+            Part 1a (Joel, 2026-11-10): `ours` when its video or audio file's check gave up on our
+            side (Bunny unavailable, our worker failed, anything else; never the file's fault) and
+            the nightly housekeeping has already opened a new check on 3 nights
+            (`fn::media::our_problem`): it can't be reviewed yet. The queue shows "Can't be reviewed
+            yet: a problem on our side"; the person keeps seeing "Waiting for review". `null`
+            otherwise.
 
     StoryModeration:
       type: object

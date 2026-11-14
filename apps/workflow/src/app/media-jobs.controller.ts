@@ -15,8 +15,10 @@ import { SURREAL } from '@heisreal/database';
 import type { Surreal } from 'surrealdb';
 import { BunnyCallFailed, WRITER_BUNNY, type WriterBunny } from './bunny';
 import {
+  answerFailed,
   answerJob,
   type AnswerOutcome,
+  type AnswerResult,
   applyThumbnail,
   failJob,
   type FailureReply,
@@ -71,25 +73,47 @@ export class MediaJobsController {
    * another writer holds the lock, Bunny won't, or this writer's lock ran out first, the reply is
    * "try again later" (`retry: true`), with the job still open and nothing counted as the
    * worker's failure.
+   * Part 1a: a "failed" answer is believed only once Bunny tells the writer the same
+   * ({@link answerFailed}); the writer then asks Bunny for its one re-encode, or records the file
+   * as unusable. 503 with Bunny off: the worker tries again later.
    */
   @Post(':job/answer')
   @HttpCode(HttpStatus.OK)
   async answer(
     @Param('job') jobParam: string,
     @Body() body: unknown,
-  ): Promise<{ outcome: AnswerOutcome } | FailureReply> {
+  ): Promise<{ outcome: AnswerOutcome | 'gave_up' } | FailureReply> {
     // When the answer reached the writer (F1): taken first, before anything can wait.
     const arrivedAt = new Date().toISOString();
     const [job, video, answer] = this.parse(jobParam, body, parseMediaAnswer);
     const bunny = this.bunny;
-    const { outcome, render, thumbnail } = await answerJob(
-      this.db,
-      job,
-      video,
-      answer,
-      arrivedAt,
-      bunny !== null,
-    ).catch((err: unknown) => this.refuse(job, err));
+    let result: AnswerResult;
+    if (answer.outcome === 'failed') {
+      if (!bunny) throw new ServiceUnavailableException('Bunny is off');
+      const reply = await answerFailed(
+        this.db,
+        bunny,
+        job,
+        video,
+        arrivedAt,
+      ).catch((err: unknown) => this.refuse(job, err));
+      if (!('render' in reply)) {
+        // Bunny doesn't say failed (yet), or the writer's call to it failed (counted).
+        this.logger.warn(JSON.stringify({ job, answer: 'failed', ...reply }));
+        return reply;
+      }
+      result = reply;
+    } else {
+      result = await answerJob(
+        this.db,
+        job,
+        video,
+        answer,
+        arrivedAt,
+        bunny !== null,
+      ).catch((err: unknown) => this.refuse(job, err));
+    }
+    const { outcome, render, thumbnail } = result;
     // Ids and outcomes only: no personal data is in an answer.
     const entry = {
       job,

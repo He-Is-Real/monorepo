@@ -123,6 +123,63 @@ test.describe('moderation', () => {
     await expect(page.locator('[data-player]')).toHaveCount(0);
   });
 
+  // Part 1a (Joel, 2026-11-10): what moderators see of a file that couldn't be used.
+  test('the queue says when a story can’t be reviewed yet because of a problem on our side', async ({
+    page,
+  }) => {
+    await useSession(page, 'moderator-ours');
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation`);
+    await expect(queueItems(page)).toHaveCount(20);
+    const problems = page.locator('[data-queue-problem]');
+    await expect(problems).toHaveCount(1);
+    await expect(problems).toHaveText(
+      'Can’t be reviewed yet: a problem on our side',
+    );
+    await expect(
+      page.locator('[data-queue-item="mod_processing"] [data-queue-problem]'),
+    ).toBeVisible();
+  });
+
+  test('a story sent back automatically shows it in its history, and an open page says when it leaves', async ({
+    page,
+  }) => {
+    await useSession(page, 'moderator-left');
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_video`);
+    const history = page.locator('[data-history-entry]');
+    await expect(history).toHaveCount(3);
+    await expect(history.nth(1)).toContainText(
+      'Sent back automatically: the video couldn’t be processed',
+    );
+    await expect(history.nth(1)).not.toContainText('by ');
+    await expect(page.locator('[data-review-left]')).toHaveCount(0);
+    // Sent back while open: api-admin no longer has it under review, and the page checks
+    // again when the tab is back in view.
+    await page.route('**/v1/moderation/stories/mod_video', (route) =>
+      route.request().method() === 'OPTIONS'
+        ? route.continue()
+        : route.fulfill({
+            status: 404,
+            headers: { 'access-control-allow-origin': '*' },
+            contentType: 'application/problem+json',
+            body: JSON.stringify({
+              type: 'about:blank',
+              title: 'Not Found',
+              status: 404,
+              code: 'not_found',
+            }),
+          }),
+    );
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect(page.locator('[data-review-left]')).toContainText(
+      'This story is no longer waiting for review',
+    );
+    await expect(
+      page.locator('[data-review-left]').getByRole('link', {
+        name: 'Back to the queue',
+      }),
+    ).toHaveAttribute('href', '/moderation');
+  });
+
   test('a story no longer waiting for review says so', async ({ page }) => {
     await useSession(page, 'moderator-gone');
     await page.goto(`${WEB_SIGNED_IN_URL}/moderation/no_such_story`);

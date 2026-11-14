@@ -19,14 +19,18 @@ import {
   answerJob as writeAnswer,
   InvalidMediaJobCall,
   MAX_FAILURES,
-  type MediaAnswer,
   ANSWER_SQL,
+  answerFailed,
   answerVars,
   failJob,
   MediaJobNotFound,
+  MediaJobWrongVideo,
   parseFailure,
   parseMediaAnswer,
+  REENCODED,
+  type WriterAnswer,
 } from '../src/app/media-jobs';
+import { BunnyCallFailed, type BunnyVideoStatus } from '../src/app/bunny';
 
 /** The writer's answer, as its outcome (the render jobs it opens: picture-video.int-spec.ts). */
 const answerJob = async (...args: Parameters<typeof writeAnswer>) =>
@@ -52,8 +56,8 @@ describe('result writer: the worker’s answers → the job’s file row and the
   const guid = () => `0f0e0d0c-0b0a-4908-8706-${String(++n).padStart(12, '0')}`;
   const ready = (
     story: string,
-    extra: Partial<MediaAnswer> = {},
-  ): MediaAnswer =>
+    extra: Record<string, unknown> = {},
+  ): WriterAnswer =>
     ({
       outcome: 'ready',
       title: story,
@@ -62,7 +66,7 @@ describe('result writer: the worker’s answers → the job’s file row and the
       lengthSeconds: 95,
       thumbnailFileName: 'thumbnail.jpg',
       ...extra,
-    }) as MediaAnswer;
+    }) as WriterAnswer;
 
   /** A submitted video (or audio) story whose file is the Bunny video `video`, as api-user records it. */
   const videoStory = async (format: 'video' | 'audio' = 'video') => {
@@ -156,14 +160,14 @@ describe('result writer: the worker’s answers → the job’s file row and the
   /** A new job for `video`, answered. */
   const answer = async (
     video: string,
-    result: MediaAnswer,
+    result: WriterAnswer,
     arrivedAt = next(),
   ) => answerJob(workflow, await queue(video), video, result, arrivedAt);
   const job = async (id: string) =>
     (
       await rows(
         migrator,
-        `SELECT reasons, sends, failures, lastError, outcome, doneAt != NONE AS done
+        `SELECT reasons, sends, failures, lastError, outcome, errorType, doneAt != NONE AS done
          FROM ONLY type::record('mediaJob', $id)`,
         { id },
       )
@@ -261,7 +265,7 @@ describe('result writer: the worker’s answers → the job’s file row and the
         await answerJob(workflow, late, video, ready(story), readyAt),
       ).toBe('stale');
       expect(await job(late)).toMatchObject({ outcome: 'stale', done: true });
-      expect((await file(video))['processing']).toBe('failed');
+      expect((await file(video))['processing']).toBe('processing');
       expect(await checkedAt(video)).toBe(goneAt);
       expect(await storyRow(story)).toMatchObject({
         current: { status: 'hidden', hiddenReason: 'media_unavailable' },
@@ -338,21 +342,63 @@ describe('result writer: the worker’s answers → the job’s file row and the
     expect(await file(current)).not.toHaveProperty('processing');
   });
 
-  it('records still encoding, failed, and gone (deleted at Bunny) as not ready', async () => {
+  it('records still encoding, re-encoding after a failure, failed for good, and gone (deleted at Bunny)', async () => {
     const encoding = await videoStory();
-    const failed = await videoStory();
+    const reencoding = await videoStory();
+    const unusable = await videoStory();
     const gone = await videoStory();
 
-    await answer(encoding.video, { outcome: 'encoding' });
-    await answer(failed.video, { outcome: 'failed' });
-    await answer(gone.video, { outcome: 'gone' });
+    expect(await answer(encoding.video, { outcome: 'encoding' })).toBe(
+      'applied',
+    );
+    const first = await queue(reencoding.video);
+    expect(
+      await answerJob(
+        workflow,
+        first,
+        reencoding.video,
+        { outcome: 'failed', final: false },
+        next(),
+      ),
+    ).toBe('applied');
+    const last = await queue(unusable.video);
+    expect(
+      await answerJob(
+        workflow,
+        last,
+        unusable.video,
+        { outcome: 'failed', final: true },
+        next(),
+      ),
+    ).toBe('gave_up');
+    const lost = await queue(gone.video);
+    expect(
+      await answerJob(workflow, lost, gone.video, { outcome: 'gone' }, next()),
+    ).toBe('gave_up');
 
     expect((await file(encoding.video))['processing']).toBe('processing');
-    expect((await file(failed.video))['processing']).toBe('failed');
-    expect((await file(gone.video))['processing']).toBe('failed');
+    // Part 1a: only Bunny's final failure makes the file failed, and the job says why.
+    expect((await file(reencoding.video))['processing']).toBe('processing');
+    expect(await job(first)).toMatchObject({
+      outcome: 'applied',
+      lastError: REENCODED,
+    });
+    expect(await job(first)).not.toHaveProperty('errorType');
+    expect((await file(unusable.video))['processing']).toBe('failed');
+    expect(await job(last)).toMatchObject({
+      outcome: 'gave_up',
+      errorType: 'file_unusable',
+    });
+    // A video Bunny no longer has is never the person's fault.
+    expect((await file(gone.video))['processing']).toBe('processing');
+    expect(await job(lost)).toMatchObject({
+      outcome: 'gave_up',
+      errorType: 'other',
+      lastError: 'bunny_video_gone',
+    });
   });
 
-  it('a published story hides when its video fails and comes back when it is ready again', async () => {
+  it('a published story hides while its video is re-encoded and comes back when it is ready again', async () => {
     const { story, video } = await videoStory();
     await answer(video, ready(story));
     await submit(pat, story);
@@ -360,7 +406,7 @@ describe('result writer: the worker’s answers → the job’s file row and the
     await approve(admin, story, { superAdminSkip: true });
     expect(await isPublic(story)).toBe(true);
 
-    await answer(video, { outcome: 'failed' });
+    await answer(video, { outcome: 'failed', final: false });
     expect(await storyRow(story)).toMatchObject({
       current: {
         status: 'hidden',
@@ -389,6 +435,284 @@ describe('result writer: the worker’s answers → the job’s file row and the
     });
   });
 
+  // Part 1a (Joel, 2026-11-10): the worker's "failed" is believed only once Bunny tells the writer
+  // the same; the first such failure gets one automatic re-encode, the next makes the file
+  // unusable and sends the story back. Bunny is a fake here: what matters is what's written.
+  describe('a "failed" answer (Part 1a)', () => {
+    /**
+     * `whileReencoding` runs inside the re-encode request, before it returns: what happens at the
+     * same time (Bunny's notice arriving, or the request failing), with no timing involved.
+     */
+    const fakeBunny = (
+      status: BunnyVideoStatus | Error,
+      whileReencoding?: () => Promise<void>,
+    ) => {
+      const calls: string[] = [];
+      return {
+        calls,
+        videoStatus: async (video: string) => {
+          calls.push(`status ${video}`);
+          if (status instanceof Error) throw status;
+          return status;
+        },
+        reencode: async (video: string) => {
+          calls.push(`reencode ${video}`);
+          await whileReencoding?.();
+        },
+      };
+    };
+    const entries = async (story: string) =>
+      rows<{ action: string; actor: string }>(
+        migrator,
+        `SELECT action, actor, at FROM storyStatusLog WHERE story = type::record('story', $story)
+           ORDER BY at`,
+        { story },
+      );
+
+    it('unless Bunny says failed too, nothing is written and the worker tries again later', async () => {
+      const { video } = await videoStory();
+      const id = await queue(video);
+      for (const status of ['ready', 'encoding', 'gone'] as const) {
+        const bunny = fakeBunny(status);
+        expect(await answerFailed(workflow, bunny, id, video, next())).toEqual({
+          retry: true,
+        });
+        expect(bunny.calls).toEqual([`status ${video}`]);
+      }
+      expect(await file(video)).toEqual({});
+      expect(await job(id)).toMatchObject({ failures: 0, done: false });
+    });
+
+    it('asks Bunny nothing for a job that isn’t an open check of the video', async () => {
+      const { video } = await videoStory();
+      const other = (await videoStory()).video;
+      const id = await queue(video);
+      const bunny = fakeBunny('failed');
+      await expect(
+        answerFailed(workflow, bunny, id, other, next()),
+      ).rejects.toThrow(MediaJobWrongVideo);
+      await expect(
+        answerFailed(
+          workflow,
+          bunny,
+          '01KAAAAAAAAAAAAAAAAAAAAAAA',
+          video,
+          next(),
+        ),
+      ).rejects.toThrow(MediaJobNotFound);
+      await failJob(workflow, id, video, 'bunny_unreachable');
+      await writeAnswer(workflow, id, video, { outcome: 'encoding' }, next());
+      expect(
+        await answerFailed(workflow, bunny, id, video, next()),
+      ).toMatchObject({ outcome: 'stale' });
+      expect(bunny.calls).toEqual([]);
+      expect(await file(other)).toEqual({});
+    });
+
+    it('a waiting story: one re-encode, then Bunny’s second failure sends it back (file_unusable)', async () => {
+      const { story, video } = await videoStory();
+      await submit(pat, story);
+      const first = await queue(video, 'bunny_failed');
+      const bunny = fakeBunny('failed');
+
+      expect(
+        await answerFailed(workflow, bunny, first, video, next()),
+      ).toMatchObject({ outcome: 'applied' });
+      expect(bunny.calls).toEqual([`status ${video}`, `reencode ${video}`]);
+      expect((await file(video))['processing']).toBe('processing');
+      expect(await storyRow(story)).toMatchObject({
+        current: { status: 'pending' },
+      });
+
+      // Bunny's notice when the re-encode fails opens the next check.
+      const second = await queue(video, 'bunny_failed');
+      expect(second).not.toBe(first);
+      bunny.calls.length = 0;
+      expect(
+        await answerFailed(workflow, bunny, second, video, next()),
+      ).toMatchObject({ outcome: 'gave_up' });
+      expect(bunny.calls).toEqual([`status ${video}`]);
+      expect((await file(video))['processing']).toBe('failed');
+      expect(await job(second)).toMatchObject({
+        outcome: 'gave_up',
+        errorType: 'file_unusable',
+      });
+      expect(await storyRow(story)).toMatchObject({
+        current: { status: 'editing', actor: 'system' },
+      });
+      expect((await entries(story)).map((e) => e.action)).toEqual([
+        'sent',
+        'fileUnusable',
+      ]);
+    });
+
+    it('a published story leaves the site while Bunny re-encodes, and is sent back at once when that fails (G2)', async () => {
+      const { story, video } = await videoStory();
+      await answer(video, ready(story));
+      await submit(pat, story);
+      await approve(admin, story, { superAdminSkip: true });
+      const bunny = fakeBunny('failed');
+
+      await answerFailed(workflow, bunny, await queue(video), video, next());
+      expect(await storyRow(story)).toMatchObject({
+        current: { status: 'hidden', hiddenReason: 'media_unavailable' },
+      });
+      expect(await isPublic(story)).toBe(false);
+
+      await answerFailed(
+        workflow,
+        bunny,
+        await queue(video, 'bunny_failed'),
+        video,
+        next(),
+      );
+      expect(await storyRow(story)).toMatchObject({
+        current: { status: 'editing', actor: 'system' },
+      });
+      expect(await isPublic(story)).toBe(false);
+      expect((await entries(story)).map((e) => e.action)).toEqual([
+        'sent',
+        'approved',
+        'hiddenBySystem',
+        'fileUnusable',
+      ]);
+    });
+
+    it('Bunny’s notice that arrives while the re-encode is being asked for still gets checked (Codex r1, finding 1)', async () => {
+      const { story, video } = await videoStory();
+      await submit(pat, story);
+      const first = await queue(video, 'bunny_failed');
+      let notice: string | undefined;
+      // The re-encode fails at once: Bunny's notice reaches api-user before the request returns.
+      const bunny = fakeBunny('failed', async () => {
+        notice = await queue(video, 'bunny_failed');
+      });
+
+      expect(
+        await answerFailed(workflow, bunny, first, video, next()),
+      ).toMatchObject({ outcome: 'applied' });
+      // The notice joined a job still open (not the first, which had already ended).
+      expect(notice).toBeDefined();
+      expect(notice).not.toBe(first);
+      expect(await job(notice as string)).toMatchObject({ done: false });
+
+      expect(
+        await answerFailed(
+          workflow,
+          fakeBunny('failed'),
+          notice as string,
+          video,
+          next(),
+        ),
+      ).toMatchObject({ outcome: 'gave_up' });
+      expect((await file(video))['processing']).toBe('failed');
+      expect(await storyRow(story)).toMatchObject({
+        current: { status: 'editing', actor: 'system' },
+      });
+    });
+
+    it('asking for the re-encode isn’t proof it ran: a failure before Bunny’s notice is not final (Codex r1, finding 2)', async () => {
+      const { story, video } = await videoStory();
+      await submit(pat, story);
+      const first = await queue(video, 'bunny_failed');
+      // The request to Bunny fails: counted on the follow-up job, which stays open.
+      const refused = fakeBunny('failed', async () => {
+        throw new BunnyCallFailed('bunny_unreachable');
+      });
+      expect(
+        await answerFailed(workflow, refused, first, video, next()),
+      ).toMatchObject({ outcome: 'applied' });
+
+      // The follow-up is sent again (18:00 resend) while Bunny still shows the first failure:
+      // the writer only reads Bunny's status (never a second re-encode) and waits.
+      const followUp = await queue(video, 'resent');
+      expect(followUp).not.toBe(first);
+      expect(await job(followUp)).toMatchObject({
+        failures: 1,
+        lastError: 'bunny_unreachable',
+        done: false,
+      });
+      const bunny = fakeBunny('failed');
+      expect(
+        await answerFailed(workflow, bunny, followUp, video, next()),
+      ).toEqual({ retry: true });
+      expect(bunny.calls).toEqual([`status ${video}`]);
+      expect((await file(video))['processing']).toBe('processing');
+      // Counted, so the wait ends (as ours) if Bunny's notice never comes.
+      expect(await job(followUp)).toMatchObject({
+        failures: 2,
+        lastError: 'bunny_reencode_pending',
+        done: false,
+      });
+      expect(await storyRow(story)).toMatchObject({
+        current: { status: 'pending' },
+      });
+
+      // The re-encode runs and fails: Bunny's notice joins the open job, and now it is final.
+      expect(await queue(video, 'bunny_failed')).toBe(followUp);
+      bunny.calls.length = 0;
+      expect(
+        await answerFailed(workflow, bunny, followUp, video, next()),
+      ).toMatchObject({ outcome: 'gave_up' });
+      expect(bunny.calls).toEqual([`status ${video}`]);
+      expect(await job(followUp)).toMatchObject({
+        errorType: 'file_unusable',
+      });
+      expect(await storyRow(story)).toMatchObject({
+        current: { status: 'editing', actor: 'system' },
+      });
+    });
+
+    it('Bunny is asked to re-encode a file once only: with no notice, the follow-up gives up as ours (Codex r2)', async () => {
+      const { story, video } = await videoStory();
+      await submit(pat, story);
+      const first = await queue(video, 'bunny_failed');
+      const bunny = fakeBunny('failed');
+      const result = await answerFailed(workflow, bunny, first, video, next());
+      const followUp = (result as { followUp?: string }).followUp as string;
+      expect(followUp).toBeDefined();
+
+      // Bunny's notice never comes; the worker keeps reporting "failed" for the follow-up.
+      for (let n = 1; n < MAX_FAILURES; n++) {
+        expect(
+          await answerFailed(workflow, bunny, followUp, video, next()),
+        ).toEqual({ retry: true });
+      }
+      expect(
+        await answerFailed(workflow, bunny, followUp, video, next()),
+      ).toEqual({ retry: false, outcome: 'gave_up' });
+      expect(bunny.calls.filter((c) => c.startsWith('reencode'))).toEqual([
+        `reencode ${video}`,
+      ]);
+      expect(await job(followUp)).toMatchObject({
+        errorType: 'bunny_unavailable',
+      });
+      expect((await file(video))['processing']).toBe('processing');
+      expect(await storyRow(story)).toMatchObject({
+        current: { status: 'pending' },
+      });
+    });
+
+    it('a Bunny call that fails counts as the job’s failure (ours: bunny_unavailable at the fifth)', async () => {
+      const { video } = await videoStory();
+      const id = await queue(video);
+      const bunny = fakeBunny(new BunnyCallFailed('bunny_unreachable'));
+      for (let n = 1; n < MAX_FAILURES; n++) {
+        expect(await answerFailed(workflow, bunny, id, video, next())).toEqual({
+          retry: true,
+        });
+      }
+      expect(await answerFailed(workflow, bunny, id, video, next())).toEqual({
+        retry: false,
+        outcome: 'gave_up',
+      });
+      expect(await job(id)).toMatchObject({
+        errorType: 'bunny_unavailable',
+      });
+      expect(await file(video)).toEqual({});
+    });
+  });
+
   describe('failures (J4: the table replaces dead letters)', () => {
     it('says "try again" four times, then gives up on the fifth and drops later calls', async () => {
       const { video } = await videoStory();
@@ -414,6 +738,8 @@ describe('result writer: the worker’s answers → the job’s file row and the
         failures: 5,
         lastError: 'bunny_timeout',
         outcome: 'gave_up',
+        // Part 1a: ours, never the file's.
+        errorType: 'bunny_unavailable',
         done: true,
       });
       // Delivered again: nothing more is counted.
@@ -519,6 +845,8 @@ describe('result writer: the worker’s answers → the job’s file row and the
       {},
       { code: 'Bunny said: <file contents>' },
       { code: 'x'.repeat(65) },
+      // Part 1a: the writer's own re-encode marker is never a worker's code.
+      { code: REENCODED },
     ]) {
       expect(() => parseFailure(bad)).toThrow(InvalidMediaJobCall);
     }
@@ -570,6 +898,19 @@ describe('result writer: the worker’s answers → the job’s file row and the
       expect(Date.parse((await checkedAt(video)) as string)).toBeGreaterThan(
         Date.now() - 60_000,
       );
+    });
+
+    it('answer "failed" with Bunny off: 503, nothing written (Part 1a: the writer must confirm it with Bunny)', async () => {
+      const { video } = await videoStory();
+      const id = await queue(video);
+      expect(
+        await post(`/v1/media-jobs/${id}/answer`, {
+          videoId: video,
+          outcome: 'failed',
+        }),
+      ).toMatchObject({ status: 503 });
+      expect(await file(video)).toEqual({});
+      expect(await job(id)).toMatchObject({ done: false, failures: 0 });
     });
 
     it('failed: 200 with "try again", then "give up" on the fifth', async () => {

@@ -115,8 +115,25 @@ paths:
         - `applied`: every fact is written with `checkedAt` = when this call arrived. `ready` sets
           `processing` and, for a video, its width, height, length and Bunny's thumbnail; for an audio
           file only its length (its picture comes from the default-picture step). `encoding` sets
-          `processing` to `processing`; `failed` and `gone` set `failed`. The database then hides an
-          approved story whose file isn't ready and shows it again when the same file is.
+          `processing` to `processing`. The database then hides an approved story whose file isn't
+          ready and shows it again when the same file is.
+        - Part 1a (Joel, 2026-11-10; P1a-4 A): `failed` is believed only once Bunny tells the writer
+          the same (its own look, with the library key: the worker can never make a file unusable);
+          otherwise nothing is written and the reply is `retry: true`. 503 with Bunny off. The first
+          confirmed failure of a file: the writer sets `processing` to `processing`, ends the job
+          `applied` and opens a follow-up check job, then asks Bunny to encode it again (one
+          automatic re-encode). Bunny's notice when that ends joins the follow-up (or opens a check).
+          A confirmed failure before Bunny's own "failed" notice reached a check job opened after the
+          request isn't final yet (Bunny may still show the first failure): the writer only reads
+          Bunny's status again, never asks for a second re-encode, and counts a failure on the job
+          (`bunny_reencode_pending`; reply as `/failed`'s); after five failures the job ends `gave_up`
+          with `errorType` `bunny_unavailable`. After that notice it is final: `processing`
+          is set to `failed` and the job ends `gave_up` with `errorType` `file_unusable`, together, and
+          the database sends a story waiting for review, published or off the site back to its
+          owner. A failed call to Bunny counts as the job's failure (reply as `/failed`'s). `gone`
+          (Bunny has no such video, never the person's fault) sets `processing` to `processing` and
+          ends the job `gave_up` with `errorType` `other`. A failure is recorded only on a job still
+          open: on one already ended it is `stale`.
         The job's `doneAt` and `outcome` are set if it is still open; a job already ended keeps its
         outcome (the answer itself is still applied by the rules above). `404` if no such job exists
         (it went with its file): the worker drops the message. `400` for a malformed answer or a job
@@ -149,7 +166,7 @@ paths:
                     properties:
                       outcome:
                         type: string
-                        enum: [applied, stale, gone]
+                        enum: [applied, stale, gone, gave_up]
                   - $ref: '#/components/schemas/MediaFailureReply'
         '400':
           $ref: './components.yaml#/components/responses/BadRequest'
@@ -170,7 +187,9 @@ paths:
       description: |
         Counts the failure on the job (`failures`, `lastError`; J4: the table replaces dead letters).
         Under 5 failures: `retry: true`, and the worker leaves the job in the queue, which redelivers it
-        later. At the fifth: the job ends as `gave_up` and `retry: false`, and the worker marks it taken,
+        later. At the fifth: the job ends as `gave_up` (with `errorType` from the code: `bunny_*` codes
+        `bunny_unavailable`, the worker's own `worker_error`, anything else `other`; never
+        `file_unusable`, Part 1a) and `retry: false`, and the worker marks it taken,
         so the story's later jobs carry on. A job that has already ended counts nothing more:
         `retry: false` with its outcome. `404` if no such job exists. `400` for a malformed failure
         (`validation_failed`) or a `videoId` that isn't the job's video (`video_mismatch`): nothing
@@ -608,7 +627,10 @@ components:
         code:
           type: string
           pattern: '^[a-z][a-z0-9_]{0,63}$'
-          description: A short reason code, e.g. `bunny_unreachable`. Never file contents or personal details.
+          description: >-
+            A short reason code, e.g. `bunny_unreachable`. Never file contents or personal details.
+            `bunny_encode_failed` is refused (400): it is the result writer's own marker of the one
+            automatic re-encode (Part 1a).
     WorkflowJob:
       type: object
       description: Payload of a `workflow` job.

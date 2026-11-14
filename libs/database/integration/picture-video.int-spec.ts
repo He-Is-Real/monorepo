@@ -322,6 +322,67 @@ describe('picture videos and the picture Bunny shows (1B, part A)', () => {
     });
   });
 
+  // Part 1a, P1-2 (Joel, 2026-11-14; G17 B): when an audio story's picture video can't be used
+  // (Bunny failed it for good), its fileUnusable entry says it was the picture, so its owner reads
+  // "We couldn't use your picture" rather than being asked for a new recording.
+  describe('a picture video that can’t be used (P1-2)', () => {
+    const sentBackFor = async (id: string, render: string) => {
+      expect(await submit(pat, id)).toHaveLength(1);
+      await run(
+        workflow,
+        `UPDATE type::record('storyFile', $render) SET processing = 'failed'`,
+        { render },
+      );
+      return truth<{
+        action: string;
+        status: string;
+        unusableFile?: string;
+        at: string;
+      }>(
+        `SELECT action, status, unusableFile, at FROM storyStatusLog
+           WHERE story = type::record('story', $id) ORDER BY at DESC LIMIT 1`,
+        { id },
+      ).then((r) => r.map(({ at: _at, ...e }) => e));
+    };
+
+    it('made with the story’s picture: the entry says picture', async () => {
+      const { id, audio } = await audioDraft();
+      expect(
+        await grantImage(apiUser, {
+          story: id,
+          person: 'pat',
+          version: await versionOf(id),
+        }),
+      ).toMatchObject({ ok: true });
+      const made = await makeRender(id, audio);
+      // The result writer records the picture it was made with.
+      await run(
+        workflow,
+        `LET $s = (SELECT image FROM ONLY type::record('story', $id));
+         UPDATE type::record('storyFile', $render) SET thumbnailOf = $s.image.file`,
+        { id, render: made.render },
+      );
+      expect(made).toMatchObject({ ok: true });
+      await move(id, made.render);
+      expect(await sentBackFor(id, made.render)).toEqual([
+        { action: 'fileUnusable', status: 'editing', unusableFile: 'picture' },
+      ]);
+    });
+
+    it('on the site’s default background (no picture): the entry says recording', async () => {
+      const { id, audio } = await audioDraft();
+      const made = await makeRender(id, audio);
+      await move(id, made.render);
+      expect(await sentBackFor(id, made.render)).toEqual([
+        {
+          action: 'fileUnusable',
+          status: 'editing',
+          unusableFile: 'recording',
+        },
+      ]);
+    });
+  });
+
   describe('the jobs a person’s steps write', () => {
     it('submitting a video or audio story writes a check of its file', async () => {
       const { id, audio } = await audioDraft();

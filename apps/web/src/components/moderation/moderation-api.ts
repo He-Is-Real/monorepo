@@ -10,6 +10,11 @@ export interface QueueItem {
   title: string;
   primaryFormat: 'video' | 'audio' | 'written';
   submittedAt: string;
+  /**
+   * Part 1a: `ours` when its file's check keeps giving up on our side (after the nightly
+   * retries): it can't be reviewed yet.
+   */
+  mediaProblem?: 'ours' | null;
 }
 
 export interface QueuePage {

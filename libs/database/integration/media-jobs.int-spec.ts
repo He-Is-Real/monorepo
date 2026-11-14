@@ -71,14 +71,14 @@ describe('mediaJob: who may do what', () => {
   });
   afterAll(() => t?.close());
 
-  it('no person’s session, api-admin or the public sees a job', async () => {
+  it('no person’s session or the public sees a job; api-admin reads them for the queue (Part 1a)', async () => {
     const id = await jobFor();
-    for (const db of [pat, admin, publicRead]) {
+    for (const db of [pat, publicRead]) {
       expect(
         await rows(db, `SELECT id FROM type::record('mediaJob', $id)`, { id }),
       ).toEqual([]);
     }
-    for (const db of [apiUser, workflow, housekeeping]) {
+    for (const db of [apiUser, workflow, housekeeping, admin]) {
       expect(
         await rows(db, `SELECT VALUE id FROM type::record('mediaJob', $id)`, {
           id,
@@ -113,6 +113,82 @@ describe('mediaJob: who may do what', () => {
       { id },
     );
     expect(await job(id)).toMatchObject({ outcome: 'gone' });
+  });
+
+  // Part 1a (Joel, 2026-11-10; P1a-4 A): why a job gave up, from a fixed list, written only by the
+  // result writer, set with gave_up and only then, read only by api-admin.
+  describe('errorType (Part 1a)', () => {
+    const giveUp = (db: Surreal, id: string, errorType: unknown) =>
+      rows(
+        db,
+        `UPDATE type::record('mediaJob', $id) SET outcome = 'gave_up', doneAt = time::now(),
+           errorType = $errorType RETURN NONE`,
+        { id, errorType },
+      ).then(
+        () => ({ ok: true }),
+        (err: Error) => ({ ok: false, error: err.message }),
+      );
+    const errorTypeOf = async (id: string, db: Surreal = migrator) =>
+      (
+        await rows(
+          db,
+          `SELECT VALUE errorType FROM ONLY type::record('mediaJob', $id)`,
+          { id },
+        )
+      )[0];
+
+    it('takes only the four values, and only with gave_up', async () => {
+      for (const value of [
+        'file_unusable',
+        'bunny_unavailable',
+        'worker_error',
+        'other',
+      ]) {
+        const id = await jobFor();
+        expect(await giveUp(workflow, id, value)).toEqual({ ok: true });
+        expect(await errorTypeOf(id)).toBe(value);
+      }
+      const odd = await jobFor();
+      expect(await giveUp(workflow, odd, 'disk_full')).toMatchObject({
+        ok: false,
+      });
+      expect(await giveUp(workflow, odd, undefined)).toEqual({
+        ok: false,
+        error: expect.stringContaining('errorType when, and only when'),
+      });
+      const applied = await jobFor();
+      await expect(
+        rows(
+          workflow,
+          `UPDATE type::record('mediaJob', $id) SET outcome = 'applied', doneAt = time::now(),
+             errorType = 'other'`,
+          { id: applied },
+        ),
+      ).rejects.toThrow(/errorType when, and only when/);
+    });
+
+    it('only the result writer writes it, once; only api-admin reads it', async () => {
+      const id = await jobFor();
+      for (const db of [apiUser, housekeeping]) {
+        await run(
+          db,
+          `UPDATE type::record('mediaJob', $id) SET errorType = 'file_unusable'`,
+          { id },
+        );
+      }
+      expect(await errorTypeOf(id)).toBeUndefined();
+      expect(await giveUp(workflow, id, 'worker_error')).toEqual({ ok: true });
+      await run(
+        workflow,
+        `UPDATE type::record('mediaJob', $id) SET errorType = 'file_unusable'`,
+        { id },
+      );
+      expect(await errorTypeOf(id)).toBe('worker_error');
+      expect(await errorTypeOf(id, admin)).toBe('worker_error');
+      for (const db of [apiUser, workflow, housekeeping]) {
+        expect(await errorTypeOf(id, db)).toBeUndefined();
+      }
+    });
   });
 
   it('housekeeping deletes a job only 30 days after it ended', async () => {

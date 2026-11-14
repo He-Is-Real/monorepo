@@ -65,7 +65,9 @@
 //   `limit`, oldest sent first; a cursor it gave out) and `GET /v1/moderation/stories/{id}`, the
 //   same fixed queue for every session, Moderators and up only (sessions starting `moderator`
 //   are Moderators, `admin` Admins; everyone else 403 `role_required`). Its player and picture
-//   links point at the stub api-public-read's stand-in player and pictures.
+//   links point at the stub api-public-read's stand-in player and pictures. One waiting story
+//   says "a problem on our side" (Part 1a, `mediaProblem: ours`), and one was sent back
+//   automatically once (a `fileUnusable` entry in its history).
 // - api-admin's staff list (M3 plan PR 4): `GET /v1/admin/staff`, `PUT`/`DELETE
 //   /v1/admin/staff/{email}`, Admins only, kept per session from two baseline admins and a
 //   Moderator; checked like the real one (@heisreal.today only, the two roles, never the last
@@ -567,6 +569,8 @@ const MOD_TEXT =
 const MOD_NOTE =
   'Thank you for sharing this. Could you say a little more about what changed that winter?';
 const modHour = (n) => new Date(Date.UTC(2026, 10, 1, 9 + n, 5)).toISOString();
+/** A waiting story's queue-only `mediaProblem` (Part 1a), kept off its StoryModeration. */
+const QUEUE_PROBLEM = Symbol('queueProblem');
 /** The waiting stories, oldest sent first, as api-admin's StoryModeration. */
 const MODERATION = [
   {
@@ -574,6 +578,8 @@ const MODERATION = [
     title: 'The night I stopped running',
     primaryFormat: 'video',
     bylineName: 'Sam',
+    // Part 1a: its first file couldn't be used; a new one was uploaded and it was sent again.
+    fileUnusable: true,
     themes: [{ id: 'healing', name: 'Healing' }],
     media: [
       {
@@ -614,6 +620,8 @@ const MODERATION = [
     title: 'Singing again',
     primaryFormat: 'audio',
     bylineName: 'Jo',
+    // Part 1a: its check keeps giving up on our side.
+    queueProblem: 'ours',
     themes: [],
     media: [
       {
@@ -651,40 +659,65 @@ const MODERATION = [
   })),
 ].map((s, i) => {
   const sent = modHour(i);
-  const statusLog = s.revised
-    ? [
-        {
-          action: 'sent',
-          status: 'pending',
-          actor: 'person',
-          comment: null,
-          at: modHour(-30),
-        },
-        {
-          action: 'changesRequested',
-          status: 'editing',
-          actor: 'moderator',
-          comment: MOD_NOTE,
-          at: modHour(-28),
-        },
-        {
-          action: 'sent',
-          status: 'pending',
-          actor: 'person',
-          comment: null,
-          at: sent,
-        },
-      ]
-    : [
-        {
-          action: 'sent',
-          status: 'pending',
-          actor: 'person',
-          comment: null,
-          at: sent,
-        },
-      ];
-  const { revised: _revised, ...story } = s;
+  const resent = (back) => [
+    {
+      action: 'sent',
+      status: 'pending',
+      actor: 'person',
+      comment: null,
+      at: modHour(-30),
+    },
+    back,
+    {
+      action: 'sent',
+      status: 'pending',
+      actor: 'person',
+      comment: null,
+      at: sent,
+    },
+  ];
+  const statusLog = s.fileUnusable
+    ? resent({
+        action: 'fileUnusable',
+        status: 'editing',
+        actor: 'system',
+        comment: null,
+        at: modHour(-29),
+      })
+    : s.revised
+      ? [
+          {
+            action: 'sent',
+            status: 'pending',
+            actor: 'person',
+            comment: null,
+            at: modHour(-30),
+          },
+          {
+            action: 'changesRequested',
+            status: 'editing',
+            actor: 'moderator',
+            comment: MOD_NOTE,
+            at: modHour(-28),
+          },
+          {
+            action: 'sent',
+            status: 'pending',
+            actor: 'person',
+            comment: null,
+            at: sent,
+          },
+        ]
+      : [
+          {
+            action: 'sent',
+            status: 'pending',
+            actor: 'person',
+            comment: null,
+            at: sent,
+          },
+        ];
+  const { revised: _revised, fileUnusable, queueProblem, ...story } = s;
   return {
     ...story,
     version: s.revised ? 4 : 2,
@@ -693,6 +726,8 @@ const MODERATION = [
     body: s.primaryFormat === 'written' ? MOD_TEXT : null,
     submittedAt: sent,
     statusLog,
+    // Not part of StoryModeration: the queue's (sendQueue).
+    ...(queueProblem ? { [QUEUE_PROBLEM]: queueProblem } : {}),
   };
 });
 
@@ -720,6 +755,7 @@ function sendQueue(req, res, url) {
       title: s.title,
       primaryFormat: s.primaryFormat,
       submittedAt: s.submittedAt,
+      mediaProblem: s[QUEUE_PROBLEM] ?? null,
     })),
     nextCursor:
       next < MODERATION.length
@@ -1046,6 +1082,11 @@ function storyMine(s, id, st, uploaded = () => null, own = false) {
     version: st.version,
     slug: st.slug ?? `story-${id}`,
     status: st.status,
+    // Part 1a: a seeded story's `mediaProblem: 'unusable'` (its file failed for good).
+    mediaProblem: st.mediaProblem ?? null,
+    // P1-1, P1-2: a seeded story's `unusableFile` (the system sent it back for that file); null
+    // once it is sent again.
+    unusableFile: st.unusableFile ?? null,
     title: st.title,
     description: st.description,
     body: st.body ?? null,
@@ -1133,7 +1174,14 @@ function myDataOf(s, token, mine) {
       lastActiveAt: null,
     },
     stories: [...s.stories].reverse().map(([id, st]) => {
-      const { version: _v, media, ...rest } = storyMine(s, id, st);
+      // The export has no mediaProblem or unusableFile (StoryMine only, Part 1a).
+      const {
+        version: _v,
+        media,
+        mediaProblem: _p,
+        unusableFile: _u,
+        ...rest
+      } = storyMine(s, id, st);
       return {
         ...rest,
         onSiteNow: st.status === 'approved',
@@ -1672,6 +1720,7 @@ async function handleShare(req, res, path, url, s) {
         });
       st.status = 'pending';
       st.rejectionFeedback = null; // the note shows only while it's sent back
+      st.unusableFile = null; // P1-1: worked out from the newest status entry
       st.submittedAt ??= new Date().toISOString();
       st.version += 1;
       if (share)
@@ -1854,6 +1903,9 @@ async function handleShare(req, res, path, url, s) {
       });
       s.uploadTimes.push({ at: Date.now(), image: false });
       st.videoId = videoId;
+      // Part 1a: worked out from the file, so a new one clears it.
+      st.mediaProblem = null;
+      st.processing = null;
       st.version += 1;
       st.updatedAt = new Date().toISOString();
       return sign(videoId);

@@ -359,7 +359,7 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
       await openJob(key, 'check', 'bunny_finished');
       await run(
         workflow,
-        `UPDATE type::record('storyFile', $key) SET processing = 'failed'`,
+        `UPDATE type::record('storyFile', $key) SET processing = 'processing'`,
         { key },
       );
       expect(await statusOf(id)).toBe('hidden');
@@ -372,7 +372,7 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
       // A moderator's "show again" is an approval: it waits.
       await run(
         workflow,
-        `UPDATE type::record('storyFile', $key) SET processing = 'failed'`,
+        `UPDATE type::record('storyFile', $key) SET processing = 'processing'`,
         { key },
       );
       await run(
