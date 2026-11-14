@@ -544,7 +544,7 @@ describe('housekeeping: old rejected and abandoned stories', () => {
     }
   });
 
-  it('lets housekeeping read only the story, state and time of every status entry, an old approval’s publishedAt never', async () => {
+  it('lets housekeeping read only the story, state and time of every status entry that isn’t pending, an old approval’s publishedAt never', async () => {
     // The approval really carries a publishedAt (as the migrator sees it).
     const [approval] = await rows(
       migrator,
@@ -556,10 +556,11 @@ describe('housekeeping: old rejected and abandoned stories', () => {
       housekeeping,
       `SELECT * FROM storyStatusLog WHERE story = story:approved_then_edited`,
     );
+    // The pending ("sent") entry holds no address 30 days old, so it isn't housekeeping's to see
+    // (block list: only such entries are, so the chore can pick them without reading the address).
     expect(entries.map((e) => e['status']).sort()).toEqual([
       'approved',
       'editing',
-      'pending',
     ]);
     for (const entry of entries) {
       expect(Object.keys(entry).sort()).toEqual([
