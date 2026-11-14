@@ -286,7 +286,8 @@ test.describe('hearts', () => {
     const only = page.getByRole('switch', { name: 'Favourites only' });
     await expect(only).not.toBeChecked();
     await expect(page.getByRole('search', { name: 'Stories' })).toBeVisible();
-    await only.check();
+    await only.click();
+    await expect(only).toBeChecked();
     await expect(page).toHaveURL(FAVOURITES_ONLY);
     // Only the hearted story, and no filters: favourites can't be filtered.
     await expect(page.locator('main article h2')).toHaveText([title]);
@@ -327,17 +328,14 @@ test.describe('hearts', () => {
     await expect(page.locator('main article h2')).toHaveText([
       'Browse test story 05',
     ]);
-    await only.uncheck();
+    await only.click();
+    await expect(only).not.toBeChecked();
     await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}${HEART_PAGE}`);
-    // Browse as the address says: the heart_test theme's stories, theme chosen.
+    // Browse as the address says (the heart_test theme's stories), with its filters.
     await expect(
       cardHeart(page, `Heart test story (${info.project.name})`),
     ).toBeVisible();
-    await expect(
-      page
-        .getByRole('navigation', { name: 'Themes' })
-        .locator('[aria-current]'),
-    ).toHaveCount(1);
+    await expect(page.getByRole('search', { name: 'Stories' })).toBeVisible();
   });
 
   test('a story that stops being public leaves Favourites only', async ({
