@@ -15,9 +15,7 @@ const nextConfig = {
   reactStrictMode: true,
   // The mockups call browse "browse.html"; the page lives at /stories (M1 step 6b-1).
   async redirects() {
-    return [
-      { source: '/browse', destination: '/stories', permanent: true },
-    ];
+    return [{ source: '/browse', destination: '/stories', permanent: true }];
   },
   images: {
     // No runtime image optimiser (and no sharp) on Cloud Run: our own assets
