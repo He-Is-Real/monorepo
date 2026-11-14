@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { useStaffNavLinks } from '@/components/admin/admin-access';
 
 // The site's sections (mockups' nav). The static pages are M1 step 6b-2; Donate shows Stripe's
 // Buy Buttons where they're set (M4), otherwise a placeholder. "Impact" from the mockups waits
@@ -27,23 +28,57 @@ export const SHARE_HREF = '/share';
 const isCurrent = (pathname: string, href: string) =>
   pathname === href || pathname.startsWith(`${href}/`);
 
+const DESKTOP_LINK =
+  'relative inline-flex min-h-11 min-w-11 items-center justify-center text-sm font-medium text-secondary-text after:absolute after:inset-x-0 after:bottom-2 after:h-0.5 after:origin-left after:scale-x-0 after:bg-teal after:transition-transform hover:text-foreground hover:after:scale-x-100 aria-[current=page]:text-foreground aria-[current=page]:after:scale-x-100 motion-reduce:after:transition-none';
+const MENU_LINK =
+  'flex min-h-12 items-center text-lg text-secondary-text hover:text-foreground aria-[current=page]:font-semibold aria-[current=page]:text-foreground';
+
 /** The main navigation: one row on desktops, a second header row on tablets (plan 1.6). */
 export function NavLinks({ className = '' }: { className?: string }) {
   const pathname = usePathname() ?? '/';
+  // Staff tools (Moderation, Consent & legal) after the public links, set apart by a thin line:
+  // only for the roles they're for, once the role is known (Joel, 2026-11-14). They stay together
+  // and wrap as one group: where the row has no room for them (1280 px), they go under the
+  // public links rather than squeezing every link's words onto two lines.
+  const { links: staff, known } = useStaffNavLinks();
   return (
-    <nav aria-label="Main navigation" className={className}>
-      <ul className="flex flex-wrap items-center gap-x-5 gap-y-0 lg:gap-x-7 xl:flex-nowrap">
+    <nav
+      aria-label="Main navigation"
+      className={className}
+      data-role-known={known ? '' : undefined}
+    >
+      <ul
+        className={`flex flex-wrap items-center gap-x-5 gap-y-0 lg:gap-x-7 ${staff.length ? 'xl:justify-end' : 'xl:flex-nowrap'}`}
+      >
         {NAV_LINKS.map((l) => (
           <li key={l.href}>
             <Link
               href={l.href}
               aria-current={isCurrent(pathname, l.href) ? 'page' : undefined}
-              className="relative inline-flex min-h-11 min-w-11 items-center justify-center text-sm font-medium text-secondary-text after:absolute after:inset-x-0 after:bottom-2 after:h-0.5 after:origin-left after:scale-x-0 after:bg-teal after:transition-transform hover:text-foreground hover:after:scale-x-100 aria-[current=page]:text-foreground aria-[current=page]:after:scale-x-100 motion-reduce:after:transition-none"
+              className={DESKTOP_LINK}
             >
               {l.label}
             </Link>
           </li>
         ))}
+        {staff.length > 0 && (
+          <li
+            data-staff-links=""
+            className="flex items-center gap-x-5 whitespace-nowrap before:h-5 before:w-px before:bg-border lg:gap-x-7"
+          >
+            {staff.map((l) => (
+              <Link
+                key={l.href}
+                href={l.href}
+                data-staff-link=""
+                aria-current={isCurrent(pathname, l.href) ? 'page' : undefined}
+                className={DESKTOP_LINK}
+              >
+                {l.label}
+              </Link>
+            ))}
+          </li>
+        )}
       </ul>
     </nav>
   );
@@ -83,9 +118,10 @@ function MenuLinks({
   pathname: string;
   onLink?: () => void;
 }) {
+  const { links: staff, known } = useStaffNavLinks();
   return (
     <>
-      <nav aria-label="Menu">
+      <nav aria-label="Menu" data-role-known={known ? '' : undefined}>
         <ul>
           {NAV_LINKS.map((l) => (
             <li key={l.href} className="border-b border-border">
@@ -93,7 +129,23 @@ function MenuLinks({
                 href={l.href}
                 onClick={onLink}
                 aria-current={isCurrent(pathname, l.href) ? 'page' : undefined}
-                className="flex min-h-12 items-center text-lg text-secondary-text hover:text-foreground aria-[current=page]:font-semibold aria-[current=page]:text-foreground"
+                className={MENU_LINK}
+              >
+                {l.label}
+              </Link>
+            </li>
+          ))}
+          {staff.map((l, i) => (
+            <li
+              key={l.href}
+              data-staff-link=""
+              className={`border-b border-border${i === 0 ? ' mt-4 border-t' : ''}`}
+            >
+              <Link
+                href={l.href}
+                onClick={onLink}
+                aria-current={isCurrent(pathname, l.href) ? 'page' : undefined}
+                className={MENU_LINK}
               >
                 {l.label}
               </Link>

@@ -55,6 +55,33 @@ function useRole(): Role | undefined {
   return account.status === 'ready' ? account.account.role : undefined;
 }
 
+/**
+ * The staff pages the site's main navigation links to, for the person's role (none until it is
+ * known, nor for signed-out people and Users): Moderation for Moderators and Admins, the legal
+ * text editor for Admins (Joel, 2026-11-14). The staff pages link the rest. `known` turns true
+ * once the links are final for this page load: signed out, or api-user has answered (or failed).
+ */
+const MAIN_NAV_STAFF_PAGES = new Set(['/moderation', '/admin/consent']);
+export function useStaffNavLinks(): {
+  links: { href: string; label: string }[];
+  known: boolean;
+} {
+  const session = usePersonalSession();
+  const account = useAccountState(
+    session.status === 'signed-in' ? session.userId : null,
+  );
+  const role = account.status === 'ready' ? account.account.role : undefined;
+  return {
+    links: ADMIN_PAGES.filter(
+      (p) => MAIN_NAV_STAFF_PAGES.has(p.href) && atLeast(role, p.min),
+    ),
+    known:
+      session.status === 'signed-out' ||
+      account.status === 'ready' ||
+      account.status === 'failed',
+  };
+}
+
 /** A button whose words may wrap (200% text on a 320 px phone): full width there. */
 export const WRAPPING_BUTTON =
   'h-auto min-h-11 w-full px-5 py-2 whitespace-normal sm:w-auto';
