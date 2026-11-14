@@ -115,13 +115,14 @@ export interface ModerationStory {
 export type DecisionRoute =
   'approve' | 'request-changes' | 'reject' | 'hide' | 'show';
 
-/** What the moderator did, as the page confirms it. */
-export const DONE: Record<DecisionRoute, string> = {
+/** What the moderator did, as the page confirms it (and an Admin's Delete, P1-11). */
+export const DONE: Record<DecisionRoute | 'delete', string> = {
   approve: 'Approved. It’s on the site now.',
   'request-changes': 'Sent back. The person can read your note.',
   reject: 'Rejected. The person can read your note.',
   hide: 'Taken down. It stays off the site until a moderator shows it again.',
   show: 'Shown again. It’s back on the site.',
+  delete: 'Deleted. The story and its files are gone.',
 };
 
 const timeOnly = new Intl.DateTimeFormat('en-GB', {
@@ -165,7 +166,7 @@ export interface Refusal {
 export function decisionRefusal(
   err: unknown,
   story: Pick<ModerationStory, 'primaryFormat'>,
-  route: DecisionRoute,
+  route: DecisionRoute | 'delete',
 ): Refusal {
   const what = fileOf(story);
   const verb = route === 'show' ? 'show it again' : 'approve it';

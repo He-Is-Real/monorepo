@@ -50,9 +50,14 @@ export function reviewTag(r: Reviewed): string {
   );
 }
 
-/** `If-Match: "<reviewTag>"`; `undefined` when missing, `'invalid'` when it isn't one of ours. */
+/**
+ * `If-Match: "<reviewTag>"`; `undefined` when missing, `'invalid'` when it isn't one of ours. A
+ * draft never sent has no status entry (`entry` empty): only an Admin's Delete names one
+ * (`draft`), as no decision applies to it.
+ */
 export function parseReviewTag(
   header: string | undefined,
+  { draft = false }: { draft?: boolean } = {},
 ): Reviewed | undefined | 'invalid' {
   if (header === undefined || header.trim() === '') return undefined;
   const m = /^"([A-Za-z0-9_-]{1,2048})"$/.exec(header.trim());
@@ -65,7 +70,7 @@ export function parseReviewTag(
       Array.isArray(parts) &&
       parts.length === 3 &&
       typeof parts[0] === 'string' &&
-      parts[0] !== '' &&
+      (draft || parts[0] !== '') &&
       parts.slice(1).every((p) => p === null || typeof p === 'string')
     ) {
       return {
@@ -286,4 +291,46 @@ export async function decide(
       image: row.image ?? null,
     }),
   };
+}
+
+/**
+ * An Admin's Delete (P1-11, Joel 2026-11-14), in one transaction: refused unless the story still
+ * points at the status entry (none for a draft never sent) and the files the Admin reviewed (G14 B),
+ * then the story goes exactly as its owner's Delete takes it (ED-3): its status log and others'
+ * hearts with it (story_erasure_cascade), its search row (story_search), and its picture folder is
+ * queued for housekeeping (story_picture_folder). Its storyFile rows stay (the upload limits count
+ * them for 7 days, D113); its videos at Bunny, no longer any story's, go in the nightly orphan
+ * sweep (docs/media-runbook.md). api-admin's login may delete stories (erasure's permission).
+ */
+const DELETE_SQL = `BEGIN TRANSACTION;
+  LET $story = type::record('story', $id);
+  LET $s = (SELECT currentStatus, mediaFile, image.file AS imageFile FROM ONLY $story);
+  IF $s = NONE { THROW 'moderation_cmd:not_found' };
+  IF $s.currentStatus != (IF $entry != NONE { type::record('storyStatusLog', $entry) })
+    OR $s.mediaFile != (IF $media != NONE { type::record('storyFile', $media) })
+    OR $s.imageFile != (IF $image != NONE { type::record('storyFile', $image) }) {
+    THROW 'moderation_cmd:changed';
+  };
+  LET $gone = (DELETE $story RETURN BEFORE);
+  IF array::len($gone) = 0 { THROW 'moderation_cmd:not_written' };
+  COMMIT TRANSACTION;`;
+
+/** Deletes the story the Admin reviewed (see DELETE_SQL). */
+export async function deleteReviewed(
+  db: Surreal,
+  id: string,
+  reviewed: Reviewed,
+): Promise<void> {
+  try {
+    await retryOnConflict(() =>
+      runQuery(db, DELETE_SQL, {
+        id,
+        entry: reviewed.entry === '' ? undefined : reviewed.entry,
+        media: reviewed.media ?? undefined,
+        image: reviewed.image ?? undefined,
+      }),
+    );
+  } catch (err) {
+    throw decisionProblem(err);
+  }
 }
