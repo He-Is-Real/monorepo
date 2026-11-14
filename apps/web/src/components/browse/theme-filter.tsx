@@ -21,19 +21,42 @@ export function ThemeFilter({
   categories: ThemeCategory[];
   filters: BrowseFilters;
 }) {
+  return (
+    <ThemeLinks
+      categories={categories}
+      chosen={filters.theme}
+      hrefOf={(id) => browseHref(toggleTheme(filters, id))}
+    />
+  );
+}
+
+/**
+ * One theme to filter a list by, as links in the shared picker: browse's, and the moderators'
+ * list's (MD-4: "allow filtering by tags"). `hrefOf` gives each theme's link (the chosen one's
+ * clears it).
+ */
+export function ThemeLinks({
+  categories,
+  chosen,
+  hrefOf,
+}: {
+  categories: ThemeCategory[];
+  chosen: string | null | undefined;
+  hrefOf: (themeId: string) => string;
+}) {
   if (categories.length === 0) return null;
   return (
     <nav aria-label="Themes" className="mt-5">
       <ThemePicker
         // A new chosen theme (a link, Back) starts the picker again.
-        key={filters.theme ?? ''}
+        key={chosen ?? ''}
         categories={categories}
-        chosen={filters.theme ? [filters.theme] : []}
+        chosen={chosen ? [chosen] : []}
         renderTheme={(t) => {
-          const on = filters.theme === t.id;
+          const on = chosen === t.id;
           return (
             <Link
-              href={browseHref(toggleTheme(filters, t.id))}
+              href={hrefOf(t.id)}
               className={on ? THEME_CHIP_ON : THEME_CHIP}
               aria-current={on ? 'true' : undefined}
               scroll={false}

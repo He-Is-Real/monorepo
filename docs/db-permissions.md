@@ -120,7 +120,11 @@ their fence (see "Transactions").
 
 - **`story`: one table (R11), its content only.** `currentStatus` points at its newest status
   entry that moved it (none = a draft, never sent); `image: {file, alt}` and `mediaFile` point at its `storyFile` rows.
-  - **Read:** the owner; api-admin, workflow, housekeeping all rows; everyone else (the public,
+  - **Read:** the owner; api-admin, workflow, housekeeping all rows (api-admin's read already
+    covers the moderators' list, MD-3/MD-4, Joel 2026-11-14, so it needed no new database
+    permission: the database knows moderators only as api-admin's login, so api-admin itself
+    keeps drafts never sent, `currentStatus` NONE, to Admin sessions, on the list and on a story's
+    review answer); everyone else (the public,
     api-user's login, other people) only stories whose current entry is `approved`, and only the
     published fields. Private fields (`submitter`, the sharing consent and its date, `createdAt`)
     are the owner's and those services' only; api-user reads `submitter` only once the owner is

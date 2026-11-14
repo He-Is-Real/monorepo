@@ -4,7 +4,9 @@ import { CLERK_CONFIG, parseClerkConfig } from '@heisreal/auth';
 import { newTestClerk, type TestClerk } from '@heisreal/auth/testing';
 import { Contract } from '@heisreal/contracts/testing';
 import { SURREAL } from '@heisreal/database';
+import { StringRecordId } from 'surrealdb';
 import {
+  approve,
   buildWorld,
   draft,
   edit,
@@ -25,7 +27,7 @@ const NOTE =
   'Thank you for sharing. Could you say a little more about the day it changed?';
 
 /**
- * M3 plan PR 1 (tasks 3.1 and 3.2): the moderators' queue and one story under review, read-only,
+ * M3 plan PR 1 (tasks 3.1 and 3.2), MD-3 and MD-4: the moderators' list and one story, read-only,
  * through api-admin's real AppModule on its own login, with signing on. Every answer is checked
  * against api-admin.yaml. Concern C2: the database doesn't know who is a moderator, so each route
  * refuses a User here.
@@ -59,12 +61,14 @@ describe('moderation, the read side (api-admin)', () => {
     };
   }
 
-  async function queue(limit: number) {
+  /** Every story the list gives for `query`, page by page. */
+  async function list(query: string, limit = 50, role = 'Moderator') {
     const ids: string[] = [];
     let cursor: string | null = null;
     do {
       const page = await get(
-        `/v1/moderation/queue?limit=${limit}${cursor ? `&cursor=${cursor}` : ''}`,
+        `/v1/moderation/stories?${query}&limit=${limit}${cursor ? `&cursor=${cursor}` : ''}`,
+        { role },
       );
       expect(page.status).toBe(200);
       ids.push(...page.body.data.map((s: { id: string }) => s.id));
@@ -113,6 +117,20 @@ describe('moderation, the read side (api-admin)', () => {
     await submit(ann, 'ann_editing');
     await edit(ann, 'ann_editing');
 
+    // MD-3/MD-4: a waiting story about Doubt (the theme filter), a rejected one, and one a
+    // moderator took down.
+    await draft(ann, 'ann_doubt', {
+      themeRefs: [new StringRecordId('theme:doubt')],
+    });
+    await submit(ann, 'ann_doubt');
+    await draft(bob, 'bob_rejected');
+    await submit(bob, 'bob_rejected');
+    await step(admin, 'bob_rejected', 'rejected', { comment: NOTE });
+    await draft(bob, 'bob_hidden');
+    await submit(bob, 'bob_hidden');
+    await approve(admin, 'bob_hidden');
+    await step(admin, 'bob_hidden', 'hiddenByModerator', { comment: NOTE });
+
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(SURREAL)
       .useValue(await t.service('api_admin'))
@@ -155,33 +173,102 @@ describe('moderation, the read side (api-admin)', () => {
     await t?.close();
   });
 
-  it('the queue lists waiting stories only, oldest sent first, page by page', async () => {
-    const expected = ['ann_pending', 'ann_video', 'bob_pending'];
-    expect(await queue(1)).toEqual(expected);
-    expect(await queue(50)).toEqual(expected);
-    const page = await get('/v1/moderation/queue');
+  it('the list opens on waiting stories, oldest sent first, page by page', async () => {
+    const expected = ['ann_pending', 'ann_video', 'bob_pending', 'ann_doubt'];
+    expect(await list('', 1)).toEqual(expected);
+    expect(await list('state=pending')).toEqual(expected);
+    const page = await get('/v1/moderation/stories');
     expect(page.body.data[1]).toMatchObject({
       id: 'ann_video',
-      status: 'pending',
+      state: 'pending',
+      action: 'sent',
       title: 'Story ann_video',
       primaryFormat: 'video',
+      themes: [{ id: 'common', name: 'Common' }],
     });
+    expect(page.body.data[1].since).toBe(page.body.data[1].sentAt);
     // Unchanged since: 304.
-    const again = await get('/v1/moderation/queue', {
+    const again = await get('/v1/moderation/stories', {
       headers: { 'if-none-match': page.etag ?? '' },
     });
     expect(again.status).toBe(304);
-    expect((await get('/v1/moderation/queue?cursor=forged')).status).toBe(400);
+    for (const bad of [
+      'cursor=forged',
+      'state=approved',
+      'state=nonsense',
+      'theme=no%20spaces',
+      'limit=0',
+    ]) {
+      expect((await get(`/v1/moderation/stories?${bad}`)).status, bad).toBe(
+        400,
+      );
+    }
     // Times Date.parse takes but the database won't cast: a 400, never a 500 (Codex #210).
     for (const at of ['0', '2026-02-31T00:00:00Z', '2026-01-01T24:00:00Z']) {
       const cursor = Buffer.from(JSON.stringify([at, 'entry'])).toString(
         'base64url',
       );
       expect(
-        (await get(`/v1/moderation/queue?cursor=${cursor}`)).status,
+        (await get(`/v1/moderation/stories?cursor=${cursor}`)).status,
         at,
       ).toBe(400);
     }
+  });
+
+  it('moderators see each state that isn’t public, with what put it there; a theme narrows it', async () => {
+    const rows = async (query: string) =>
+      (await get(`/v1/moderation/stories?${query}`)).body.data.map(
+        (r: { id: string; state: string; action: string | null }) => [
+          r.id,
+          r.state,
+          r.action,
+        ],
+      );
+    expect(await rows('state=editing')).toEqual([
+      ['ann_editing', 'editing', 'editStarted'],
+    ]);
+    expect(await rows('state=hidden')).toEqual([
+      ['bob_hidden', 'hidden', 'hiddenByModerator'],
+    ]);
+    expect(await rows('state=rejected')).toEqual([
+      ['bob_rejected', 'rejected', 'rejected'],
+    ]);
+    expect(await list('state=pending&theme=doubt')).toEqual(['ann_doubt']);
+    expect(await list('state=pending&theme=common')).toEqual([
+      'ann_pending',
+      'ann_video',
+      'bob_pending',
+    ]);
+    expect(await list('state=editing&theme=doubt')).toEqual([]);
+  });
+
+  // MD-3: "admins can also see never sent drafts too".
+  it('only an Admin sees drafts never sent, on the list and on their review page', async () => {
+    const refused = await get('/v1/moderation/stories?state=draft');
+    expect([refused.status, refused.body.code]).toEqual([403, 'role_required']);
+    expect((await get('/v1/moderation/stories/ann_draft')).status).toBe(404);
+
+    expect(await list('state=draft', 1, 'Admin')).toEqual([
+      'ann_draft',
+      'bob_draft',
+    ]);
+    const page = await get('/v1/moderation/stories?state=draft', {
+      role: 'Admin',
+    });
+    expect(page.body.data[0]).toMatchObject({
+      id: 'ann_draft',
+      state: 'draft',
+      action: null,
+      sentAt: null,
+    });
+    const opened = await get('/v1/moderation/stories/ann_draft', {
+      role: 'Admin',
+    });
+    expect([
+      opened.status,
+      opened.body.status,
+      opened.body.submittedAt,
+    ]).toEqual([200, 'editing', null]);
   });
 
   it('a story under review: its words, picture and a one-hour player link, and its history with moderators’ notes', async () => {
@@ -248,12 +335,19 @@ describe('moderation, the read side (api-admin)', () => {
     expect(JSON.stringify(revised.body)).not.toMatch(/user_|submitter|"by"/);
   });
 
-  it('a published story opens too (G5: hide); a draft, one taken down to edit or no story is not found', async () => {
-    const live = await get('/v1/moderation/stories/bob_live');
-    expect([live.status, live.body.status]).toEqual([200, 'approved']);
-    for (const id of ['ann_draft', 'ann_editing', 'no_such_story']) {
-      expect((await get(`/v1/moderation/stories/${id}`)).status, id).toBe(404);
+  it('every state the list shows opens, and a published story (MD-1: Take down from its page)', async () => {
+    for (const [id, status] of [
+      ['bob_live', 'approved'],
+      ['ann_editing', 'editing'],
+      ['bob_rejected', 'rejected'],
+      ['bob_hidden', 'hidden'],
+    ]) {
+      const opened = await get(`/v1/moderation/stories/${id}`);
+      expect([opened.status, opened.body.status], id).toEqual([200, status]);
     }
+    expect((await get('/v1/moderation/stories/no_such_story')).status).toBe(
+      404,
+    );
   });
 
   it('shows an Admin, never a Moderator, the IP address a story was sent from while it is under 30 days old (block list, G21 D)', async () => {
@@ -287,7 +381,7 @@ describe('moderation, the read side (api-admin)', () => {
   // M3 plan concern C2: the role check is the only thing between a User and these routes.
   it('a User is refused on both routes', async () => {
     for (const path of [
-      '/v1/moderation/queue',
+      '/v1/moderation/stories',
       '/v1/moderation/stories/ann_video',
     ]) {
       const refused = await get(path, { role: 'User', sub: 'user_ann' });

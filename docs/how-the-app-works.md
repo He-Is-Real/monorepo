@@ -81,11 +81,11 @@ code does what it does today; nobody should build on either reading.
   staff menu), so taking that email off an account ends their staff powers at the next token,
   within about a minute.
 
-  | Role      | Can do (G24, Joel 2026-11-11)                                                                                                                              |
-  | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-  | User      | Share stories, hearts, their own account                                                                                                                   |
-  | Moderator | The moderation queue: approve, send back, reject, hide and show again                                                                                      |
-  | Admin     | Everything a Moderator can, plus themes, submission limits, legal texts, "approve anyway", reading drafts (every story), the block list and the Staff page |
+  | Role      | Can do (G24, Joel 2026-11-11)                                                                                                                                           |
+  | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | User      | Share stories, hearts, their own account                                                                                                                                |
+  | Moderator | The moderators' list (every story not on the site, except drafts never sent): approve, send back, reject, take down and show again                                      |
+  | Admin     | Everything a Moderator can, plus drafts never sent on the moderators' list, themes, submission limits, legal texts, "approve anyway", the block list and the Staff page |
 
 - **Staff (S-1 to S-4, G7, G8 B; Joel 2026-11-11):** Admins add, change and remove Moderators and
   Admins on the Staff page (`/admin/staff`). Only `@heisreal.today` emails can be staff (G7). There
@@ -550,23 +550,37 @@ Built (M3 plan, pull requests 1 and 6; Joel, 2026-11-09 and 2026-11-11):
 - **Who:** Moderators and Admins. The staff menu shows "Moderation" to both; the other staff
   pages are for Admins only (G24). The database knows moderators only as api-admin's login,
   so api-admin checks the role on every moderation request and refuses anyone below Moderator.
-- **The queue** (`/moderation`): the stories waiting for review, the one sent longest ago first
-  (a story sent again after changes goes to the back), 20 at a time with "Show more". Each shows
-  its title, kind (video, audio, written) and when it was sent.
+- **The moderators' list** (`/moderation`; MD-3 and MD-4, Joel 2026-11-14; it replaced the queue):
+  one page for Moderators and Admins listing every story that is not on the site, one state at a
+  time: waiting for review, being edited (sent back by a moderator, or its owner pressed Edit),
+  taken down (by a moderator, or by the site while its video or audio can't play) and rejected.
+  Admins also see drafts never sent ("visibility of users who might be preparing spam or other
+  malicious activities"); Moderators never do, on the list or by a story's address. It opens on
+  "Waiting for review", oldest first (the one sent longest ago; a story sent again after changes
+  goes to the back), and each state lists oldest first by when the story entered it. One theme
+  narrows it (the same theme picker as browse). It is a table, not story cards: title and kind,
+  state (with what put it there), themes, and the dates (sent, when it entered its state, when it
+  last changed), 20 at a time with "Show more". Each title opens the review page.
+- **Take down from the story's page (MD-1, Joel 2026-11-14):** a signed-in Moderator or Admin sees
+  "Take down" under a published story on the public site. It opens the review page's own
+  take-down form (a reason is required) and takes the story off the site the same way. Nobody else
+  sees it: the page itself is the same for everyone; the button appears in the moderator's browser
+  once their role is known.
 - **The review page** (`/moderation/{id}`): the story as the public would see it, built from the
   public story page's own parts (player or picture, title, byline, themes, words), with the
   player's playback-speed menu on; then what the moderator can do with it; then its history as a
   timeline, oldest first (M3-7): each step (sent, sent again, sent back with the note, taken down
   to edit, approved, rejected, taken down with the reason, shown again, a new file or picture,
   words changed, a file that can't be used), whether the person, a moderator or the system made
-  it, when, and any note a moderator left. A story waiting for review, published or hidden opens;
-  any other says it isn't waiting for review.
+  it, when, and any note a moderator left. Any story on the list opens (a draft never sent for
+  Admins only), and a published one; only a waiting, published or hidden story has a decision to
+  make, so one being edited or rejected is read only.
 - **Decisions (M3 basics, Joel 2026-11-11):** on a waiting story, Approve, Send back or Reject.
   Send back and Reject need a note of 1 to 2,000 characters, written pastorally: the person reads
   it as "What our team said". Moderators and admins may decide on their own stories. On a
-  published story, Take down with a reason (G5), which the person can read in Download my data;
-  their profile says "Taken down by our team", and only a moderator shows it again (Show again,
-  on the hidden story). The page confirms each decision and shows the story as it now is.
+  published story, Take down with a reason (G5); their profile says "Taken down by our team" with
+  the reason under "What our team said", like a sent-back note (MD-2, Joel 2026-11-14), and it is
+  in Download my data. Only a moderator shows it again (Show again, on the hidden story). The page confirms each decision and shows the story as it now is.
 - **Approve anyway is Admin only (G24)**, offered after an approval was refused because the media
   is still being processed; never during the upload link's time (G11 B).
 - **Refusals in plain words** (Joel, 2026-11-09: never codes): for example "The video is still
@@ -584,7 +598,7 @@ Built (M3 plan, pull requests 1 and 6; Joel, 2026-11-09 and 2026-11-11):
 Planned (M3):
 
 - **No pick-up locking, escalation or assignment** (Joel, 2026-11-11): any moderator can decide on
-  any story in the queue. How assignment should look is for later, once the basics are visible.
+  any story waiting for review. How assignment should look is for later, once the basics are visible.
 - **No appeal process** (G20, Joel 2026-11-11): the rejection message points the person to
   info@heisreal.today.
 - **No content notes** on distressing stories (G19, Joel 2026-11-11).

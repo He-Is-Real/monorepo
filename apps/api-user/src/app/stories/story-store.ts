@@ -207,13 +207,16 @@ interface RawStory {
  * What its owner sees of a story's status log (R6), in their own session (they read their own
  * entries, never who moderated): the real status (G2: a hidden story shows as hidden), the
  * moderator's note while the story is sent back for changes or rejected ("What our team said"),
- * whether a moderator took it down (G5: "Taken down by our team"),
+ * whether a moderator took it down (G5: "Taken down by our team") and their reason (MD-2, Joel
+ * 2026-11-14: shown like a sent-back note),
  * the first time it was sent and the first publication's. A story being edited that was never sent
  * (no `submittedAt`) is a "Draft". GetStory and "download my data" (my-data.ts).
  */
 export const OWNER_STATUS_FIELDS = `
   ${STORY_STATUS} AS status,
-  IF currentStatus.action IN ['changesRequested', 'rejected'] { currentStatus.comment }
+  IF currentStatus.action IN ['changesRequested', 'rejected', 'hiddenByModerator'] {
+    currentStatus.comment
+  }
     AS rejectionFeedback,
   currentStatus.action = 'hiddenByModerator' AS takenDown,
   array::min(SELECT VALUE at FROM storyStatusLog WHERE story = $parent.id AND action = 'sent')

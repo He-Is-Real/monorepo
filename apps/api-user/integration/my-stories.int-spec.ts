@@ -292,7 +292,7 @@ describe('my stories: edit and delete', () => {
     expect((await remove('ann', id, 1)).status).toBe(404);
   });
 
-  it('shows the owner the real status: hidden as hidden (G2), and a moderator’s note while sent back or rejected', async () => {
+  it('shows the owner the real status: hidden as hidden (G2), and a moderator’s note while sent back, rejected or taken down (MD-2)', async () => {
     const hidden = await create('ann');
     expect((await submit('ann', hidden, 1)).status).toBe(200);
     await approve(admin, hidden);
@@ -304,7 +304,8 @@ describe('my stories: edit and delete', () => {
     );
     expect(await mine('ann', hidden)).toMatchObject({
       status: 'hidden',
-      rejectionFeedback: null,
+      takenDown: true,
+      rejectionFeedback: 'Checking something',
     });
     const listed = await call(
       'GET',

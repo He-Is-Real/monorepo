@@ -770,14 +770,17 @@ components:
           type: [string, 'null']
           description: |
             "What our team said": the moderator's pastoral feedback while the story is sent back
-            for changes (`editing` after `changesRequested`) or rejected; `null` otherwise.
+            for changes (`editing` after `changesRequested`) or rejected, and the reason while a
+            moderator has taken it down (`hidden` after `hiddenByModerator`, MD-2, Joel
+            2026-11-14); `null` otherwise.
         takenDown:
           type: boolean
           description: |
             G5: `true` while a moderator has hidden the story (`hidden` after their
             `hiddenByModerator` entry): the person sees "Taken down by our team" rather than "Not
             on the site right now" (the system's hide while a video can't play). The reason stays
-            on the status log (Download my data). Sent by api-user (absent means `false`).
+            in `rejectionFeedback` (MD-2) and on the status log (Download my data). Sent by api-user
+            (absent means `false`).
         submittedAt:
           type: [string, 'null']
           format: date-time
@@ -814,33 +817,67 @@ components:
             - $ref: '#/components/schemas/Agreement'
             - type: 'null'
 
-    ModerationQueueItem:
+    ModerationListItem:
       type: object
       description: |
-        M3 (task 3.1): a story waiting for review, as the moderators' queue lists it. Only what
-        choosing the next story needs: no words, files or submitter.
-      required: [id, version, status, title, primaryFormat, submittedAt]
+        MD-4 (Joel, 2026-11-14): a story that isn't public, as the moderators' list shows it, a
+        table row: its state, title, themes and dates. No words beyond the title, no files, no
+        submitter.
+      required:
+        [
+          id,
+          state,
+          action,
+          title,
+          primaryFormat,
+          themes,
+          since,
+          sentAt,
+          updatedAt,
+        ]
       properties:
         id:
           type: string
-        version:
-          $ref: '#/components/schemas/Version'
-        status:
-          $ref: '#/components/schemas/StoryStatusLogged'
+        state:
+          type: string
+          enum: [pending, editing, hidden, rejected, draft]
+          description: The list's `state` it was asked for (`draft` = editing, never sent).
+        action:
+          description: |
+            What put it in this state (its current status entry's action), e.g. `changesRequested`
+            or `editStarted` for `editing`, `hiddenByModerator` or `hiddenBySystem` for `hidden`;
+            `null` for a draft.
+          oneOf:
+            - $ref: '#/components/schemas/StoryStatusAction'
+            - type: 'null'
         title:
           type: string
         primaryFormat:
           $ref: '#/components/schemas/Format'
-        submittedAt:
+        themes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ThemeRef'
+        since:
           type: string
           format: date-time
-          description: When it was sent for review (its newest `sent` status entry); the queue's order.
+          description: |
+            When it entered this state (its current status entry; a draft: when it was started);
+            the list's order. For `pending` the time it was sent, for `hidden` the time it was
+            taken down.
+        sentAt:
+          type: [string, 'null']
+          format: date-time
+          description: When it was last sent for review; `null` for a draft.
+        updatedAt:
+          type: string
+          format: date-time
+          description: When the story last changed.
 
     StoryModeration:
       type: object
       description: |
-        M3 (task 3.2; M3 plan PR 6): the moderator's view of a story waiting for review, published
-        or hidden: what the public would see (words, themes, picture, player, byline) plus its
+        M3 (task 3.2; M3 plan PR 6; MD-4): the moderator's view of a story in any state: what the public would see (words, themes, picture, player, byline) plus its
         processing state, its status log with past moderators' notes, and the `reviewTag` its
         decisions name. Testimonies are Art 9 data, so it carries the least about the person: no
         account id, join date, email or name (Clerk's), and nobody's user id on the log entries.
@@ -869,9 +906,10 @@ components:
           $ref: '#/components/schemas/Version'
         status:
           type: string
-          enum: [pending, approved, hidden]
+          enum: [editing, pending, approved, hidden, rejected]
           description: |
             `pending`: approve, send back or reject. `approved`: hide. `hidden`: show again.
+            `editing` (a draft when `submittedAt` is `null`) and `rejected`: nothing to decide.
         reviewTag:
           type: string
           description: |
@@ -907,9 +945,11 @@ components:
           items:
             $ref: '#/components/schemas/ThemeRef'
         submittedAt:
-          type: string
+          type: [string, 'null']
           format: date-time
-          description: When it was last sent for review (its newest `sent` status entry).
+          description: |
+            When it was last sent for review (its newest `sent` status entry); `null` for a draft
+            never sent (Admins only, MD-3).
         senderIp:
           type: [string, 'null']
           description: |

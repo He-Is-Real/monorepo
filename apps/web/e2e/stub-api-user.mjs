@@ -61,10 +61,12 @@
 //   session from a small catalogue (Topics, Feelings, Journeys and Other, with story counts); a
 //   save of the whole picture is checked like the real one (Other kept, names tidied, no
 //   duplicates ignoring case, 428 without If-Match, 412 unless it's the version read).
-// - api-admin's moderation read side (M3 plan PR 1): `GET /v1/moderation/queue` (pages of 20, or
-//   `limit`, oldest sent first; a cursor it gave out) and `GET /v1/moderation/stories/{id}`, the
-//   same fixed queue for every session, Moderators and up only (sessions starting `moderator`
-//   are Moderators, `admin` Admins; everyone else 403 `role_required`). Its player and picture
+// - api-admin's moderation read side (MD-3, MD-4): `GET /v1/moderation/stories` (the moderators'
+//   list: `state`, default pending, and `theme`; pages of 20, or `limit`, oldest first; a cursor
+//   it gave out; drafts Admins only) and `GET /v1/moderation/stories/{id}` (any state; a draft
+//   Admins only), the same fixed stories for every session as its decisions left them,
+//   Moderators and up only (sessions starting `moderator` are Moderators, `admin` Admins;
+//   everyone else 403 `role_required`). Its player and picture
 //   links point at the stub api-public-read's stand-in player and pictures.
 // - api-admin's decisions (M3 plan PR 6): `POST /v1/moderation/stories/{id}/{approve,
 //   request-changes,reject,hide,show}`, per session, with the real one's checks: `If-Match` the
@@ -774,8 +776,65 @@ const MODERATION = [
   };
 });
 
-/** Stories moderators open that aren't in the queue: published, or taken down (G5). */
+/**
+ * More stories moderators open: published (one of them the stub api-public-read's walking
+ * skeleton, for MD-1's Take down on its public page), taken down (G5) and the other states the
+ * list shows (MD-3), and two waiting ones the decisions' tests use, sent after the rest.
+ */
 const MOD_EXTRA = [
+  {
+    id: 'dev_seed',
+    title: 'Test story: walking skeleton',
+    status: 'approved',
+    log: [
+      ['sent', 'pending', 'person', null],
+      ['approved', 'approved', 'moderator', null],
+    ],
+  },
+  {
+    id: 'mod_sent_back',
+    title: 'Waiting for a word',
+    status: 'editing',
+    themes: [{ id: 'doubt', name: 'Doubt' }],
+    log: [
+      ['sent', 'pending', 'person', null],
+      ['changesRequested', 'editing', 'moderator', MOD_NOTE],
+    ],
+  },
+  {
+    id: 'mod_editing',
+    title: 'Changing a line',
+    status: 'editing',
+    log: [
+      ['sent', 'pending', 'person', null],
+      ['editStarted', 'editing', 'person', null],
+    ],
+  },
+  {
+    id: 'mod_rejected',
+    title: 'Not for this site',
+    status: 'rejected',
+    log: [
+      ['sent', 'pending', 'person', null],
+      ['rejected', 'rejected', 'moderator', 'Thank you for sharing this.'],
+    ],
+  },
+  {
+    id: 'mod_hidden_by_site',
+    title: 'A video that stopped playing',
+    status: 'hidden',
+    log: [
+      ['sent', 'pending', 'person', null],
+      ['approved', 'approved', 'moderator', null],
+      ['hiddenBySystem', 'hidden', 'system', null],
+    ],
+  },
+  {
+    id: 'mod_draft',
+    title: 'Half written',
+    status: 'editing',
+    log: [],
+  },
   {
     id: 'mod_published',
     title: 'Found on a Tuesday',
@@ -805,6 +864,7 @@ const MOD_EXTRA = [
     title: 'Two moderators at once',
     status: 'pending',
     log: [['sent', 'pending', 'person', null]],
+    late: true,
   },
   {
     id: 'mod_cooldown',
@@ -812,8 +872,9 @@ const MOD_EXTRA = [
     status: 'pending',
     primaryFormat: 'video',
     log: [['sent', 'pending', 'person', null]],
+    late: true,
   },
-].map((s) => ({
+].map((s, n) => ({
   id: s.id,
   version: 3,
   status: s.status,
@@ -824,14 +885,15 @@ const MOD_EXTRA = [
   primaryFormat: s.primaryFormat ?? 'written',
   media: [],
   image: null,
-  themes: [],
-  submittedAt: modHour(-50),
+  themes: s.themes ?? [],
+  // Each its own hours; the decisions' two waiting ones after the list's 24.
+  submittedAt: s.log.length ? modHour(s.late ? 40 + n : -50 + 3 * n) : null,
   statusLog: s.log.map(([action, status, actor, comment], i) => ({
     action,
     status,
     actor,
     comment,
-    at: modHour(-50 + i),
+    at: modHour((s.late ? 40 + n : -50 + 3 * n) + i),
   })),
 }));
 
@@ -851,10 +913,10 @@ function moderationFor(token) {
   }
   return moderationState.get(token);
 }
-/** A story as moderators open it, or undefined (not found, or no longer theirs). */
+/** A story as moderators open it, or undefined (not found; a draft, unless an Admin's). */
 function moderated(token, id) {
   const story = moderationFor(token).get(id);
-  if (!story || !['pending', 'approved', 'hidden'].includes(story.status))
+  if (!story || (story.statusLog.length === 0 && roleOf(token) !== 'Admin'))
     return undefined;
   return { ...story, reviewTag: tagOf(story) };
 }
@@ -970,33 +1032,60 @@ async function decideStory(req, res, token, id, route) {
   );
 }
 
-/** `GET /v1/moderation/queue` (getModerationQueue): pages, oldest sent first. */
-function sendQueue(req, res, url) {
+const LIST_STATES = ['pending', 'editing', 'hidden', 'rejected', 'draft'];
+const DRAFT_STARTED = modHour(-60);
+
+/** `GET /v1/moderation/stories` (listModerationStories): one state, oldest first, pages. */
+function sendList(req, res, url, token) {
+  const state = url.searchParams.get('state') ?? 'pending';
+  if (!LIST_STATES.includes(state))
+    return invalid(res, '/state', 'validation_failed');
+  const theme = url.searchParams.get('theme');
+  if (theme !== null && !/^[0-9A-Za-z_]{1,40}$/.test(theme))
+    return invalid(res, '/theme', 'validation_failed');
   const limit = url.searchParams.get('limit') ?? '20';
   const take = Number(limit);
   if (!Number.isInteger(take) || take < 1 || take > 50)
     return invalid(res, '/limit', 'validation_failed', 'limit is 1–50');
+  if (state === 'draft' && roleOf(token) !== 'Admin')
+    return problem(res, 403, 'Forbidden', 'role_required');
+  const rows = [...moderationFor(token).values()]
+    .filter((s) =>
+      state === 'draft'
+        ? s.statusLog.length === 0
+        : s.statusLog.length > 0 && s.status === state,
+    )
+    .filter((s) => !theme || s.themes.some((t) => t.id === theme))
+    .map((s) => {
+      const moved = s.statusLog.at(-1);
+      const sent = s.statusLog.filter((e) => e.action === 'sent').at(-1);
+      const since = moved?.at ?? DRAFT_STARTED;
+      return {
+        id: s.id,
+        state,
+        action: moved?.action ?? null,
+        title: s.title,
+        primaryFormat: s.primaryFormat,
+        themes: s.themes,
+        since,
+        sentAt: sent?.at ?? null,
+        updatedAt: since,
+      };
+    })
+    .sort((a, b) => a.since.localeCompare(b.since) || a.id.localeCompare(b.id));
   const cursor = url.searchParams.get('cursor');
   let from = 0;
   if (cursor !== null) {
     const n = Number(Buffer.from(cursor, 'base64url').toString('utf8'));
-    if (!Number.isInteger(n) || n < 1 || n >= MODERATION.length)
+    if (!Number.isInteger(n) || n < 1 || n >= rows.length)
       return invalid(res, '/cursor', 'validation_failed');
     from = n;
   }
-  const page = MODERATION.slice(from, from + take);
   const next = from + take;
   return cached(req, res, {
-    data: page.map((s) => ({
-      id: s.id,
-      version: s.version,
-      status: s.status,
-      title: s.title,
-      primaryFormat: s.primaryFormat,
-      submittedAt: s.submittedAt,
-    })),
+    data: rows.slice(from, next),
     nextCursor:
-      next < MODERATION.length
+      next < rows.length
         ? Buffer.from(String(next)).toString('base64url')
         : null,
   });
@@ -2537,11 +2626,11 @@ createServer(async (req, res) => {
       return problem(res, 403, 'Forbidden', 'role_required');
     return void changeStaff(req, res, token, staffMember[1]);
   }
-  if (path === '/v1/moderation/queue' && req.method === 'GET') {
+  if (path === '/v1/moderation/stories' && req.method === 'GET') {
     if (!signedIn()) return;
     if (roleOf(token) === 'User')
       return problem(res, 403, 'Forbidden', 'role_required');
-    return sendQueue(req, res, url);
+    return sendList(req, res, url, token);
   }
   const reviewed = /^\/v1\/moderation\/stories\/([^/]+)$/.exec(path);
   if (reviewed && req.method === 'GET') {

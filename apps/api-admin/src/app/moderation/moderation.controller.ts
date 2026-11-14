@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Body,
   Controller,
   Get,
@@ -43,27 +44,60 @@ import {
 export const MODERATION_LINK_SECONDS = 60 * 60;
 
 /**
- * The states a moderator opens a story in (Story states, Joel 2026-11-11): waiting for review
- * (`pending`: approve, send back, reject; no pick-up), and published or hidden (G5: hide and show
- * again). Any other (being edited, a draft, rejected) is not found here.
+ * The moderators' list (MD-3, MD-4: Joel 2026-11-14): every story that is not public, one state
+ * at a time. Moderators see waiting for review (`pending`), being edited (`editing` after it was
+ * sent: sent back, or its owner pressed Edit), taken down (`hidden`, by a moderator or by the
+ * site) and rejected; Admins also see drafts never sent (`draft`: `editing` with no status entry),
+ * "visibility of users who might be preparing spam or other malicious activities".
  */
-const UNDER_MODERATION = ['pending', 'approved', 'hidden'];
+const LIST_STATES = [
+  'pending',
+  'editing',
+  'hidden',
+  'rejected',
+  'draft',
+] as const;
+type ListState = (typeof LIST_STATES)[number];
+
+/** A theme id, as browse takes it (api-public-read's `?theme=`). */
+const THEME_ID = /^[0-9A-Za-z_]{1,40}$/;
+
+/** What each row shows of the story: no words beyond the title, no files, no submitter. */
+const LIST_FIELDS = (
+  s: string,
+) => `${s}.title AS title, ${s}.primaryFormat AS primaryFormat,
+    ${s}.updatedAt AS updatedAt,
+    ${s}.themeRefs.map(|$t| { id: record::id($t), name: $t.name }) AS themes`;
 
 /**
- * The queue (task 3.1): stories whose current status entry is `pending`, oldest sent first, on
- * the status log's (status, at) index (storyStatusLog_queue). Bind `$after` = [at, entry id] or
- * NONE, `$take`. An old pending entry of a story that has moved on is skipped: only the entry
- * the story points at counts.
+ * A logged state: the status entries the story points at (its current state), oldest first, on
+ * the status log's (status, at) index (storyStatusLog_queue): for `pending` the same order as the
+ * old queue. An old entry of a story that has moved on is skipped. Bind `$state`, `$theme` (or
+ * NONE), `$after` = [at, entry id] or NONE, `$take`.
  */
-const QUEUE_SQL = `
+const LIST_LOGGED_SQL = `
   LET $c = IF $after != NONE { <datetime> $after[0] };
   LET $cid = IF $after != NONE { type::record('storyStatusLog', $after[1]) };
-  SELECT record::id(id) AS entry, record::id(story) AS id, story.version AS version, status,
-    story.title AS title, story.primaryFormat AS primaryFormat, at AS submittedAt
+  SELECT record::id(id) AS key, record::id(story) AS id, action, at AS since,
+    ${LIST_FIELDS('story')},
+    array::max(SELECT VALUE at FROM storyStatusLog WHERE story = $parent.story AND action = 'sent')
+      AS sentAt
   FROM storyStatusLog WITH INDEX storyStatusLog_queue
-  WHERE status = 'pending' AND story.currentStatus = id
+  WHERE status = $state AND story.currentStatus = id
+    AND ($theme = NONE OR $theme IN story.themeIds)
     AND ($c = NONE OR at > $c OR (at = $c AND id > $cid))
-  ORDER BY submittedAt ASC, entry ASC LIMIT $take;`;
+  ORDER BY since ASC, key ASC LIMIT $take;`;
+
+/** Drafts never sent (Admins only): no status entry; oldest started first. */
+const LIST_DRAFTS_SQL = `
+  LET $c = IF $after != NONE { <datetime> $after[0] };
+  LET $cid = IF $after != NONE { type::record('story', $after[1]) };
+  SELECT record::id(id) AS key, record::id(id) AS id, createdAt AS since, ${LIST_FIELDS('$this')}
+  FROM story
+  WHERE currentStatus = NONE
+    AND ($theme = NONE OR $theme IN themeIds)
+    AND ($c = NONE OR createdAt > $c OR (createdAt = $c AND id > $cid))
+  ORDER BY since ASC, key ASC LIMIT $take;`;
 
 /**
  * One story under review (task 3.2): what the public would see, its files' processing state, and
@@ -94,14 +128,16 @@ const STORY_SQL = `
 
 type Opt<T> = T | null | undefined;
 
-interface QueueRow {
-  entry: string;
+interface ListRow {
+  key: string;
   id: string;
-  version: number;
-  status: string;
+  action?: Opt<string>;
+  since: string;
+  sentAt?: Opt<string>;
+  updatedAt: string;
   title: string;
   primaryFormat: string;
-  submittedAt: string;
+  themes: { id: string; name?: Opt<string> }[];
 }
 
 interface StoryRow {
@@ -147,6 +183,7 @@ interface EntryRow {
 
 const or = <T>(v: Opt<T>): T | null => v ?? null;
 const iso = (d: string) => new Date(d).toISOString();
+const isoOr = (d: Opt<string>) => (d ? iso(d) : null);
 
 const invalid = (pointer: string, message: string) =>
   new BadRequestException({
@@ -165,10 +202,10 @@ function parseLimit(raw: string | undefined): number {
 }
 
 /** The entry's time as the database gave it (to the nanosecond), so no row repeats or is skipped. */
-function encodeCursor(row: QueueRow): string {
-  return Buffer.from(
-    JSON.stringify([row.submittedAt, recordKey(row.entry)]),
-  ).toString('base64url');
+function encodeCursor(row: ListRow): string {
+  return Buffer.from(JSON.stringify([row.since, recordKey(row.key)])).toString(
+    'base64url',
+  );
 }
 
 function decodeCursor(raw: string | undefined): [string, string] | undefined {
@@ -191,6 +228,17 @@ function decodeCursor(raw: string | undefined): [string, string] | undefined {
   throw invalid('/cursor', 'The cursor isn’t one this service gave out');
 }
 
+/** MD-3: drafts never sent are for Admins only. */
+function requireAdmin(role?: string): void {
+  if (role !== 'Admin') {
+    throw new ForbiddenException({
+      code: 'role_required',
+      message: 'Only an Admin can see drafts never sent',
+      requiredRole: 'Admin',
+    });
+  }
+}
+
 /** `ETag` and `Cache-Control` for a query; `undefined` (and `304`) if the client has it. */
 function conditional<T>(
   res: Response,
@@ -208,11 +256,11 @@ function conditional<T>(
 }
 
 /**
- * api-admin.yaml, tag Moderation (M3 plan PRs 1 and 6): the queue, one story under review, and the
- * decisions on it: approve, send back, reject (from pending), hide (from approved) and show again
+ * api-admin.yaml, tag Moderation (M3 plan PRs 1 and 6; MD-3, MD-4): the moderators' list, one
+ * story, and the decisions on it: approve, send back, reject (from pending), hide (from approved) and show again
  * (from hidden). Moderator and above on all: the database knows moderators only as api-admin's
  * login (M3 plan concern C2), so this role check is the one gate, and the integration tests refuse
- * a User on each route. "Approve anyway" is Admin only (G24).
+ * a User on each route. "Approve anyway" and drafts never sent are Admin only (G24, MD-3).
  */
 @Controller('v1/moderation')
 export class ModerationController {
@@ -345,20 +393,39 @@ export class ModerationController {
     });
   }
 
-  @Get('queue')
+  @Get('stories')
   @RequiresRole('Moderator')
-  async getModerationQueue(
+  async listModerationStories(
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
     @Headers('if-none-match') ifNoneMatch?: string,
+    @Query('state') stateRaw?: string,
+    @Query('theme') themeRaw?: string,
     @Query('limit') limit?: string,
     @Query('cursor') cursor?: string,
   ) {
+    const state = (stateRaw ?? 'pending') as ListState;
+    if (!LIST_STATES.includes(state)) {
+      throw invalid('/state', `state is one of ${LIST_STATES.join(', ')}`);
+    }
+    const theme =
+      themeRaw === undefined || themeRaw === '' ? undefined : themeRaw;
+    if (theme !== undefined && !THEME_ID.test(theme)) {
+      throw invalid('/theme', 'A theme id: letters, digits and underscores.');
+    }
     const take = parseLimit(limit);
-    const results = await runQuery(this.db, QUEUE_SQL, {
-      after: decodeCursor(cursor),
-      take: take + 1,
-    });
-    const rows = (results.at(-1) ?? []) as QueueRow[];
+    const after = decodeCursor(cursor);
+    if (state === 'draft') {
+      // MD-3: drafts never sent are for Admins only.
+      const { role } = await this.people.authenticate(req);
+      requireAdmin(role);
+    }
+    const results = await runQuery(
+      this.db,
+      state === 'draft' ? LIST_DRAFTS_SQL : LIST_LOGGED_SQL,
+      { state, theme, after, take: take + 1 },
+    );
+    const rows = (results.at(-1) ?? []) as ListRow[];
     const page = rows.slice(0, take);
     const last = page.at(-1);
     return conditional(
@@ -366,11 +433,16 @@ export class ModerationController {
       {
         data: page.map((r) => ({
           id: recordKey(r.id),
-          version: r.version,
-          status: r.status,
+          state,
+          action: or(r.action),
           title: r.title,
           primaryFormat: r.primaryFormat,
-          submittedAt: iso(r.submittedAt),
+          themes: r.themes.flatMap((t) =>
+            t.name ? [{ id: t.id, name: t.name }] : [],
+          ),
+          since: iso(r.since),
+          sentAt: isoOr(r.sentAt),
+          updatedAt: iso(r.updatedAt),
         })),
         nextCursor: rows.length > take && last ? encodeCursor(last) : null,
       },
@@ -381,8 +453,8 @@ export class ModerationController {
   @Get('stories/:id')
   @RequiresRole('Moderator')
   async getModerationStory(
-    @Req() req: Request,
     @Param('id') id: string,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
     @Headers('if-none-match') ifNoneMatch?: string,
   ) {
@@ -390,15 +462,15 @@ export class ModerationController {
     const results = await runQuery(this.db, STORY_SQL, { id });
     const [rows, log] = results.slice(-2) as [StoryRow[], EntryRow[]];
     const s = rows[0];
-    if (!s || !s.entry || !UNDER_MODERATION.includes(s.status)) {
-      throw new NotFoundException();
-    }
+    if (!s) throw new NotFoundException();
+    const { role } = await this.people.authenticate(req);
+    // MD-3: a draft never sent (no status entry) opens for Admins only; to a Moderator it isn't
+    // there, as it isn't on their list.
+    if (!s.entry && role !== 'Admin') throw new NotFoundException();
     const sent = log.filter((e) => e.action === 'sent').at(-1);
-    if (!sent) throw new NotFoundException(); // never: pending follows a send
     // Block list (G21 D, G24): the address it was sent from, for an Admin to copy into the block
     // list; Moderators never see it. Kept 30 days (then housekeeping clears it).
-    const { role } = await this.people.authenticate(req);
-    const senderIp = role === 'Admin' ? or(sent.senderIp) : null;
+    const senderIp = role === 'Admin' && sent ? or(sent.senderIp) : null;
     const urls = this.links.expiringIn(MODERATION_LINK_SECONDS);
     return conditional(
       res,
@@ -439,10 +511,10 @@ export class ModerationController {
         themes: s.themes.flatMap((t) =>
           t.name ? [{ id: t.id, name: t.name }] : [],
         ),
-        submittedAt: iso(sent.at),
+        submittedAt: sent ? iso(sent.at) : null,
         senderIp,
         reviewTag: reviewTag({
-          entry: s.entry,
+          entry: s.entry ?? '',
           media: or(s.mediaKey),
           image: or(s.imageKey),
         }),
