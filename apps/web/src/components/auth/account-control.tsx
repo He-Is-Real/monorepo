@@ -158,8 +158,8 @@ export function SignedInAccount({
 }
 
 /**
- * What a signed-out visitor sees in the header: Sign in. (Favourites are a switch on browse for
- * signed-in people now, not a page: Joel, 2026-11-14.)
+ * What a signed-out visitor sees in the header: Sign in. (Favourites are a switch on browse now,
+ * not a page: Joel, 2026-11-14.)
  */
 export function SignedOutAccount() {
   return (

@@ -405,13 +405,20 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   they are added only if the person chooses to.
 - Seeing or removing your hearts never needs an agreement.
 - Planned: a story's owner sees how many hearts each of their stories has, never who gave them.
-- There is no favourites page (Joel, 2026-11-14). Signed in, browse has a "Favourites only"
-  switch that shows the person's hearted stories instead of every story: newest heart first, laid
-  out like browse (3 columns on desktop, then 2, then 1), loading more on its own. The switch is
-  kept in the address, so Back and reloads keep it. Favourites can't be searched or filtered, so
-  the search, sort, format and theme filters are hidden while it is on. Signed out there is no
-  switch (hearts kept in the browser have no list; they are offered to the account after signing
-  in). /favourites and the old /account/favourites show the normal "not found" page.
+- There is no favourites page (Joel, 2026-11-14). Browse has a "Favourites only" switch that
+  shows the person's hearted stories instead of every story, laid out like browse (3 columns on
+  desktop, then 2, then 1). Signed in, it lists the account's hearts; signed out, the hearts kept
+  in this browser (Joel, 2026-11-14). After signing in, hearts kept in the browser are still
+  offered to the account as before. The switch is kept in the address, so Back and reloads keep
+  it. /favourites and the old /account/favourites show the normal "not found" page.
+- With "Favourites only" on, browse's search, sort, format and theme filters stay and work on the
+  favourites, kept in the address like browse's (Joel, 2026-11-14). The whole list is loaded and
+  filtered in the browser (people aren't expected to have more than about 100; optimising comes
+  later). The filters mean what they mean on browse: format and theme as browse; "Latest first"
+  and "Oldest first" by when the story was published; search finds stories with every word of
+  the search in the title, description or theme names (not the written text, which the list
+  doesn't carry), ignoring case and accents and matching inside longer words; "Best match" puts
+  stories where the words appear most often first.
 - A heart's time is the moment it was made, taken from its id; nobody can set it by hand.
   (Joel, 2026-11-05)
 - Deleting the account deletes the person's hearts; deleting a story deletes the hearts on it.

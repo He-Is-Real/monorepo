@@ -2,26 +2,33 @@
 
 import { useSearchParams } from 'next/navigation';
 import { FavouritesList } from '@/components/favourites/favourites-list';
-import { FAVOURITES_PARAM } from '@/lib/browse-query';
+import {
+  type BrowseFilters,
+  FAVOURITES_PARAM,
+  favouritesOn,
+} from '@/lib/browse-query';
 import { usePersonalSession } from '@/lib/personal-session';
 
 /**
- * Browse with "Favourites only" (Joel, 2026-11-14; it replaces the My favourites page). Signed
- * in, a switch above the filters shows the person's hearted stories in place of browse's list,
- * newest heart first, in the same masonry. Signed out (or until the browser knows, or without
- * JavaScript) there is no switch and browse is as it always was.
+ * Browse with "Favourites only" (Joel, 2026-11-14; it replaces the My favourites page). A switch
+ * above the filters shows the person's hearted stories in place of browse's list: signed in, the
+ * account's; signed out, the hearts kept in this browser (FV-1, Joel 2026-11-14). Until the
+ * browser knows which (or without JavaScript) there is no switch and browse is as it always was.
  *
  * The switch is kept in the URL (`?favourites=1`), so Back from a story and reloads keep it.
  * web's server renders the same page whatever it says (D32: nothing personal on the server); the
- * browser alone reads it. Favourites can't be searched or filtered (the favourites API has no
- * filters), so while the switch is on the search, sort, format and theme filters are hidden;
- * turning it off brings back browse with the URL's filters.
+ * browser alone reads it. The search, sort, format and theme filters stay and filter the
+ * favourites too, in the browser (FV-2 B, Joel 2026-11-14; lib/favourites-filter.ts); every
+ * browse address the browser builds keeps the switch (browseHref).
  */
 export function BrowseView({
+  query,
   filters,
   summary,
   results,
 }: {
+  /** The address's filters, which favourites are filtered by too. */
+  query: BrowseFilters;
   /** The search, sort, format and theme filters. */
   filters: React.ReactNode;
   /** What the list shows, in words, when filtered. */
@@ -34,8 +41,8 @@ export function BrowseView({
 }) {
   const session = usePersonalSession();
   const params = useSearchParams();
-  const signedIn = session.status === 'signed-in';
-  const on = signedIn && params.get(FAVOURITES_PARAM) === '1';
+  const known = session.status !== 'unknown';
+  const on = known && favouritesOn(params);
 
   const set = (next: boolean) => {
     const url = new URL(window.location.href);
@@ -48,7 +55,7 @@ export function BrowseView({
   return (
     <>
       <div className="border-b border-border pb-6">
-        {signedIn && (
+        {known && (
           // A switch with its words: the whole row is the target (44 px high).
           <button
             type="button"
@@ -56,7 +63,7 @@ export function BrowseView({
             aria-checked={on}
             onClick={() => set(!on)}
             data-favourites-only=""
-            className={`group inline-flex min-h-11 items-center gap-3 rounded-lg pr-2 font-medium text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none ${on ? '' : 'mb-3'}`}
+            className="group mb-3 inline-flex min-h-11 items-center gap-3 rounded-lg pr-2 font-medium text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
           >
             <span
               aria-hidden="true"
@@ -67,13 +74,13 @@ export function BrowseView({
             Favourites only
           </button>
         )}
-        {!on && filters}
+        {filters}
       </div>
 
-      {!on && summary}
+      {summary}
 
       <div className="mt-8">
-        {on && <FavouritesList onShowAll={() => set(false)} />}
+        {on && <FavouritesList filters={query} onShowAll={() => set(false)} />}
         {!on && results}
       </div>
     </>

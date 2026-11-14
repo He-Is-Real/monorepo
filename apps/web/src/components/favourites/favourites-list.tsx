@@ -1,77 +1,96 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { deviceHeartCards } from '@/app/stories/actions';
 import { StoryMasonry } from '@/components/stories/story-masonry';
-import { useNearEnd } from '@/components/stories/use-near-end';
 import { Button } from '@/components/ui/button';
-import type { ApiSummary, StorySummary } from '@/lib/browse';
+import { type ApiSummary, MAX_IDS, type StorySummary } from '@/lib/browse';
+import { type BrowseFilters, browseHref } from '@/lib/browse-query';
+import { deviceHeartIds } from '@/lib/device-hearts';
 import { markHearted } from '@/lib/favourites';
-import { personalApiUser, usePersonalSession } from '@/lib/personal-session';
+import { filterFavourites } from '@/lib/favourites-filter';
+import {
+  type PersonalSession,
+  personalApiUser,
+  usePersonalSession,
+} from '@/lib/personal-session';
 import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 
-/** Cards per page. */
-const PAGE_SIZE = 24;
+/** The account's favourites per request (the API's most). */
+const PAGE_SIZE = 50;
+/** Whose list a signed-out list is: this browser's hearts (device-hearts.ts). */
+const DEVICE = 'device';
 
 type List =
   | { status: 'loading' }
   | { status: 'failed'; owner: string }
   | {
       status: 'ready';
-      /** Whose list this is (Clerk's user id): shown only to them. */
+      /** Whose list this is: Clerk's user id, or {@link DEVICE}. Shown only to them. */
       owner: string;
+      /** Every favourite, newest heart first. */
       cards: StorySummary[];
-      cursor: string | null;
-      more: 'idle' | 'loading' | 'failed';
     };
 
-type Page = { data: StorySummary[]; nextCursor: string | null };
+/** Whose favourites the page shows now, or null while the browser doesn't know yet. */
+const ownerOf = (s: PersonalSession) =>
+  s.status === 'signed-in'
+    ? s.userId
+    : s.status === 'signed-out'
+      ? DEVICE
+      : null;
 
 /**
- * Browse's "Favourites only" (Joel, 2026-11-14): the signed-in person's hearted stories, from
- * api-user in the browser (D83), in place of browse's list. Shown as browse shows stories
- * (Joel, 2026-10-31): its masonry, each card at its media's own shape, written stories without a
- * picture as text only. Newest heart first; the next page loads on its own as the reader nears
- * the end, as browse's does (Joel, 2026-10-31). A heart taken off here stays on screen, empty,
- * until the next visit, so a slip can be undone. Space is kept while it loads, so the footer doesn't jump.
+ * Browse's "Favourites only" (Joel, 2026-11-14), in place of browse's list, laid out as browse
+ * lays out stories (its masonry, each card at its media's own shape).
  *
- * Only ever the signed-in person's own list (Codex, #117): every answer is tied to the person
- * it was asked for, and one that arrives after someone else signed in (or out) is dropped
- * before it reaches the screen or the hearts.
+ * - **Signed in:** the person's hearted stories, from api-user in the browser (D83).
+ * - **Signed out** (FV-1; Joel, 2026-11-14: "show the favourites when signed out, stored in the
+ *   browser"): the hearts kept in this browser (device-hearts.ts), as cards web's server reads
+ *   from api-public-read by id (`deviceHeartCards`): anonymous, no login. A story no longer
+ *   public is left out.
+ *
+ * The whole list is loaded, then filtered and sorted in the browser with browse's filters (FV-2 B;
+ * Joel: "I dont expect people to have more than 100… we will do optimization later";
+ * lib/favourites-filter.ts). A heart taken off here stays on screen, empty, until the next visit,
+ * so a slip can be undone. Space is kept while it loads, so the footer doesn't jump.
+ *
+ * Only ever the person's own list (Codex, #117): every answer is tied to whose list it was asked
+ * for, and one that arrives after someone else signed in (or out) is dropped before it reaches
+ * the screen or the hearts.
  */
 export function FavouritesList({
+  filters,
   onShowAll,
 }: {
+  /** Browse's filters, from the address. */
+  filters: BrowseFilters;
   /** Back to every story (the empty list's button). */
   onShowAll: () => void;
 }) {
   const session = usePersonalSession();
   const [list, setList] = useState<List>({ status: 'loading' });
   const load = useRef(0); // the current load; answers to older ones are dropped
-  // The load whose next page is on its way (one at a time), or null. Tied to its load, so a
-  // request for someone signed in before neither holds up nor frees the new person's list.
-  const busy = useRef<number | null>(null);
 
   // The latest session (Clerk renews getToken); a new person, not a new getToken, means a new list.
   const current = useRef(session);
   current.current = session;
-  const userId = session.status === 'signed-in' ? session.userId : null;
+  const owner = ownerOf(session);
 
-  /** Still the person `owner` and still load `mine`: the answer may be used. */
-  const stillFor = (owner: string, mine: number) => {
-    const now = current.current;
-    return (
-      load.current === mine &&
-      now.status === 'signed-in' &&
-      now.userId === owner
-    );
-  };
+  /** Still whose list `who` is, and still load `mine`: the answer may be used. */
+  const stillFor = (who: string, mine: number) =>
+    load.current === mine && ownerOf(current.current) === who;
 
-  const fetchPage = useCallback(
-    async (owner: string, cursor: string | null): Promise<Page> => {
+  /** The account's favourites, every page, newest heart first. */
+  const accountCards = useCallback(async (who: string) => {
+    const cards: StorySummary[] = [];
+    let cursor: string | null = null;
+    do {
       const now = current.current;
-      if (now.status !== 'signed-in' || now.userId !== owner)
+      if (now.status !== 'signed-in' || now.userId !== who)
         throw new Error('Not signed in as this person');
-      const query = cursor
+      const query: string = cursor
         ? `?limit=${PAGE_SIZE}&cursor=${encodeURIComponent(cursor)}`
         : `?limit=${PAGE_SIZE}`;
       // That person's token only (personalApiUser).
@@ -80,105 +99,72 @@ export function FavouritesList({
         nextCursor: string | null;
       }>(`/v1/account/favourites${query}`);
       if (!data) throw new Error('No answer');
-      // No NEW badge on favourites: only web's server decides it, for finding stories (D72).
-      return {
-        data: data.data.map((c) => ({ ...c, isNew: false })),
-        nextCursor: data.nextCursor,
-      };
-    },
-    [],
-  );
+      // A heart added meanwhile can repeat a card: show it once. No NEW badge on favourites:
+      // only web's server decides it, for finding stories (D72).
+      for (const c of data.data)
+        if (!cards.some((s) => s.id === c.id))
+          cards.push({ ...c, isNew: false });
+      cursor = data.nextCursor;
+    } while (cursor);
+    return cards;
+  }, []);
+
+  /** This browser's hearts, newest first, as the cards of those still public. */
+  const deviceCards = useCallback(async () => {
+    const ids = deviceHeartIds();
+    const byId = new Map<string, StorySummary>();
+    for (let i = 0; i < ids.length; i += MAX_IDS) {
+      const answer = await deviceHeartCards(ids.slice(i, i + MAX_IDS));
+      if (!answer.ok) throw new Error('Stories unavailable');
+      for (const c of answer.cards) byId.set(c.id, c);
+    }
+    return ids.flatMap((id) => {
+      const card = byId.get(id);
+      return card ? [card] : [];
+    });
+  }, []);
 
   const start = useCallback(
-    (owner: string) => {
+    (who: string) => {
       const mine = ++load.current;
-      busy.current = null;
       setList({ status: 'loading' });
-      fetchPage(owner, null).then(
-        (page) => {
-          if (!stillFor(owner, mine)) return;
-          markHearted(
-            owner,
-            page.data.map((s) => s.id),
-          );
-          setList({
-            status: 'ready',
-            owner,
-            cards: page.data,
-            cursor: page.nextCursor,
-            more: 'idle',
-          });
+      (who === DEVICE ? deviceCards() : accountCards(who)).then(
+        (cards) => {
+          if (!stillFor(who, mine)) return;
+          if (who !== DEVICE)
+            markHearted(
+              who,
+              cards.map((s) => s.id),
+            );
+          setList({ status: 'ready', owner: who, cards });
         },
         () => {
-          if (stillFor(owner, mine)) setList({ status: 'failed', owner });
+          if (stillFor(who, mine)) setList({ status: 'failed', owner: who });
         },
       );
     },
     // stillFor reads refs only.
-    [fetchPage],
+    [accountCards, deviceCards],
   );
 
   useEffect(() => {
-    if (userId) start(userId);
-    else {
-      load.current += 1; // signed out: drop anything still on its way
-      busy.current = null;
-    }
-  }, [userId, start]);
+    if (owner) start(owner);
+    else load.current += 1; // not known: drop anything still on its way
+  }, [owner, start]);
 
-  const showMore = () => {
-    if (busy.current !== null || list.status !== 'ready' || !list.cursor)
-      return;
-    const { owner } = list;
-    const mine = load.current;
-    busy.current = mine;
-    setList({ ...list, more: 'loading' });
-    fetchPage(owner, list.cursor).then(
-      (page) => {
-        if (busy.current === mine) busy.current = null;
-        if (!stillFor(owner, mine)) return;
-        markHearted(
-          owner,
-          page.data.map((s) => s.id),
-        );
-        setList((now) =>
-          now.status === 'ready' && now.owner === owner
-            ? {
-                ...now,
-                // A heart added elsewhere meanwhile can repeat a card: show it once.
-                cards: [
-                  ...now.cards,
-                  ...page.data.filter(
-                    (s) => !now.cards.some((c) => c.id === s.id),
-                  ),
-                ],
-                cursor: page.nextCursor,
-                more: 'idle',
-              }
-            : now,
-        );
-      },
-      () => {
-        if (busy.current === mine) busy.current = null;
-        if (stillFor(owner, mine))
-          setList((now) =>
-            now.status === 'ready' && now.owner === owner
-              ? { ...now, more: 'failed' }
-              : now,
-          );
-      },
-    );
-  };
-
-  // Only for someone signed in (browse shows the toggle to them alone).
-  if (session.status === 'signed-out') return null;
+  // Laid out again only when the list or the filters change (StoryMasonry lays out new cards).
+  const filterKey = JSON.stringify(filters);
+  const cards = list.status === 'ready' ? list.cards : null;
+  const shown = useMemo(
+    () =>
+      cards
+        ? filterFavourites(cards, JSON.parse(filterKey) as BrowseFilters)
+        : [],
+    [cards, filterKey],
+  );
 
   // Someone else's list (the person changed a moment ago) is never shown: loading instead.
-  if (
-    session.status === 'unknown' ||
-    list.status === 'loading' ||
-    list.owner !== userId
-  )
+  if (!owner || list.status === 'loading' || list.owner !== owner)
     return (
       <div
         data-favourites-loading=""
@@ -220,106 +206,28 @@ export function FavouritesList({
       </Notice>
     );
 
-  return (
-    <Cards
-      cards={list.cards}
-      hasMore={!!list.cursor}
-      more={list.more}
-      onMore={showMore}
-    />
-  );
-}
-
-/**
- * The cards, in browse's masonry, loading the next page on their own near the end as browse's
- * do (`useNearEnd`): a loading line, Try again when a page fails (nothing retries on its own),
- * an end message, and "Show more favourites" only where the browser can't tell when the end is
- * near. Screen readers hear that more loaded; focus moves only after the reader pressed a button.
- */
-function Cards({
-  cards,
-  hasMore,
-  more,
-  onMore,
-}: {
-  cards: StorySummary[];
-  hasMore: boolean;
-  more: 'idle' | 'loading' | 'failed';
-  onMore: () => void;
-}) {
-  const list = useRef<HTMLUListElement>(null);
-  const [announcement, setAnnouncement] = useState('');
-  const shown = useRef(cards.length);
-  const focusFrom = useRef<number | null>(null);
-  const { sentinel, auto } = useNearEnd({
-    active: hasMore && more === 'idle',
-    round: cards.length,
-    onNear: onMore,
-  });
-
-  // Emptied while a page loads, so each page's "loaded" is a change screen readers announce.
-  useEffect(() => {
-    if (more === 'loading') setAnnouncement('');
-  }, [more]);
-
-  useEffect(() => {
-    if (cards.length <= shown.current) return;
-    const from = focusFrom.current;
-    shown.current = cards.length;
-    focusFrom.current = null;
-    setAnnouncement('More favourites loaded.');
-    if (from === null) return;
-    // After Try again or "Show more favourites", keyboard users carry on from the first new card.
-    // The masonry lays the new cards out in its own render first: focus on the next frame.
-    const frame = requestAnimationFrame(() =>
-      list.current?.children[from]?.querySelector('a')?.focus(),
+  if (shown.length === 0)
+    return (
+      <Notice>
+        <p className="mb-3 text-lg text-foreground">
+          None of your favourites match these filters.
+        </p>
+        <Link
+          href={browseHref(
+            { q: '', theme: null, format: null, sort: 'latest' },
+            { favourites: true },
+          )}
+          className="inline-flex min-h-11 items-center font-medium"
+        >
+          Clear filters
+        </Link>
+      </Notice>
     );
-    return () => cancelAnimationFrame(frame);
-  }, [cards]);
-
-  const byButton = () => {
-    focusFrom.current = cards.length;
-    onMore();
-  };
 
   return (
-    <>
-      <div data-favourites="">
-        <StoryMasonry cards={cards} headingLevel={2} listRef={list} />
-      </div>
-      <div ref={sentinel} data-near-end="" aria-hidden="true" />
-      <p role="status" data-more-loaded="" className="sr-only">
-        {announcement}
-      </p>
-      <div className="mt-10 flex flex-col items-center gap-3 text-center">
-        {more === 'loading' && (
-          <p className="text-sm text-muted-foreground">
-            Loading more favourites…
-          </p>
-        )}
-        {more === 'failed' && (
-          <>
-            <p role="alert" className="text-secondary-text">
-              {TRY_AGAIN_LATER}
-            </p>
-            <Button variant="outline" className="h-11 px-5" onClick={byButton}>
-              Try again
-            </Button>
-          </>
-        )}
-        {more === 'idle' && hasMore && !auto && (
-          // Only where the browser can't tell when the end is near (no IntersectionObserver).
-          <Button variant="outline" className="h-11 px-5" onClick={byButton}>
-            Show more favourites
-          </Button>
-        )}
-        {!hasMore && (
-          <p className="text-secondary-text">
-            You’ve seen all your favourites.
-          </p>
-        )}
-      </div>
-    </>
+    <div data-favourites="">
+      <StoryMasonry cards={shown} headingLevel={2} />
+    </div>
   );
 }
 

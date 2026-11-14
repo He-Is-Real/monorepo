@@ -87,9 +87,10 @@ The old idea of importing the 24 real testimonies moved to the "Real stories" mi
 - **Favourites:** private hearts on cards and story pages, and a My favourites page laid out like
   browse ([favourites](https://github.com/He-Is-Real/monorepo/pull/117),
   [same layout as browse](https://github.com/He-Is-Real/monorepo/pull/153)). Since 14 November
-  2026 favourites are a "Favourites only" switch on browse for signed-in people, not a page.
+  2026 favourites are a "Favourites only" switch on browse, not a page: signed in it lists the
+  account's hearts, signed out this browser's, and browse's search and filters work on them.
 - **NEW badge** on stories published in the last 7 days ([badge](https://github.com/He-Is-Real/monorepo/pull/110)).
-- **Browse and favourites load more on their own** as the reader nears the end, with no page cap
+- **Browse loads more on their own** as the reader nears the end, with no page cap
   ([no page cap](https://github.com/He-Is-Real/monorepo/pull/157)).
 - **Themes:** admins manage theme categories and themes on one page; people choose themes when
   sharing and browse by them ([themes rebuild](https://github.com/He-Is-Real/monorepo/pull/162),
