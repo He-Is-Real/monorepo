@@ -2326,8 +2326,11 @@ export function ReviewStep({
           : row(
               `Your ${NOUN[draft.format]}`,
               <>
-                {own ? <OwnMediaPreview story={own} /> : 'Uploaded'}
-                <AttachedName name={mediaFile} />
+                {own && <OwnMediaPreview story={own} />}
+                <Attached
+                  kind={draft.format === 'video' ? 'Video' : 'Audio file'}
+                  name={mediaFile}
+                />
               </>,
               'write',
             )}
@@ -2351,22 +2354,38 @@ export function ReviewStep({
                   />
                 )}
               </div>
-              <AttachedName name={pictureFile} />
+              <Attached
+                kind={draft.format === 'video' ? 'Thumbnail' : 'Picture'}
+                name={pictureFile}
+              />
             </>,
             'write',
           )}
       </dl>
       {storyId && (
-        <p className="mt-4">
-          <a
-            href={previewHref(storyId)}
-            target="_blank"
-            rel="noopener"
-            className="inline-flex min-h-11 items-center font-semibold"
+        // A link (it navigates), shown as a button so it's plainly clickable (Joel, 2026-11-14).
+        <a
+          href={previewHref(storyId)}
+          target="_blank"
+          rel="noopener"
+          data-preview-button=""
+          className={`${button} mt-4 w-full gap-3 border border-border-hover py-2 text-foreground hover:border-teal hover:bg-accent sm:w-auto`}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+            className="size-5 shrink-0 fill-none stroke-current stroke-2 [stroke-linecap:round] [stroke-linejoin:round]"
           >
-            See your story as others will (opens in a new tab)
-          </a>
-        </p>
+            <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+          <span className="flex flex-col text-left">
+            <span>See your story as others will</span>
+            <span className="text-xs font-normal text-secondary-text">
+              Opens in a new tab
+            </span>
+          </span>
+        </a>
       )}
       <div className="mt-6 flex flex-col gap-3">
         <p className="text-sm text-secondary-text">
@@ -2470,12 +2489,29 @@ export function ReviewStep({
   );
 }
 
-/** An attached file's name on "check your story" (Joel, 2026-11-14), when this tab knows it. */
-function AttachedName({ name }: { name: string | null }) {
-  if (!name) return null;
+/**
+ * An attached file's confirmation on "Review and submit" (Joel, 2026-11-14): a tick and "Video
+ * attached", with the file's name when this tab knows it (names are never stored at the server).
+ */
+function Attached({ kind, name }: { kind: string; name: string | null }) {
   return (
-    <p data-attached-name="" className="mt-2 text-sm">
-      <span className="font-semibold">Attached:</span> {name}
+    <p data-attached="" className="mt-2 flex items-start gap-2">
+      <svg
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        className="mt-0.5 size-5 shrink-0 fill-none stroke-teal stroke-[2.5] [stroke-linecap:round] [stroke-linejoin:round]"
+      >
+        <circle cx="12" cy="12" r="10" />
+        <path d="m7.5 12.5 3 3 6-6.5" />
+      </svg>
+      <span>
+        <span className="font-semibold">{kind} attached</span>
+        {name && (
+          <span className="block text-sm text-secondary-text [overflow-wrap:anywhere]">
+            {name}
+          </span>
+        )}
+      </span>
     </p>
   );
 }

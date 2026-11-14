@@ -7,7 +7,12 @@ import {
   test,
 } from '@playwright/test';
 import { BEHAVIOUR_DEVICES } from './devices';
-import { expectAllTargets, expectNoHorizontalOverflow, shots } from './helpers';
+import {
+  expectAllTargets,
+  expectNoHorizontalOverflow,
+  expectTarget,
+  shots,
+} from './helpers';
 import { STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 
 // The person's own preview and the share flow's clickable steps (M3 plan PR 2, part 1b; Joel,
@@ -166,6 +171,47 @@ test.describe('behaviour', () => {
       '/account/stories/v1/preview',
     );
     await expect(preview(page)).toHaveAttribute('target', '_blank');
+  });
+
+  test('in a new tab the video is confirmed as attached without its name, and the preview is a clear button that opens it (Joel, 2026-11-14)', async ({
+    page,
+    request,
+  }) => {
+    // Opened fresh, as a new tab would be: this tab never knew the file's name.
+    await person(page, request, videoDraft(true));
+    await page.goto(`${SHARE}?draft=v1`);
+    await shown(page, 'Upload your video');
+    await hasItsFile(page);
+    await stepButton(page, /^5\. Review/).click();
+    await step(page, 'Review and submit');
+    const attached = page.locator('[data-attached]');
+    await expect(attached).toHaveText('Video attached');
+    await expect(attached.locator('svg')).toBeVisible();
+
+    // A button-styled link, plainly saying it opens a new tab; full width on phones.
+    const button = preview(page);
+    await expect(button).toContainText('Opens in a new tab');
+    await expect(button.locator('svg')).toBeVisible();
+    await expectTarget(page, button);
+    const width = page.viewportSize()?.width ?? 0;
+    if (width < 640) {
+      const [own, form] = await Promise.all([
+        button.boundingBox(),
+        page.locator('form').filter({ has: button }).boundingBox(),
+      ]);
+      expect(Math.round(own?.width ?? 0)).toBe(Math.round(form?.width ?? -1));
+    }
+    await expectNoHorizontalOverflow(page);
+    await expectAllTargets(page);
+
+    const [tab] = await Promise.all([
+      page.context().waitForEvent('page'),
+      button.click(),
+    ]);
+    await expect(tab).toHaveURL(/\/account\/stories\/v1\/preview$/);
+    await expect(tab.locator('[data-preview-banner]')).toContainText(
+      'Only you can see this preview',
+    );
   });
 
   test('while Bunny still has the video: “check back later”, and the story can be sent anyway', async ({

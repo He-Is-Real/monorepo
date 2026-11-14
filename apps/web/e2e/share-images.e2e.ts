@@ -669,7 +669,7 @@ test.describe('behaviour', () => {
     expect(images[2].bytes).not.toBeNull();
   });
 
-  test('a video’s own thumbnail is offered once the video is chosen, and both are shown by name when reviewing', async ({
+  test('a video’s own thumbnail is offered once the video is chosen, and both are confirmed by name when reviewing', async ({
     page,
     request,
   }, info) => {
@@ -715,11 +715,12 @@ test.describe('behaviour', () => {
     await expect
       .poll(() => shown.evaluate((img: HTMLImageElement) => img.naturalWidth))
       .toBe(1280);
-    // What was attached, by name, before it's sent (Joel, 2026-11-14).
-    await expect(page.locator('[data-attached-name]')).toHaveText([
-      'Attached: clip.mp4',
-      'Attached: thumb.png',
+    // What was attached, confirmed with its name in this tab, before it's sent (Joel, 2026-11-14).
+    await expect(page.locator('[data-attached]')).toHaveText([
+      'Video attachedclip.mp4',
+      'Thumbnail attachedthumb.png',
     ]);
+    await expect(page.locator('[data-attached] svg')).toHaveCount(2);
   });
 
   test('a video’s thumbnail can be dropped onto its own drop area, not the video’s', async ({
