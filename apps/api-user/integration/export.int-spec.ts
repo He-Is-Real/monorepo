@@ -677,6 +677,60 @@ describe('download my data', () => {
     }
   });
 
+  it('holds the address each of my recent stories was sent from, and never anyone else’s (block list, BL-4)', async () => {
+    await createPeople(t, { ipa: 'user_ipa', ipz: 'user_ipz' });
+    await agreeAll(await t.person('user_ipa'));
+    await agreeAll(await t.person('user_ipz'));
+    /** A story sent through the API, from `ip` as Google's front end saw it. */
+    const sendFrom = async (who: string, ip: string) => {
+      const { id } = await createThroughApi(who, `Sent by ${who}`);
+      const [version] = await rows<number>(
+        migrator,
+        `SELECT VALUE version FROM type::record('story', $id)`,
+        { id },
+      );
+      const res = await call('POST', `/v1/stories/${id}/submit`, who, {
+        headers: {
+          'if-match': `"${version}"`,
+          'idempotency-key': `export-ip-${who}-${++keySeq}-${'x'.repeat(16)}`,
+          'x-forwarded-for': ip,
+        },
+      });
+      expect(res.status).toBe(200);
+      return id;
+    };
+    const recent = await sendFrom('ipa', '203.0.113.31');
+    const theirs = await sendFrom('ipz', '198.51.100.32');
+    // One she sent 31 days ago (as dev-seed's history loads it): its address is no longer kept.
+    await draft(await t.person('user_ipa'), 'ipa_old');
+    await run(
+      migrator,
+      `CREATE storyStatusLog CONTENT { story: story:ipa_old, action: 'sent', actor: 'person',
+         at: time::now() - 31d, senderIp: '203.0.113.33' }`,
+    );
+
+    const file = (await call('GET', '/v1/account/export', 'ipa')).body;
+    const history = (id: string) =>
+      file.stories.find((s: { id: string }) => s.id === id).statusHistory;
+    expect(history(recent)).toEqual([
+      expect.objectContaining({ action: 'sent', senderIp: '203.0.113.31' }),
+    ]);
+    expect(history('ipa_old')).toEqual([
+      expect.objectContaining({ action: 'sent', senderIp: null }),
+    ]);
+    expect(file.about.sections.stories).toContain('"senderIp"');
+    const text = JSON.stringify(file);
+    expect(text).not.toContain('203.0.113.33');
+    expect(text).not.toContain('198.51.100.32');
+    expect(text).not.toContain(theirs);
+    // His own file has his address, and not hers.
+    const his = JSON.stringify(
+      (await call('GET', '/v1/account/export', 'ipz')).body,
+    );
+    expect(his).toContain('198.51.100.32');
+    expect(his).not.toContain('203.0.113.31');
+  });
+
   it('is all or nothing: when Clerk can’t answer, 503 and no file', async () => {
     await createPeople(t, { cy: 'user_cy' });
     // Bunny is only asked about videos: with none, Bunny being down doesn't matter.

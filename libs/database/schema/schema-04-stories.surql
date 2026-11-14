@@ -859,18 +859,33 @@ DEFINE EVENT OVERWRITE storySearch_theme_renamed ON theme
 -- Everyone (R11; db review 2, section 6 items 3 and 4) may read an entry's story, status and
 -- publishedAt only while it is its story's current, approved entry; older entries, comments,
 -- names and reasons never. The owner reads their own story's entries, never who wrote them; only
--- api-admin reads `by`.
+-- api-admin reads `by`; `senderIp` only api-admin and the owner (their export).
+-- One exception to "never changed": the nightly housekeeping clears `senderIp` (the IP address a
+-- story was sent from, block list) 30 days after the entry, and may read and change nothing
+-- else: of the pending entries it sees only those still holding an address that old, and
+-- storyStatusLog_append_only
+-- refuses any other change.
 DEFINE TABLE OVERWRITE storyStatusLog SCHEMAFULL PERMISSIONS        -- id = storyStatusLog:<ulid>
-  -- housekeeping (G3 B, Joel 2026-11-11): every entry's story, status and time, to find rejected
-  -- stories and stories left in editing that are due for deletion (fn::story::deletes_at); every
-  -- other field refuses it (who, what was said, the action, the files, publishedAt).
-  FOR select WHERE story.submitter = $auth OR $auth IN [service:api_admin, service:housekeeping]
-    OR (status = 'approved' AND story.currentStatus = id),
+  -- housekeeping, two needs, kept apart by status (only a "sent" entry is pending, and only a
+  -- "sent" entry holds senderIp):
+  --   G3 B (Joel 2026-11-11): every entry that isn't pending, for its story, status and time, to
+  --     find rejected stories and stories left in editing that are due for deletion
+  --     (fn::story::deletes_at; a pending story is never due, so it needs none of those);
+  --   block list: a pending entry only while it still holds an address 30 days old, so the
+  --     chore can pick the ones to clear without reading the address (a field it may not read
+  --     is NONE in its WHERE).
+  -- Every other field refuses it (who, what was said, the action, the files, publishedAt, the
+  -- address).
+  FOR select WHERE story.submitter = $auth OR $auth = service:api_admin
+    OR (status = 'approved' AND story.currentStatus = id)
+    OR ($auth = service:housekeeping AND (status != 'pending'
+        OR (senderIp != NONE AND at < fn::story::sender_ips_expire_before()))),
   FOR create WHERE (story.submitter = $auth AND $auth.status != 'deleted'
       AND action IN ['sent', 'editStarted'])
     OR ($auth = service:api_admin AND action IN ['approved', 'changesRequested', 'rejected',
       'hiddenByModerator', 'shownByModerator']),
-  FOR update, delete NONE;
+  FOR update WHERE $auth = service:housekeeping AND at < fn::story::sender_ips_expire_before(),
+  FOR delete NONE;
 DEFINE FIELD OVERWRITE story        ON storyStatusLog TYPE record<story> READONLY;
 -- What happened (the log-entry table of "Story states"). Defined before `status`, which follows
 -- from it.
@@ -956,6 +971,19 @@ DEFINE FIELD OVERWRITE reviewedImageFile ON storyStatusLog TYPE option<record<st
 DEFINE FIELD OVERWRITE skippedMediaWait ON storyStatusLog TYPE option<bool> READONLY
   ASSERT $value = NONE OR $value = true
   PERMISSIONS FOR select WHERE $auth = service:api_admin;
+-- On a person's "sent" entry (pending): the IP address the story was sent from (block list,
+-- G21 D; Joel 2026-11-11), so an Admin can block a recent abuser's address. api-user supplies it
+-- (the client address Cloud Run passes, docs/how-the-app-works.md); kept only on the person's own
+-- "sent" entries (anything else is dropped), lower-case. Read by api-admin (Admins only:
+-- api-admin shows it to an Admin, never a Moderator) and by the person who sent it, in their own
+-- "Download my data" export (BL-4, Joel 2026-11-14). The nightly housekeeping clears it 30 days
+-- after the entry (fn::story::sender_ips_expire_before). Goes with the story, like the entry.
+DEFINE FIELD OVERWRITE senderIp     ON storyStatusLog TYPE option<string>
+  VALUE IF $auth = NONE OR (record::tb($auth) = 'user' AND $this.action = 'sent'
+    AND $this.actor = 'person') { $value }
+  ASSERT $value = NONE OR (string::len($value) <= 45 AND string::is_ip($value)
+    AND $value = string::lowercase($value))
+  PERMISSIONS FOR select WHERE $auth = service:api_admin OR story.submitter = $auth;
 -- Public lists, newest or oldest first (db review 2, section 6 items 5 and 6).
 DEFINE INDEX OVERWRITE storyStatusLog_published ON storyStatusLog FIELDS status, publishedAt;
 -- The moderators' queue (pending, oldest first; M3).
@@ -1015,9 +1043,17 @@ DEFINE EVENT OVERWRITE storyStatusLog_step ON storyStatusLog
   };
 
 -- Append-only, for system users too: an entry goes only with its story (the erasure cascade).
+-- The one change allowed is clearing senderIp, and nothing else with it.
 DEFINE EVENT OVERWRITE storyStatusLog_append_only ON storyStatusLog
-  WHEN $event = 'UPDATE' OR ($event = 'DELETE' AND record::exists($before.story))
+  WHEN ($event = 'UPDATE' AND !($before.senderIp != NONE AND $after.senderIp = NONE
+      AND object::remove($before, 'senderIp') = object::remove($after, 'senderIp')))
+    OR ($event = 'DELETE' AND record::exists($before.story))
   THEN { THROW 'a story’s status log is append-only: entries go only with their story' };
+-- Block list (Joel 2026-11-11): the IP address a story was sent from is kept 30 days; entries
+-- older than this have it cleared by the nightly housekeeping (and api-admin shows none older).
+DEFINE FUNCTION OVERWRITE fn::story::sender_ips_expire_before() {
+  RETURN time::now() - 30d;
+};
 
 -- For api-admin (someone chases Bunny): stories the system hid because of their files, oldest
 -- first. problem = what's still not ready; mediaChanged = the files differ from the reviewed ones,

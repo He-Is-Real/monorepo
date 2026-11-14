@@ -44,6 +44,8 @@ export interface ModerationStory {
   image: StoryImage | null;
   themes: { id: string; name: string }[];
   submittedAt: string;
+  /** The IP address it was last sent from: Admins only, for 30 days (block list); else null. */
+  senderIp: string | null;
   statusLog: StatusEntry[];
 }
 

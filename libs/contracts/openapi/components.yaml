@@ -838,6 +838,7 @@ components:
           image,
           themes,
           submittedAt,
+          senderIp,
           statusLog,
         ]
       properties:
@@ -880,6 +881,12 @@ components:
           type: string
           format: date-time
           description: When it was last sent for review (its newest `sent` status entry).
+        senderIp:
+          type: [string, 'null']
+          description: |
+            Block list (G21 D, G24): the IP address it was last sent from, for an Admin to copy into the
+            block list. Admins only: always `null` for a Moderator, and once it is 30 days old (the
+            nightly housekeeping then clears it).
         statusLog:
           type: array
           description: Oldest first (R6). Who added each entry by kind only, never by id.
@@ -1346,6 +1353,50 @@ components:
         baseline:
           type: boolean
           description: A baseline admin (S-4); each deploy makes them Admin again.
+
+    BlockedEmail:
+      type: object
+      description: An email on the block list (G21 D). It can't create an account or send a story.
+      required: [email, addedBy, addedAt]
+      properties:
+        email:
+          type: string
+          description: Lower-case.
+        addedBy:
+          type: [string, 'null']
+          description: The email of the Admin who added it.
+        addedAt:
+          type: string
+          format: date-time
+
+    BlockedIp:
+      type: object
+      description: An IP address on the block list (G21 D). It can't send a story.
+      required: [ip, addedBy, addedAt]
+      properties:
+        ip:
+          type: string
+          description: IPv4 dotted, or IPv6 in its short lower-case form.
+        addedBy:
+          type: [string, 'null']
+          description: The email of the Admin who added it.
+        addedAt:
+          type: string
+          format: date-time
+
+    BlockList:
+      type: object
+      description: The block list, newest first in each part. Nothing else about the person is kept (no reason text).
+      required: [emails, ips]
+      properties:
+        emails:
+          type: array
+          items:
+            $ref: '#/components/schemas/BlockedEmail'
+        ips:
+          type: array
+          items:
+            $ref: '#/components/schemas/BlockedIp'
 
     StaffList:
       type: object
@@ -2142,6 +2193,7 @@ components:
                       at,
                       publishedAt,
                       hiddenReason,
+                      senderIp,
                     ]
                   properties:
                     action:
@@ -2169,6 +2221,12 @@ components:
                       type: [string, 'null']
                       enum: [media_unavailable, media_changed, null]
                       description: On the system's hidden entries, why.
+                    senderIp:
+                      type: [string, 'null']
+                      description: |
+                        Block list (BL-4, Joel 2026-11-14): on the person's own `sent` entries, the IP address
+                        they sent the story from, while it is still kept (30 days; then `null`, and the
+                        nightly housekeeping clears it). `null` on every other entry.
               createdAt:
                 type: string
                 format: date-time

@@ -488,8 +488,10 @@ export class StoryStore {
    * of the upload, recorded on the story in the submission's own write, with its
    * Idempotency-Key, so the two commit together or neither does, and a replay records nothing
    * again. It must still be the latest (409 `agreement_version_changed`, nothing submitted).
-   * Without it the story's choice is left as it is: it can't be taken back. Answers the story's
-   * version after both writes.
+   * Without it the story's choice is left as it is: it can't be taken back. `senderIp`: the IP
+   * address it was sent from, kept on the sent entry (block list, G21 D); not part of the
+   * request's hash, so a retry from another address replays. Answers the story's version after
+   * both writes.
    */
   async submit(
     id: string,
@@ -502,6 +504,7 @@ export class StoryStore {
     },
     checkMedia?: () => Promise<void>,
     shareVersion?: number,
+    senderIp?: string,
   ): Promise<CommandResult> {
     try {
       const { response } = await runIdempotent(
@@ -574,7 +577,8 @@ export class StoryStore {
                   : ''
               }
               LET $e = (CREATE ONLY storyStatusLog CONTENT {
-                story: type::record('story', $id), action: 'sent' } RETURN id);
+                story: type::record('story', $id), action: 'sent',
+                senderIp: $senderIp } RETURN id);
               IF $e = NONE { THROW 'story_cmd:not_written' };
               LET $u = (SELECT id, version FROM ONLY type::record('story', $id));
               LET $result = { id: $u.id, version: $u.version };`,
@@ -582,6 +586,7 @@ export class StoryStore {
               id,
               version: ifMatch,
               ...(shareVersion === undefined ? {} : { shareVersion }),
+              ...(senderIp === undefined ? {} : { senderIp }),
             },
           };
         },

@@ -8,11 +8,13 @@ import {
   unfinishedPicturesTask,
 } from './media-jobs';
 import { expiredRequestKeysTask } from './request-keys';
+import { oldSenderIpsTask } from './sender-ips';
 import type { Task } from './tasks';
 import { orphanVideosTask } from './videos';
 
 /**
- * The nightly chores, run in this order: expired request keys first (nothing depends on them),
+ * The nightly chores, run in this order: expired request keys and story senders' IP addresses 30
+ * days old (block list) first (nothing depends on them),
  * then expired drafts, rejected stories and abandoned stories (G3 B) before orphaned videos, so
  * their videos are orphans the same night; the
  * files stories stopped showing (R12), then the file rows that no longer count (whose media jobs
@@ -25,6 +27,7 @@ import { orphanVideosTask } from './videos';
  */
 export const CHORES: readonly Task[] = [
   expiredRequestKeysTask,
+  oldSenderIpsTask,
   pendingDeletionsTask,
   expiredDraftsTask,
   rejectedStoriesTask,

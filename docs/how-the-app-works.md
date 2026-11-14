@@ -81,11 +81,11 @@ code does what it does today; nobody should build on either reading.
   staff menu), so taking that email off an account ends their staff powers at the next token,
   within about a minute.
 
-  | Role      | Can do (G24, Joel 2026-11-11)                                                                                                                                        |
-  | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-  | User      | Share stories, hearts, their own account                                                                                                                             |
-  | Moderator | The moderation queue: approve, send back, reject, hide and show again (today: read the queue and each story; the decisions come with M3)                             |
-  | Admin     | Everything a Moderator can, plus themes, submission limits, legal texts, "approve anyway", reading drafts (every story), the block list (planned) and the Staff page |
+  | Role      | Can do (G24, Joel 2026-11-11)                                                                                                                              |
+  | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | User      | Share stories, hearts, their own account                                                                                                                   |
+  | Moderator | The moderation queue: approve, send back, reject, hide and show again (today: read the queue and each story; the decisions come with M3)                   |
+  | Admin     | Everything a Moderator can, plus themes, submission limits, legal texts, "approve anyway", reading drafts (every story), the block list and the Staff page |
 
 - **Staff (S-1 to S-4, G7, G8 B; Joel 2026-11-11):** Admins add, change and remove Moderators and
   Admins on the Staff page (`/admin/staff`). Only `@heisreal.today` emails can be staff (G7). There
@@ -104,6 +104,31 @@ code does what it does today; nobody should build on either reading.
   Clerk where an account has the email; one with no account yet is logged, and a later start gives
   them the role once they have signed up. Start-up never fails over it; it never removes anyone. So removing one on the Staff page lasts only until then, which
   the page says.
+- **Block list (G21 D, Joel 2026-11-11):** Admins keep a list of blocked email addresses and IP
+  addresses at `/admin/block-list`, in plain text, readable and changeable only by Admins (never
+  Moderators). A blocked email can't create an account or send a story; a blocked IP address can't
+  send a story. Reading the site is never blocked. A block is permanent: it stays until an Admin
+  removes it, even after the person deletes their account. Entries hold no reason text, only which
+  Admin added them and when.
+  - **Account creation:** checked where our side first sees a new Clerk account, the first call to
+    api-user (which makes the person's database record). If the sign-in token's verified email is
+    blocked, no record is made and every call is refused. Someone who already had an account when
+    their email was blocked keeps it (they can still read, edit, delete and download their things),
+    but can't send a story. Clerk itself still lets them sign in (no Clerk setting is used).
+  - **Sending a story:** api-user refuses it if the token's verified email or the IP address it
+    comes from is blocked. Either way the person sees only the generic "Something went wrong.
+    Please try again later." (no codes; Joel 2026-11-09). The check runs just before the story is
+    written (after the file checks at Bunny), so a block added meanwhile counts; a retry of a send
+    that already went through (same Idempotency-Key) still gets its success back.
+  - **The address a story was sent from:** api-user keeps it on the story's "sent" status entry for
+    30 days, so an Admin can block a recent abuser's address; the nightly clean-up clears it after
+    that. An Admin sees it on the story's moderation view, with a link that fills it in on the
+    Block list page; Moderators never see it, and no other staff page shows it. The person who
+    sent the story gets it too, in their own "Download my data" file, on their own stories' "sent"
+    entries while it is still kept (BL-4, Joel 2026-11-14); never anyone else's. The address is the one
+    Google's front end saw: api-user runs on Cloud Run with no load balancer, so it takes the last
+    entry of `X-Forwarded-For` (the one Google appends; anything before it was sent by the client
+    and can say anything). Addresses are compared exactly, in one form (IPv6 short and lower-case).
 - The parts of a page that are about the signed-in person (hearts, their stories, their profile)
   are filled in by the browser, with space kept so nothing jumps. Pages for signed-in people
   need JavaScript. (D83)
@@ -163,6 +188,12 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   and a small number of admins (for support and safety); while it's waiting for review, the
   person and our moderators. Version 0's words were edited in place for M3 (LT-1, Joel
   2026-11-11: Edit instead of Withdraw, and "super admins" became "admins"; dev only, rebuilt). (Joel, 2026-11-05; the admins' view is in api-admin, R15, with no admin page yet.)
+- **Block list and AI wording (LT-1, G18; Joel 2026-11-11):** version 0 was edited in place on dev
+  (no real users; dev's database rebuilt): the terms of use (section 5) say we may block the email
+  and IP addresses of someone who breaks them, permanently; the testimony consent says we may use
+  automated tools, including AI, for transcripts, captions and summaries; the privacy notice lists
+  where a story was sent from (30 days) and the block list under what we collect, how long we keep
+  them and our legitimate interest, and AI tools under where it's stored.
 - **Cookies:** the site uses only essential cookies and storage (sign-in, the light or dark
   choice, the video player's own settings), so there is no cookie banner, only a footer note
   linking to the privacy notice. Anything non-essential later (analytics, error replay) needs the
@@ -348,7 +379,8 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 - **Download my data** gives one file of everything we hold about the person, explained in plain
   words: their stories in every status, each story's whole status history (their own sends and
   edits, moderators' decisions with their comments, signed "moderator" and never who made
-  them, and the site's own hides and shows while a video can't play; R6, Joel 2026-11-05), what
+  them, and the site's own hides and shows while a video can't play; R6, Joel 2026-11-05; on
+  their own sends, the IP address they sent from while it is still kept, 30 days, BL-4), what
   they agreed to and when, their hearts, their limits and their sign-in details from Clerk. Videos,
   audio and pictures come as links that last 7 days (B, Joel 2026-11-06), in dev and in
   production: a named exception to the one-hour rule for the links to files that aren't public
@@ -578,6 +610,9 @@ Planned (M3):
 - **Staff** (Admins): the staff list (email, role, who added them and when, baseline admins
   marked); add an `@heisreal.today` email as a Moderator or an Admin, change a role, remove someone
   (after "Remove …? They become a User."). See "Staff" under Accounts and sign-in.
+- **Block list** (Admins): blocked emails and IP addresses, newest first, each with who blocked it
+  and when; block an email or an address, and unblock one. See "Block list" under Accounts and
+  sign-in.
 - Planned (M5): the dashboard and the user list.
 
 ## Data kept and deleted
@@ -607,6 +642,9 @@ Planned (M3):
   clean-up once they expire, 24 hours after the request. (Joel, 2026-11-05)
 - **Media jobs** (ids and times only) are deleted by the nightly clean-up 30 days after they
   ended, and with their file before that. (J2, Joel 2026-11-07)
+- **The IP address a story was sent from** is cleared by the nightly clean-up 30 days after it was
+  sent (the status entry itself stays), and goes with the story. **The block list** is kept until
+  an Admin removes an entry, even after the person deletes their account. (G21 D, Joel 2026-11-11)
 - Backups are nightly, in the UK, and age out; they aren't edited after a deletion.
 - Our services' logs are stored in London for 30 days. (D101)
 - **Where data lives:** in the UK wherever possible (London), declared in our infrastructure

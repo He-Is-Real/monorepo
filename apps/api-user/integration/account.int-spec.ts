@@ -7,6 +7,7 @@ import { SURREAL } from '@heisreal/database';
 import {
   publishVersion,
   rows,
+  run,
   TestDatabase,
 } from '@heisreal/database/integration-testing';
 import { SECRET_MANAGER_CLIENT, SECRETS_PROJECT } from '@heisreal/secrets';
@@ -122,6 +123,35 @@ describe('GET /v1/account, the account bootstrap', () => {
     const again = await api.get(api.as('user_firstvisit'));
     expect(await again.json()).toEqual(account);
     expect(await api.usersFor('user_firstvisit')).toHaveLength(1);
+  });
+
+  it('a blocked email can’t create an account; someone who already has one keeps it (block list, G21 D)', async () => {
+    const blocked = { email: 'blocked@example.com', email_verified: true };
+    // Already has an account before the block.
+    expect((await api.get(api.as('user_beforeblock', blocked))).status).toBe(
+      200,
+    );
+    await run(
+      await api.t.service('api_admin'),
+      `CREATE blockedEmail:⟨blocked@example.com⟩ SET email = 'blocked@example.com', addedBy = 'joel@heisreal.today'`,
+    );
+
+    const refused = await api.get(api.as('user_blocked1', blocked));
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toMatchObject({ code: 'blocked' });
+    expect(await api.usersFor('user_blocked1')).toHaveLength(0);
+
+    expect((await api.get(api.as('user_beforeblock', blocked))).status).toBe(
+      200,
+    );
+    // Another email is unaffected.
+    const other = await api.get(
+      api.as('user_notblocked', {
+        email: 'fine@example.com',
+        email_verified: true,
+      }),
+    );
+    expect(other.status).toBe(200);
   });
 
   describe('agreeing (plan 4e)', () => {

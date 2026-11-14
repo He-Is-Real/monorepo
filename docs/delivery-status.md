@@ -261,13 +261,23 @@ nobody has touched it for 186 days, files included. Admins change both times on 
 and My submissions shows each such story's date. Built on top of Edit and Delete, so it merges
 after it.
 
+**In progress: the block list and the legal text changes.** Admins get a Block list page
+(`/admin/block-list`) to block and unblock email addresses and IP addresses. A blocked email
+can't create an account or send a story; a blocked IP address can't send a story; reading is
+never blocked, and a block lasts until an Admin removes it. To make IP blocking possible, the
+address each story is sent from is kept for 30 days, and an Admin (never a Moderator) sees it on
+the story's review page with a link to block it. People get the address in their own "Download
+my data" file, for their own stories only, while it is kept. The terms of use, testimony consent and privacy
+notice (version 0, edited in place on dev) now say this, and that AI tools may be used for
+transcripts, captions and summaries. Before it works on dev: dev's database is wiped and rebuilt
+once (the legal texts changed), when the cluster root is applied.
+
 **Still to come:**
 
 - "Your video couldn't be used" (part 1a): a video Bunny can't use sends the story back to the
   person with a plain message.
 - The moderators' decisions (approve, send back, reject), the story's history shown as a timeline
   including file changes, and hide and show again.
-- The block list (emails and IP addresses, permanent) and the matching wording in the legal texts.
 
 **Deferred:** two-step verification and Google-only sign-in for staff, until we are happy to pay
 for them.

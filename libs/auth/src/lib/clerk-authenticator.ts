@@ -15,7 +15,12 @@ import {
   type VerifiedClerkToken,
   verifyClerkToken,
 } from './clerk-token';
-import { ErasedIdentityError, findPerson, provisionPerson } from './people';
+import {
+  BlockedEmailError,
+  ErasedIdentityError,
+  findPerson,
+  provisionPerson,
+} from './people';
 import type { AuthenticatedPerson, PersonAuthenticator } from './person';
 
 /**
@@ -87,10 +92,12 @@ abstract class ClerkAuthenticator implements PersonAuthenticator {
       // Guards run before DatabaseAvailabilityInterceptor: a lookup during an outage, or one
       // still waiting when it starts, answers `503 service_restarting` at once rather than wait
       // minutes for a restarting database. Either way the request is refused, never let through.
-      const clerkUserId = verified.clerkUserId;
+      const { clerkUserId, email } = verified;
       await (this.database
-        ? this.database.whileAvailable(() => this.ensurePerson(clerkUserId))
-        : this.ensurePerson(clerkUserId));
+        ? this.database.whileAvailable(() =>
+            this.ensurePerson(clerkUserId, email),
+          )
+        : this.ensurePerson(clerkUserId, email));
       this.known.add(verified.clerkUserId);
     }
     return {
@@ -103,20 +110,35 @@ abstract class ClerkAuthenticator implements PersonAuthenticator {
     };
   }
 
-  /** Makes sure the `user` row exists, or refuses. */
-  protected abstract ensurePerson(clerkUserId: string): Promise<void>;
+  /** Makes sure the `user` row exists, or refuses. `email`: the token's verified email, if any. */
+  protected abstract ensurePerson(
+    clerkUserId: string,
+    email?: string,
+  ): Promise<void>;
 }
 
 /**
  * api-user: creates the person's `user` row on first use, on api-user's own login (the only
- * identity the schema lets create users; D13). The row holds only `clerkUserId` (D16).
+ * identity the schema lets create users; D13). The row holds only `clerkUserId` (D16). A blocked
+ * email (block list, G21 D) gets no row: `403 blocked`, which the site shows only as its generic
+ * "Something went wrong" (Joel, 2026-11-09).
  */
 @Injectable()
 export class ApiUserAuthenticator extends ClerkAuthenticator {
-  protected async ensurePerson(clerkUserId: string): Promise<void> {
+  protected async ensurePerson(
+    clerkUserId: string,
+    email?: string,
+  ): Promise<void> {
     try {
-      await provisionPerson(this.db, clerkUserId);
+      await provisionPerson(this.db, clerkUserId, { email });
     } catch (err) {
+      if (err instanceof BlockedEmailError) {
+        this.logger.warn('Refused a new account: its email is blocked');
+        throw new ForbiddenException({
+          code: 'blocked',
+          message: 'This account can’t be used',
+        });
+      }
       // D82: the account was deleted; its leftover token (or Clerk account) is refused.
       if (err instanceof ErasedIdentityError) {
         this.logger.warn('Refused a session token: the account was erased');

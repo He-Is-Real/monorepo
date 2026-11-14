@@ -38,6 +38,7 @@ const ADMIN_PAGES: { href: string; label: string; min: StaffRole }[] = [
   { href: '/admin/limits', label: 'Submission limits', min: 'Admin' },
   { href: '/admin/themes', label: 'Themes', min: 'Admin' },
   { href: '/admin/staff', label: 'Staff', min: 'Admin' },
+  { href: '/admin/block-list', label: 'Block list', min: 'Admin' },
 ];
 
 /**

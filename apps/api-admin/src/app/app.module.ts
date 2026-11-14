@@ -9,6 +9,7 @@ import { HealthModule } from '@heisreal/health';
 import { ProblemFilter } from '@heisreal/http';
 import { SecretsModule } from '@heisreal/secrets';
 import { MediaUrlsModule } from '@heisreal/story-cards';
+import { BlockListModule } from './block-list/block-list.controller';
 import { LegalDocumentsModule } from './legal-documents/legal-documents.controller';
 import { ModerationModule } from './moderation/moderation.controller';
 import { StaffModule } from './staff/staff.controller';
@@ -29,6 +30,7 @@ import { ThemesModule } from './themes/themes.controller';
     // api-public-read's (D52); without the BUNNY_* variables signing is off and links are null.
     MediaUrlsModule,
     AllStoriesModule,
+    BlockListModule,
     LegalDocumentsModule,
     ModerationModule,
     StaffModule,

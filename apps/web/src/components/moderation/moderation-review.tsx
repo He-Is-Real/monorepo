@@ -127,6 +127,7 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
       >
         {STATUS_LABEL[story.status] ?? story.status}
       </p>
+      <SenderIp ip={story.senderIp} />
       <MediaNote story={story} />
       <StoryArticle
         story={story}
@@ -142,6 +143,29 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
         after={<History entries={story.statusLog} />}
       />
     </>
+  );
+}
+
+/**
+ * Block list (G21 D, G24): the IP address the story was sent from, which api-admin gives Admins
+ * only, for 30 days, with a link to block it.
+ */
+function SenderIp({ ip }: { ip: string | null }) {
+  if (!ip) return null;
+  return (
+    <p
+      className="mx-auto mb-6 max-w-measure rounded-2xl border border-border bg-card p-4 [overflow-wrap:anywhere]"
+      data-sender-ip={ip}
+    >
+      Sent from IP address <span className="font-mono">{ip}</span>. Only admins
+      see this, for 30 days.{' '}
+      <Link
+        href={`/admin/block-list?ip=${encodeURIComponent(ip)}`}
+        className="inline-flex min-h-11 items-center underline underline-offset-4"
+      >
+        Block this address
+      </Link>
+    </p>
   );
 }
 

@@ -13,7 +13,8 @@ info:
     - The token must be a session token of the configured Clerk instance (RS256, `iss`, `exp`/`nbf`)
       minted for an allowed origin (`azp`), with the `role` claim (D1); anything else is `401`. A role
       below the operation's `x-required-role` is `403` with code `role_required`. The person's first
-      call creates their `user` record (only `clerkUserId`, D16).
+      call creates their `user` record (only `clerkUserId`, D16), unless the token's verified email
+      is on the block list (G21 D): then every call is `403` with code `blocked` and no record is made.
     - A request isn't cut off when the token expires midway (decision T): if it may outlast the
       token, api-user asks Clerk for a fresh one for the same session and uses it with the database
       only. If Clerk says the session has ended, `401`; if Clerk can't be reached, `503` with code
@@ -943,6 +944,12 @@ paths:
         nothing again). A version that isn't the latest any more is `409` `agreement_version_changed` and
         nothing is submitted. It can't be withdrawn: deleting the story stops any future
         use. The same key with another body is `422`.
+
+        **Block list (G21 D, Joel 2026-11-11):** a blocked email (the token's verified one) or a blocked
+        IP address can't send a story: `403` `blocked`, nothing submitted (the site shows only its generic
+        "Something went wrong"). The address the story was sent from (the last `X-Forwarded-For` entry,
+        the one Google's front end adds) is kept on the story's sent status entry for 30 days, for Admins
+        only.
       x-required-role: User
       x-milestone: M2
       parameters:

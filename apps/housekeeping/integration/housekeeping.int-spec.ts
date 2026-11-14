@@ -23,6 +23,7 @@ import { CHORES } from '../src/app/chores';
 import type { ClerkUsers } from '../src/app/clerk';
 import { pendingDeletionsTask } from '../src/app/erasure';
 import { expiredRequestKeysTask } from '../src/app/request-keys';
+import { oldSenderIpsTask } from '../src/app/sender-ips';
 import type { ImageZone } from '../src/app/images';
 import { startHousekeeping } from '../src/app/start';
 import type { LibraryVideo, StreamLibrary } from '../src/app/stream';
@@ -543,7 +544,7 @@ describe('housekeeping: old rejected and abandoned stories', () => {
     }
   });
 
-  it('lets housekeeping read only the story, state and time of every status entry, an old approval’s publishedAt never', async () => {
+  it('lets housekeeping read only the story, state and time of every status entry that isn’t pending, an old approval’s publishedAt never', async () => {
     // The approval really carries a publishedAt (as the migrator sees it).
     const [approval] = await rows(
       migrator,
@@ -555,10 +556,11 @@ describe('housekeeping: old rejected and abandoned stories', () => {
       housekeeping,
       `SELECT * FROM storyStatusLog WHERE story = story:approved_then_edited`,
     );
+    // The pending ("sent") entry holds no address 30 days old, so it isn't housekeeping's to see
+    // (block list: only such entries are, so the chore can pick them without reading the address).
     expect(entries.map((e) => e['status']).sort()).toEqual([
       'approved',
       'editing',
-      'pending',
     ]);
     for (const entry of entries) {
       expect(Object.keys(entry).sort()).toEqual([
@@ -804,6 +806,104 @@ describe('housekeeping: expired request keys', () => {
     });
     expect(JSON.stringify(logs)).not.toMatch(/secret|msg_old|admin-old|user:/);
     expect(await left()).toEqual(['admin-new', 'ann-secret-key-new']);
+    expect(await sweep()).toBe(0);
+    expect(logs.at(-1)).toMatchObject({ selected: 0, deleted: 0 });
+  });
+});
+
+describe('housekeeping: the IP addresses stories were sent from (block list)', () => {
+  let t: TestDatabase;
+  let migrator: Surreal;
+  let housekeeping: Surreal;
+  const logs: Record<string, unknown>[] = [];
+  const DAY = 24 * 3_600_000;
+  const sweep = (over: Partial<TaskContext> = {}) =>
+    runTasks(
+      [oldSenderIpsTask],
+      {
+        db: housekeeping,
+        stream: null,
+        dryRun: false,
+        maxDeletions: 50,
+        now: NOW,
+        ...over,
+      },
+      (entry) => logs.push(entry),
+    );
+  const addresses = async () =>
+    (
+      await rows<string>(
+        migrator,
+        `SELECT VALUE senderIp FROM storyStatusLog WHERE senderIp != NONE`,
+      )
+    ).sort();
+
+  beforeAll(async () => {
+    t = await TestDatabase.create();
+    migrator = await t.migrator();
+    housekeeping = await t.service('housekeeping');
+    await createPeople(t, { ann: 'user_ann' });
+    await trustSubmitters(t, 'ann');
+    const ann = await t.person('user_ann');
+    await agreeAll(ann);
+    // Stories sent 31 and 29 days ago, as dev-seed's history loads them (a system user may
+    // date an entry), and one sent just now in the person's own session.
+    for (const [id, days, ip] of [
+      ['ip_old', 31, '203.0.113.1'],
+      ['ip_recent', 29, '203.0.113.2'],
+      ['ip_now', 0, '2001:db8::7'],
+    ] as const) {
+      await run(
+        ann,
+        `CREATE type::record('story', $id) SET submitter = $auth, slug = $id, title = 'Story',
+           description = 'd', body = $body, primaryFormat = 'written', themeRefs = [theme:common]`,
+        { id, body: 'x'.repeat(250) },
+      );
+      await run(
+        days ? migrator : ann,
+        `CREATE storyStatusLog CONTENT object::extend({ story: type::record('story', $id),
+           action: 'sent', senderIp: $ip }, $old)`,
+        {
+          id,
+          ip,
+          old: days
+            ? { actor: 'person', at: new Date(Date.now() - days * DAY) }
+            : {},
+        },
+      );
+    }
+  });
+  afterAll(() => t?.close());
+
+  it('in a dry run, only reports the entries it would clear, never an address', async () => {
+    expect(await sweep({ dryRun: true })).toBe(0);
+    expect(logs.at(-1)).toMatchObject({
+      task: 'old-sender-ips',
+      selected: 1,
+      deleted: 0,
+    });
+    expect(JSON.stringify(logs)).not.toMatch(/203\.0\.113|2001:db8/);
+    expect(await addresses()).toHaveLength(3);
+  });
+
+  it('clears the address 30 days after a story was sent, keeps the newer ones, and is safe to run again', async () => {
+    expect(await sweep()).toBe(0);
+    expect(logs.at(-1)).toMatchObject({
+      task: 'old-sender-ips',
+      selected: 1,
+      deleted: 1,
+      failed: 0,
+      more: false,
+    });
+    expect(JSON.stringify(logs)).not.toMatch(/203\.0\.113|2001:db8/);
+    expect(await addresses()).toEqual(['2001:db8::7', '203.0.113.2']);
+    // The entry stays: the status log is append-only.
+    expect(
+      await rows(
+        migrator,
+        `SELECT VALUE status FROM storyStatusLog WHERE story = story:ip_old`,
+      ),
+    ).toEqual(['pending']);
     expect(await sweep()).toBe(0);
     expect(logs.at(-1)).toMatchObject({ selected: 0, deleted: 0 });
   });

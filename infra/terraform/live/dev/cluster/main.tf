@@ -120,7 +120,9 @@ module "cluster" {
   # files (database review 2, part B2); wiped again, no migration.
   # m3-story-states: five story states and an action on each status log entry, Edit instead of
   # Withdraw, and the version 0 legal texts edited in place (M3, Joel 2026-11-11); wiped again.
-  dev_database_reset = "m3-story-states"
+  # m3-block-list: version 0 of the legal texts edited in place for the block list and AI tools
+  # (Joel 2026-11-11, LT-1 and G18: dev only, no real users); data/0009 changed, so wiped again.
+  dev_database_reset = "m3-block-list"
   # D42: the automatic cluster plan's identity (modules/bootstrap), dry-run RBAC in `database`.
   cluster_planner_email = "tf-cluster-planner@heisreal-dev.iam.gserviceaccount.com"
 

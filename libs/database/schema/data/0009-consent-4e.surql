@@ -18,7 +18,8 @@
 -- Edited before production (database review 2, 2026-11-05), while dev is wiped and rebuilt so
 -- no database keeps the earlier copy: no audit log (R3), no deletion date (R3), and admins can
 -- see drafts (R15). Edited again in M3 (LT-1, Joel 2026-11-11): Edit replaced Withdraw, and
--- super admins are now admins.
+-- super admins are now admins; and for the block list and AI tools (Joel 2026-11-11, LT-1 and
+-- G18; m3-plan-and-m2-extras.html, "Legal text changes"; dev wiped again, reset m3-block-list).
 -- The old data scripts 0001, 0003, 0005 and 0007 wrote that machinery's rows and could no longer
 -- run on a fresh database, so they left the bundle (as 0002 did, D44): databases that applied
 -- them keep their _migration rows (the runner warns that the scripts are gone).
@@ -58,6 +59,10 @@ something needs changing, we ask you.
 We may take a story down, or close an account, if it breaks these terms, if the law requires it,
 or to protect someone. Where we can, we tell you why.
 
+If someone breaks these terms, we may block their email address and the internet (IP) addresses
+they used from creating an account or sharing stories. A block stays even if the account is
+deleted.
+
 ## 6. Your right to withdraw or delete
 
 Your story stays yours. You can take a story off the site to edit it, or delete it, at any time.
@@ -95,7 +100,10 @@ UK data protection law treats as special category data (UK GDPR Article 9), so w
 with your explicit consent. This one consent covers every story you share with us.
 
 We keep your story in our database, our moderators review it, and once they approve it we
-publish it on heisreal.today.
+publish it on heisreal.today. We may also use automated tools, including AI, to work with your
+story: for example to make a transcript and captions of a recording, or a short summary to help
+our moderators and readers. The tools and the companies that run them are listed in our privacy
+notice.
 
 ## Who sees it
 
@@ -174,6 +182,10 @@ use it for advertising.
 - **Limits.** How many stories you’ve started and submitted, to keep things fair.
 - **Security logs.** Our servers’ records of requests, such as your IP address and browser, to
   keep the site working and safe.
+- **Where a story was sent from.** The IP address each story is sent from, kept for 30 days, so
+  we can stop abuse.
+- **Block list.** If we block someone for breaking our terms of use, their email address and the
+  IP addresses they used.
 
 ## Where it’s stored and processed
 
@@ -186,6 +198,8 @@ use it for advertising.
 - **Cloudflare:** protects sign-in from bots, for Clerk.
 - **Stripe:** payments on our donate page, on Stripe’s own pages.
 - **A computer we look after in the UK:** background checks on uploaded videos.
+- **AI tools:** transcripts, captions and summaries of stories (listed here, with where they run,
+  before we start using them).
 
 Where information leaves the UK (to Clerk in the United States, Bunny in Germany), the transfer
 is protected as UK law requires.
@@ -197,8 +211,9 @@ is protected as UK law requires.
 - **Sharing a story beyond this site:** your consent for that story.
 - **Your account and favourites:** to provide the service you signed up for (a contract,
   Article 6(1)(b)).
-- **Security logs, limits and deleted-account records:** our legitimate interest in keeping the
-  site safe, fair and accountable (Article 6(1)(f)).
+- **Security logs, limits, deleted-account records, the IP addresses stories are sent from, and
+  the block list:** our legitimate interest in keeping the site safe, fair and accountable
+  (Article 6(1)(f)).
 
 ## How long we keep it
 
@@ -210,6 +225,9 @@ is protected as UK law requires.
 - **What stays after that:** a record that an account existed and was deleted, under an
   internal number; and a one-way fingerprint of your Clerk id, so a deleted account can’t be
   re-created.
+- **Block list:** blocked email and IP addresses until we remove them, even after the account is
+  deleted.
+- **The IP addresses stories are sent from:** 30 days.
 - **Backups:** deleted after 30 days.
 
 ## Your rights

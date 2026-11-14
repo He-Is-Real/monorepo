@@ -36,6 +36,8 @@ describe('moderation, the read side (api-admin)', () => {
   let clerk: TestClerk;
   let app: NestExpressApplication;
   let url: string;
+  let ann: Awaited<ReturnType<typeof buildWorld>>['ann'];
+  let migrator: Awaited<ReturnType<TestDatabase['migrator']>>;
 
   async function get(
     path: string,
@@ -78,8 +80,10 @@ describe('moderation, the read side (api-admin)', () => {
       database: t.database,
     });
     // Ann's and Bob's waiting stories (sent in that order), Bob's published one, two drafts.
-    const { admin, ann, bob } = await buildWorld(t);
-    const migrator = await t.migrator();
+    const world = await buildWorld(t);
+    const { admin, bob } = world;
+    ann = world.ann;
+    migrator = await t.migrator();
     const workflow = await t.service('workflow');
 
     // A video story with a picture, processed, then sent: third in the queue.
@@ -253,6 +257,34 @@ describe('moderation, the read side (api-admin)', () => {
     ]) {
       expect((await get(`/v1/moderation/stories/${id}`)).status, id).toBe(404);
     }
+  });
+
+  it('shows an Admin, never a Moderator, the IP address a story was sent from while it is under 30 days old (block list, G21 D)', async () => {
+    await draft(ann, 'ann_ip');
+    await run(
+      ann,
+      `CREATE storyStatusLog CONTENT { story: story:ann_ip, action: 'sent', senderIp: '203.0.113.7' }`,
+    );
+    await draft(ann, 'ann_ip_old');
+    await run(
+      migrator,
+      `CREATE storyStatusLog CONTENT { story: story:ann_ip_old, action: 'sent', actor: 'person',
+         at: time::now() - 31d, senderIp: '203.0.113.8' }`,
+    );
+    const asAdmin = { role: 'Admin', sub: 'user_mod' };
+    expect(
+      (await get('/v1/moderation/stories/ann_ip', asAdmin)).body.senderIp,
+    ).toBe('203.0.113.7');
+    expect((await get('/v1/moderation/stories/ann_ip')).body.senderIp).toBe(
+      null,
+    );
+    expect(
+      (await get('/v1/moderation/stories/ann_ip_old', asAdmin)).body.senderIp,
+    ).toBe(null);
+    // Stories sent before addresses were kept have none.
+    expect(
+      (await get('/v1/moderation/stories/ann_video', asAdmin)).body.senderIp,
+    ).toBe(null);
   });
 
   // M3 plan concern C2: the role check is the only thing between a User and these routes.

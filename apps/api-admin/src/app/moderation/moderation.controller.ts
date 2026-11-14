@@ -9,13 +9,15 @@ import {
   NotFoundException,
   Param,
   Query,
+  Req,
   Res,
 } from '@nestjs/common';
+import { PersonSessions } from '@heisreal/auth';
 import { runQuery, SURREAL } from '@heisreal/database';
 import { ifNoneMatches, isStoryId, recordKey, weakETag } from '@heisreal/http';
 import { RequiresRole } from '@heisreal/roles';
 import { MediaUrls } from '@heisreal/story-cards';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import type { Surreal } from 'surrealdb';
 import { isCursorTime } from '../cursor-time';
 
@@ -63,7 +65,9 @@ const STORY_SQL = `
         { path: record::id(image.file), alt: image.alt })
     } AS image
   FROM $s;
-  SELECT id, action, status, actor, comment, at FROM storyStatusLog WITH INDEX storyStatusLog_story
+  SELECT id, action, status, actor, comment, at,
+    IF at > fn::story::sender_ips_expire_before() { senderIp } AS senderIp
+  FROM storyStatusLog WITH INDEX storyStatusLog_story
     WHERE story = $s ORDER BY at ASC, id ASC;`;
 
 type Opt<T> = T | null | undefined;
@@ -112,6 +116,8 @@ interface EntryRow {
   actor: string;
   comment?: Opt<string>;
   at: string;
+  /** The sent entry's sender IP address, if it is under 30 days old (block list). */
+  senderIp?: Opt<string>;
 }
 
 const or = <T>(v: Opt<T>): T | null => v ?? null;
@@ -188,6 +194,7 @@ export class ModerationController {
   constructor(
     @Inject(SURREAL) private readonly db: Surreal,
     @Inject(MediaUrls) private readonly links: MediaUrls,
+    private readonly people: PersonSessions,
   ) {}
 
   @Get('queue')
@@ -226,6 +233,7 @@ export class ModerationController {
   @Get('stories/:id')
   @RequiresRole('Moderator')
   async getModerationStory(
+    @Req() req: Request,
     @Param('id') id: string,
     @Res({ passthrough: true }) res: Response,
     @Headers('if-none-match') ifNoneMatch?: string,
@@ -239,6 +247,10 @@ export class ModerationController {
     }
     const sent = log.filter((e) => e.action === 'sent').at(-1);
     if (!sent) throw new NotFoundException(); // never: pending follows a send
+    // Block list (G21 D, G24): the address it was sent from, for an Admin to copy into the block
+    // list; Moderators never see it. Kept 30 days (then housekeeping clears it).
+    const { role } = await this.people.authenticate(req);
+    const senderIp = role === 'Admin' ? or(sent.senderIp) : null;
     const urls = this.links.expiringIn(MODERATION_LINK_SECONDS);
     return conditional(
       res,
@@ -280,6 +292,7 @@ export class ModerationController {
           t.name ? [{ id: t.id, name: t.name }] : [],
         ),
         submittedAt: iso(sent.at),
+        senderIp,
         statusLog: log.map((e) => ({
           action: e.action,
           status: e.status,
