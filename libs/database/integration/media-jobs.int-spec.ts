@@ -196,7 +196,12 @@ describe('mediaJob: who may do what', () => {
   // check and 3 nightly retries gave up on our side, a waiting story's file gets no new job,
   // whoever opens it, and the moderators' "a problem on our side" stays.
   describe('the nightly retry cap holds for every opener (Part 1a, P1-9)', () => {
-    const queueAs = (db: Surreal, video: string, kind: string, reason: string) =>
+    const queueAs = (
+      db: Surreal,
+      video: string,
+      kind: string,
+      reason: string,
+    ) =>
       rows(
         db,
         `RETURN fn::media::queue_job(type::record('storyFile', $video), $kind, $reason)`,
@@ -243,7 +248,9 @@ describe('mediaJob: who may do what', () => {
     const capped = async (video: string) => {
       await giveUp(video);
       for (let night = 1; night <= 3; night++) {
-        expect(await queueAs(housekeeping, video, 'check', 'resent')).toBeTruthy();
+        expect(
+          await queueAs(housekeeping, video, 'check', 'resent'),
+        ).toBeTruthy();
         await giveUp(video);
       }
       expect(await ours(video)).toBe(true);
@@ -280,7 +287,9 @@ describe('mediaJob: who may do what', () => {
         expect(await queueAs(db, video, 'check', reason)).toBeUndefined();
       }
       // Nor a render (an audio file's picture video), which the result writer would open.
-      expect(await queueAs(workflow, video, 'render', 'picture_changed')).toBeUndefined();
+      expect(
+        await queueAs(workflow, video, 'render', 'picture_changed'),
+      ).toBeUndefined();
       expect(await openJobs(video)).toEqual([]);
       expect(await ours(video)).toBe(true);
     });
@@ -307,7 +316,12 @@ describe('mediaJob: who may do what', () => {
       )[0];
       const fresh = randomUUID();
       expect(
-        await grantUpload(apiUser, { video: fresh, story, person: 'pat', version }),
+        await grantUpload(apiUser, {
+          video: fresh,
+          story,
+          person: 'pat',
+          version,
+        }),
       ).toMatchObject({ ok: true });
       await submit(pat, story);
       expect(await openJobs(fresh)).toHaveLength(1);
@@ -317,7 +331,9 @@ describe('mediaJob: who may do what', () => {
       const { story, video } = await sent();
       await capped(video);
       await edit(pat, story);
-      expect(await queueAs(apiUser, video, 'check', 'bunny_finished')).toMatchObject({
+      expect(
+        await queueAs(apiUser, video, 'check', 'bunny_finished'),
+      ).toMatchObject({
         video,
       });
     });

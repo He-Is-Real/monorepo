@@ -509,7 +509,13 @@ describe('result writer: the worker’s answers → the job’s file row and the
 
     it('a ready audio file: no render of its picture video', async () => {
       const { story, video, first } = await capped('audio');
-      const result = await writeAnswer(workflow, first, video, ready(story), next());
+      const result = await writeAnswer(
+        workflow,
+        first,
+        video,
+        ready(story),
+        next(),
+      );
       expect(result.render).toBeNull();
       expect(await openJobs(video)).toEqual([]);
       expect(await ours(video)).toBe(true);
