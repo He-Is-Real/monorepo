@@ -386,9 +386,14 @@ webhook` (bad signature: check the secret `bunny-stream-readonly-key` has the li
      problem on our side", and a story off the site stays off (never deleted automatically,
      P1-9). The jobs of a waiting story or one the site took off aren't tidied away after 30
      days (P1-3, P1-9), so the count holds and the retries never start again; nor is the check
-     that recorded a file's re-encode (P1-10), so Bunny is never asked for a second one. Fix the
-     cause, then re-encode the video at Bunny (above): Bunny's next "finished" notice opens a
-     fresh job. Or a Moderator or Admin rejects the story.
+     that recorded a file's re-encode (P1-10), so Bunny is never asked for a second one. Once the
+     3 retries are used, the database refuses every new job of that file, from whatever sends it
+     (`fn::media::retries_used`, in `mediaJob_rules`): re-encoding the video at Bunny doesn't
+     help, because Bunny's "finished" notice is refused like the rest, and nor does the owner
+     sending the same file again. Fix the cause first (so a new check can work), then one of:
+     the owner presses Edit and uploads a new file (a new file starts with no give-ups) and sends
+     the story again; a Moderator or Admin rejects the story with a note (it is then deleted with
+     the other rejected stories); or an Admin deletes it from its review page.
    - **`gone` or `stale`:** the story no longer shows that video (replaced, removed), the video's
      title isn't the story's id, or a newer answer was already in. Nothing to do.
 
