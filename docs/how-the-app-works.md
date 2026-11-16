@@ -582,7 +582,7 @@ Built in the database (the decisions and their pages are planned, M3):
   re-encode is kept until the file itself is deleted, so Bunny is never asked for a second one.
 - **A story the site took off itself is never deleted automatically (P1-9, Joel 2026-11-14):** the
   nightly clean-up deletes only rejected stories and ones left in editing, never one off the site.
-  A developer fixes the cause, or a Moderator or Admin rejects it (then it is deleted like any
+  The owner uses Edit and uploads a new file, or a Moderator or Admin rejects it (then it is deleted like any
   rejected story), or an Admin deletes it.
 - **Which file couldn't be used (P1-2, Joel 2026-11-14; G17 B):** the "file unusable" entry
   records `recording` (the story's video or audio file) or `picture` (an audio story's picture
