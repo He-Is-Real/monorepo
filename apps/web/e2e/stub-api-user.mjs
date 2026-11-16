@@ -78,7 +78,10 @@
 //   moderator (409 `already_decided`), `mod_cooldown`'s video was uploaded recently (409
 //   `media_recently_uploaded`, even for an Admin), `mod_processing`'s audio is still being
 //   processed (409 `media_still_processing` unless an Admin approves anyway). Besides the queue,
-//   `mod_published` is on the site and `mod_taken_down` was hidden by a moderator.
+//   `mod_published` is on the site and `mod_taken_down` was hidden by a moderator. Two rows say
+//   "a problem on our side" (Part 1a, `mediaProblem: ours`): the waiting `mod_processing` and
+//   `mod_hidden_by_site`, which the site took off itself; one waiting story was sent back
+//   automatically once (a `fileUnusable` entry in its history).
 // - api-admin's staff list (M3 plan PR 4): `GET /v1/admin/staff`, `PUT`/`DELETE
 //   /v1/admin/staff/{email}`, Admins only, kept per session from two baseline admins and a
 //   Moderator; checked like the real one (@heisreal.today only, the two roles, never the last
@@ -649,6 +652,11 @@ const MOD_TEXT =
 const MOD_NOTE =
   'Thank you for sharing this. Could you say a little more about what changed that winter?';
 const modHour = (n) => new Date(Date.UTC(2026, 10, 1, 9 + n, 5)).toISOString();
+/**
+ * The stories whose list row says `mediaProblem: ours` (Part 1a), a list-only field, not on
+ * StoryModeration.
+ */
+const LIST_PROBLEM = new Set(['mod_processing', 'mod_hidden_by_site']);
 /** The waiting stories, oldest sent first, as api-admin's StoryModeration. */
 const MODERATION = [
   {
@@ -656,6 +664,8 @@ const MODERATION = [
     title: 'The night I stopped running',
     primaryFormat: 'video',
     bylineName: 'Sam',
+    // Part 1a: its first file couldn't be used; a new one was uploaded and it was sent again.
+    fileUnusable: true,
     themes: [{ id: 'healing', name: 'Healing' }],
     media: [
       {
@@ -732,40 +742,65 @@ const MODERATION = [
   })),
 ].map((s, i) => {
   const sent = modHour(i);
-  const statusLog = s.revised
-    ? [
-        {
-          action: 'sent',
-          status: 'pending',
-          actor: 'person',
-          comment: null,
-          at: modHour(-30),
-        },
-        {
-          action: 'changesRequested',
-          status: 'editing',
-          actor: 'moderator',
-          comment: MOD_NOTE,
-          at: modHour(-28),
-        },
-        {
-          action: 'sent',
-          status: 'pending',
-          actor: 'person',
-          comment: null,
-          at: sent,
-        },
-      ]
-    : [
-        {
-          action: 'sent',
-          status: 'pending',
-          actor: 'person',
-          comment: null,
-          at: sent,
-        },
-      ];
-  const { revised: _revised, ...story } = s;
+  const resent = (back) => [
+    {
+      action: 'sent',
+      status: 'pending',
+      actor: 'person',
+      comment: null,
+      at: modHour(-30),
+    },
+    back,
+    {
+      action: 'sent',
+      status: 'pending',
+      actor: 'person',
+      comment: null,
+      at: sent,
+    },
+  ];
+  const statusLog = s.fileUnusable
+    ? resent({
+        action: 'fileUnusable',
+        status: 'editing',
+        actor: 'system',
+        comment: null,
+        at: modHour(-29),
+      })
+    : s.revised
+      ? [
+          {
+            action: 'sent',
+            status: 'pending',
+            actor: 'person',
+            comment: null,
+            at: modHour(-30),
+          },
+          {
+            action: 'changesRequested',
+            status: 'editing',
+            actor: 'moderator',
+            comment: MOD_NOTE,
+            at: modHour(-28),
+          },
+          {
+            action: 'sent',
+            status: 'pending',
+            actor: 'person',
+            comment: null,
+            at: sent,
+          },
+        ]
+      : [
+          {
+            action: 'sent',
+            status: 'pending',
+            actor: 'person',
+            comment: null,
+            at: sent,
+          },
+        ];
+  const { revised: _revised, fileUnusable, ...story } = s;
   return {
     ...story,
     version: s.revised ? 4 : 2,
@@ -1087,6 +1122,7 @@ function sendList(req, res, url, token) {
         since,
         sentAt: sent?.at ?? null,
         updatedAt: since,
+        mediaProblem: LIST_PROBLEM.has(s.id) ? 'ours' : null,
       };
     })
     .sort((a, b) => a.since.localeCompare(b.since) || a.id.localeCompare(b.id));
@@ -1439,6 +1475,11 @@ function storyMine(s, id, st, uploaded = () => null, own = false) {
     version: st.version,
     slug: st.slug ?? `story-${id}`,
     status: st.status,
+    // Part 1a: a seeded story's `mediaProblem: 'unusable'` (its file failed for good).
+    mediaProblem: st.mediaProblem ?? null,
+    // P1-1, P1-2: a seeded story's `unusableFile` (the system sent it back for that file); null
+    // once it is sent again.
+    unusableFile: st.unusableFile ?? null,
     title: st.title,
     description: st.description,
     body: st.body ?? null,
@@ -1524,10 +1565,13 @@ function myDataOf(s, token, mine) {
       lastActiveAt: null,
     },
     stories: [...s.stories].reverse().map(([id, st]) => {
+      // The export has no mediaProblem or unusableFile (StoryMine only, Part 1a).
       const {
         version: _v,
         takenDown: _t,
         media,
+        mediaProblem: _p,
+        unusableFile: _u,
         ...rest
       } = storyMine(s, id, st);
       return {
@@ -2064,6 +2108,7 @@ async function handleShare(req, res, path, url, s) {
         });
       st.status = 'pending';
       st.rejectionFeedback = null; // the note shows only while it's sent back
+      st.unusableFile = null; // P1-1: worked out from the newest status entry
       st.submittedAt ??= new Date().toISOString();
       st.version += 1;
       if (share)
@@ -2245,6 +2290,9 @@ async function handleShare(req, res, path, url, s) {
       });
       s.uploadTimes.push({ at: Date.now(), image: false });
       st.videoId = videoId;
+      // Part 1a: worked out from the file, so a new one clears it.
+      st.mediaProblem = null;
+      st.processing = null;
       st.version += 1;
       st.updatedAt = new Date().toISOString();
       return sign(videoId);

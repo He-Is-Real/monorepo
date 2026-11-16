@@ -290,6 +290,82 @@ test.describe('moderation', () => {
     await expect(page.locator('[data-player]')).toHaveCount(0);
   });
 
+  // Part 1a (Joel, 2026-11-10; P1-5, P1-9, 2026-11-14): what moderators see of a file our side
+  // couldn't check, and of one that couldn't be used.
+  test('the list says when a story has a problem on our side', async ({
+    page,
+  }) => {
+    await useSession(page, 'moderator-ours');
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation`);
+    const problems = page.locator('[data-list-problem]');
+    await expect(problems).toHaveCount(1);
+    await expect(
+      page.locator('[data-list-item="mod_processing"] [data-list-problem]'),
+    ).toHaveText('Can’t be reviewed yet: a problem on our side');
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation?state=hidden`);
+    await expect(
+      page.locator('[data-list-item="mod_hidden_by_site"] [data-list-problem]'),
+    ).toHaveText('A problem on our side');
+    await expect(
+      page.locator('[data-list-item="mod_taken_down"] [data-list-problem]'),
+    ).toHaveCount(0);
+  });
+
+  test('a story sent back automatically shows it in its history, and an open page says when it changes', async ({
+    page,
+  }) => {
+    await useSession(page, 'moderator-left');
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_video`);
+    const history = page.locator('[data-history-entry]');
+    await expect(history).toHaveCount(3);
+    await expect(history.nth(1)).toContainText(
+      'Sent back automatically: the video couldn’t be processed',
+    );
+    await expect(history.nth(1)).not.toContainText('by ');
+    await expect(page.locator('[data-review-status]')).toHaveText(
+      'Waiting for review',
+    );
+    // A note being written when the story changes underneath.
+    const NOTE = 'Please say a little more about how you came to faith.';
+    const note = page.locator('[data-decisions] textarea');
+    await page
+      .locator('[data-decisions]')
+      .getByRole('button', { name: 'Send back' })
+      .click();
+    await note.fill(NOTE);
+    // Sent back while open: the page checks again when the tab is back in view.
+    await page.route('**/v1/moderation/stories/mod_video', async (route) => {
+      if (route.request().method() !== 'GET') return route.continue();
+      const response = await route.fetch({
+        headers: { ...route.request().headers(), 'if-none-match': '' },
+      });
+      const body = await response.json();
+      body.version += 1;
+      body.status = 'editing';
+      return route.fulfill({ response, json: body });
+    });
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    // It says so and waits: the page stays as it was, the note stays, the decisions are off.
+    const stale = page.locator('[data-review-stale]');
+    await expect(stale).toContainText(
+      'This story changed while you had it open.',
+    );
+    await expect(page.locator('[data-review-status]')).toHaveText(
+      'Waiting for review',
+    );
+    await expect(note).toHaveValue(NOTE);
+    const decisions = page.locator('[data-decisions] button');
+    await expect(decisions).toHaveCount(2);
+    for (const button of await decisions.all())
+      await expect(button).toBeDisabled();
+    // Reload shows it as it is now.
+    await stale.getByRole('button', { name: 'Reload to see it' }).click();
+    await expect(stale).toHaveCount(0);
+    await expect(page.locator('[data-review-status]')).not.toHaveText(
+      'Waiting for review',
+    );
+  });
+
   test('a story that’s gone says so', async ({ page }) => {
     await useSession(page, 'moderator-gone');
     await page.goto(`${WEB_SIGNED_IN_URL}/moderation/no_such_story`);
@@ -319,7 +395,8 @@ test.describe('moderation', () => {
     ]);
     await show.selectOption('hidden');
     await expect(states(page)).toHaveText([
-      'State: Hidden by the site while its video or audio can’t play',
+      // Part 1a: its check gave up on our side for good (mediaProblem ours).
+      'State: Hidden by the site while its video or audio can’t playA problem on our side',
       'State: Taken down by a moderator',
     ]);
     await expect(

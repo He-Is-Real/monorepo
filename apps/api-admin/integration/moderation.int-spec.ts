@@ -7,6 +7,7 @@ import { SURREAL } from '@heisreal/database';
 import { StringRecordId } from 'surrealdb';
 import {
   approve,
+  loadApproval,
   buildWorld,
   draft,
   edit,
@@ -375,6 +376,62 @@ describe('moderation, the read side (api-admin)', () => {
     expect(
       (await get('/v1/moderation/stories/ann_video', asAdmin)).body.senderIp,
     ).toBe(null);
+  });
+
+  // Part 1a (Joel, 2026-11-10; P1-5, P1-9, 2026-11-14): a waiting story, or one the site took
+  // off itself, whose file's check gave up on our side after the nightly housekeeping's 3 new
+  // checks, says so in the list; every other says nothing.
+  it('the list marks a story whose media check keeps giving up on our side: "a problem on our side"', async () => {
+    const migrator = await t.migrator();
+    const problem = async (state = 'pending') =>
+      Object.fromEntries(
+        (await get(`/v1/moderation/stories?state=${state}`)).body.data.map(
+          (s: { id: string; mediaProblem: string | null }) => [
+            s.id,
+            s.mediaProblem,
+          ],
+        ),
+      );
+    const giveUp = () =>
+      run(
+        migrator,
+        `CREATE mediaJob CONTENT { file: type::record('storyFile', $video), kind: 'check',
+           reasons: ['resent'], outcome: 'gave_up', doneAt: time::now(),
+           errorType: 'worker_error' }`,
+        { video: VIDEO },
+      );
+    /** The rows marked "a problem on our side". */
+    const ours = async (state = 'pending') =>
+      Object.entries(await problem(state))
+        .filter(([, p]) => p !== null)
+        .map(([id, p]) => [id, p]);
+    expect(Object.keys(await problem())).toContain('ann_video');
+    expect(await ours()).toEqual([]);
+    // The first give-up (the check its sending opened) and the housekeeping's three nights.
+    await run(
+      migrator,
+      `UPDATE mediaJob SET outcome = 'gave_up', doneAt = time::now(), errorType = 'bunny_unavailable'
+         WHERE file = type::record('storyFile', $video) AND doneAt = NONE`,
+      { video: VIDEO },
+    );
+    expect(await ours()).toEqual([]);
+    for (let n = 2; n <= 3; n++) {
+      await giveUp();
+      expect(await ours()).toEqual([]);
+    }
+    await giveUp();
+    expect(await ours()).toEqual([['ann_video', 'ours']]);
+
+    // Published, then taken off by the site itself (its file is being processed again): still
+    // ours; one a moderator took down never says so.
+    await loadApproval(migrator, 'ann_video');
+    await run(
+      migrator,
+      `UPDATE type::record('storyFile', $video) SET processing = 'processing'`,
+      { video: VIDEO },
+    );
+    expect(Object.keys(await problem('hidden'))).toContain('bob_hidden');
+    expect(await ours('hidden')).toEqual([['ann_video', 'ours']]);
   });
 
   // M3 plan concern C2: the role check is the only thing between a User and these routes.

@@ -75,6 +75,16 @@ export async function callWithin<T>(
   }
 }
 
+/** {@link WriterBunny.videoStatus}'s answer. */
+export type BunnyVideoStatus = 'failed' | 'ready' | 'encoding' | 'gone';
+/**
+ * Bunny's video status (https://docs.bunny.net/reference/video_getvideo), as the media worker
+ * reads it (apps/media-worker bunny.ts): 4 finished, 5 error, 6 upload failed; the rest are
+ * still on their way.
+ */
+const FINISHED = 4;
+const FAILED = new Set([5, 6]);
+
 /** The worker's one-hour pass to upload to one video (the contract's `UploadPass`). */
 export interface UploadPass {
   uploadUrl: string;
@@ -102,6 +112,15 @@ export interface WriterBunny {
     picture: string | null,
     signal?: AbortSignal,
   ): Promise<string>;
+  /**
+   * What Bunny says of the video now (Part 1a: the writer's own look before it believes a
+   * "failed" answer, so the worker can never make a file unusable): `failed` (Bunny couldn't
+   * encode it, or its upload failed), `ready`, `encoding` (still working, or not started), or
+   * `gone` (no such video).
+   */
+  videoStatus(videoId: string): Promise<BunnyVideoStatus>;
+  /** Asks Bunny to encode the video again from its original (Part 1a's one automatic re-encode). */
+  reencode(videoId: string): Promise<void>;
   /** The worker's upload pass for that one video, for an hour from now. */
   uploadPass(videoId: string, now?: number): Promise<UploadPass>;
   /** A 10-minute link to a story's picture, or null if the path isn't one. */
@@ -220,6 +239,26 @@ export class BunnyLibrary implements WriterBunny {
     if (res.status === 404) return false;
     if (!res.ok) BunnyLibrary.fail(res);
     return true;
+  }
+
+  async videoStatus(videoId: string): Promise<BunnyVideoStatus> {
+    if (!VIDEO_ID.test(videoId)) throw new BunnyCallFailed('bunny_error');
+    const res = await this.call('GET', `/${videoId}`);
+    if (res.status === 404) return 'gone';
+    if (!res.ok) BunnyLibrary.fail(res);
+    const { status } = (await res.json().catch(() => ({}))) as {
+      status?: unknown;
+    };
+    if (typeof status !== 'number')
+      throw new BunnyCallFailed('bunny_bad_reply');
+    if (FAILED.has(status)) return 'failed';
+    return status === FINISHED ? 'ready' : 'encoding';
+  }
+
+  async reencode(videoId: string): Promise<void> {
+    if (!VIDEO_ID.test(videoId)) throw new BunnyCallFailed('bunny_error');
+    const res = await this.call('POST', `/${videoId}/reencode`);
+    if (!res.ok) BunnyLibrary.fail(res);
   }
 
   async setThumbnail(

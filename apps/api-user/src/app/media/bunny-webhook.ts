@@ -251,8 +251,12 @@ export class BunnyWebhookController {
           )[0],
       );
       if (!queued) {
-        // No file row names this video (another upload, or one long gone): nothing to check.
-        this.logger.log(`Bunny video ${videoId} is no story's file: dropped`);
+        // No file row names this video (another upload, or one long gone), or its waiting story's
+        // file has used its nightly retries (Part 1a, P1-9: the database opens no new job, so
+        // "a problem on our side" stays): nothing to check.
+        this.logger.log(
+          `Bunny video ${videoId} is no story's file, or its retries are used: dropped`,
+        );
         return;
       }
       const job: MediaJob = {

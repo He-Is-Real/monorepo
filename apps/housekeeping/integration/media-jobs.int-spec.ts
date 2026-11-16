@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   agreeAll,
+  loadApproval,
   createPeople,
   grantUpload,
   rows,
@@ -70,12 +71,18 @@ describe('housekeeping: media jobs', () => {
       { job, ago },
     );
   /** As the result writer ends it (`ago` ago: only a system user may say when). */
-  const ended = (job: string, outcome: string, ago = '0s') =>
+  const ended = (
+    job: string,
+    outcome: string,
+    ago = '0s',
+    errorType = 'worker_error',
+  ) =>
     run(
       migrator,
       `UPDATE type::record('mediaJob', $job) SET outcome = $outcome,
-         doneAt = time::now() - <duration> $ago`,
-      { job, outcome, ago },
+         doneAt = time::now() - <duration> $ago,
+         errorType = IF $outcome = 'gave_up' { $errorType }`,
+      { job, outcome, ago, errorType },
     );
   const job = async (id: string) =>
     (
@@ -112,7 +119,7 @@ describe('housekeeping: media jobs', () => {
     migrator = await t.migrator();
     apiUser = await t.service('api_user');
     housekeeping = await t.service('housekeeping');
-    await createPeople(t, { pat: 'user_pat' });
+    await createPeople(t, { pat: 'user_pat', moderator: 'user_mod' });
     await trustSubmitters(t, 'pat');
     // More drafts and uploads than a person may have at once (D94, D113): not what's tested here.
     await run(
@@ -241,6 +248,95 @@ describe('housekeeping: media jobs', () => {
     ).toEqual([old.job, oldGaveUp.job].sort());
   });
 
+  // P1-3 (Joel, 2026-11-14): a story's checks stay while it waits for review, so its give-ups keep
+  // counting towards the nightly retries; they go 30 days after they ended once it is decided.
+  it('the 30-day tidy-up skips the jobs of a story still waiting for review', async () => {
+    const waiting = await openJob();
+    await run(
+      pat,
+      `CREATE storyStatusLog CONTENT { story: type::record('story', $story), action: 'sent' }`,
+      { story: waiting.story },
+    );
+    await ended(waiting.job, 'gave_up', '31d');
+
+    expect(await sweep(RUNS.nightly)).toBe(0);
+    expect(await job(waiting.job)).toBeDefined();
+    // The database refuses it too, whatever housekeeping asks.
+    await run(housekeeping, `DELETE type::record('mediaJob', $job)`, {
+      job: waiting.job,
+    }).catch(() => undefined);
+    expect(await job(waiting.job)).toBeDefined();
+
+    // Its owner takes it back to edit: no longer waiting, so it goes.
+    await run(
+      pat,
+      `CREATE storyStatusLog CONTENT { story: type::record('story', $story), action: 'editStarted' }`,
+      { story: waiting.story },
+    );
+    expect(await sweep(RUNS.nightly)).toBe(0);
+    expect(await job(waiting.job)).toBeUndefined();
+  });
+
+  // P1-9 (Joel, 2026-11-14): a story the site took off itself keeps its checks too, so its 3
+  // nightly retries never start again; one a moderator took down doesn't. P1-10 A: the check that
+  // recorded a file's one re-encode stays until the file itself goes.
+  it('the 30-day tidy-up keeps the jobs of a story the site took off, and a file’s re-encode record', async () => {
+    const admin = await t.service('api_admin');
+    const published = async () => {
+      const j = await openJob();
+      await run(
+        migrator,
+        `UPDATE type::record('storyFile', $video) SET processing = 'ready', width = 1920,
+           height = 1080, lengthSeconds = 60`,
+        { video: j.video },
+      );
+      await run(
+        pat,
+        `CREATE storyStatusLog CONTENT { story: type::record('story', $story), action: 'sent' }`,
+        { story: j.story },
+      );
+      await loadApproval(migrator, j.story);
+      return j;
+    };
+    const bySite = await published();
+    await ended(bySite.job, 'gave_up', '31d');
+    // Its file breaks: the site takes it off.
+    await run(
+      migrator,
+      `UPDATE type::record('storyFile', $video) SET processing = 'processing'`,
+      { video: bySite.video },
+    );
+    const byModerator = await published();
+    await ended(byModerator.job, 'gave_up', '31d');
+    await run(
+      admin,
+      `CREATE storyStatusLog CONTENT { story: type::record('story', $story),
+         action: 'hiddenByModerator', comment: 'Taken down for now', by: user:moderator }`,
+      { story: byModerator.story },
+    );
+    // A draft's file whose re-encode was asked for 40 days ago (the result writer's marker).
+    const reencoded = await openJob();
+    await run(
+      migrator,
+      `UPDATE type::record('mediaJob', $job) SET outcome = 'applied',
+         lastError = 'bunny_encode_failed', doneAt = time::now() - 40d`,
+      { job: reencoded.job },
+    );
+
+    expect(await sweep(RUNS.nightly)).toBe(0);
+    expect(await job(bySite.job)).toBeDefined();
+    expect(await job(byModerator.job)).toBeUndefined();
+    expect(await job(reencoded.job)).toBeDefined();
+    // The database refuses it too, whatever housekeeping asks.
+    await run(
+      housekeeping,
+      `DELETE type::record('mediaJob', $a); DELETE type::record('mediaJob', $b)`,
+      { a: bySite.job, b: reencoded.job },
+    ).catch(() => undefined);
+    expect(await job(bySite.job)).toBeDefined();
+    expect(await job(reencoded.job)).toBeDefined();
+  });
+
   it('the nightly run opens a check of each video whose picture at Bunny is unfinished (T4), and only those', async () => {
     /** The result writer's lock on the video, until `delta` from now (SurrealQL). */
     const lockUntil = (video: string, delta: string) =>
@@ -306,6 +402,250 @@ describe('housekeeping: media jobs', () => {
           { video: atWork.video, kind, reason },
         ),
       ).rejects.toThrow();
+    }
+  });
+
+  // Part 1a (Joel, 2026-11-10): a waiting story whose newest media job gave up on our side gets a
+  // new check each night, for up to 3 nights; then the moderation queue says it's our problem.
+  it('the nightly run opens a new check of a waiting story whose job gave up on our side, for 3 nights', async () => {
+    const openCheck = async (video: string) =>
+      (
+        await rows<{ id: string; reasons: string[] }>(
+          migrator,
+          `SELECT <string> record::id(id) AS id, reasons FROM mediaJob
+             WHERE file = type::record('storyFile', $video) AND kind = 'check'
+               AND doneAt = NONE`,
+          { video },
+        )
+      )[0];
+    const waiting = async () => {
+      const j = await openJob();
+      await run(
+        pat,
+        `CREATE storyStatusLog CONTENT { story: type::record('story', $story), action: 'sent' }`,
+        { story: j.story },
+      );
+      // Sending opened a check (reason submitted), which joined the open one.
+      return j;
+    };
+    const retried = async () => {
+      expect(await sweep(RUNS.nightly)).toBe(0);
+      return (lastLog('media-retry')?.['ids'] as string[]) ?? [];
+    };
+
+    const ours = await waiting();
+    await ended(ours.job, 'gave_up');
+    // Not retried: a draft, a story whose job is still open, and one Bunny failed for good.
+    const draftJob = await openJob();
+    await ended(draftJob.job, 'gave_up');
+    const stillOpen = await waiting();
+    const unusable = await waiting();
+    await ended(unusable.job, 'gave_up', '0s', 'file_unusable');
+    await run(
+      migrator,
+      `UPDATE type::record('storyFile', $video) SET processing = 'failed'`,
+      { video: unusable.video },
+    );
+
+    expect(await retried()).toEqual([ours.video]);
+    expect(await openCheck(ours.video)).toMatchObject({ reasons: ['resent'] });
+    expect(queue.sent).toEqual([]);
+    expect(await openCheck(stillOpen.video)).toMatchObject({
+      id: stillOpen.job,
+    });
+    expect(await openCheck(draftJob.video)).toBeUndefined();
+    expect(await openCheck(unusable.video)).toBeUndefined();
+
+    // That check gives up too, and the next, and the next: three nights, then no more.
+    for (let night = 2; night <= 3; night++) {
+      await ended((await openCheck(ours.video))!.id, 'gave_up');
+      expect(await retried()).toEqual([ours.video]);
+    }
+    await ended((await openCheck(ours.video))!.id, 'gave_up', '0s', 'other');
+    expect(await retried()).toEqual([]);
+    expect(await openCheck(ours.video)).toBeUndefined();
+    expect(
+      await rows(
+        await t.service('api_admin'),
+        `RETURN fn::media::our_problem(type::record('storyFile', $video))`,
+        { video: ours.video },
+      ),
+    ).toEqual([{ retry: false, ours: true }]);
+  });
+
+  // P1-5 (Joel, 2026-11-14): the same nightly retry for a published story the site took off itself
+  // while Bunny re-encodes its file; never for one a moderator hid. After 3 nights it stays off.
+  it('the nightly run also re-checks a story the site took off itself, for 3 nights, never one a moderator hid', async () => {
+    const admin = await t.service('api_admin');
+    const openCheck = async (video: string) =>
+      (
+        await rows<{ id: string }>(
+          migrator,
+          `SELECT <string> record::id(id) AS id FROM mediaJob
+             WHERE file = type::record('storyFile', $video) AND kind = 'check'
+               AND doneAt = NONE`,
+          { video },
+        )
+      )[0];
+    const statusOf = async (story: string) =>
+      (
+        await rows<string>(
+          migrator,
+          `SELECT VALUE currentStatus.status FROM ONLY type::record('story', $story)`,
+          { story },
+        )
+      )[0];
+    /** A published story of pat's whose open check then gives up on our side. */
+    const published = async () => {
+      const j = await openJob();
+      await run(
+        migrator,
+        `UPDATE type::record('storyFile', $video) SET processing = 'ready', width = 1920,
+           height = 1080, lengthSeconds = 60`,
+        { video: j.video },
+      );
+      await run(
+        pat,
+        `CREATE storyStatusLog CONTENT { story: type::record('story', $story), action: 'sent' }`,
+        { story: j.story },
+      );
+      await loadApproval(migrator, j.story);
+      expect(await statusOf(j.story)).toBe('approved');
+      return j;
+    };
+    const retried = async () => {
+      expect(await sweep(RUNS.nightly)).toBe(0);
+      return (lastLog('media-retry')?.['ids'] as string[]) ?? [];
+    };
+
+    // Taken off by the site: Bunny is re-encoding its file (processing again), and the check
+    // waiting for the re-encode gave up.
+    const bySite = await published();
+    await run(
+      migrator,
+      `UPDATE type::record('storyFile', $video) SET processing = 'processing'`,
+      { video: bySite.video },
+    );
+    expect(await statusOf(bySite.story)).toBe('hidden');
+    await ended(bySite.job, 'gave_up', '0s', 'bunny_unavailable');
+    // Hidden by a moderator: never re-checked by the nightly run.
+    const byModerator = await published();
+    await run(
+      admin,
+      `CREATE storyStatusLog CONTENT { story: type::record('story', $story),
+         action: 'hiddenByModerator', comment: 'Taken down for now', by: user:moderator }`,
+      { story: byModerator.story },
+    );
+    expect(await statusOf(byModerator.story)).toBe('hidden');
+    await ended(byModerator.job, 'gave_up');
+
+    expect(await retried()).toEqual([bySite.video]);
+    expect(await openCheck(byModerator.video)).toBeUndefined();
+    for (let night = 2; night <= 3; night++) {
+      await ended((await openCheck(bySite.video))!.id, 'gave_up');
+      expect(await retried()).toEqual([bySite.video]);
+    }
+    await ended((await openCheck(bySite.video))!.id, 'gave_up');
+    expect(await retried()).toEqual([]);
+    // It stays off the site, marked as our problem.
+    expect(await statusOf(bySite.story)).toBe('hidden');
+    expect(
+      await rows(
+        admin,
+        `RETURN fn::media::our_problem(type::record('storyFile', $video))`,
+        { video: bySite.video },
+      ),
+    ).toEqual([{ retry: false, ours: true }]);
+  });
+
+  // P1-9 (Joel, 2026-11-14: "Retries must be capped"): the unfinished-picture re-check (T4) shares
+  // the 3 nightly retries; after them no chore opens a check, and the "our side" marker stays.
+  it('the whole nightly run opens no check after the 3 retries, even for an unfinished picture', async () => {
+    const admin = await t.service('api_admin');
+    const openCheck = async (video: string) =>
+      (
+        await rows<{ id: string }>(
+          migrator,
+          `SELECT <string> record::id(id) AS id FROM mediaJob
+             WHERE file = type::record('storyFile', $video) AND kind = 'check'
+               AND doneAt = NONE`,
+          { video },
+        )
+      )[0];
+    const ourProblem = async (video: string) =>
+      rows(
+        admin,
+        `RETURN fn::media::our_problem(type::record('storyFile', $video))`,
+        { video },
+      );
+    const j = await openJob();
+    await run(
+      pat,
+      `CREATE storyStatusLog CONTENT { story: type::record('story', $story), action: 'sent' }`,
+      { story: j.story },
+    );
+    await ended(j.job, 'gave_up');
+    // The result writer's lock ran out, unfinished: the T4 re-check would pick it every night.
+    await run(
+      migrator,
+      `UPDATE type::record('storyFile', $video) SET thumbnailLockedUntil = time::now() - 1h`,
+      { video: j.video },
+    );
+
+    let checks = 0;
+    for (let night = 1; night <= 6; night++) {
+      expect(await sweep(RUNS.nightly)).toBe(0);
+      const opened = await openCheck(j.video);
+      if (opened) {
+        checks++;
+        await ended(opened.id, 'gave_up');
+      }
+    }
+    expect(checks).toBe(3);
+    expect(await openCheck(j.video)).toBeUndefined();
+    expect(await ourProblem(j.video)).toEqual([{ retry: false, ours: true }]);
+  });
+
+  it('housekeeping reads only an entry’s story, status, time and system hide reason from the status log (never publishedAt)', async () => {
+    const { story, video } = await openJob();
+    // As the result writer marks it ready (only a system user may), so it can be approved.
+    await run(
+      migrator,
+      `UPDATE type::record('storyFile', $video) SET processing = 'ready', width = 1920,
+         height = 1080, lengthSeconds = 60`,
+      { video },
+    );
+    await run(
+      pat,
+      `CREATE storyStatusLog CONTENT { story: type::record('story', $story), action: 'sent' }`,
+      { story },
+    );
+    await loadApproval(migrator, story);
+    // The approval entry carries publishedAt (a privileged read shows it)…
+    const full = await rows<Record<string, unknown>>(
+      migrator,
+      `SELECT * FROM storyStatusLog WHERE story = type::record('story', $story)
+         AND action = 'approved'`,
+      { story },
+    );
+    expect(full).toHaveLength(1);
+    expect(full[0]['publishedAt']).toBeDefined();
+    // …but housekeeping's SELECT * sees only story, status and time (never who, what was said,
+    // the action, the files or publishedAt), and not the pending ("sent") entry at all (block
+    // list: only one still holding an address 30 days old).
+    const seen = await rows<Record<string, unknown>>(
+      housekeeping,
+      `SELECT * FROM storyStatusLog WHERE story = type::record('story', $story)`,
+      { story },
+    );
+    expect(seen.map((e) => e['status'])).toEqual(['approved']);
+    for (const entry of seen) {
+      expect(Object.keys(entry).sort()).toEqual([
+        'at',
+        'id',
+        'status',
+        'story',
+      ]);
     }
   });
 

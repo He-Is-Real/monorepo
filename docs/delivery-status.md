@@ -316,10 +316,18 @@ rejected, which then lets the nightly clean-up delete it like any rejected story
 straight away, not the next night (its videos already went at once). If Bunny fails or is slow
 then, the Delete still succeeds and the nightly clean-up removes the pictures.
 
-**Still to come:**
-
-- "Your video couldn't be used" (part 1a): a video Bunny can't use sends the story back to the
-  person with a plain message.
+**In progress: "Your video couldn't be used" (part 1a).** Built, waiting to merge: a video or
+audio file Bunny still can't process after one automatic re-encode sends the story back to the
+person ("Needs a new file"), straight away even if it was published; problems on our side never
+reach the person: the nightly clean-up tries again for 3 nights, then the moderators' list says "a
+problem on our side". A published story whose video is being fixed shows its owner "We're fixing
+your video", and the nightly retry covers it too (3 nights, then it stays off). My submissions
+shows "Ready to send again" once a new file is in. When an audio story's picture video can't be
+used, the person is asked to upload their recording again, and a picture if they like (Joel's
+answers, 14 November). Retries are capped: a story's file checks are kept while it waits for
+review or is off the site, and the check that asked Bunny for a re-encode is kept until the file
+goes, so the retries and the re-encode never start again. A story the site took off itself is
+never deleted automatically; a Moderator or Admin can reject it.
 
 **Deferred:** two-step verification and Google-only sign-in for staff, until we are happy to pay
 for them.

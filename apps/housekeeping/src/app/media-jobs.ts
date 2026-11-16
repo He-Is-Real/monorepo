@@ -13,9 +13,11 @@ import type { Task, TaskContext, TaskResult } from './tasks';
  *   available"), its own run (modules/gcp/housekeeping.tf): every job not ended whose last send
  *   (or, if it was never sent, its writing) is over 12 hours old goes to the queue again, so a job
  *   sent the same evening isn't doubled;
- * - the tidy-up, in the nightly run: ended jobs go 30 days after they ended (J2). The database
+ * - the tidy-up, in the nightly run: ended jobs go 30 days after they ended (J2), except while
+ *   their story waits for review (P1-3: then they go once it is decided or deleted). The database
  *   lets housekeeping delete only those (docs/db-permissions.md), so the query only picks;
- * - the nightly re-check of a video whose picture at Bunny is unfinished (T4), below.
+ * - the nightly re-check of a video whose picture at Bunny is unfinished (T4), below;
+ * - the nightly new check of a waiting story whose newest job gave up on our side (Part 1a).
  * Job ids are ULIDs: no personal data, so the logs carry them.
  */
 
@@ -126,13 +128,19 @@ export const mediaResendTask: Task = {
  * Videos whose picture at Bunny is unfinished (T4 = A; Joel, 2026-11-09): the result writer's lock
  * (storyFile.thumbnailLockedUntil) has run out without being emptied, so Bunny may show another
  * picture, and no check of the file is open to finish it (the job gave up, say). Only files a
- * story still shows; the oldest lock first.
+ * story still shows; the oldest lock first. The nightly retry cap holds here too (P1-9, Joel,
+ * 2026-11-14: "Retries must be capped"): a waiting or system-hidden story's file whose checks gave
+ * up more than fn::media::nightly_retries() times (fn::media::retries_used, the rule the database
+ * applies to every new job in mediaJob_rules) is never re-checked, so its "a problem on our side"
+ * marker stays. One count, shared with the media retry
+ * below: before the cap this chore's check is that night's retry.
  */
 const UNFINISHED = `SELECT VALUE record::id(id) FROM storyFile
   WHERE thumbnailLockedUntil != NONE AND thumbnailLockedUntil <= time::now()
     AND format = 'video' AND detachedAt = NONE AND removedAt = NONE
     AND (SELECT VALUE id FROM mediaJob
       WHERE file = $parent.id AND kind = 'check' AND doneAt = NONE LIMIT 1) = []
+    AND !fn::media::retries_used(id)
   ORDER BY thumbnailLockedUntil ASC LIMIT $limit`;
 
 /**
@@ -175,7 +183,72 @@ export const unfinishedPicturesTask: Task = {
   },
 };
 
-/** The longest-ended jobs' ids, at most `limit`. */
+/**
+ * Part 1a (Joel, 2026-11-10): the video or audio files of stories waiting for review, or taken off
+ * the site by the system (P1-5, P1-8, Joel, 2026-11-14; fn::story::keeps_media_jobs), whose
+ * newest job gave up for a reason of ours (never Bunny's final failure: that file is failed and
+ * its story went back to its owner), with no job open, that have given up at most
+ * fn::media::nightly_retries() (3) times: the database's fn::media::our_problem decides. Found
+ * from the jobs that gave up (few, and kept while they count), the longest-stuck first; the file
+ * must still be its story's video or audio. Housekeeping never reads a waiting story's status
+ * entry (block list), so fn::story::waiting tells it. A story a moderator hid isn't re-checked.
+ */
+const OUR_GIVE_UPS = `LET $files = array::distinct((SELECT file, doneAt FROM mediaJob
+    WHERE outcome = 'gave_up' ORDER BY doneAt ASC).file);
+  RETURN $files.filter(|$f| $f.story.mediaFile = $f
+      AND fn::story::keeps_media_jobs($f.story)
+      AND fn::media::our_problem($f).retry)
+    .slice(0, $limit).map(|$f| record::id($f));`;
+
+/**
+ * Our own give-ups on a waiting story (Part 1a; Joel, 2026-11-10): "the nightly housekeeping opens
+ * a new check for a waiting story whose newest check gave up, for up to 3 nights"; and the same
+ * for a published story the site took off itself (P1-5, 2026-11-14), which stays off the site
+ * after the third night while its owner keeps seeing "We're fixing your video". It opens a
+ * check of the story's file (reason `resent`, the only job housekeeping may open) and sends
+ * nothing: the 18:00 resend sends it that evening. For an audio file still without its picture
+ * video, the check's ready answer opens the render again. After the third night the moderation
+ * queue shows "Can't be reviewed yet: a problem on our side"; the person keeps seeing "Waiting for
+ * review".
+ */
+export const ourGiveUpsTask: Task = {
+  name: 'media-retry',
+  async run(ctx): Promise<TaskResult> {
+    const found = (
+      await runQuery(ctx.db, OUR_GIVE_UPS, { limit: ctx.maxDeletions + 1 })
+    ).at(-1) as string[] | undefined;
+    const selected = (found ?? []).slice(0, ctx.maxDeletions);
+    const result: TaskResult = {
+      selected,
+      deleted: [],
+      failed: [],
+      more: (found ?? []).length > ctx.maxDeletions,
+    };
+    if (ctx.dryRun) return result;
+    for (const video of selected) {
+      try {
+        await retryOnConflict(() =>
+          runQuery(
+            ctx.db,
+            `RETURN fn::media::queue_job(type::record('storyFile', $video), 'check', 'resent')`,
+            { video },
+          ),
+        );
+        result.deleted.push(video);
+      } catch {
+        result.failed.push(video);
+      }
+    }
+    return result;
+  },
+};
+
+/**
+ * The longest-ended jobs' ids, at most `limit`, skipping those fn::media::job_kept keeps (Part 1a:
+ * a story's jobs while it waits for review or is off the site because the site took it off, P1-3
+ * and P1-9, and the check that recorded its file's one re-encode, P1-10; the table's delete
+ * permission says the same).
+ */
 async function endedJobs(
   ctx: Pick<TaskContext, 'db'>,
   limit: number,
@@ -184,6 +257,7 @@ async function endedJobs(
     ctx.db,
     `SELECT VALUE record::id(id) FROM mediaJob
        WHERE doneAt != NONE AND doneAt <= time::now() - ${KEEP_ENDED}
+         AND !fn::media::job_kept(file, lastError)
        ORDER BY doneAt ASC LIMIT $limit`,
     { limit },
   )) as [string[]];
@@ -209,7 +283,8 @@ export const oldMediaJobsTask: Task = {
         const results = await runQuery(
           ctx.db,
           `DELETE $ids.map(|$id| type::record('mediaJob', $id))
-             WHERE doneAt != NONE AND doneAt <= time::now() - ${KEEP_ENDED} RETURN BEFORE`,
+             WHERE doneAt != NONE AND doneAt <= time::now() - ${KEEP_ENDED}
+               AND !fn::media::job_kept(file, lastError) RETURN BEFORE`,
           { ids: batch },
         );
         result.deleted.push(

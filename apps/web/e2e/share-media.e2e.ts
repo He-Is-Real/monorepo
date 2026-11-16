@@ -315,6 +315,148 @@ test.describe('behaviour', () => {
     await expect(alert(page, 'Choose your video to upload.')).toBeVisible();
   });
 
+  // Part 1a (Joel, 2026-11-10): "Upload another file" opens the story at its upload, which says
+  // the file couldn't be used until a new one is in.
+  test('a story whose video couldn’t be used: another file, then “your new file is in”', async ({
+    page,
+    request,
+  }, info) => {
+    const id = randomUUID().replace(/-/g, '');
+    expect(
+      (
+        await request.post(`${STUB_USER_URL}/__e2e/sessions/${id}`, {
+          data: {
+            testimony: 3,
+            stories: [
+              {
+                id: 's_unusable',
+                status: 'editing',
+                title: 'The night I stopped running',
+                primaryFormat: 'video',
+                videoId: randomUUID(),
+                uploaded: true,
+                themeIds: ['healing'],
+                submittedAt: '2026-10-20T12:00:00.000Z',
+                mediaProblem: 'unusable',
+                unusableFile: 'recording',
+              },
+            ],
+          },
+        })
+      ).status(),
+    ).toBe(204);
+    await page.addInitScript((session) => {
+      window.localStorage.setItem('e2e-session', session);
+    }, id);
+    await page.goto(`${SHARE}?draft=s_unusable`);
+    await expect(
+      page.getByRole('heading', { level: 2, name: 'Upload your video' }),
+    ).toBeVisible();
+    await expect(page.locator('[data-media-problem="unusable"]')).toHaveText(
+      'We couldn’t use your video. Please upload another file.',
+    );
+    await page
+      .getByLabel('Choose a file')
+      .setInputFiles(clip(info.outputPath('again.mp4')));
+    await expect(page.getByText(/^Uploaded: again\.mp4/)).toBeVisible();
+    await expect(page.locator('[data-media-problem="replaced"]')).toHaveText(
+      'Thanks, your new file is in. Send it when you’re ready.',
+    );
+  });
+
+  // Codex r4 F2: the upload this tab finished before the file was judged unusable is kept by the
+  // tab, but isn't the new file: only an upload after the failure is.
+  test('back in the tab that uploaded a file that then couldn’t be used: asks for another, not “your new file is in”', async ({
+    page,
+    request,
+  }, info) => {
+    const me = await person(page, request);
+    await toUpload(page);
+    await page.getByLabel('Title').fill('My video');
+    await page
+      .getByLabel('Choose a file')
+      .setInputFiles(clip(info.outputPath('first.mp4')));
+    await expect(page.getByText(/^Uploaded: first\.mp4/)).toBeVisible();
+    const [{ id }] = await me.stories();
+    // Bunny then fails it for good and the site sends the story back (as api-user would say),
+    // until a new upload replaces it.
+    let failed = true;
+    await page.route(`**/v1/account/stories/${id}`, async (route) => {
+      if (route.request().method() !== 'GET') return route.continue();
+      const response = await route.fetch({
+        headers: { ...route.request().headers(), 'if-none-match': '' },
+      });
+      const body = await response.json();
+      body.mediaProblem = failed ? 'unusable' : null;
+      body.unusableFile = 'recording';
+      return route.fulfill({ response, json: body });
+    });
+    await page.goto(`${SHARE}?draft=${id}`);
+    await expect(
+      page.getByRole('heading', { level: 2, name: 'Upload your video' }),
+    ).toBeVisible();
+    await expect(page.getByText(/^Uploaded: first\.mp4/)).toBeVisible();
+    await expect(page.locator('[data-media-problem="unusable"]')).toHaveText(
+      'We couldn’t use your video. Please upload another file.',
+    );
+    await expect(page.locator('[data-media-problem="replaced"]')).toHaveCount(
+      0,
+    );
+    failed = false;
+    await page
+      .getByLabel('Choose another file')
+      .setInputFiles(clip(info.outputPath('second.mp4')));
+    await expect(page.getByText(/^Uploaded: second\.mp4/)).toBeVisible();
+    await expect(page.locator('[data-media-problem="replaced"]')).toHaveText(
+      'Thanks, your new file is in. Send it when you’re ready.',
+    );
+  });
+
+  // P1-2 (G17 B), P1-6 A (Joel, 2026-11-14): an audio story's picture video couldn't be used:
+  // the recording is asked for again, and a picture if they like.
+  test('a story whose picture couldn’t be used asks for the recording again', async ({
+    page,
+    request,
+  }) => {
+    const id = randomUUID().replace(/-/g, '');
+    expect(
+      (
+        await request.post(`${STUB_USER_URL}/__e2e/sessions/${id}`, {
+          data: {
+            testimony: 3,
+            stories: [
+              {
+                id: 's_picture',
+                status: 'editing',
+                title: 'Singing again',
+                primaryFormat: 'audio',
+                videoId: randomUUID(),
+                uploaded: true,
+                themeIds: ['healing'],
+                submittedAt: '2026-10-20T12:00:00.000Z',
+                mediaProblem: 'unusable',
+                unusableFile: 'picture',
+              },
+            ],
+          },
+        })
+      ).status(),
+    ).toBe(204);
+    await page.addInitScript((session) => {
+      window.localStorage.setItem('e2e-session', session);
+    }, id);
+    await page.goto(`${SHARE}?draft=s_picture`);
+    await expect(
+      page.getByRole('heading', { level: 2, name: 'Upload your audio file' }),
+    ).toBeVisible();
+    await expect(page.locator('[data-media-problem="picture"]')).toHaveText(
+      'We couldn’t use your picture. Please upload your recording again, and a picture if you like.',
+    );
+    await expect(page.locator('[data-media-problem="unusable"]')).toHaveCount(
+      0,
+    );
+  });
+
   test('another file replaces the first, dropped onto the page', async ({
     page,
     request,

@@ -438,7 +438,7 @@ describe('housekeeping: abandoned drafts and orphaned videos', () => {
  * G3 B (Joel, 2026-11-11, "More M3 answers"): a rejected story is deleted the settings' days (90)
  * after its rejection, and a story left in editing after it was sent the settings' days (186)
  * after it was last touched. Admins change both on the Limits page. Never a pending, approved or
- * hidden story.
+ * hidden story (P1-9: never one the site took off itself, however long ago).
  */
 describe('housekeeping: old rejected and abandoned stories', () => {
   let t: TestDatabase;
@@ -521,6 +521,17 @@ describe('housekeeping: old rejected and abandoned stories', () => {
     await createDraft(cat, 'old_pending', 'written');
     await submit(cat, 'old_pending');
     await touch(migrator, 'old_pending', 400);
+    // P1-9 (Joel, 2026-11-14): published, then taken off the site by the site itself 400 days
+    // ago (its media failed) and untouched since: never deleted automatically.
+    await createDraft(cat, 'site_hidden', 'written');
+    await submit(cat, 'site_hidden');
+    await decided('site_hidden', 'approved', 401);
+    await step(migrator, 'site_hidden', 'hiddenBySystem', {
+      actor: 'system',
+      hiddenReason: 'media_unavailable',
+      at: new Date(Date.now() - 400 * 86_400_000),
+    });
+    await touch(migrator, 'site_hidden', 400);
     // Approved, then taken down to edit: its approval is history, with a publishedAt.
     await createDraft(cat, 'approved_then_edited', 'written');
     await submit(cat, 'approved_then_edited');
@@ -584,17 +595,20 @@ describe('housekeeping: old rejected and abandoned stories', () => {
     expect(await days('old_sent_back')).toBe(-1);
     expect(await days('young_editing')).toBe(1);
     expect(await days('old_pending')).toBeNull();
+    expect(await days('site_hidden')).toBeNull();
   });
 
   it('refuses its delete of a story not yet due, or of any pending story', async () => {
     await run(
       housekeeping,
-      `DELETE story:young_rejected; DELETE story:young_editing; DELETE story:old_pending`,
+      `DELETE story:young_rejected; DELETE story:young_editing; DELETE story:old_pending;
+       DELETE story:site_hidden`,
     );
     for (const id of [
       'young_rejected',
       'young_editing',
       'old_pending',
+      'site_hidden',
       'approved_then_edited',
     ]) {
       expect(await exists(id)).toBe(true);
@@ -643,6 +657,7 @@ describe('housekeeping: old rejected and abandoned stories', () => {
       'young_rejected',
       'young_editing',
       'old_pending',
+      'site_hidden',
       'approved_then_edited',
     ]) {
       expect(await exists(id)).toBe(true);
@@ -661,6 +676,7 @@ describe('housekeeping: old rejected and abandoned stories', () => {
       expect.objectContaining({ deleted: 1, ids: ['young_editing'] }),
     ]);
     expect(await exists('old_pending')).toBe(true);
+    expect(await exists('site_hidden')).toBe(true);
   });
 });
 

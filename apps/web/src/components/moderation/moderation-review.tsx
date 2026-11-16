@@ -28,6 +28,12 @@ type Loaded =
   | { status: 'failed'; message: string }
   | { status: 'ready'; story: ModerationStory };
 
+/**
+ * How often an open review page checks whether the story changed (Part 1a: it can be sent back
+ * automatically while a moderator has it open), as well as whenever the tab comes back into view.
+ */
+const RECHECK_MS = 60_000;
+
 /** Longest note a moderator may write (api-admin's limit). */
 const NOTE_MAX = 2000;
 
@@ -36,7 +42,8 @@ const STEP_LABEL: Record<string, string> = {
   sent: 'Sent for review',
   editStarted: 'Taken down to edit',
   changesRequested: 'Sent back',
-  fileUnusable: 'Sent back: the file can’t be used',
+  // Part 1a: the system's own line ("automatically" is in the label, so no actor after it).
+  fileUnusable: 'Sent back automatically: the video couldn’t be processed',
   approved: 'Approved',
   rejected: 'Rejected',
   hiddenBySystem: 'Hidden while its video or audio can’t play',
@@ -106,6 +113,8 @@ type Notice = { text: string; tone: 'done' | 'refreshed' } | null;
 function Review({ id, client }: { id: string; client: ApiUser }) {
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' });
   const [notice, setNotice] = useState<Notice>(null);
+  // The story changed since the page read it: the page stays as it is until the moderator reloads.
+  const [stale, setStale] = useState(false);
   const noticeRef = useRef<HTMLParagraphElement>(null);
   const load = useRef(0);
 
@@ -135,6 +144,44 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
 
   useEffect(() => reload(), [reload]);
 
+  // Part 1a: while the page is open, check now and then (and whenever the tab is back in view)
+  // whether the story changed; if it was sent back automatically or changed meanwhile, the page
+  // says so and its decisions are disabled until the moderator reloads it. It never replaces
+  // itself, so a note being typed stays in its box.
+  useEffect(() => {
+    if (loaded.status !== 'ready' || stale) return;
+    const shown = loaded.story;
+    let stopped = false;
+    const recheck = () => {
+      if (document.visibilityState !== 'visible') return;
+      client
+        .get<ModerationStory>(
+          `/v1/moderation/stories/${encodeURIComponent(id)}`,
+        )
+        .then(
+          ({ data }) => {
+            if (stopped || !data) return;
+            if (data.version === shown.version && data.status === shown.status)
+              return;
+            setStale(true);
+          },
+          (err: unknown) => {
+            if (!stopped && err instanceof ApiUserProblem && err.status === 404)
+              reload();
+          },
+        );
+    };
+    const timer = setInterval(recheck, RECHECK_MS);
+    window.addEventListener('focus', recheck);
+    document.addEventListener('visibilitychange', recheck);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+      window.removeEventListener('focus', recheck);
+      document.removeEventListener('visibilitychange', recheck);
+    };
+  }, [client, id, loaded, reload, stale]);
+
   // Move to the notice, so a moderator (and a screen reader) learns what happened at once.
   useEffect(() => {
     if (notice) noticeRef.current?.focus();
@@ -143,6 +190,7 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
   /** After a decision, or a refusal because the story moved on: say so and read it again. */
   const settled = useCallback(
     (next: Notice) => {
+      setStale(false);
       setNotice(next);
       reload();
     },
@@ -201,6 +249,28 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
   return (
     <>
       {noticeLine}
+      {stale && (
+        <div
+          role="status"
+          className="mx-auto mb-6 max-w-measure rounded-2xl border border-link bg-card p-4"
+          data-review-stale=""
+        >
+          <p className="mb-3 font-semibold">
+            This story changed while you had it open.
+          </p>
+          <Button
+            variant="outline"
+            className={WRAPPING_BUTTON}
+            onClick={() => {
+              setStale(false);
+              setNotice(null);
+              reload();
+            }}
+          >
+            Reload to see it
+          </Button>
+        </div>
+      )}
       <p
         className="mx-auto mb-8 max-w-measure text-sm font-semibold text-link"
         data-review-status={story.status}
@@ -230,9 +300,10 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
               key={story.reviewTag}
               story={story}
               client={client}
+              stale={stale}
               onSettled={settled}
             />
-            <History entries={story.statusLog} />
+            <History entries={story.statusLog} format={story.primaryFormat} />
           </>
         }
       />
@@ -374,21 +445,25 @@ export function NoteForm({
 function Decisions({
   story,
   client,
+  stale,
   onSettled,
 }: {
   story: ModerationStory;
   client: ApiUser;
+  /** The story changed since the page read it: every button waits for a reload. */
+  stale: boolean;
   onSettled: (notice: Notice) => void;
 }) {
   const isAdmin = useRole() === 'Admin';
   const [open, setOpen] = useState<Open>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [sending, setSending] = useState(false);
+  const busy = sending || stale;
   const [refusal, setRefusal] = useState<
     (Refusal & { route: DecisionRoute | 'delete' }) | null
   >(null);
   async function decide(route: DecisionRoute, body?: unknown) {
-    setBusy(true);
+    setSending(true);
     setRefusal(null);
     try {
       await client.command(
@@ -406,12 +481,12 @@ function Decisions({
       onSettled({ text: why.message, tone: 'refreshed' });
     } else {
       setRefusal({ ...why, route });
-      setBusy(false);
+      setSending(false);
     }
   }
   /** P1-11: an Admin's Delete, as the owner's (ED-3); the page then says it's gone. */
   async function remove() {
-    setBusy(true);
+    setSending(true);
     setRefusal(null);
     try {
       await client.command(
@@ -465,7 +540,7 @@ function Decisions({
               disabled={busy}
               onClick={() => void remove()}
             >
-              {busy ? 'Deleting…' : 'Delete story'}
+              {sending ? 'Deleting…' : 'Delete story'}
             </Button>
             <Button
               variant="outline"
@@ -599,7 +674,13 @@ function MediaNote({ story }: { story: ModerationStory }) {
 }
 
 /** The story's status log, oldest first, with moderators' notes to the person. */
-function History({ entries }: { entries: StatusEntry[] }) {
+function History({
+  entries,
+  format,
+}: {
+  entries: StatusEntry[];
+  format: ModerationStory['primaryFormat'];
+}) {
   return (
     <section
       aria-labelledby="history-heading"
@@ -620,9 +701,11 @@ function History({ entries }: { entries: StatusEntry[] }) {
                 {e.action === 'sent' &&
                 entries.slice(0, i).some((p) => p.action === 'sent')
                   ? 'Sent again'
-                  : (STEP_LABEL[e.action] ?? e.action)}
-              </span>{' '}
-              {ACTOR_LABEL[e.actor]}
+                  : e.action === 'fileUnusable' && format === 'audio'
+                    ? 'Sent back automatically: the recording couldn’t be processed'
+                    : (STEP_LABEL[e.action] ?? e.action)}
+              </span>
+              {e.action !== 'fileUnusable' && <> {ACTOR_LABEL[e.actor]}</>}
             </p>
             <p className="text-sm text-secondary-text">
               <time dateTime={e.at}>{sentAt(e.at)}</time>

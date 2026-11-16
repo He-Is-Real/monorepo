@@ -264,6 +264,129 @@ test.describe('behaviour', () => {
     ).toHaveAttribute('href', '/account/stories/s_pending/preview');
   });
 
+  // Part 1a (Joel, 2026-11-10; G2): a file that couldn't be used, and a video being fixed.
+  test('a story whose file couldn’t be used needs a new one; a video off the site is being fixed', async ({
+    page,
+    request,
+  }) => {
+    const media = (id: string, format: 'video' | 'audio') => ({
+      id,
+      primaryFormat: format,
+      videoId: randomUUID(),
+      uploaded: true,
+      themeIds: ['healing'],
+      submittedAt: SENT,
+    });
+    await person(page, request, {
+      testimony: 3,
+      stories: [
+        {
+          ...media('s_video', 'video'),
+          status: 'editing',
+          title: 'Unusable video',
+          mediaProblem: 'unusable',
+          // Sent back for its file 1 November 2026: kept 186 days (G3 B).
+          updatedAt: '2026-11-01T12:00:00.000Z',
+        },
+        {
+          ...media('s_audio', 'audio'),
+          status: 'editing',
+          title: 'Unusable recording',
+          mediaProblem: 'unusable',
+        },
+        {
+          ...media('s_picture', 'audio'),
+          status: 'editing',
+          title: 'Unusable picture',
+          mediaProblem: 'unusable',
+          unusableFile: 'picture',
+        },
+        {
+          ...media('s_ready', 'video'),
+          status: 'editing',
+          title: 'New file in',
+          unusableFile: 'recording',
+          updatedAt: '2026-11-02T12:00:00.000Z',
+        },
+        {
+          ...media('s_fixing', 'video'),
+          status: 'hidden',
+          title: 'Video being fixed',
+          processing: 'processing',
+        },
+        {
+          ...media('s_video_taken_down', 'video'),
+          status: 'hidden',
+          title: 'Video taken down',
+          takenDown: true,
+          rejectionFeedback: TAKE_DOWN_REASON,
+        },
+      ],
+    });
+    await page.goto(PROFILE);
+    const video = row(page, 'Unusable video');
+    await expect(video.locator('[data-status]')).toHaveText('Needs a new file');
+    await expect(video.locator('[data-media-problem]')).toHaveText(
+      'We couldn’t use your video. Please upload another file.',
+    );
+    await expect(
+      video.getByRole('link', { name: 'Upload another file' }),
+    ).toHaveAttribute('href', '/share?draft=s_video');
+    // G3 B: still being edited, so it says when it goes if nobody touches it.
+    await expect(video.locator('[data-draft-expiry]')).toHaveText(
+      'If you don’t change this story, we’ll delete it after 6 May 2027.',
+    );
+    await expect(
+      row(page, 'Unusable recording').locator('[data-media-problem]'),
+    ).toHaveText('We couldn’t use your recording. Please upload another file.');
+    // P1-2 (G17 B), P1-6 A: an audio story's picture video failed: the recording is asked for
+    // again, and a picture if they like.
+    const picture = row(page, 'Unusable picture');
+    await expect(picture.locator('[data-status]')).toHaveText(
+      'Needs a new file',
+    );
+    await expect(picture.locator('[data-media-problem]')).toHaveText(
+      'We couldn’t use your picture. Please upload your recording again, and a picture if you like.',
+    );
+    await expect(
+      picture.getByRole('link', { name: 'Upload your recording again' }),
+    ).toHaveAttribute('href', '/share?draft=s_picture');
+    // P1-1: sent back for its file, and the new one is in.
+    const ready = row(page, 'New file in');
+    await expect(ready.locator('[data-status]')).toHaveText(
+      'Ready to send again',
+    );
+    await expect(ready.locator('[data-media-problem]')).toHaveText(
+      'Thanks, your new file is in. Send it when you’re ready.',
+    );
+    await expect(
+      ready.getByRole('link', { name: 'Send again' }),
+    ).toHaveAttribute('href', '/share?draft=s_ready');
+    await expect(ready.locator('[data-draft-expiry]')).toHaveText(
+      'If you don’t change this story, we’ll delete it after 7 May 2027.',
+    );
+    const fixing = row(page, 'Video being fixed');
+    await expect(fixing.locator('[data-status]')).toHaveText(
+      'Not on the site right now',
+    );
+    await expect(fixing).toContainText(
+      'We’re fixing your video. It will be back by itself.',
+    );
+    await expect(fixing.locator('a, button')).toHaveText([
+      'Preview',
+      'Edit',
+      'Delete',
+    ]);
+    // Codex r1 F6: a video a moderator took down won't come back by itself; it shows the reason
+    // (MD-2) instead.
+    const takenDown = row(page, 'Video taken down');
+    await expect(takenDown.locator('[data-status]')).toHaveText(
+      'Taken down by our team',
+    );
+    await expect(takenDown).toContainText(TAKE_DOWN_REASON);
+    await expect(takenDown).not.toContainText('back by itself');
+  });
+
   test('download my data: a file of everything of mine, and nobody else’s', async ({
     page,
     request,
