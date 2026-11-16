@@ -325,6 +325,14 @@ test.describe('moderation', () => {
     await expect(page.locator('[data-review-status]')).toHaveText(
       'Waiting for review',
     );
+    // A note being written when the story changes underneath.
+    const NOTE = 'Please say a little more about how you came to faith.';
+    const note = page.locator('[data-decisions] textarea');
+    await page
+      .locator('[data-decisions]')
+      .getByRole('button', { name: 'Send back' })
+      .click();
+    await note.fill(NOTE);
     // Sent back while open: the page checks again when the tab is back in view.
     await page.route('**/v1/moderation/stories/mod_video', async (route) => {
       if (route.request().method() !== 'GET') return route.continue();
@@ -337,9 +345,22 @@ test.describe('moderation', () => {
       return route.fulfill({ response, json: body });
     });
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-    await expect(notice(page)).toHaveText(
-      'This story changed while you had it open. It now shows as it is.',
+    // It says so and waits: the page stays as it was, the note stays, the decisions are off.
+    const stale = page.locator('[data-review-stale]');
+    await expect(stale).toContainText(
+      'This story changed while you had it open.',
     );
+    await expect(page.locator('[data-review-status]')).toHaveText(
+      'Waiting for review',
+    );
+    await expect(note).toHaveValue(NOTE);
+    const decisions = page.locator('[data-decisions] button');
+    await expect(decisions).toHaveCount(2);
+    for (const button of await decisions.all())
+      await expect(button).toBeDisabled();
+    // Reload shows it as it is now.
+    await stale.getByRole('button', { name: 'Reload to see it' }).click();
+    await expect(stale).toHaveCount(0);
     await expect(page.locator('[data-review-status]')).not.toHaveText(
       'Waiting for review',
     );

@@ -558,6 +558,54 @@ describe('housekeeping: media jobs', () => {
     ).toEqual([{ retry: false, ours: true }]);
   });
 
+  // P1-9 (Joel, 2026-11-14: "Retries must be capped"): the unfinished-picture re-check (T4) shares
+  // the 3 nightly retries; after them no chore opens a check, and the "our side" marker stays.
+  it('the whole nightly run opens no check after the 3 retries, even for an unfinished picture', async () => {
+    const admin = await t.service('api_admin');
+    const openCheck = async (video: string) =>
+      (
+        await rows<{ id: string }>(
+          migrator,
+          `SELECT <string> record::id(id) AS id FROM mediaJob
+             WHERE file = type::record('storyFile', $video) AND kind = 'check'
+               AND doneAt = NONE`,
+          { video },
+        )
+      )[0];
+    const ourProblem = async (video: string) =>
+      rows(
+        admin,
+        `RETURN fn::media::our_problem(type::record('storyFile', $video))`,
+        { video },
+      );
+    const j = await openJob();
+    await run(
+      pat,
+      `CREATE storyStatusLog CONTENT { story: type::record('story', $story), action: 'sent' }`,
+      { story: j.story },
+    );
+    await ended(j.job, 'gave_up');
+    // The result writer's lock ran out, unfinished: the T4 re-check would pick it every night.
+    await run(
+      migrator,
+      `UPDATE type::record('storyFile', $video) SET thumbnailLockedUntil = time::now() - 1h`,
+      { video: j.video },
+    );
+
+    let checks = 0;
+    for (let night = 1; night <= 6; night++) {
+      expect(await sweep(RUNS.nightly)).toBe(0);
+      const opened = await openCheck(j.video);
+      if (opened) {
+        checks++;
+        await ended(opened.id, 'gave_up');
+      }
+    }
+    expect(checks).toBe(3);
+    expect(await openCheck(j.video)).toBeUndefined();
+    expect(await ourProblem(j.video)).toEqual([{ retry: false, ours: true }]);
+  });
+
   it('housekeeping reads only an entry’s story, status, time and system hide reason from the status log (never publishedAt)', async () => {
     const { story, video } = await openJob();
     // As the result writer marks it ready (only a system user may), so it can be approved.

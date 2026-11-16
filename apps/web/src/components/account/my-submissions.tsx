@@ -371,12 +371,16 @@ function StoryRow({
           {LONG_DATE.format(new Date(story.deletesAt))}.
         </p>
       )}
-      {(label === 'sent_back' || label === 'editing') && story.deletesAt && (
-        <p data-draft-expiry="" className="mb-3 text-sm text-secondary-text">
-          If you don’t change this story, we’ll delete it after{' '}
-          {LONG_DATE.format(new Date(story.deletesAt))}.
-        </p>
-      )}
+      {(label === 'sent_back' ||
+        label === 'editing' ||
+        label === 'needs_file' ||
+        label === 'ready_again') &&
+        story.deletesAt && (
+          <p data-draft-expiry="" className="mb-3 text-sm text-secondary-text">
+            If you don’t change this story, we’ll delete it after{' '}
+            {LONG_DATE.format(new Date(story.deletesAt))}.
+          </p>
+        )}
       {label === 'rejected' && story.deletesAt && (
         <p data-draft-expiry="" className="mb-3 text-sm text-secondary-text">
           We’ll delete this story after{' '}

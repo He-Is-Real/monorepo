@@ -387,7 +387,8 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   upload your recording again, and a picture if you like.", with "Upload your recording again". It
   opens the story at its upload, which says the same until a new file is in, then "Thanks, your
   new file is in. Send it when you're ready." The person replaces the file with the usual upload
-  and sends it again. "Your new file is in" needs an upload after the failure (Codex review r4
+  and sends it again. Like any story being edited, it says when it will be deleted if nobody
+  changes it (G3 B), with "Needs a new file" and "Ready to send again" alike. "Your new file is in" needs an upload after the failure (Codex review r4
   F2): a file the tab uploaded before it was judged unusable doesn't count.
 - **Not on the site right now** for a video or audio story the site took off itself says "We're
   fixing your video. It will be back by itself."; one a moderator took down says **Taken down by
@@ -571,7 +572,9 @@ Built in the database (the decisions and their pages are planned, M3):
 - **Retries are capped (P1-3, P1-9, P1-10, Joel 2026-11-14):** a story's media jobs are kept while
   it waits for review or is off the site because the site took it off itself, so its give-ups keep
   counting and its 3 nightly retries never start again (the 30-day tidy-up skips them; they go
-  30 days after it is decided, shown again or deleted). The check that recorded a file's one
+  30 days after it is decided, shown again or deleted). The nightly re-check of an unfinished
+  picture (T4) shares those 3 retries: once they are used, no chore opens another check of that
+  story's file, and "a problem on our side" stays on the moderators' list. The check that recorded a file's one
   re-encode is kept until the file itself is deleted, so Bunny is never asked for a second one.
 - **A story the site took off itself is never deleted automatically (P1-9, Joel 2026-11-14):** the
   nightly clean-up deletes only rejected stories and ones left in editing, never one off the site.
@@ -589,7 +592,9 @@ Built in the database (the decisions and their pages are planned, M3):
 - **Moderators and a story sent back automatically:** it leaves "Waiting for review" for "Being
   edited", and its history shows "Sent back automatically: the video couldn't be processed" ("the
   recording" for audio). A review page left open checks every minute, and when the tab comes back
-  into view, whether the story changed; if so, it shows it as it is now and says so.
+  into view, whether the story changed; if so, it says "This story changed while you had it open."
+  with "Reload to see it", and its decision buttons stay disabled until the moderator reloads. It
+  never replaces itself, so a note being typed stays in its box.
 - **History-only entries:** once a story has been sent, a new video or audio file or a new
   picture while it is being edited adds an entry that doesn't change its state, so moderators see
   what changed. So does changing its title, description, text or themes ("words changed"): one

@@ -285,6 +285,8 @@ test.describe('behaviour', () => {
           status: 'editing',
           title: 'Unusable video',
           mediaProblem: 'unusable',
+          // Sent back for its file 1 November 2026: kept 186 days (G3 B).
+          updatedAt: '2026-11-01T12:00:00.000Z',
         },
         {
           ...media('s_audio', 'audio'),
@@ -304,6 +306,7 @@ test.describe('behaviour', () => {
           status: 'editing',
           title: 'New file in',
           unusableFile: 'recording',
+          updatedAt: '2026-11-02T12:00:00.000Z',
         },
         {
           ...media('s_fixing', 'video'),
@@ -329,6 +332,10 @@ test.describe('behaviour', () => {
     await expect(
       video.getByRole('link', { name: 'Upload another file' }),
     ).toHaveAttribute('href', '/share?draft=s_video');
+    // G3 B: still being edited, so it says when it goes if nobody touches it.
+    await expect(video.locator('[data-draft-expiry]')).toHaveText(
+      'If you don’t change this story, we’ll delete it after 6 May 2027.',
+    );
     await expect(
       row(page, 'Unusable recording').locator('[data-media-problem]'),
     ).toHaveText('We couldn’t use your recording. Please upload another file.');
@@ -355,6 +362,9 @@ test.describe('behaviour', () => {
     await expect(
       ready.getByRole('link', { name: 'Send again' }),
     ).toHaveAttribute('href', '/share?draft=s_ready');
+    await expect(ready.locator('[data-draft-expiry]')).toHaveText(
+      'If you don’t change this story, we’ll delete it after 7 May 2027.',
+    );
     const fixing = row(page, 'Video being fixed');
     await expect(fixing.locator('[data-status]')).toHaveText(
       'Not on the site right now',
