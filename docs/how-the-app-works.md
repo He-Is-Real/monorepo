@@ -573,8 +573,12 @@ Built in the database (the decisions and their pages are planned, M3):
   it waits for review or is off the site because the site took it off itself, so its give-ups keep
   counting and its 3 nightly retries never start again (the 30-day tidy-up skips them; they go
   30 days after it is decided, shown again or deleted). The nightly re-check of an unfinished
-  picture (T4) shares those 3 retries: once they are used, no chore opens another check of that
-  story's file, and "a problem on our side" stays on the moderators' list. The check that recorded a file's one
+  picture (T4) shares those 3 retries. Once they are used, nothing opens another check or render
+  of that story's file: not a chore, not Bunny's notice, not a late copy of an answer from the
+  queue, and not the owner sending the same file again after Edit (the database refuses every new
+  job, in one place). "A problem on our side" stays on the moderators' list. A new file the owner
+  uploads starts with no give-ups, and the cap doesn't apply while the story is back with its
+  owner. The check that recorded a file's one
   re-encode is kept until the file itself is deleted, so Bunny is never asked for a second one.
 - **A story the site took off itself is never deleted automatically (P1-9, Joel 2026-11-14):** the
   nightly clean-up deletes only rejected stories and ones left in editing, never one off the site.

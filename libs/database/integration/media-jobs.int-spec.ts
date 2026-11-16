@@ -8,7 +8,7 @@ import {
   TestDatabase,
   trustSubmitters,
 } from './support/harness';
-import { draft, ERASE, grantUpload } from './support/world';
+import { draft, edit, ERASE, grantUpload, submit } from './support/world';
 
 /**
  * The mediaJob table (media ready; Joel, 2026-11-07, media-worker-final.html section 3): only the
@@ -188,6 +188,138 @@ describe('mediaJob: who may do what', () => {
       for (const db of [apiUser, workflow, housekeeping]) {
         expect(await errorTypeOf(id, db)).toBeUndefined();
       }
+    });
+  });
+
+  // P1-9 (Joel, 2026-11-14: "Retries must be capped"): every path that opens a job of a file meets
+  // the one cap in the database (mediaJob_rules, fn::media::retries_used). After the original
+  // check and 3 nightly retries gave up on our side, a waiting story's file gets no new job,
+  // whoever opens it, and the moderators' "a problem on our side" stays.
+  describe('the nightly retry cap holds for every opener (Part 1a, P1-9)', () => {
+    const queueAs = (db: Surreal, video: string, kind: string, reason: string) =>
+      rows(
+        db,
+        `RETURN fn::media::queue_job(type::record('storyFile', $video), $kind, $reason)`,
+        { video, kind, reason },
+      ).then((r) => r[0]);
+    const openJobs = (video: string) =>
+      rows<string>(
+        migrator,
+        `SELECT VALUE <string> record::id(id) FROM mediaJob
+           WHERE file = type::record('storyFile', $video) AND doneAt = NONE`,
+        { video },
+      );
+    const ours = async (video: string) =>
+      (
+        await rows<{ ours: boolean }>(
+          admin,
+          `RETURN fn::media::our_problem(type::record('storyFile', $video))`,
+          { video },
+        )
+      )[0].ours;
+    /** Each open job of `video` gives up on our side (as the result writer ends it). */
+    const giveUp = async (video: string) => {
+      for (const id of await openJobs(video)) {
+        await run(
+          workflow,
+          `UPDATE type::record('mediaJob', $id) SET outcome = 'gave_up', doneAt = time::now(),
+             errorType = 'other'`,
+          { id },
+        );
+      }
+    };
+    /** pat's video story, sent (its submit check open): its id and file. */
+    const sent = async () => {
+      const story = `cap_${++n}`;
+      const video = randomUUID();
+      await draft(pat, story, { primaryFormat: 'video', body: undefined });
+      expect(
+        await grantUpload(apiUser, { video, story, person: 'pat', version: 1 }),
+      ).toMatchObject({ ok: true });
+      await submit(pat, story);
+      return { story, video };
+    };
+    /** Its submit check and the 3 nightly retries all gave up: the cap is reached. */
+    const capped = async (video: string) => {
+      await giveUp(video);
+      for (let night = 1; night <= 3; night++) {
+        expect(await queueAs(housekeeping, video, 'check', 'resent')).toBeTruthy();
+        await giveUp(video);
+      }
+      expect(await ours(video)).toBe(true);
+    };
+
+    it('before the cap, each opener still opens a check', async () => {
+      const { video } = await sent();
+      await giveUp(video);
+      expect(await ours(video)).toBe(false);
+      for (const [db, reason] of [
+        [housekeeping, 'resent'],
+        [apiUser, 'bunny_finished'],
+        [workflow, 'resent'],
+      ] as const) {
+        expect(await queueAs(db, video, 'check', reason)).toMatchObject({
+          video,
+        });
+        await giveUp(video);
+      }
+      // That was the third retry: now the cap holds.
+      expect(await ours(video)).toBe(true);
+    });
+
+    it('after it: no check from Bunny’s notice, the result writer or the nightly chores', async () => {
+      const { video } = await sent();
+      await capped(video);
+      for (const [db, reason] of [
+        [apiUser, 'bunny_finished'],
+        [apiUser, 'bunny_failed'],
+        [workflow, 'resent'],
+        [workflow, 'bunny_finished'],
+        [housekeeping, 'resent'],
+      ] as const) {
+        expect(await queueAs(db, video, 'check', reason)).toBeUndefined();
+      }
+      // Nor a render (an audio file's picture video), which the result writer would open.
+      expect(await queueAs(workflow, video, 'render', 'picture_changed')).toBeUndefined();
+      expect(await openJobs(video)).toEqual([]);
+      expect(await ours(video)).toBe(true);
+    });
+
+    it('after it: the owner editing and sending the same file again opens no check', async () => {
+      const { story, video } = await sent();
+      await capped(video);
+      await edit(pat, story);
+      await submit(pat, story);
+      expect(await openJobs(video)).toEqual([]);
+      expect(await ours(video)).toBe(true);
+    });
+
+    it('a new file is a fresh start: its first check opens', async () => {
+      const { story, video } = await sent();
+      await capped(video);
+      await edit(pat, story);
+      const version = (
+        await rows<number>(
+          migrator,
+          `SELECT VALUE version FROM ONLY type::record('story', $story)`,
+          { story },
+        )
+      )[0];
+      const fresh = randomUUID();
+      expect(
+        await grantUpload(apiUser, { video: fresh, story, person: 'pat', version }),
+      ).toMatchObject({ ok: true });
+      await submit(pat, story);
+      expect(await openJobs(fresh)).toHaveLength(1);
+    });
+
+    it('a story back with its owner is outside the cap (it applies while waiting or taken off by the site)', async () => {
+      const { story, video } = await sent();
+      await capped(video);
+      await edit(pat, story);
+      expect(await queueAs(apiUser, video, 'check', 'bunny_finished')).toMatchObject({
+        video,
+      });
     });
   });
 

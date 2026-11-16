@@ -1690,13 +1690,24 @@ DEFINE EVENT OVERWRITE mediaJob_rules ON mediaJob
       WHERE file = $after.file AND kind = $after.kind AND doneAt = NONE AND id != $after.id) != [] {
       THROW 'media_job_open: this file already has an open job of this kind';
     };
+    -- Part 1a (P1-9, Joel, 2026-11-14: "Retries must be capped"): the one place a new job of a
+    -- file meets the nightly retry cap, whoever opens it (a redelivered answer, Bunny's notice, a
+    -- submit, the nightly chores). Judged here because an event runs elevated: workflow and
+    -- api-user can't read a waiting story's status. A job opened for a file whose retries are
+    -- used (fn::media::retries_used) is taken away at once, so fn::media::queue_job answers NONE
+    -- and nothing is sent; "a problem on our side" stays. A new upload is a new file, with no
+    -- jobs, so it never meets the cap.
+    IF $event = 'CREATE' AND fn::media::retries_used($after.file, $after.id) {
+      DELETE $after.id RETURN NONE;
+    };
   };
 -- A file's row going takes its jobs with it (erasure, housekeeping's tidy-up).
 DEFINE EVENT OVERWRITE storyFile_jobs ON storyFile
   WHEN $event = 'DELETE' THEN { DELETE mediaJob WHERE file = $before.id };
 -- Opens a job for `$file` (a check or render), or adds `$reason` to the open one (J1 check a), on
 -- the caller's login. Returns the job's id, the story's id (the queue's ordering key) and the
--- Bunny video id, or NONE if there is no such file.
+-- Bunny video id, or NONE if there is no such file or its retries are used (Part 1a, P1-9:
+-- mediaJob_rules takes such a new job away; an open job still gets the reason).
 DEFINE FUNCTION OVERWRITE fn::media::queue_job($file: record<storyFile>, $kind: string, $reason: string) {
   LET $f = (SELECT id, story FROM ONLY $file);
   IF $f = NONE { RETURN NONE };
@@ -1707,6 +1718,8 @@ DEFINE FUNCTION OVERWRITE fn::media::queue_job($file: record<storyFile>, $kind: 
   } ELSE {
     (UPDATE ONLY $open SET reasons = array::union(reasons, [$reason]) RETURN VALUE id)
   };
+  -- Part 1a (P1-9): mediaJob_rules took a new job away (the file's retries are used).
+  IF !record::exists($job) { RETURN NONE };
   RETURN { job: <string> record::id($job), story: <string> record::id($f.story),
     video: <string> record::id($file) };
 };
@@ -1749,11 +1762,13 @@ DEFINE FUNCTION OVERWRITE fn::media::nightly_retries() {
 -- "We're fixing your video", and the moderators' list shows "a problem on our side". A story's
 -- jobs stay while it waits for review or is off the site (fn::media::job_kept), so the count holds
 -- and the retries never start again. With the caller's permissions: housekeeping and api-admin
--- read the jobs.
-DEFINE FUNCTION OVERWRITE fn::media::our_problem($file: option<record<storyFile>>) {
+-- read the jobs. `$opening`: a job being opened now, left out (mediaJob_rules judges the file as
+-- it was before it).
+DEFINE FUNCTION OVERWRITE fn::media::our_problem($file: option<record<storyFile>>,
+    $opening: option<record<mediaJob>>) {
   IF $file = NONE { RETURN { retry: false, ours: false } };
   LET $jobs = (SELECT outcome, doneAt, queuedAt FROM mediaJob WHERE file = $file
-    ORDER BY queuedAt DESC);
+    AND id != $opening ORDER BY queuedAt DESC);
   LET $stuck = $jobs != [] AND $jobs[0].outcome = 'gave_up'
     AND $jobs.all(|$j| $j.doneAt != NONE)
     AND (SELECT VALUE processing FROM ONLY $file) != 'failed';
@@ -1762,6 +1777,15 @@ DEFINE FUNCTION OVERWRITE fn::media::our_problem($file: option<record<storyFile>
     retry: $stuck AND $gaveUp <= fn::media::nightly_retries(),
     ours: $stuck AND $gaveUp > fn::media::nightly_retries()
   };
+};
+-- Part 1a (P1-9, Joel, 2026-11-14): the one nightly retry cap, shared by every path that opens a
+-- job of a file (mediaJob_rules, the nightly chores): `$file`'s story waits for review or the site
+-- took it off itself (fn::story::keeps_media_jobs), and its file gave up on our side more than
+-- fn::media::nightly_retries() times (fn::media::our_problem's `ours`). `$opening`: as there.
+-- Exact only where the caller can read the story's status entries (housekeeping, an event).
+DEFINE FUNCTION OVERWRITE fn::media::retries_used($file: record<storyFile>,
+    $opening: option<record<mediaJob>>) {
+  RETURN fn::story::keeps_media_jobs($file.story) AND fn::media::our_problem($file, $opening).ours;
 };
 -- The jobs a person's own steps need (Joel, 2026-11-07: media-worker-final.html section 1 steps 1
 -- to 3, media-job-table.html J1 check e; audio-picture-video "also assumed"), written in the

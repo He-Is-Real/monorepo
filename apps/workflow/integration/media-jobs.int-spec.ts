@@ -440,6 +440,82 @@ describe('result writer: the worker’s answers → the job’s file row and the
   // Part 1a (Joel, 2026-11-10): the worker's "failed" is believed only once Bunny tells the writer
   // the same; the first such failure gets one automatic re-encode, the next makes the file
   // unusable and sends the story back. Bunny is a fake here: what matters is what's written.
+  // Codex review r6 (P1-9, Joel, 2026-11-14: "Retries must be capped"): a queue copy delivered
+  // late, after a waiting story's check and its 3 nightly retries gave up on our side, never
+  // opens a new check (for the story's picture at Bunny) or a render: "a problem on our side"
+  // stays.
+  describe('a late redelivery after the nightly retries are used', () => {
+    const openJobs = (video: string) =>
+      rows<string>(
+        migrator,
+        `SELECT VALUE <string> record::id(id) FROM mediaJob
+           WHERE file = type::record('storyFile', $video) AND doneAt = NONE`,
+        { video },
+      );
+    const giveUp = async (video: string) => {
+      for (const id of await openJobs(video)) {
+        await rows(
+          workflow,
+          `UPDATE type::record('mediaJob', $id) SET outcome = 'gave_up', doneAt = time::now(),
+             errorType = 'other'`,
+          { id },
+        );
+      }
+    };
+    const ours = async (video: string) =>
+      (
+        await rows<{ ours: boolean }>(
+          admin,
+          `RETURN fn::media::our_problem(type::record('storyFile', $video))`,
+          { video },
+        )
+      )[0].ours;
+    /** A sent story whose submit check and 3 nightly retries gave up: the first check's id. */
+    const capped = async (format: 'video' | 'audio') => {
+      const { story, video } = await videoStory(format);
+      await submit(pat, story);
+      const [first] = await openJobs(video);
+      await giveUp(video);
+      for (let night = 1; night <= 3; night++) {
+        await rows(
+          housekeeping,
+          `RETURN fn::media::queue_job(type::record('storyFile', $video), 'check', 'resent')`,
+          { video },
+        );
+        await giveUp(video);
+      }
+      expect(await ours(video)).toBe(true);
+      return { story, video, first };
+    };
+    let housekeeping: Surreal;
+    beforeAll(async () => {
+      housekeeping = await t.service('housekeeping');
+    });
+
+    it('a ready video: no new check for its picture at Bunny; the marker stays', async () => {
+      const { story, video, first } = await capped('video');
+      const result = await writeAnswer(
+        workflow,
+        first,
+        video,
+        ready(story),
+        next(),
+        true,
+      );
+      expect(result.thumbnail).toBeNull();
+      expect(await openJobs(video)).toEqual([]);
+      expect(await ours(video)).toBe(true);
+    });
+
+    it('a ready audio file: no render of its picture video', async () => {
+      const { story, video, first } = await capped('audio');
+      const result = await writeAnswer(workflow, first, video, ready(story), next());
+      expect(result.render).toBeNull();
+      expect(await openJobs(video)).toEqual([]);
+      expect(await ours(video)).toBe(true);
+    });
+  });
+
   describe('a "failed" answer (Part 1a)', () => {
     /**
      * `whileReencoding` runs inside the re-encode request, before it returns: what happens at the

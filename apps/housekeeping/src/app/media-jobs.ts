@@ -130,8 +130,9 @@ export const mediaResendTask: Task = {
  * picture, and no check of the file is open to finish it (the job gave up, say). Only files a
  * story still shows; the oldest lock first. The nightly retry cap holds here too (P1-9, Joel,
  * 2026-11-14: "Retries must be capped"): a waiting or system-hidden story's file whose checks gave
- * up more than fn::media::nightly_retries() times (fn::media::our_problem's `ours`) is never
- * re-checked, so its "a problem on our side" marker stays. One count, shared with the media retry
+ * up more than fn::media::nightly_retries() times (fn::media::retries_used, the rule the database
+ * applies to every new job in mediaJob_rules) is never re-checked, so its "a problem on our side"
+ * marker stays. One count, shared with the media retry
  * below: before the cap this chore's check is that night's retry.
  */
 const UNFINISHED = `SELECT VALUE record::id(id) FROM storyFile
@@ -139,7 +140,7 @@ const UNFINISHED = `SELECT VALUE record::id(id) FROM storyFile
     AND format = 'video' AND detachedAt = NONE AND removedAt = NONE
     AND (SELECT VALUE id FROM mediaJob
       WHERE file = $parent.id AND kind = 'check' AND doneAt = NONE LIMIT 1) = []
-    AND !(fn::story::keeps_media_jobs(story) AND fn::media::our_problem(id).ours)
+    AND !fn::media::retries_used(id)
   ORDER BY thumbnailLockedUntil ASC LIMIT $limit`;
 
 /**

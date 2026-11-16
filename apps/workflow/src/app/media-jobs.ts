@@ -236,7 +236,10 @@ export function parseFailure(input: unknown): string {
  * again), a check job of the file is opened first (fn::media::queue_job, with this job's reasons;
  * Codex r4 finding 2), so a failure at Bunny leaves an open job for the redelivery, the 18:00
  * resend or the nightly sweep to finish. Any other answer ends the job if it is still open; a job
- * already ended keeps its outcome.
+ * already ended keeps its outcome. Neither that check nor a render opens for a waiting or
+ * system-hidden story whose file has used its nightly retries (Part 1a, P1-9; Codex r6): the
+ * database's mediaJob_rules refuses every new job then, so `thumbnail` and `render` come back
+ * empty and "a problem on our side" stays.
  * Part 1a (Joel, 2026-11-10; P1a-4 A): what a not-ready answer writes (`$failure`, set by
  * {@link answerVars}):
  * - `reencoding`: Bunny's first "failed to process", which the writer confirmed and is about to

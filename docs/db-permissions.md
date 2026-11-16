@@ -326,7 +326,11 @@ their fence (see "Transactions").
   **Create:** api-user and
   workflow, and housekeeping only a `check` with the reason `resent` (the nightly re-check of a
   video whose picture at Bunny is unfinished; Joel 2026-11-09, T4), through `fn::media::queue_job`, which adds a reason to the file's open job of that
-  kind instead (the `mediaJob_rules` event refuses a second open one). **Update:** api-user (new
+  kind instead (the `mediaJob_rules` event refuses a second open one). The same event (elevated,
+  since workflow and api-user can't read a waiting story's status) takes a new job away at once
+  when its file's story is waiting for review or off the site because the site took it off, and
+  the file has used its 3 nightly retries (Part 1a, P1-9: `fn::media::retries_used`);
+  `queue_job` then answers NONE, whoever called it. **Update:** api-user (new
   reasons, `sentAt`, `sends`), housekeeping (the 18:00 resend: `sentAt`, `sends`, the reason
   `resent`), workflow (all of it); only workflow writes
   `failures`, `lastError`, `madeFile`, `doneAt`, `outcome` and `errorType`. **Delete:** housekeeping, a job 30
