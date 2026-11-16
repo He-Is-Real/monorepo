@@ -335,7 +335,7 @@ test.describe('behaviour', () => {
       );
       return t;
     });
-    await page.dispatchEvent('[data-drop-zone]', 'drop', {
+    await page.dispatchEvent('[data-upload-phase] [data-drop-zone]', 'drop', {
       dataTransfer: dropped,
     });
     await expect(page.getByText(/^Uploaded: second\.m4a/)).toBeVisible();
@@ -437,6 +437,54 @@ test.describe('behaviour', () => {
     expect(await me.stories()).toMatchObject([
       { description: 'Saved after the replay', media: [{}] },
     ]);
+  });
+
+  test('a replacement whose upload request’s answer is lost leaves no tick and no old name on “Review and submit” (Codex, PR 228 round 4)', async ({
+    page,
+    request,
+  }, info) => {
+    const me = await person(page, request);
+    await toUpload(page);
+    await page.getByLabel('Title').fill('My video');
+    await page
+      .getByLabel('Choose a file')
+      .setInputFiles(clip(info.outputPath('first.mp4')));
+    await expect(page.getByText(/^Uploaded: first\.mp4/)).toBeVisible();
+    // The replacement's request reaches api-user, which makes its video in place of the first;
+    // its answer never arrives.
+    await page.route(
+      `${STUB_USER_URL}/v1/stories/*/upload-url`,
+      async (route) => {
+        await route.fetch();
+        return route.abort('connectionreset');
+      },
+    );
+    await page
+      .getByLabel('Choose another file')
+      .setInputFiles(clip(info.outputPath('second.mp4')));
+    await expect(
+      alert(page, 'Something went wrong. Please try again later.'),
+    ).toBeVisible();
+    expect((await me.uploads()).videos).toMatchObject([
+      { deleted: true, done: true },
+      { deleted: false, done: false },
+    ]);
+
+    await page.reload();
+    await expect(
+      page.getByRole('heading', { level: 2, name: 'Upload your video' }),
+    ).toBeVisible();
+    await expect(page.getByText('first.mp4')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Add some details');
+    await page.getByText('Hope', { exact: true }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Review and submit');
+    await expect(page.locator('[data-not-attached]')).toContainText(
+      'Your video may not have finished uploading. We’ll check when you submit.',
+    );
+    await expect(page.locator('[data-attached]')).toHaveCount(0);
+    await expect(page.getByText('first.mp4')).toHaveCount(0);
   });
 
   test('an upload request answered without its link counts as no answer: the same file carries on with the same video (Codex #133 rounds 2 and 3)', async ({

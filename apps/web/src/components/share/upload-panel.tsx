@@ -12,6 +12,7 @@ import {
 import { PREFIX } from '@/lib/share-storage';
 import { stripMediaMetadata } from '@/lib/strip-media-metadata';
 import { formatWhen, UploadsLeft, uploadsState } from './allowance';
+import { DropZone } from './drop-zone';
 import type {
   ShareApi,
   SubmissionLimits,
@@ -263,7 +264,6 @@ export function UploadPanel({
   const [phase, setPhase] = useState<Phase>({ at: 'idle' });
   const [problem, setProblem] = useState<React.ReactNode>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [over, setOver] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const upload = useRef<Upload | null>(null);
   const current = useRef<{ file: File; draftId: string } | null>(null);
@@ -364,6 +364,10 @@ export function UploadPanel({
           }
         }
       }
+      // A new video replaces the story's file once api-user has the request, answered or not
+      // (Codex, PR 228 round 4): the finished record stops vouching for the old file before it's
+      // sent, so a lost answer never leaves the old file's tick and name on "Review and submit".
+      if (k?.done) remember(ready.draftId, null);
       const target = await newUpload(file, ready, request, gone);
       if (!target) return null;
       onCounted();
@@ -567,22 +571,7 @@ export function UploadPanel({
 
   return (
     <div data-upload-phase={phase.at}>
-      <div
-        className={`flex flex-col items-center gap-3 rounded-xl border-2 border-dashed p-6 text-center ${
-          over ? 'border-teal bg-accent' : 'border-border-hover'
-        }`}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setOver(true);
-        }}
-        onDragLeave={() => setOver(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setOver(false);
-          void choose(e.dataTransfer.files?.[0]);
-        }}
-        data-drop-zone=""
-      >
+      <DropZone onFile={(file) => void choose(file)}>
         <p className="text-secondary-text">
           {phase.at === 'done'
             ? `Want to use a different ${noun}? Drag it here, or`
@@ -613,7 +602,7 @@ export function UploadPanel({
         <div className="text-sm text-secondary-text">
           <UploadsLeft limits={limits} noun={noun} id="upload-allowance" />
         </div>
-      </div>
+      </DropZone>
 
       {kept && !kept.done && phase.at === 'idle' && (
         <p className="mt-4 text-sm text-foreground" role="status">

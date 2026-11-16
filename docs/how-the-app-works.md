@@ -266,8 +266,9 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   "Save and exit" and come back later (after a submission whose answer was lost, "Save and exit"
   first sends that same submission again, since the person already asked to send it and our server
   may still be working on it: if it went through it shows "Thank you"; if that can't be known yet
-  it confirms nothing and asks them to try again). The review step also links to "See your story as others
-  will" (`/account/stories/{id}/preview`, a new tab): the public story page's own parts, with a
+  it confirms nothing and asks them to try again). The review step also has a "See your story as others
+  will" button (a link styled as an outline button with an eye icon, full width on phones, saying
+  "Opens in a new tab" under it; Joel, 2026-11-14) to `/account/stories/{id}/preview`, a new tab: the public story page's own parts, with a
   banner "Only you can see this preview", and no heart, share or related stories. My submissions
   links every story that isn't on the site to the same page. Only the story's owner can open it.
   The links to the person's own video, audio and picture are signed only when that one story is
@@ -350,9 +351,18 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   uploading or added; Continue waits while it uploads. A failed upload keeps one "Try again"
   button.
 - **The attached file's name is shown** (Joel, 2026-11-14) for a video, audio file or picture, on
-  the upload step and on "Review and submit", so it's clear what was attached. The name is kept
-  only in that browser tab, never on our servers: after a reload in another tab or on another
-  device, the file is shown without its name.
+  the upload step and on "Review and submit", so it's clear what was attached. On "Review and
+  submit" each attached file has a success confirmation: a tick and "Video attached", "Audio file
+  attached", "Thumbnail attached" (a video's picture) or "Picture attached", with the file's name
+  under it. The name is kept only in that browser tab, never on our servers: after a reload in
+  another tab or on another device, the confirmation is shown without the name. The tick shows
+  only when the file is known to have arrived: a picture our server found in storage, or a video
+  or audio file this tab finished uploading (and hasn't since asked to replace) or that Bunny has
+  started processing. Otherwise there's
+  no tick but a highlighted line with a button back to the upload step: "Your video may not have
+  finished uploading. We'll check when you submit." (another tab or device started it, and
+  only submitting asks Bunny), "We couldn't read that video file…" (Bunny couldn't process it),
+  or "Your picture hasn't finished uploading."
 - **Videos and audio lose where and on what they were recorded before they leave the device**
   (M2, Joel 2026-11-06): the browser blanks an MP4, MOV or M4A file's location and device
   metadata in place, without re-encoding, so the file is the same size and plays the same. Bunny's
