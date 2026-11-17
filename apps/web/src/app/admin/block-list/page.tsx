@@ -1,8 +1,7 @@
 import type { Metadata } from 'next';
 import { connection } from 'next/server';
-import { AdminNav } from '@/components/admin/admin-access';
+import { AdminPage } from '@/components/admin/admin-page';
 import { AdminBlockList } from '@/components/admin/admin-block-list';
-import { WideColumn } from '@/components/page/page-header';
 import { apiAdminUrl } from '@/lib/config';
 import { pageMetadata } from '@/lib/seo';
 
@@ -33,13 +32,10 @@ export default async function AdminBlockListPage({
   await connection();
   const { ip } = await searchParams;
   return (
-    <main id="main" className="flex-1 py-10 sm:py-16">
-      <WideColumn>
-        <AdminNav />
-        <h1 className="mb-3 text-[2rem] leading-tight font-normal text-balance sm:text-[2.5rem]">
-          Block list
-        </h1>
-        <div className="mb-8 max-w-measure space-y-3 text-[1.0625rem] text-secondary-text">
+    <AdminPage
+      title="Block list"
+      description={
+        <>
           <p>
             Block someone who breaks our terms of use. A blocked email can’t
             create an account or send a story; a blocked IP address can’t send a
@@ -48,17 +44,13 @@ export default async function AdminBlockListPage({
           <p>
             A block stays until you remove it, even if the account is deleted.
           </p>
-        </div>
-        <noscript>
-          <p className="mb-6 rounded-2xl border border-border bg-card p-6">
-            This page needs JavaScript.
-          </p>
-        </noscript>
-        <AdminBlockList
-          apiAdminUrl={apiAdminUrl()}
-          initialIp={typeof ip === 'string' ? ip.slice(0, 45) : undefined}
-        />
-      </WideColumn>
-    </main>
+        </>
+      }
+    >
+      <AdminBlockList
+        apiAdminUrl={apiAdminUrl()}
+        initialIp={typeof ip === 'string' ? ip.slice(0, 45) : undefined}
+      />
+    </AdminPage>
   );
 }

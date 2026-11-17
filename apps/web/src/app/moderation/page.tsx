@@ -1,8 +1,7 @@
 import type { Metadata } from 'next';
 import { connection } from 'next/server';
-import { AdminNav } from '@/components/admin/admin-access';
+import { AdminPage } from '@/components/admin/admin-page';
 import { ModerationList } from '@/components/moderation/moderation-list';
-import { WideColumn } from '@/components/page/page-header';
 import { listThemes, type ThemeCategory } from '@/lib/browse';
 import { apiAdminUrl } from '@/lib/config';
 import { StoriesUnavailableError } from '@/lib/public-stories';
@@ -48,28 +47,23 @@ export default async function ModerationPage({ searchParams }: Props) {
   await connection();
   const sp = await searchParams;
   return (
-    <main id="main" className="flex-1 py-10 sm:py-16">
-      <WideColumn>
-        <AdminNav />
-        <h1 className="mb-3 text-[2rem] leading-tight font-normal text-balance sm:text-[2.5rem]">
-          Moderation
-        </h1>
-        <p className="mb-8 max-w-measure text-[1.0625rem] text-secondary-text">
-          Every story that isn’t on the site, oldest first. Open one to read,
-          watch or listen to it as the public would, with its history.
-        </p>
-        <noscript>
-          <p className="mb-6 rounded-2xl border border-border bg-card p-6">
-            This page needs JavaScript.
+    <AdminPage
+      title="Moderation"
+      description={
+        <>
+          <p>
+            Every story that isn’t on the site, oldest first. Open one to read,
+            watch or listen to it as the public would, with its history.
           </p>
-        </noscript>
-        <ModerationList
-          apiAdminUrl={apiAdminUrl()}
-          categories={await themes()}
-          state={one(sp['state'])}
-          theme={one(sp['theme'])}
-        />
-      </WideColumn>
-    </main>
+        </>
+      }
+    >
+      <ModerationList
+        apiAdminUrl={apiAdminUrl()}
+        categories={await themes()}
+        state={one(sp['state'])}
+        theme={one(sp['theme'])}
+      />
+    </AdminPage>
   );
 }
