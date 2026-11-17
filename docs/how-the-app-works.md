@@ -363,6 +363,12 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   finished uploading. We'll check when you submit." (another tab or device started it, and
   only submitting asks Bunny), "We couldn't read that video file…" (Bunny couldn't process it),
   or "Your picture hasn't finished uploading."
+  **Accepted behaviour (Joel, 2026-11-17, SF-2 A):** the page doesn't ask Bunny whether a video or
+  audio file arrived, so two short, rare cases are left as they are. In a new tab or on another
+  device, before Bunny starts on the file (usually within a minute), the "may not have finished
+  uploading" line shows even for a file that did arrive. After a replacement started and stopped in
+  another tab or device, this tab may briefly show the old file as attached. Submit always asks
+  Bunny, so nothing wrong is sent.
 - **Videos and audio lose where and on what they were recorded before they leave the device**
   (M2, Joel 2026-11-06): the browser blanks an MP4, MOV or M4A file's location and device
   metadata in place, without re-encoding, so the file is the same size and plays the same. Bunny's

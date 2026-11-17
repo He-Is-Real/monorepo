@@ -102,7 +102,7 @@ Kept basic for now. Joel will decide later how stories are shared out between mo
 - ✅ Logs in one standard format
 - ⏸ Joel's question P1-13: a published video's picture is still re-checked every night with no
   limit. Joel suggested dropping background jobs for pictures; Bunny's speed is being measured first
-- ⏸ Joel answers SF-2: what "Review and submit" says when the page can't tell if a video arrived
+- ✅ "Attached" confirmation when coming back from another tab or device kept as it is
 - ⚪ Final docs and a demo walk-through on dev
 - ⚪ Two-step sign-in for staff: deferred until we're happy to pay for it
 
