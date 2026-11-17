@@ -66,8 +66,8 @@ oldest first; the rest wait for the next run. One chore failing doesn't stop the
 10. **`old-media-jobs`**: deletes media jobs 30 days after they ended, except those
     `fn::media::job_kept` keeps: every job of a story waiting for review or taken off the site by
     the system (P1-3, P1-9, Joel 2026-11-14: they go 30 days after it is decided, shown again or
-    deleted, so its give-ups keep counting and its retries never start again), and the check that
-    recorded a file's one re-encode (P1-10 A: it goes with the file). Open jobs are never deleted.
+    deleted, so its give-ups keep counting and its retries never start again). Open jobs are never
+    deleted.
 
 **18:00:** **`media-resend`** sends every media job that hasn't ended, and was last sent (or, if
 never sent, written) over 12 hours ago, to the `media-jobs` queue again, and records the send.

@@ -11,7 +11,7 @@ import type { QueuedJob } from './media-queue';
  * - `ready`: encoded, with its real facts; `title` is the video's title at Bunny, which is the
  *   story's id (D69), a second check that the video is that story's.
  * - `failed`: Bunny couldn't encode it.
- * - `encoding`: Bunny is still working on it (a re-encode, or a notice that came early).
+ * - `encoding`: Bunny is still working on it (a notice that came early).
  * - `gone`: Bunny has no such video (deleted).
  */
 export type MediaAnswer =
@@ -100,19 +100,6 @@ export function errorTypeOf(code: string): Exclude<ErrorType, 'file_unusable'> {
   if (WORKER_CODES.has(code)) return 'worker_error';
   return 'other';
 }
-
-/**
- * The marker a check job leaves (its lastError) when the writer has asked Bunny to encode its
- * file again after Bunny's first "failed to process" (Part 1a: one automatic re-encode). Done
- * jobs keep it until the 30-day tidy-up.
- */
-export const REENCODED = 'bunny_encode_failed';
-
-/**
- * The failure the writer counts on a check that saw Bunny's failure after the re-encode was asked
- * for, but before Bunny's own notice that the re-encode failed ({@link answerFailed}).
- */
-export const REENCODE_PENDING = 'bunny_reencode_pending';
 
 /** mediaJob:<ulid> (fn::media::queue_job). */
 export const JOB_ID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
@@ -205,10 +192,6 @@ export function parseFailure(input: unknown): string {
   if (typeof code !== 'string' || !ERROR_CODE.test(code)) {
     throw new InvalidMediaJobCall('a failure needs a short code');
   }
-  // The writer's own marker of a re-encode ({@link REENCODED}) is never a worker's code.
-  if (code === REENCODED) {
-    throw new InvalidMediaJobCall('that code is the writer’s own');
-  }
   return code;
 }
 
@@ -237,14 +220,10 @@ export function parseFailure(input: unknown): string {
  * new job then, so `render` comes back empty and "a problem on our side" stays.
  * Part 1a (Joel, 2026-11-10; P1a-4 A): what a not-ready answer writes (`$failure`, set by
  * {@link answerVars}):
- * - `reencoding`: Bunny's first "failed to process", which the writer confirmed and is about to
- *   answer by asking Bunny to encode the file again ({@link answerFailed}): the file is
- *   `processing` (a published story leaves the site until it is ready, then comes back by
- *   itself), the job ends applied, marked {@link REENCODED}, and a follow-up check job opens
- *   (`followUp`; reason resent) for the re-encode's result;
- * - `unusable`: Bunny's final failure, after that one re-encode: the file is `failed` and the job
- *   gives up with errorType file_unusable, together. The database then sends a story waiting
- *   for review, published or off the site back to its owner (fn::story::check_files);
+ * - `unusable`: Bunny's "failed to process", which the writer confirmed ({@link answerFailed}):
+ *   the file is `failed` and the job gives up with errorType file_unusable, together. No
+ *   automatic re-encode (Joel, 2026-11-17, RE-1 A). The database then sends a story waiting for
+ *   review, published or off the site back to its owner at once (fn::story::check_files);
  * - `gone`: Bunny has no such video (never the person's fault): the file is `processing` and the
  *   job gives up with errorType other, for the housekeeping to try again and the moderators to see.
  * A failure is recorded only on a job still open (else `stale`).
@@ -290,28 +269,19 @@ export const ANSWER_SQL = `
     UPDATE type::record('mediaJob', $job) SET doneAt = time::now(), outcome = $end,
       errorType = IF $end != 'gave_up' { NONE } ELSE IF $failure = 'unusable' { 'file_unusable' }
         ELSE { 'other' },
-      lastError = IF $outcome != 'applied' OR $failure = NONE { lastError }
-        ELSE IF $failure = 'gone' { 'bunny_video_gone' } ELSE { $reencoded } RETURN NONE;
+      lastError = IF $outcome = 'applied' AND $failure = 'gone' { 'bunny_video_gone' }
+        ELSE { lastError } RETURN NONE;
   };
-  -- Part 1a (Codex review r1, findings 1 and 2): the re-encode's follow-up check, opened with the
-  -- marker and before Bunny is asked, so Bunny's notice when the re-encode ends always finds (or
-  -- opens) a job after the marker. Bunny is asked for the re-encode only once per file.
-  LET $followUp = IF $outcome = 'applied' AND $failure = 'reencoding' {
-    fn::media::queue_job($f.id, 'check', 'resent').job
-  };
-  { outcome: $end, render: $render, followUp: $followUp };`;
+  { outcome: $end, render: $render };`;
 
 /** What a not-ready answer records (ANSWER_SQL's `$failure`). */
-type Failure = 'reencoding' | 'unusable' | 'gone';
+type Failure = 'unusable' | 'gone';
 
 /**
  * An answer as the writer applies it: the worker's, with a `failed` one confirmed by the writer
- * and marked `final` once Bunny has already encoded the file again once ({@link answerFailed}).
+ * ({@link answerFailed}).
  */
-export type WriterAnswer =
-  | Extract<MediaAnswer, { outcome: 'ready' }>
-  | { outcome: 'encoding' | 'gone' }
-  | { outcome: 'failed'; final: boolean };
+export type WriterAnswer = MediaAnswer;
 
 /**
  * The query's variables: whether the answer is ready, the facts for a file that isn't
@@ -329,19 +299,16 @@ export function answerVars(
     job,
     videoId: video,
     at: arrivedAt,
-    reencoded: REENCODED,
     failure: undefined as Failure | undefined,
   };
   if (answer.outcome !== 'ready') {
-    // Part 1a: only Bunny's final failure, confirmed by the writer, makes the file failed. A
-    // first failure (re-encoding) or a video Bunny no longer has leaves it processing.
+    // Part 1a, RE-1 A: Bunny's failure, confirmed by the writer, makes the file failed. A video
+    // Bunny no longer has leaves it processing.
     const failure: Failure | undefined =
       answer.outcome === 'gone'
         ? 'gone'
         : answer.outcome === 'failed'
-          ? answer.final
-            ? 'unusable'
-            : 'reencoding'
+          ? 'unusable'
           : undefined;
     const processing = failure === 'unusable' ? 'failed' : 'processing';
     return { ...vars, failure, ready: false, notReady: { processing } };
@@ -364,11 +331,6 @@ export function answerVars(
 export interface AnswerResult {
   outcome: AnswerOutcome | 'gave_up';
   render: QueuedJob | null;
-  /**
-   * Set when the answer recorded Bunny's first failure (`reencoding`): the check job opened for
-   * the re-encode's result, before Bunny is asked for it ({@link answerFailed}).
-   */
-  followUp?: string;
 }
 
 /**
@@ -396,100 +358,54 @@ export async function answerJob(
     const r = results[results.length - 2] as {
       outcome: AnswerOutcome | 'gave_up';
       render?: Omit<QueuedJob, 'kind'> | null;
-      followUp?: string | null;
     };
     return {
       outcome: r.outcome,
       render: r.render ? { ...r.render, kind: 'render' } : null,
-      ...(r.followUp ? { followUp: r.followUp } : {}),
     };
   });
 }
 
 /**
  * Checked before the writer calls Bunny about a "failed" answer, so nothing reaches Bunny for a
- * job that isn't an open check of this video: the job (as {@link ANSWER_SQL} checks it), whether
- * it is still open, whether the writer has already asked Bunny for the file's re-encode (a check
- * ended applied with {@link REENCODED}: only the writer's own `reencoding` answer ends one so,
- * and it does so before Bunny is asked), and whether that re-encode has failed in turn: Bunny's
- * own "failed" notice (reason bunny_failed) reached a check job opened after the request (Codex
- * review r1, finding 2: Bunny may still show the original failure for a while after the request).
+ * job that isn't an open check of this video: the job (as {@link ANSWER_SQL} checks it), and
+ * whether it is still open.
  */
 const BEFORE_FAILED_SQL = `
   LET $j = (SELECT kind, file, doneAt FROM ONLY type::record('mediaJob', $job));
   IF $j = NONE { THROW 'media_job_not_found' };
   IF <string> record::id($j.file) != $videoId { THROW 'media_job_wrong_video' };
   IF $j.kind != 'check' { THROW 'media_job_not_a_check' };
-  LET $asked = (SELECT VALUE doneAt FROM mediaJob WHERE file = $j.file AND kind = 'check'
-    AND doneAt != NONE AND outcome = 'applied' AND lastError = $reencoded
-    ORDER BY doneAt DESC LIMIT 1)[0];
-  {
-    open: $j.doneAt = NONE,
-    reencoded: $asked != NONE,
-    reencodeFailed: $asked != NONE AND (SELECT VALUE id FROM mediaJob WHERE file = $j.file
-      AND kind = 'check' AND queuedAt >= $asked AND 'bunny_failed' IN reasons LIMIT 1) != []
-  };`;
+  { open: $j.doneAt = NONE };`;
 
 /**
  * What the writer does with a worker's "failed" answer (Part 1a; Joel, 2026-11-10): it doesn't
  * take the worker's word for it (a home PC can never make a file unusable). It asks Bunny itself;
  * unless Bunny says failed too, the answer is set aside (`retry`: the worker leaves the job in the
- * queue, and the next delivery asks again), counting nothing. A confirmed failure:
- * - the first for this file: the writer records it ({@link ANSWER_SQL}, `reencoding`: the job
- *   ends marked {@link REENCODED}, and a follow-up check job opens), then asks Bunny to encode it
- *   again (the one automatic re-encode). Bunny's notice when that ends joins the follow-up (or
- *   opens a check, if the follow-up has ended), so its result is always checked (Codex review r1,
- *   finding 1). If asking Bunny fails, that counts on the follow-up; it is never asked again;
- * - after that request, but before Bunny's own "failed" notice came for a check opened since: not
- *   yet known to be the re-encode's failure (Bunny may still show the first one). The writer only
- *   reads Bunny's status (never a second re-encode request: one per file, Codex review r2) and
- *   counts a failure on the job ({@link REENCODE_PENDING}; "try again later" until it gives up at
- *   {@link MAX_FAILURES} as ours, bunny_unavailable), the job open for Bunny's notice to join
- *   (G2: no timer, Bunny's real status);
- * - after Bunny's notice that the re-encode failed: the file can't be used (`unusable`): failed,
- *   the job given up with errorType file_unusable, and the story sent back by the database.
+ * queue, and the next delivery asks again), counting nothing. A confirmed failure makes the file
+ * unusable at once (RE-1 A, Joel, 2026-11-17: no automatic re-encode): failed, the job given up
+ * with errorType file_unusable, and the story sent back to its owner by the database.
  * A Bunny call that fails is the job's failure, as on the render routes ({@link failJob}).
  */
 export async function answerFailed(
   db: SurrealQueryable,
-  bunny: Pick<WriterBunny, 'videoStatus' | 'reencode'>,
+  bunny: Pick<WriterBunny, 'videoStatus'>,
   job: string,
   video: string,
   arrivedAt: string,
 ): Promise<AnswerResult | FailureReply> {
+  const failed = () =>
+    answerJob(db, job, video, { outcome: 'failed' }, arrivedAt);
   try {
     const results = await runQuery(db, BEFORE_FAILED_SQL, {
       job,
       videoId: video,
-      reencoded: REENCODED,
     }).catch(notFound);
-    const { open, reencoded, reencodeFailed } = results[results.length - 1] as {
-      open: boolean;
-      reencoded: boolean;
-      reencodeFailed: boolean;
-    };
-    const failed = (final: boolean) =>
-      answerJob(db, job, video, { outcome: 'failed', final }, arrivedAt);
+    const { open } = results[results.length - 1] as { open: boolean };
     // A job already ended: the answer is stale, recorded without asking Bunny anything.
-    if (!open) return await failed(false);
+    if (!open) return await failed();
     if ((await bunny.videoStatus(video)) !== 'failed') return { retry: true };
-    if (reencodeFailed) return await failed(true);
-    if (reencoded) {
-      // The one automatic re-encode was already asked for: never again (Joel's rule). Only
-      // Bunny's status was read; the wait counts as the job's failure, so it gives up after
-      // MAX_FAILURES as ours (bunny_unavailable) if Bunny's notice never comes.
-      return await failJob(db, job, video, REENCODE_PENDING);
-    }
-    const result = await failed(false);
-    if (result.followUp) {
-      try {
-        await bunny.reencode(video);
-      } catch (err) {
-        if (!(err instanceof BunnyCallFailed)) throw err;
-        await failJob(db, result.followUp, video, err.code);
-      }
-    }
-    return result;
+    return await failed();
   } catch (err) {
     if (!(err instanceof BunnyCallFailed)) throw err;
     return failJob(db, job, video, err.code);

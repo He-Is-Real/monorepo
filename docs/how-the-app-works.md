@@ -384,6 +384,11 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 - Uploaded videos and audio are stored by Bunny in Frankfurt, Germany (Bunny doesn't offer
   London); pictures are stored in London. (D89)
 - Nothing personal is stored at Bunny: a video's title there is just the story's id. (D69)
+- **Bunny keeps each video's original upload (RE-1 A, Joel 2026-11-17)**, as the browser sent it,
+  beside the encoded copies (Frankfurt), for later social media processing. Nothing uses it yet.
+  It is deleted with the video: every deletion (erasure, a replaced or removed upload, a deleted
+  story, the orphan sweep) removes the whole video at Bunny, original included. Videos uploaded
+  before November 17, 2026 have none.
 
 ## My profile, edit and delete
 
@@ -448,7 +453,7 @@ recording | picture` (worked out from the status history: set while the story's 
   production: a named exception to the one-hour rule for the links to files that aren't public
   (G16 C, Joel 2026-11-11). Each video or audio item
   also has a link to download it as an MP4 file, a copy Bunny makes when it encodes the video (C1,
-  Joel 2026-11-06); we never keep the upload itself. Videos encoded before MP4 copies were turned
+  Joel 2026-11-06), not the original upload Bunny keeps (RE-1 A). Videos encoded before MP4 copies were turned
   on (November 2026) have none, and the file says so. The file says what it leaves out (who
   moderated, Clerk's sessions and devices, anyone else's data). If Clerk
   (or Bunny, asked which MP4 copies the person's videos have) can't answer, there is no file rather
@@ -562,15 +567,11 @@ Built in the database (the decisions and their pages are planned, M3):
   again (from hidden); the system hides and shows again when media breaks and
   works again, and sends a story back when its file can't be used (below). Sending back,
   rejecting and a moderator's hide need a note.
-- **"Your video couldn't be used" (Part 1a, Joel 2026-11-10; P1a-4 A; G2, 2026-11-11):** only
-  Bunny's final "failed to process", after one automatic re-encode, reaches the person. The result
-  writer believes a worker's "failed" only once Bunny tells it the same (the worker, a home PC,
-  can never blame the file); the first time it asks Bunny to encode the file again (a published
-  story leaves the site meanwhile and comes back by itself if that works), recording the request
-  and opening a follow-up check before it asks, so the re-encode's result is always checked. Only
-  when Bunny's own "failed" notice arrives after that request (Bunny may still show the first
-  failure for a while) does it mark the file failed and the job "gave up" with the reason
-  `file_unusable`. In that same write the
+- **"Your video couldn't be used" (Part 1a, Joel 2026-11-10; P1a-4 A; G2, 2026-11-11; RE-1 A,
+  2026-11-17):** Bunny's "failed to process" reaches the person at once; there is no automatic
+  re-encode. The result writer believes a worker's "failed" only once Bunny tells it the same (the
+  worker, a home PC, can never blame the file); then it marks the file failed and the job "gave
+  up" with the reason `file_unusable`. In that same write the
   database sends a story waiting for review, published or not on the site right now back to its
   owner (a system "file unusable" entry: "Needs a new file"). No timer: a published story goes at
   once. Every other give-up is ours, never the person's (`bunny_unavailable`, `worker_error`,
@@ -579,10 +580,10 @@ Built in the database (the decisions and their pages are planned, M3):
   shows "Can't be reviewed yet: a problem on our side", and the person keeps seeing "Waiting for
   review". A video Bunny no longer has is ours too (`other`). The same nightly retry
   covers a published story the site took off itself (P1-5, Joel 2026-11-14), e.g. while Bunny
-  re-encodes its file, never one a moderator hid: up to 3 nights, then it stays off the site, its
+  has lost its video, never one a moderator hid: up to 3 nights, then it stays off the site, its
   owner keeps seeing "We're fixing your video", and the moderators' list shows "A problem on our
   side" on it.
-- **Retries are capped (P1-3, P1-9, P1-10, Joel 2026-11-14):** a story's media jobs are kept while
+- **Retries are capped (P1-3, P1-9, Joel 2026-11-14):** a story's media jobs are kept while
   it waits for review or is off the site because the site took it off itself, so its give-ups keep
   counting and its 3 nightly retries never start again (the 30-day tidy-up skips them; they go
   30 days after it is decided, shown again or deleted). Once they are used, nothing opens another check or render
@@ -590,8 +591,7 @@ Built in the database (the decisions and their pages are planned, M3):
   queue, and not the owner sending the same file again after Edit (the database refuses every new
   job, in one place). "A problem on our side" stays on the moderators' list. A new file the owner
   uploads starts with no give-ups, and the cap doesn't apply while the story is back with its
-  owner. The check that recorded a file's one
-  re-encode is kept until the file itself is deleted, so Bunny is never asked for a second one.
+  owner.
 - **A story the site took off itself is never deleted automatically (P1-9, Joel 2026-11-14):** the
   nightly clean-up deletes only rejected stories and ones left in editing, never one off the site.
   The owner uses Edit and uploads a new file, or a Moderator or Admin rejects it (then it is deleted like any
@@ -600,11 +600,6 @@ Built in the database (the decisions and their pages are planned, M3):
   records `recording` (the story's video or audio file) or `picture` (an audio story's picture
   video made with its picture; one made on the site's default background, with no picture, counts
   as the recording). Written only by the database.
-- **A late duplicate failure from Bunny is accepted (P1-4, Joel 2026-11-14):** Bunny doesn't say
-  which encode a "failed" notice is about. If it sends its first failure notice again late, just
-  after the one re-encode was asked for, the file can be judged unusable before the re-encode has
-  finished, and the person is asked for a new file that might have worked. It needs a late
-  duplicate at exactly that moment; the worst case is an extra upload. Not guarded against.
 - **Moderators and a story sent back automatically:** it leaves "Waiting for review" for "Being
   edited", and its history shows "Sent back automatically: the video couldn't be processed" ("the
   recording" for audio). A review page left open checks every minute, and when the tab comes back
@@ -636,8 +631,7 @@ Built in the database (the decisions and their pages are planned, M3):
   Bunny says a video or audio file finished encoding, failed or was deleted, a check job for that
   file is written to the job table, then queued; the media worker asks Bunny itself and calls the
   result writer, which records the answer on that file only (ready with its real size, length and
-  Bunny's thumbnail; still encoding; or, for Bunny's failure, Part 1a's re-encode and send-back
-  below) and marks the job done in the same step. At most one job per file and kind is open: a new reason joins it. An
+  Bunny's thumbnail; still encoding; or, for Bunny's failure, Part 1a's send-back below) and marks the job done in the same step. At most one job per file and kind is open: a new reason joins it. An
   answer about a file the story no longer shows is dropped (the job ends "gone"), and so is one
   that reached the writer before the last answer recorded for that file (the job ends "stale"),
   so a late answer can't bring back a story whose video has since failed (F1). If the worker

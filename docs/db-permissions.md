@@ -342,9 +342,7 @@ id>/<the file name Bunny's read-back named>` (or, for a video never given a pict
   `failures`, `lastError`, `madeFile`, `doneAt`, `outcome` and `errorType`. **Delete:** housekeeping, a job 30
   days after it ended (J2), but never while its file's story is waiting for review (P1-3, Joel
   2026-11-14) or off the site because the site took it off itself (P1-9, 2026-11-14), so its
-  give-ups keep counting and its 3 nightly retries never start again, and never the check that
-  recorded the file's one re-encode (P1-10 A, 2026-11-14: `lastError` `bunny_encode_failed`, so
-  Bunny is never asked for a second one); `fn::media::job_kept`. A file's row going deletes its
+  give-ups keep counting and its 3 nightly retries never start again; `fn::media::job_kept`. A file's row going deletes its
   jobs (`storyFile_jobs`). Every write
   needs the file's person live and bumps their fence, which also serialises two writes racing to
   open the same job. The result writer saves an answer and ends its job in one transaction.

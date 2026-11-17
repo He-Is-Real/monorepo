@@ -753,7 +753,7 @@ components:
           readOnly: true
           description: |
             Part 1a (Joel, 2026-11-10): `unusable` while the story's video or audio file can't be
-            used (Bunny failed it for good, after one automatic re-encode: the file is `failed`).
+            used (Bunny failed to process it: the file is `failed`; RE-1 A, no automatic re-encode).
             The story was sent back (`editing`); the person sees "Needs a new file" and uploads
             another with the existing upload route. Worked out from the current file, never stored:
             `null` again as soon as a new file is on it.
@@ -2257,8 +2257,8 @@ components:
                         The item as an MP4 file to download (C1, Joel 2026-11-06): Bunny's MP4 copy at the
                         largest size it made (up to 1080p), `https://{stream pull zone}/{bunnyVideoId}/play_{height}p.mp4`,
                         signed like Bunny's other Stream files (`token=HS256-…&expires=…`), until
-                        `about.linksExpireAt`. A copy Bunny re-encoded, never the upload itself (which nobody
-                        keeps). `null` when Bunny has no MP4 copy (finished before the library made them, or
+                        `about.linksExpireAt`. A copy Bunny re-encoded, never the upload itself (the original
+                        Bunny keeps, RE-1 A, isn't in the download). `null` when Bunny has no MP4 copy (finished before the library made them, or
                         not finished yet) or signing is off.
                     width:
                       type: [integer, 'null']

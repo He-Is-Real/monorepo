@@ -32,13 +32,17 @@ resource "bunnynet_stream_library" "media" {
   resolutions   = var.stream_resolutions
   # C1 (Joel, 2026-11-06): Bunny also stores an MP4 file per encoded resolution
   # (<video id>/play_<height>p.mp4, up to 1080p), so "Download my data" can give
-  # people their video as a file to keep (GDPR Art 20, portability) without us
-  # keeping the upload, which carries where and on what it was recorded. Costs
+  # people their video as a file to keep (GDPR Art 20, portability). Costs
   # storage at Bunny (Frankfurt, D89). Only videos encoded after it's applied
   # get MP4s. Anyone allowed to watch a video can fetch its MP4 with the
   # player's token, but it's the same video they can already watch.
-  mp4_fallback_enabled              = true
-  original_files_keep               = false # don't keep the upload after encoding
+  mp4_fallback_enabled = true
+  # RE-1 A (Joel, 2026-11-17): Bunny keeps each video's original upload (as the
+  # browser sent it), for later social media processing. Nothing uses it yet.
+  # It is stored with the video (Frankfurt, D89) and goes when the video is
+  # deleted. Only videos uploaded after it's applied keep one. Early play stays
+  # off: it would serve the original to viewers.
+  original_files_keep               = true
   multi_audio_track_support_enabled = false
   early_play_enabled                = false # also exposes originals via the CDN
 
