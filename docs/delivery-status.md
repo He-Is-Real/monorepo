@@ -141,6 +141,7 @@ Bring in the 24 existing testimonies. Before that:
 - ⚪ The heisreal.today domain and the real sign-in service
 - ⚪ Stripe switched from test mode to real payments (after a Stripe tool fix)
 - ⚪ Church hardware secured before it holds real data
+- ⚪ Church worker machines keep their clocks right (automatic time sync turned on)
 - ⚪ Moving off Squarespace
 
 ## Emails ⚪
