@@ -220,7 +220,10 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   P1-13 A: "Dont use jobs for pictures"):** sending a video story (and sending it again after Edit)
   tells Bunny to show the story's picture for the video, or, if the person took their picture off,
   Bunny's own frame again, and reads the video back, all in the same request, after the picture's
-  own check. Nothing goes to Bunny when the picture is the one Bunny already shows. If Bunny
+  own check. Nothing goes to Bunny when the picture is the one Bunny was last confirmed to show,
+  or when there is no picture and Bunny still shows the video's first, untouched thumbnail. A
+  video without a picture whose thumbnail Bunny ever changed (even by a send that failed
+  half-way) gets Bunny's own frame put back at every send. If Bunny
   refuses, can't be reached, takes more than 20 seconds or doesn't show the new picture, the story
   isn't sent: it stays as it was, and the person is told "We couldn't add your picture. Please add
   it again, then submit." There is no retry in the background and no picture job. Once Bunny shows

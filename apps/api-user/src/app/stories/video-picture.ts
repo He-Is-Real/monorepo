@@ -18,7 +18,11 @@ import { StaleVersionException } from './story-store';
  * submitting. If picture uploads fails then no submission."). SubmitStory (and sending a story
  * again after Edit) of a video story, after the picture check and the video's own checks, in the
  * same request:
- * - nothing to do when the video's `thumbnailOf` is already the story's picture (or both empty);
+ * - nothing to do when the video's `thumbnailOf` is already the story's picture: it's recorded
+ *   only once Bunny was read back showing it, and a picture's path is never used again;
+ * - with no picture and none recorded, nothing to do only while Bunny still shows the video's
+ *   untouched first thumbnail ({@link BUNNY_UNTOUCHED}): an earlier Submit may have set a picture
+ *   at Bunny and then lost the read-back, which recorded nothing (Codex, #233 review);
  * - otherwise Bunny is told to show the story's picture, fetched through a signed link to the
  *   images zone, or, with no picture any more, its own frame again ({@link BUNNY_FRAME}); then the
  *   video is read back, and the new picture counts only once Bunny names a new thumbnail file;
@@ -37,6 +41,13 @@ export const PICTURE_BUDGET_MS = 20_000;
  * `thumbnail_<n>.jpg`). Checked on dev Bunny on 2026-11-17 (the PR's live test).
  */
 export const BUNNY_FRAME = 'thumbnail_1.jpg';
+
+/**
+ * The thumbnail file Bunny names for a video nobody has set a picture for: from its creation,
+ * while encoding and after. Every picture set (ours, or its frame put back) gets a new
+ * `thumbnail_<random>.jpg` instead. Checked on dev Bunny on 2026-11-17 (#233 round 2).
+ */
+export const BUNNY_UNTOUCHED = 'thumbnail.jpg';
 
 /** What the person sees when Bunny wouldn't take the picture (Joel, P1-13 A). */
 export const PICTURE_FAILED =
@@ -109,8 +120,13 @@ export async function setVideoPicture({
     { video: videoId },
   )) as [string | null | undefined];
   const wanted = picture ?? null;
-  // Nothing changed since Bunny last took it (a re-send after Edit with the same picture).
-  if ((recorded ?? null) === wanted) return;
+  // Nothing changed since Bunny last took it (a re-send after Edit with the same picture), or,
+  // with no picture, Bunny has never been given one. A video Bunny shows any other picture for
+  // gets its frame back, even if that is what it shows already (a frame put back gets a new name).
+  if ((recorded ?? null) === wanted) {
+    if (wanted !== null) return;
+    if (before.thumbnailFileName === BUNNY_UNTOUCHED) return;
+  }
   try {
     const source =
       wanted === null ? BUNNY_FRAME : (urls?.imageUrl(wanted) ?? null);

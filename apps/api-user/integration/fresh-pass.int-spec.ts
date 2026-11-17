@@ -47,7 +47,13 @@ class FakeStream implements BunnyStream {
   whileAsked?: () => Promise<void>;
   async createVideo() {
     const id = randomUUID();
-    this.videos.set(id, { status: 0, length: 0, mp4Height: null });
+    // A new video's thumbnail, as on dev Bunny (2026-11-17), until a picture is set.
+    this.videos.set(id, {
+      status: 0,
+      length: 0,
+      mp4Height: null,
+      thumbnailFileName: 'thumbnail.jpg',
+    });
     return id;
   }
   async video(id: string) {

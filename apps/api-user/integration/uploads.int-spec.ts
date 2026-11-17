@@ -45,9 +45,11 @@ class FakeStream implements BunnyStream {
   readonly thumbnails: [string, string][] = [];
   /**
    * How Bunny answers set thumbnail: takes the picture (a new thumbnail file, as on dev Bunny,
-   * 2026-11-17), refuses it, or answers OK but keeps showing the old one.
+   * 2026-11-17), refuses it, answers OK but keeps showing the old one, or takes it but the
+   * read-back straight after fails (the picture is at Bunny, but api-user can't know).
    */
-  thumbnailMode: 'take' | 'refuse' | 'ignore' = 'take';
+  thumbnailMode: 'take' | 'refuse' | 'ignore' | 'lose' = 'take';
+  private readFails = false;
   async createVideo(title: string) {
     const id = randomUUID();
     this.videos.set(id, {
@@ -65,12 +67,17 @@ class FakeStream implements BunnyStream {
     if (!v || this.thumbnailMode === 'refuse') {
       throw new Error('Bunny Stream set thumbnail answered 500');
     }
-    if (this.thumbnailMode === 'take') {
+    if (this.thumbnailMode === 'take' || this.thumbnailMode === 'lose') {
       v.thumbnailFileName = `thumbnail_${randomUUID().slice(0, 8)}.jpg`;
+      this.readFails = this.thumbnailMode === 'lose';
     }
   }
   /** A copy, as Bunny's answer is: later changes at Bunny don't reach it. */
   async video(id: string) {
+    if (this.readFails) {
+      this.readFails = false;
+      throw new Error('Bunny Stream video answered 503');
+    }
     const v = this.videos.get(id);
     return v ? { ...v } : null;
   }
@@ -1176,6 +1183,41 @@ describe('video and audio uploads', () => {
       expect(removed.status).toBe(200);
       expect((await submit('xan', id, removed.body.version)).status).toBe(200);
       expect(calls(video)).toEqual([expect.any(String), 'thumbnail_1.jpg']);
+      expect(await thumbnailOf(video)).toBeNull();
+    });
+
+    it('a video never given a picture asks Bunny nothing at submit', async () => {
+      await person('yul');
+      const id = await draft('yul');
+      const granted = await upload('yul', id, 1);
+      const video = granted.body.headers.VideoId as string;
+      bunny.arrived(video);
+      expect((await submit('yul', id, granted.body.version)).status).toBe(200);
+      expect(calls(video)).toEqual([]);
+    });
+
+    it('a picture Bunny took but whose read-back failed is taken off at Bunny when the person removes it (Codex, #233 review)', async () => {
+      const { id, video, version } = await videoWithPicture('zed');
+      bunny.thumbnailMode = 'lose';
+      const refused = await submit('zed', id, version);
+      bunny.thumbnailMode = 'take';
+      expect(refused.status).toBe(400);
+      expect(refused.body).toMatchObject(PICTURE_FAILED);
+      // Nothing recorded, though Bunny shows the picture now.
+      expect(await thumbnailOf(video)).toBeNull();
+      const removed = await call('PATCH', `/v1/stories/${id}`, 'zed', {
+        body: { image: null },
+        headers: {
+          'if-match': `"${version}"`,
+          'content-type': 'application/merge-patch+json',
+        },
+      });
+      expect(removed.status).toBe(200);
+      expect((await submit('zed', id, removed.body.version)).status).toBe(200);
+      expect(calls(video)).toEqual([expect.any(String), 'thumbnail_1.jpg']);
+      expect((await bunny.video(video))?.thumbnailFileName).not.toBe(
+        'thumbnail.jpg',
+      );
       expect(await thumbnailOf(video)).toBeNull();
     });
   });

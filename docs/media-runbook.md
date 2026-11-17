@@ -165,7 +165,10 @@ A video's own picture is set at Bunny by api-user when the story is sent, never 
 thumbnail" with a signed link to the story's picture (or `thumbnail_1.jpg`, Bunny's own frame,
 when the person took their picture off), reads the video back, and once Bunny names a new
 thumbnail file records the picture as the video's `thumbnailOf`. Nothing goes to Bunny when
-`thumbnailOf` is already the story's picture. All of Bunny's calls get 20 seconds together. The
+`thumbnailOf` is already the story's picture, or when there is no picture and Bunny still names
+the video's untouched first thumbnail, `thumbnail.jpg` (every picture set, frame included, gets a
+new `thumbnail_<random>.jpg`; checked on dev Bunny 2026-11-17). So a set whose read-back failed
+is still undone when the person removes the picture. All of Bunny's calls get 20 seconds together. The
 writer's checks of the video never touch its picture.
 
 **Picture failed at submit** (api-user logs `Bunny didn’t take video <id>’s picture: …`): the
