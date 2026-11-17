@@ -2,7 +2,6 @@ import type { Metadata } from 'next';
 import { connection } from 'next/server';
 import { AdminNav } from '@/components/admin/admin-access';
 import { AdminLimits } from '@/components/admin/admin-limits';
-import { WideColumn } from '@/components/page/page-header';
 import { apiAdminUrl } from '@/lib/config';
 import { pageMetadata } from '@/lib/seo';
 
@@ -23,24 +22,21 @@ export function generateMetadata(): Metadata {
  * plain words with their units, and saving new ones after a confirmation. For Admin and above
  * (D1): the page asks api-admin from the browser with the person's own token (D31), and
  * api-admin refuses anyone else; web's server renders the same shell for everyone (D32) and only
- * hands over api-admin's address.
+ * hands over api-admin's address. The page uses the site's full content width (SL-1 C, Joel
+ * 2026-11-17): the groups down the side, one group's limits beside them.
  */
 export default async function AdminLimitsPage() {
   await connection();
   return (
     <main id="main" className="flex-1 py-10 sm:py-16">
-      <WideColumn>
+      <div className="mx-auto w-full max-w-site px-4 sm:px-10">
         <AdminNav />
         <h1 className="mb-3 text-[2rem] leading-tight font-normal text-balance sm:text-[2.5rem]">
           Submission limits
         </h1>
         <p className="mb-8 max-w-measure text-[1.0625rem] text-secondary-text">
-          How much people can share, and how often. A change applies to everyone
+          How much people can share and how often; a change applies to everyone
           from their next step, including stories they have already started.
-          Trusted submitters skip the draft, weekly and upload-count limits, and
-          get the largest file sizes and lengths. The last two say how long we
-          keep a story that was sent but won’t be published: the nightly
-          clean-up then deletes it, files included.
         </p>
         <noscript>
           <p className="mb-6 rounded-2xl border border-border bg-card p-6">
@@ -48,7 +44,7 @@ export default async function AdminLimitsPage() {
           </p>
         </noscript>
         <AdminLimits apiAdminUrl={apiAdminUrl()} />
-      </WideColumn>
+      </div>
     </main>
   );
 }

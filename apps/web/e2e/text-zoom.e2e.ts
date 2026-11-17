@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
-import { enlargeText as enlarge, expectNoHorizontalOverflow } from './helpers';
+import {
+  enlargeText as enlarge,
+  expectFocusedAndUncovered,
+  expectNoHorizontalOverflow,
+} from './helpers';
 import { STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 
 // T7 (WCAG 1.4.4): with text at 200% on the smallest phone, every page still fits without
@@ -30,7 +34,11 @@ const PAGES = [
 
 // eslint-disable-next-line no-empty-pattern
 test.beforeEach(({}, info) => {
-  test.skip(info.project.name !== 'phone-320', 'the smallest phone');
+  // The limits page's save bar is also checked on the shortest screen (Codex review of #237).
+  const devices = info.title.includes('/admin/limits')
+    ? ['phone-320', 'phone-320-landscape']
+    : ['phone-320'];
+  test.skip(!devices.includes(info.project.name), 'the smallest phone');
 });
 
 const fontSize = (locator: import('@playwright/test').Locator) =>
@@ -87,7 +95,7 @@ for (const path of PAGES) {
   });
 }
 
-test('200% text: /admin/limits with its confirmation fits on a 320 px phone', async ({
+test('200% text: /admin/limits with its save bar and confirmation fits on the smallest phone', async ({
   page,
 }) => {
   await enlarge(page);
@@ -97,9 +105,54 @@ test('200% text: /admin/limits with its confirmation fits on a 320 px phone', as
     `admin-text-zoom-limits-${randomUUID()}`,
   );
   await page.goto(`${WEB_SIGNED_IN_URL}/admin/limits`);
+  // The box being typed in stays visible above the save bar as it appears (Codex review of
+  // #237): the bar keeps to one line with its list of changes folded away.
+  const longest = page.getByLabel('Longest story');
+  await longest.fill('12000');
+  const bar = page.locator('[data-save-bar]');
+  await expect(bar).toContainText('1 change not saved yet');
+  await expectFocusedAndUncovered(longest);
+  // SL-1 C: one group at a time, from the "Group" drop-down on a phone.
+  const group = page.getByLabel('Group', { exact: true });
+  await group.selectOption({ label: 'Video and audio' });
   await page.getByLabel('Largest video file').fill('10240');
-  await page.getByLabel('Upload attempts one person can start').fill('10000');
-  await page.getByRole('button', { name: 'Save' }).click();
+  await group.selectOption({ label: 'How often' });
+  const uploads = page.getByLabel('Upload attempts one person can start');
+  await uploads.fill('10000');
+  await expect(bar).toContainText('3 changes not saved yet');
+  await expectFocusedAndUncovered(uploads);
+  // The list of changes opens from its button, and fits too.
+  const list = bar.getByRole('list', { name: 'Changes not saved yet' });
+  await expect(list).toBeHidden();
+  const show = bar.getByRole('button', { name: 'Show changes' });
+  await expect(show).toHaveAttribute('aria-expanded', 'false');
+  await show.click();
+  const hide = bar.getByRole('button', { name: 'Hide changes' });
+  await expect(hide).toHaveAttribute('aria-expanded', 'true');
+  // Shown, the list keeps the bar to its share of the screen; going back to a box folds it
+  // away, so the box is never under the bar (Codex review of #237, round 2).
+  await page.keyboard.press('Shift+Tab');
+  const box = page.locator('input:focus');
+  await expect(box).toHaveCount(1);
+  await expect(show).toHaveAttribute('aria-expanded', 'false');
+  await expect(list).toBeHidden();
+  await expectFocusedAndUncovered(box);
+  const { height, viewport } = await bar.evaluate((el) => ({
+    height: el.getBoundingClientRect().height,
+    viewport: window.innerHeight,
+  }));
+  expect(height).toBeLessThanOrEqual(viewport * 0.4);
+  for (const name of ['Undo', 'Save'])
+    await expect(bar.getByRole('button', { name, exact: true })).toBeInViewport(
+      {
+        ratio: 1,
+      },
+    );
+  await show.click();
+  await expect(hide).toHaveAttribute('aria-expanded', 'true');
+  await expect(list).toContainText('Longest story: 10,000 → 12,000 characters');
+  await expectNoHorizontalOverflow(page);
+  await bar.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('alertdialog')).toBeVisible();
   await expectNoHorizontalOverflow(page);
 });
