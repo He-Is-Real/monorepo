@@ -258,6 +258,72 @@ test.describe('behaviour', () => {
     await expect(page.locator('[data-current-version]')).toContainText(
       'Current: version 2',
     );
+    await expect(
+      page.getByRole('tab', { name: 'Privacy notice' }),
+    ).toContainText('v2 · ');
+  });
+
+  // CS-1 C4 (Joel, 2026-11-17): underlined tabs with each text's current version and date, and
+  // the chosen text in the address.
+  test('/admin/consent: tabs give each text’s version and date, and the address keeps the text', async ({
+    page,
+    request,
+  }) => {
+    await person(page, request, {}, 'admin');
+    await page.goto(`${WEB_SIGNED_IN_URL}/admin/consent`);
+    const tab = (name: string) => page.getByRole('tab', { name });
+    // The fixtures' dates are in October 2026; the year shows only outside the current one.
+    const when = (day: number) =>
+      new Date().getFullYear() === 2026 ? `${day} Oct` : `${day} Oct 2026`;
+    await expect(tab('Terms of use')).toContainText(`v2 · ${when(20)}`);
+    await expect(tab('Testimony consent')).toContainText(`v3 · ${when(22)}`);
+    await expect(tab('Social media sharing')).toContainText(`v1 · ${when(15)}`);
+    await expect(tab('Privacy notice')).toContainText(`v1 · ${when(25)}`);
+    await expect(tab('Terms of use')).toHaveAttribute('aria-selected', 'true');
+
+    await tab('Privacy notice').click();
+    await expect(page).toHaveURL(/\/admin\/consent\?text=privacy-notice$/);
+    await expect(tab('Privacy notice')).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await expect(
+      page.getByRole('heading', { level: 2, name: 'Privacy notice' }),
+    ).toBeVisible();
+    await page.reload();
+    await expect(
+      page.getByRole('heading', { level: 2, name: 'Privacy notice' }),
+    ).toBeVisible();
+    await page.goBack();
+    await expect(page).toHaveURL(/\/admin\/consent$/);
+    await expect(
+      page.getByRole('heading', { level: 2, name: 'Terms of use' }),
+    ).toBeVisible();
+    await expect(tab('Terms of use')).toHaveAttribute('aria-selected', 'true');
+
+    // Arrow keys move between the tabs; an unknown text is the terms of use.
+    await tab('Terms of use').focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(tab('Testimony consent')).toBeFocused();
+    await expect(page).toHaveURL(/\?text=testimony-consent$/);
+    await page.goto(`${WEB_SIGNED_IN_URL}/admin/consent?text=nonsense`);
+    await expect(tab('Terms of use')).toHaveAttribute('aria-selected', 'true');
+
+    // Phones: two rows of two; from 768 px one row.
+    const boxes = await Promise.all(
+      [
+        'Terms of use',
+        'Testimony consent',
+        'Social media sharing',
+        'Privacy notice',
+      ].map(async (name) => {
+        const box = await tab(name).boundingBox();
+        if (!box) throw new Error('not rendered');
+        return box;
+      }),
+    );
+    const rows = new Set(boxes.map((b) => Math.round(b.y))).size;
+    expect(rows).toBe((page.viewportSize()?.width ?? 0) < 768 ? 2 : 1);
   });
 
   test('/admin/consent: another admin saved first, so nothing is saved and it asks to reload', async ({

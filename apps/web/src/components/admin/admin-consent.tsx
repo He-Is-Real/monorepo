@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   useCallback,
   useDeferredValue,
@@ -40,6 +41,30 @@ interface VersionList {
   latest: { version: number; releaseDate: string; content: string };
   data: { version: number; releaseDate: string }[];
 }
+
+/** A text's current version, as its tab says it. */
+type Current = { version: number; releaseDate: string };
+
+/** The text in the page's address (`?text=`); anything else is the terms of use. */
+const TEXT_PARAM = 'text';
+const textFrom = (value: string | null): LegalDocumentName =>
+  LEGAL_DOCUMENTS.find((d) => d === value) ?? 'terms-of-use';
+
+/** "14 Nov", or "14 Nov 2025" outside this year (UK time), for the tabs' second line. */
+const tabDate = (iso: string): string => {
+  const year = (date: Date) =>
+    new Intl.DateTimeFormat('en-GB', {
+      year: 'numeric',
+      timeZone: 'Europe/London',
+    }).format(date);
+  const date = new Date(iso);
+  return new Intl.DateTimeFormat('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    ...(year(date) === year(new Date()) ? {} : { year: 'numeric' }),
+    timeZone: 'Europe/London',
+  }).format(date);
+};
 
 type Loaded =
   | { status: 'loading' }
@@ -145,14 +170,44 @@ export function AdminConsent({ apiAdminUrl }: { apiAdminUrl?: string }) {
 }
 
 function ConsentTexts({ client }: { client: ApiUser }) {
-  const [document, setDocument] = useState<LegalDocumentName>('terms-of-use');
+  // CS-1 C4 (Joel, 2026-11-17): the chosen text is in the address, so a link opens it and Back
+  // returns to the text before.
+  const document = textFrom(useSearchParams().get(TEXT_PARAM));
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' });
+  /** Each text's current version and date, for its tab; absent while loading. */
+  const [currents, setCurrents] = useState<
+    Partial<Record<LegalDocumentName, Current>>
+  >({});
   /** The version just saved, said until another text is chosen. */
   const [notice, setNotice] = useState<number | null>(null);
+  const [shownDocument, setShownDocument] = useState(document);
+  if (shownDocument !== document) {
+    setShownDocument(document);
+    setNotice(null);
+  }
   const noticeRef = useRef<HTMLParagraphElement>(null);
   const tabs = useRef(new Map<LegalDocumentName, HTMLButtonElement>());
   const load = useRef(0);
   const id = useId();
+
+  const setCurrent = useCallback(
+    (which: LegalDocumentName, { version, releaseDate }: Current) =>
+      setCurrents((all) => ({ ...all, [which]: { version, releaseDate } })),
+    [],
+  );
+
+  // Every tab's current version, once (the chosen text's comes with its list too).
+  useEffect(() => {
+    for (const which of LEGAL_DOCUMENTS)
+      client
+        .get<VersionList>(`/v1/admin/legal-documents/${which}/versions`)
+        .then(
+          ({ data }) => {
+            if (data?.latest) setCurrent(which, data.latest);
+          },
+          () => undefined, // the tab's second line stays empty
+        );
+  }, [client, setCurrent]);
 
   const refresh = useCallback(
     (which: LegalDocumentName) => {
@@ -162,6 +217,7 @@ function ConsentTexts({ client }: { client: ApiUser }) {
         .get<VersionList>(`/v1/admin/legal-documents/${which}/versions`)
         .then(
           ({ data }) => {
+            if (data?.latest) setCurrent(which, data.latest);
             if (load.current !== mine) return;
             setLoaded(
               data?.latest
@@ -175,7 +231,7 @@ function ConsentTexts({ client }: { client: ApiUser }) {
           },
         );
     },
-    [client],
+    [client, setCurrent],
   );
 
   useEffect(() => {
@@ -186,8 +242,11 @@ function ConsentTexts({ client }: { client: ApiUser }) {
   }, [notice]);
 
   const choose = (d: LegalDocumentName) => {
-    setDocument(d);
-    setNotice(null);
+    if (d === document) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set(TEXT_PARAM, d);
+    // Next keeps useSearchParams in step with the browser's own history (a new entry each time).
+    window.history.pushState(null, '', url);
   };
   // Arrow keys move between the tabs (ARIA tabs pattern).
   const onKey = (event: React.KeyboardEvent) => {
@@ -210,7 +269,8 @@ function ConsentTexts({ client }: { client: ApiUser }) {
         role="tablist"
         aria-label="Which text"
         onKeyDown={onKey}
-        className="flex flex-wrap gap-2 border-b border-border pb-3"
+        className="grid grid-cols-2 md:flex md:border-b md:border-border"
+        data-text-tabs=""
       >
         {LEGAL_DOCUMENTS.map((d) => (
           <button
@@ -226,9 +286,19 @@ function ConsentTexts({ client }: { client: ApiUser }) {
             aria-controls={`${id}-panel`}
             tabIndex={document === d ? 0 : -1}
             onClick={() => choose(d)}
-            className="inline-flex min-h-11 max-w-full items-center rounded-full border border-border px-4 py-2 text-left text-sm font-medium text-secondary-text hover:border-border-hover hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none aria-selected:border-primary aria-selected:bg-primary aria-selected:text-primary-foreground"
+            // Under 768 px a 2×2 grid, each cell with its own underline (a 1 px rule; the chosen
+            // one 3 px teal); from 768 px one row on a shared rule, the chosen one underlined.
+            className="flex min-h-11 min-w-0 flex-col items-start justify-center px-3 py-2 text-left leading-snug text-secondary-text shadow-[inset_0_-1px_0_var(--color-border)] hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none aria-selected:font-semibold aria-selected:text-foreground aria-selected:shadow-[inset_0_-3px_0_var(--color-primary)] md:-mb-px md:px-4 md:shadow-none md:aria-selected:shadow-[inset_0_-3px_0_var(--color-primary)]"
           >
-            {DOCUMENT_TITLES[d]}
+            <span>{DOCUMENT_TITLES[d]}</span>
+            <span
+              className="text-sm font-normal text-secondary-text"
+              data-tab-version={currents[d]?.version}
+            >
+              {currents[d]
+                ? `v${currents[d].version} · ${tabDate(currents[d].releaseDate)}`
+                : '\u00a0'}
+            </span>
           </button>
         ))}
       </div>
@@ -271,10 +341,11 @@ function ConsentTexts({ client }: { client: ApiUser }) {
               refresh(document);
             }}
             save={async (version, content) => {
-              await client.command(
+              const { data } = await client.command<Current>(
                 `/v1/admin/legal-documents/${document}/versions`,
                 { method: 'POST', body: { version, content } },
               );
+              if (data?.releaseDate) setCurrent(document, data);
               setNotice(version);
               refresh(document);
             }}
