@@ -1,409 +1,160 @@
 # Delivery status
 
-Where the build is, milestone by milestone, in plain words. The plan itself (what each milestone
-is for) is the delivery plan in the `project` repo (`context/future/delivery-plan.md`).
+Where the build is, in plain words. **Last updated:** 2026-11-17
 
-- **How the site behaves** (the rules: who can do what, limits, what is kept and deleted) is in
-  [how-the-app-works.md](how-the-app-works.md).
-- **This file is progress only:** what is done, what is being worked on and what is next.
-- Joel owns the data structure, the API and behaviour (AGENTS.md). A change to a rule in
-  how-the-app-works.md needs Joel's decision first; record it there in the same pull request.
-- Update this file in the same pull request that finishes or starts a piece of work.
-- The long dated log and the per-step build notes that used to be here are in git history
-  (this file before 2026-11-04).
+Everything here runs on the **dev** test site only, with made-up stories. Nothing reaches the
+public until the "Go live" milestone. The old prototype and the Squarespace site keep running until
+then.
 
-**Last updated:** 2026-11-12
+**Key:** ✅ done · 🟡 being built · ⏸ waiting for a decision or a step from Joel · ⚪ not started
 
-Everything below runs on the **dev** site only, with made-up test stories. Nothing reaches the
-public until the "Go live" milestone; the old prototype and the Squarespace site keep running
-until then.
+## How to edit this file (read before changing it)
 
-## Milestones
+This file is for the project owner, who is not technical. Joel asked for it to stay readable
+(2026-11-17).
 
-| Milestone                         | Status         | In short                                                                                                                                                                           |
-| --------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| M0 Walking skeleton               | ✅ Done        | The foundations: the code base, the cloud set-up, the database, sign-in and a first public page.                                                                                   |
-| M1 Browse & view                  | ✅ Done        | Anyone can read, watch and listen to stories, browse and search them, and read the information pages. Done 2026-10-24.                                                             |
-| M2 Accounts & submission          | 🟡 In progress | People can sign up, agree to the terms, share stories, manage them, keep favourites, download their data and delete their account. Two parts left.                                 |
-| M3 Moderation                     | 🟡 In progress | Moderators review stories before they go public. The queue, a read-only review page, staff roles and the Staff page are built; decisions and the moderators' list are being built. |
-| M4 Donations                      | 🟡 In progress | Giving through Stripe works on dev in Stripe's test mode. Recording donors and Gift Aid are not started.                                                                           |
-| M5 Admin dashboard                | ⚪ Not started | Three admin pages already exist from M2 (limits, themes, consent texts); the dashboard itself is not started.                                                                      |
-| M6 Community vetting              | ⚪ Not started |                                                                                                                                                                                    |
-| M7 Async processing (AI)          | ⚪ Not started | A transcription worker was tried out in the `project` repo. Background work will run on Joel's machine, later church hardware, not Google Cloud.                                   |
-| M8 Embeddable widgets             | ⚪ Not started | Can start any time.                                                                                                                                                                |
-| Real stories (the 24 testimonies) | ⚪ Not started | After M8: bring in the 24 existing testimonies. See "What blocks Go live" below.                                                                                                   |
-| Go live                           | ⚪ Not started | After Real stories: the heisreal.today domain, the production sign-in service and switching off Squarespace.                                                                       |
-| Emails                            | ⚪ Not started | After Go live, once the domain can send mail: submission confirmations, moderation results, the draft-deletion reminder.                                                           |
+- **Milestones are the `##` headings.** Each has one status in its heading and a one-line
+  "what it gives people".
+- **Its parts are a checklist under it**, one line each, starting with the status mark.
+- **A finished part is a tick and a few words.** Don't add PR links, dates, reasons or details.
+- **A part not finished says in one sentence what is left**, and who it waits for if that's Joel.
+- **Plain words only.** No code names, file paths, database terms or decision numbers.
+- Update it in the same pull request that finishes or starts a part. Change the date at the top.
+- How the site behaves (the rules) lives in [how-the-app-works.md](how-the-app-works.md); the
+  technical detail lives in the pull requests and git history, not here.
 
-## M0: Walking skeleton ✅
+## Milestones at a glance
 
-Done (on dev since 2026-10-21): the code base and its automatic checks, the Google Cloud set-up
-(all through OpenTofu, our infrastructure-as-code tool), the database with its access rules, video
-and picture hosting at Bunny.net, sign-in through Clerk, and a first public story page.
+| Milestone               | Status | What it gives people                                         |
+| ----------------------- | ------ | ------------------------------------------------------------ |
+| M0 Foundations          | ✅     | The code base, cloud set-up, database, sign-in, first page   |
+| M1 Browse and watch     | ✅     | Anyone can read, watch, listen, browse and search stories    |
+| M2 Accounts and sharing | 🟡     | People sign up, agree to the terms and share their own story |
+| M3 Moderation           | 🟡     | Staff check every story before it goes public                |
+| M4 Donations            | 🟡     | People can give money through Stripe                         |
+| M5 Admin dashboard      | ⚪     | One place for admins to run the site                         |
+| M6 Community vetting    | ⚪     | Trusted members help check stories                           |
+| M7 Background AI        | ⚪     | Transcripts, captions and summaries made automatically       |
+| M8 Embeddable widgets   | ⚪     | Stories shown on other websites                              |
+| Real stories            | ⚪     | The 24 existing testimonies brought in                       |
+| Go live                 | ⚪     | The real heisreal.today site replaces Squarespace            |
+| Emails                  | ⚪     | Confirmation and result emails to storytellers               |
 
-Not done on purpose: error tracking (Sentry) and visitor statistics (Umami) are left for later.
+## M0 Foundations ✅
 
-## M1: Browse & view ✅
+- ✅ Code base and automatic checks
+- ✅ Google Cloud set-up, all written as code
+- ✅ Database
+- ✅ Video and picture hosting (Bunny.net)
+- ✅ Sign-in (Clerk)
+- ✅ First public story page
+- ⚪ Error tracking and visitor statistics: left for later on purpose
 
-Done (on dev, 2026-10-24): the home page, browsing and searching stories (by theme and format, with
-sorting), video, audio and written story pages with related stories, cards that play in
-place, the information pages (About, The Greatest Story, Get ready to share, Next steps, FAQs,
-Contact, Privacy, Terms), the essential-cookies notice, and a test set of made-up stories that
-can be reset at any time. The founder's videos play on About and Next Steps.
+## M1 Browse and watch ✅
 
-The old idea of importing the 24 real testimonies moved to the "Real stories" milestone.
+- ✅ Home page
+- ✅ Browse and search stories by theme and type
+- ✅ Video, audio and written story pages, with related stories
+- ✅ Information pages (About, FAQs, Contact, Privacy, Terms and the rest)
+- ✅ Cookie notice
+- ✅ A set of made-up test stories that can be reset at any time
 
-## M2: Accounts & submission 🟡
+## M2 Accounts and sharing 🟡
 
-**Done and on dev:**
+Everything is built. Two small steps are left.
 
-- **Sign up and sign in** with Google or email ([sign-in page](https://github.com/He-Is-Real/monorepo/pull/100), [one sign-in set-up for the whole site](https://github.com/He-Is-Real/monorepo/pull/132)).
-- **Consent, privacy and terms (plan 4e):** four versioned texts (terms of use, testimony
-  consent, social media sharing consent, privacy notice); people agree before they can share,
-  and agree again when a text changes; admins publish new versions at the consent admin page
-  ([plan 4e](https://github.com/He-Is-Real/monorepo/pull/171)). Follow-ups: an upload refused
-  for a newer text opens the agree-again screen and carries on once the person agrees
-  ([#172](https://github.com/He-Is-Real/monorepo/pull/172)); being sent to the terms step twice
-  no longer loses the page the person started from
-  ([#173](https://github.com/He-Is-Real/monorepo/pull/173)). This replaced the earlier consent
-  design (sign-up consent forms, consent history records and legal documents built in late
-  October), which is gone.
-- **Share your story:** written stories ([submit flow](https://github.com/He-Is-Real/monorepo/pull/118)),
-  video and audio uploaded straight to Bunny with progress and resume
-  ([video and audio](https://github.com/He-Is-Real/monorepo/pull/133)), and a picture on any
-  story ([pictures](https://github.com/He-Is-Real/monorepo/pull/140)), added as soon as it's
-  chosen, like a video; autosave; limits on
-  length, themes, drafts and how often someone can submit or upload, which admins can change; the
-  share page shows what's left this week before a limit is reached
-  ([limits shown](https://github.com/He-Is-Real/monorepo/pull/156)).
-- **My profile:** My submissions with each story's status, continue, withdraw and delete
-  ([profile](https://github.com/He-Is-Real/monorepo/pull/138),
-  [delete a story sent back, draft expiry date](https://github.com/He-Is-Real/monorepo/pull/144)),
-  Clerk's own account panel for name, email and password.
-- **Delete my account**, which also removes the person's stories, videos and pictures, and stops
-  the same sign-in from coming back ([erasure](https://github.com/He-Is-Real/monorepo/pull/145),
-  [one account-wide withdrawal, sharing chosen per story](https://github.com/He-Is-Real/monorepo/pull/154)).
-- **Download my data** as one file ([download](https://github.com/He-Is-Real/monorepo/pull/151)).
-- **Favourites:** private hearts on cards and story pages, and a My favourites page laid out like
-  browse ([favourites](https://github.com/He-Is-Real/monorepo/pull/117),
-  [same layout as browse](https://github.com/He-Is-Real/monorepo/pull/153)). Since 14 November
-  2026 favourites are a "Favourites only" switch on browse, not a page: signed in it lists the
-  account's hearts, signed out this browser's, and browse's search and filters work on them.
-- **NEW badge** on stories published in the last 7 days ([badge](https://github.com/He-Is-Real/monorepo/pull/110)).
-- **Browse loads more on their own** as the reader nears the end, with no page cap
-  ([no page cap](https://github.com/He-Is-Real/monorepo/pull/157)).
-- **Themes:** admins manage theme categories and themes on one page; people choose themes when
-  sharing and browse by them ([themes rebuild](https://github.com/He-Is-Real/monorepo/pull/162),
-  [More themes unfolds in place](https://github.com/He-Is-Real/monorepo/pull/170), dev data fixes
-  [#167](https://github.com/He-Is-Real/monorepo/pull/167) and
-  [#168](https://github.com/He-Is-Real/monorepo/pull/168), which keeps an "Other" category that
-  already exists).
-- **Admin pages:** submission limits ([limits page](https://github.com/He-Is-Real/monorepo/pull/139)),
-  themes, and consent texts.
-- **Nightly clean-up** of abandoned drafts and leftover videos
-  ([housekeeping](https://github.com/He-Is-Real/monorepo/pull/141),
-  [runs the real build](https://github.com/He-Is-Real/monorepo/pull/146)). On dev it still runs
-  in "report only" mode: it logs what it would delete and deletes nothing.
-- **Direct uploads proven** on dev before building them ([upload test](https://github.com/He-Is-Real/monorepo/pull/123)).
-- **Process rule recorded:** Joel owns data structure, API and behaviour decisions
-  ([AGENTS.md rule](https://github.com/He-Is-Real/monorepo/pull/169)).
-- The public API answers a repeated request from memory for up to 60 seconds, so busy pages ask
-  the database far less; a withdrawn or hidden story can show for up to a minute (database
-  review 2, Joel's decision R13; [#181](https://github.com/He-Is-Real/monorepo/pull/181)).
-- **Database tidy before production** (database review 2, part A; Joel, 2026-11-05): the audit
-  log goes (each legal text version records who published it instead), an erased account is just
-  marked "deleted", the three write-fence tables become one, expired request keys are deleted
-  nightly, admins can't delete upload, submission or review records, a heart's time comes from
-  its id so it can't be backdated, the draft legal texts say super admins can see drafts, and the
-  schema is split into one file per area. Dev's database was wiped once and rebuilt from scratch
-  with its dummy data ([#182](https://github.com/He-Is-Real/monorepo/pull/182)).
-- **One story table and its history** (database review 2, part B1; Joel, 2026-11-04/05;
-  [#187](https://github.com/He-Is-Real/monorepo/pull/187)): the public copy of each story goes; the public reads the one story table, and the
-  database shows it only published stories and their public fields. Every change of a story's
-  status (submitted, picked up, approved, sent back, rejected, withdrawn, hidden, shown again) is
-  a new line in the story's own history, never edited, saying who made it and when. Super admins
-  can read every story, drafts included, with its history (API only; no page yet). "Download my
-  data" now includes each story's whole history. Nothing else changes for people using the
-  site. Dev's database was wiped and rebuilt once more.
-- **Test clean-up** (Joel, 2026-11-05): unreliable tests fixed
-  ([#185](https://github.com/He-Is-Real/monorepo/pull/185)), the low-value tests Joel approved deleted,
-  and whole browser flows run on one phone and one desktop while every page's "fits the screen"
-  checks still run on all 14 devices ([#186](https://github.com/He-Is-Real/monorepo/pull/186)).
-- **Each story's files as their own records** (database review 2, part B2; Joel, 2026-11-05;
-  [#188](https://github.com/He-Is-Real/monorepo/pull/188)): every uploaded video, audio file and picture gets its own record, and the story points
-  at the ones it shows. A replaced or removed file is now deleted by the nightly clean-up once its
-  upload link has expired (pictures were left behind before). An approval records which files the
-  moderator reviewed, and a story hidden because its media broke comes back on its own only while
-  it still shows those files. Search now looks at published stories only, so drafts can never
-  shift its "best match" order (Joel's choice, option A), and it matches theme names too. A local
-  scale test with 50,000 stories (run on a developer's machine only) found the browse lists and
-  search too slow at that size; after reworking their queries, list pages take 15–90 ms (were
-  2–5 s) and searching for a word in nearly every story takes 1.4 s (was 22 s). Renaming a theme
-  carried by 15,000 stories takes about 43 s, accepted for now. The super admins' list of every
-  story takes about half a second a page; a possible index is with Joel. Nothing changes for
-  people using the site. Dev's database is wiped and rebuilt once more for it.
+- ✅ Sign up and sign in with Google or email
+- ✅ Agree to the terms, consent and privacy texts, and agree again when they change
+- ✅ Share a written, video or audio story, with a picture
+- ✅ Drafts save on their own, with "Save and exit"
+- ✅ Limits on how much and how often people can share (admins can change them)
+- ✅ My submissions: see each story's status, edit or delete it
+- ✅ Delete my account, with all its stories and files
+- ✅ Download my data
+- ✅ Favourites (a "Favourites only" switch on browse)
+- ✅ NEW badge on stories from the last 7 days
+- ✅ Admin pages for limits, themes and the legal texts
+- ✅ Nightly clean-up of abandoned drafts and leftover files
+- ✅ Videos and audio checked automatically once Bunny has processed them
+- ✅ An audio story becomes a video of its picture
+- ⏸ Joel connects his PC to the video checker once (it then signs itself in for good)
+- ⚪ A final "try it all" walk-through on dev, then M2 is closed
 
-- **Tidy-up after the database rework** ([#189](https://github.com/He-Is-Real/monorepo/pull/189)): the code that reads a story's status says it in one
-  place, and the developer notes on database permissions are cut to the rules in force. Nothing
-  changes for people using the site.
-- A signed-in request isn't cut off when the person's short-lived sign-in pass runs out partway
-  through: slow work (submit, upload links, "Download my data") always runs on a fresh pass that
-  api-user gets from Clerk for the same sign-in (Joel's decision T, option B, re-approved
-  2026-11-06; [#165](https://github.com/He-Is-Real/monorepo/pull/165)).
-- Browse and favourites cards barely move once the page has measured them: the server guesses
-  each card's height for every narrow band of list widths, wrapping text with the site font's
-  real letter widths, and a wrong guess can only hide a card's last line for a moment, never
-  overlap the next card. Without JavaScript the cards show in one column (Joel's option B,
-  re-approved 2026-11-06; [#163](https://github.com/He-Is-Real/monorepo/pull/163)).
-- Browse and favourites show three columns on desktop again (from 1024 px wide; two from 640 px,
-  one below) whatever the reader's text size: a larger browser text setting had dropped desktops
-  to two columns (Joel, 2026-11-07/08).
+## M3 Moderation 🟡
 
-**Done since (merged):**
+Kept basic for now. Joel will decide later how stories are shared out between moderators.
 
-- "Download my data" gives people each video or audio as an MP4 file Bunny makes when it encodes
-  it, and its links last 7 days instead of an hour (Joel's B and C1, 2026-11-06;
-  [#191](https://github.com/He-Is-Real/monorepo/pull/191)); the browser removes a video's or audio
-  file's location and device details before upload. A video's own picture in Bunny's player is the
-  story's picture (Joel's A, 2026-11-06).
-- Seeing your own upload and the clickable share steps (part 1b) moved into M3; see below.
+- ✅ Plain error messages ("Something went wrong. Please try again later.")
+- ✅ Staff roles: User, Moderator and Admin, with a Staff page for Admins
+- ✅ Staff links in the site's menu
+- ✅ Moderators' list of every story that isn't public, with filters
+- ✅ Review page showing a story as the public will see it, with its history
+- ✅ Approve, send back with a note, reject, take down and put back
+- ✅ Take-down button on a published story's own page
+- ✅ Admins can delete any story
+- ✅ Stories have clear states, and Edit replaces Withdraw
+- ✅ Old rejected and abandoned stories are deleted automatically
+- ✅ Block list for email and internet addresses
+- ✅ Share flow tidy: drag and drop, file names, "attached" ticks, clearer preview button
+- ✅ A deleted story's pictures go straight away
+- ✅ A video that can't be used is sent back to its owner to replace
+- ✅ Logs in one standard format
+- 🟡 Video pictures without background jobs: being measured first (Joel's question P1-13)
+- ⏸ Joel answers SF-2: what "Review and submit" says when the page can't tell if a video arrived
+- ⚪ Final docs and a demo walk-through on dev
+- ⚪ Two-step sign-in for staff: deferred until we're happy to pay for it
 
-**Left in the M2 plan:**
+## M4 Donations 🟡
 
-- **Media ready:** when Bunny finishes processing a video, mark it ready with its real size and
-  length, so moderators in M3 can approve video stories, through the background worker on Joel's
-  machine (`project/context/research/m2-media-ready-plan.html`). **In progress.** First part
-  built: a job table so no media job is ever lost (each job is written down before it is
-  queued), the queue in London, Bunny's signed "finished", "failed" and "deleted" notices to
-  api-user, and the result writer the worker calls directly, which records the answer on the
-  video's file and ends the job in one step (and ignores an answer older than the last one it
-  recorded, so a late answer can't undo a newer one). A job that fails 5 times is marked "gave up"
-  instead of going to a dead-letter queue. Second part built: every evening at 18:00 UK time
-  (when Joel's machine is on) unfinished jobs not sent for 12 hours are sent again, and the
-  nightly clean-up deletes finished jobs after 30 days; a moderator can't approve a story while
-  its file could still be replaced through its upload link (an hour; a picture 10 minutes) or
-  while one of its media jobs is open, and a SuperAdmin can approve anyway, which is recorded.
-  Third part built: the media worker on Joel's machine (`apps/media-worker` with Dapr beside it,
-  started with `tools/scripts/media-worker.sh`), signed in through Joel's own Google login acting
-  as the narrow media-worker account. It checks each video at Bunny and gives the result writer
-  the answer. Media ready works end to end once Joel runs it; while his PC is off or his Google
-  sign-in has lapsed, jobs wait and it catches up. **In progress (W1-A, Joel 2026-11-08):** the
-  worker gets its own identity, so it no longer stops when Joel's Google login lapses: a
-  certificate from our own authority (a Cloud KMS key), renewed every 6 hours and valid 24, through
-  a small signing service on Cloud Run. Only the newest certificate for each machine may renew,
-  so a stolen copy can't keep going alongside the real worker (Joel, 2026-11-09), and a renewal
-  whose answer was lost is asked again and gets the same certificate (Joel, 2026-11-09). Built;
-  needs the bootstrap apply, the authority's certificate made once, two gcp applies and the
-  machine enrolled (docs/media-runbook.md, "Worker identity"). The nightly clean-ups and the 18:00 resend
-  now really act on dev instead of only logging (Joel, 2026-11-07). Fourth part built (Joel,
-  2026-11-07, `project/context/research/audio-picture-video.html`): an audio story becomes a video
-  of its picture (or the default waveform picture) with its sound, made by ffmpeg on Joel's
-  machine and uploaded to Bunny through a one-hour pass for that one video; the story then shows
-  it, and a new picture makes a new one. Sending a video or audio story for review now writes its
-  check, so no story is approved before the worker has looked. Needs ffmpeg 6 or later on Joel's
-  machine. The worker reads each audio file through a short link to that one file, asked for just
-  before the download (Joel, 2026-11-08), and only one writer at a time may change a video's
-  picture at Bunny, under a short lock that approval waits for, so a removed picture can't slip
-  through an approval (Joel, 2026-11-08, T3). The database's clock judges the lock, and a lock
-  that ran out unfinished keeps approval waiting until a later try confirms the picture; the
-  nightly housekeeping re-checks any such video (Joel, 2026-11-09, T4). Before
-  it runs on dev: apply the bunny root (the new sound zone and its key), then the gcp root. Fifth
-  part built (Joel, 2026-10-30, `project/context/research/m2-remaining-decisions.html` R3 = A):
-  sending a story with a picture for review reads the picture's first 40 bytes and checks it is
-  all there, a WebP of the recorded size, and free of hidden location data or animation; a missing
-  or wrong picture keeps the story a draft and asks the person to add it again, and a picture that
-  passes counts as processed, so a moderator can approve it. No new infrastructure: the database
-  rule reaches dev with the usual schema migration.
-- **Closing M2:** a final check of this file and a "run it and try" walk-through on dev.
+- ✅ Donate page with one-off and monthly giving (Stripe test mode)
+- ⚪ Recording donors in our database
+- ⚪ Gift Aid, once the charity is registered
 
-**Dropped or moved out of M2:** the personalised home and "New for you" (replaced by the NEW
-badge); seen tracking; submission emails (moved to the Emails milestone); editing a story that
-was sent back for changes (moves to M3 with moderation).
+## M5 Admin dashboard ⚪
 
-## M3: Moderation 🟡
+- ⚪ The dashboard itself (three admin pages already exist from M2)
+- ⚪ Background jobs view (parked by Joel until now)
 
-Planned in `project/context/research/m3-plan-and-m2-extras.html` as pull requests in waves;
-Joel answered its questions on 10–12 November 2026 (the page's "Decided by Joel" box). M3 is kept
-basic for now: no pick-up locking, escalation or assignment of stories to moderators.
+## M6 Community vetting ⚪
 
-**Merged (on dev once applied):**
+## M7 Background AI ⚪
 
-- **Plain error messages:** every system error says "Something went wrong. Please try again
-  later.", and a database restart shows its own countdown
-  ([#206](https://github.com/He-Is-Real/monorepo/pull/206)).
-- **Picture check when a story is sent for review**
-  ([#208](https://github.com/He-Is-Real/monorepo/pull/208)).
-- **Moderation queue and review page, read-only:** moderators see the stories waiting for review,
-  oldest first, and each one as the public would see it, with its history
-  ([#210](https://github.com/He-Is-Real/monorepo/pull/210)).
-- **A chosen picture is added straight away**, like a video
-  ([#211](https://github.com/He-Is-Real/monorepo/pull/211)).
-- **Owner preview and clickable steps:** people see their own video or audio once Bunny has
-  processed it, a "see your story as others will" page, and can move between the share steps by
-  clicking them ([#212](https://github.com/He-Is-Real/monorepo/pull/212)).
-- **Staff and roles:** the roles are now User, Moderator and Admin; Admins add and remove staff
-  (`@heisreal.today` emails only) on a new Staff page; roles live in Clerk
-  ([#214](https://github.com/He-Is-Real/monorepo/pull/214)). Before it works on dev: apply the gcp
-  root and the Clerk settings (`infra/clerk/clerk-config.mjs`).
-- **Staff links in the site's navigation** (Joel, 2026-11-14): Moderators and Admins see
-  "Moderation", Admins also "Consent & legal", after the public links.
+- ⚪ Runs on Joel's machine, later church hardware, not Google Cloud
 
-**In progress: JSON logs everywhere** (Joel, 2026-11-14, ops question 2). Every service, job,
-the media worker and the dev data seeder write one JSON line per log entry with a severity and a
-timestamp, on Google Cloud and locally; SurrealDB uses its own built-in JSON. Next.js's own lines
-stay as Next writes them.
+## M8 Embeddable widgets ⚪
 
-**In progress: story states, Edit and Delete.** A story is now in one of five states (being
-edited, waiting for review, published, not on the site right now, not accepted), and each step in
-its history says what happened. "Withdraw" is gone: Edit takes a story waiting for review,
-published or hidden down to edit, and everything in it can change before it is sent again; its
-hearts, first publication date and address are kept. Delete works in every state after one "This
-can't be undone" question. My submissions shows Draft, Being edited, Sent back (with "What our
-team said"), Waiting for review, Published, Not on the site right now and Not accepted. The draft
-legal texts say Edit instead of Withdraw, and "admins" instead of "super admins". Dev's database
-is wiped and rebuilt for it (a new reset name in the dev cluster root, so apply that root).
+## Real stories ⚪
 
-**In progress: deleting old rejected and abandoned stories.** The nightly clean-up deletes a
-rejected story 90 days after the decision, and a story left in editing after it was sent once
-nobody has touched it for 186 days, files included. Admins change both times on the Limits page,
-and My submissions shows each such story's date. Built on top of Edit and Delete, so it merges
-after it.
+Bring in the 24 existing testimonies. Before that:
 
-**In progress: the block list and the legal text changes.** Admins get a Block list page
-(`/admin/block-list`) to block and unblock email addresses and IP addresses. A blocked email
-can't create an account or send a story; a blocked IP address can't send a story; reading is
-never blocked, and a block lasts until an Admin removes it. To make IP blocking possible, the
-address each story is sent from is kept for 30 days, and an Admin (never a Moderator) sees it on
-the story's review page with a link to block it. People get the address in their own "Download
-my data" file, for their own stories only, while it is kept. The terms of use, testimony consent and privacy
-notice (version 0, edited in place on dev) now say this, and that AI tools may be used for
-transcripts, captions and summaries. Before it works on dev: dev's database is wiped and rebuilt
-once (the legal texts changed), when the cluster root is applied.
+- ⚪ The consent, terms and privacy texts are checked and published for real
+- ⚪ Video links expire within about an hour, and deleting an account cuts them off
+- ⚪ Joel decides how the 24 storytellers' agreement is recorded
+- ⚪ The temporary database build is replaced by the official release
+- ⚪ The automatic planning account stops reading dev's logs
 
-**In progress: share flow tidy (Joel, 14 November 2026).** The "describe the picture" box is
-gone, and a picture's description is no longer stored or sent anywhere (readers' pages use one
-neutral alternative text). The upload step and "Review and submit" show the attached file's name.
-Each step says "Saving…" or "Draft saved", and "Save and exit" saves the draft and goes to My
-submissions to carry on later. Dev's database is wiped and rebuilt for it (a new reset name in the
-dev cluster root, so apply that root).
-A story's picture (a video's thumbnail, or the picture for an audio or written story) can now be
-dragged and dropped onto its own box, as the video or audio file can.
-On "Review and submit" each attached file now has a clear "attached" confirmation with a tick,
-and "See your story as others will" is a plain button that says it opens a new tab. The tick
-shows only when the file is known to have arrived; otherwise a highlighted line says it may not
-have finished uploading (or couldn't be read), with a button back to the upload step.
+## Go live ⚪
 
-**In progress: the moderators' decisions** (built on Edit and Delete). On the review page a
-moderator approves, sends back or rejects a waiting story (a kind note to the person for the last
-two, which they read as "What our team said"), takes a published story down with a reason and
-shows it again; the person sees "Taken down by our team". If two moderators decide the same story,
-the first wins and the second is told so. Refusals are plain ("The video is still being processed.
-You can approve it from 14:05."); an Admin may approve anyway while a file is still being
-processed, never within the hour its upload link still works. The page's history now also shows
-when the person changed the words, alongside new files and pictures. Joel's 14 November answers
-are in it too: the queue became the moderators' list, one page for Moderators and Admins of every
-story that isn't on the site (waiting for review, being edited, taken down, rejected; Admins also
-see drafts never sent), as a table they filter by state and theme; a published story's own page
-has a Take down button for moderators only; and the person sees the take-down reason on My
-submissions, like a sent-back note. Also from 14 November: an Admin (never a Moderator) can
-delete a story in any state from its review page, after a "This can't be undone" question, exactly
-as its owner can (it removes the story's videos and pictures at Bunny at once, and doesn't check
-whether the story changed since the page opened); and a story the site took off itself (its video or audio can't play) can be
-rejected, which then lets the nightly clean-up delete it like any rejected story.
+- ✅ UK-only settings for the whole Google organisation
+- ⚪ The heisreal.today domain and the real sign-in service
+- ⚪ Stripe switched from test mode to real payments (after a Stripe tool fix)
+- ⚪ Church hardware secured before it holds real data
+- ⚪ Moving off Squarespace
 
-**In progress: a person's Delete removes their story's pictures at once (Joel, 14 November
-2026).** Like an Admin's Delete, deleting your own story now deletes its picture folder at Bunny
-straight away, not the next night (its videos already went at once). If Bunny fails or is slow
-then, the Delete still succeeds and the nightly clean-up removes the pictures.
+## Emails ⚪
 
-**In progress: "Your video couldn't be used" (part 1a).** Built, waiting to merge: a video or
-audio file Bunny still can't process after one automatic re-encode sends the story back to the
-person ("Needs a new file"), straight away even if it was published; problems on our side never
-reach the person: the nightly clean-up tries again for 3 nights, then the moderators' list says "a
-problem on our side". A published story whose video is being fixed shows its owner "We're fixing
-your video", and the nightly retry covers it too (3 nights, then it stays off). My submissions
-shows "Ready to send again" once a new file is in. When an audio story's picture video can't be
-used, the person is asked to upload their recording again, and a picture if they like (Joel's
-answers, 14 November). Retries are capped: a story's file checks are kept while it waits for
-review or is off the site, and the check that asked Bunny for a re-encode is kept until the file
-goes, so the retries and the re-encode never start again. A story the site took off itself is
-never deleted automatically; a Moderator or Admin can reject it.
-
-**Deferred:** two-step verification and Google-only sign-in for staff, until we are happy to pay
-for them.
-
-## M4: Donations 🟡
-
-**Done and on dev (Stripe test mode):** the Donate page offers One-off or Monthly and shows
-Stripe's own button for the choice; Stripe's page takes the payment, so we never handle card
-details ([Stripe set-up](https://github.com/He-Is-Real/monorepo/pull/122),
-[buttons on](https://github.com/He-Is-Real/monorepo/pull/135), framed in a centred card
-[#137](https://github.com/He-Is-Real/monorepo/pull/137) and
-[#142](https://github.com/He-Is-Real/monorepo/pull/142)).
-
-**Not started:** recording donors in our database (Stripe tells us about each gift), and Gift
-Aid (after the charity is registered).
-
-## M5–M8 ⚪
-
-Not started.
+- ⚪ Submission confirmations, moderation results and the draft-deletion reminder. Public sharing
+  doesn't open until these work.
 
 ## Known issues
 
-- **Database restarts (Spot), built 2026-11-07:** the services notice when the database is
-  restarting, public pages keep working from the last copy, and everything else shows a calm
-  "Our compute is currently restarting. Please try again in about 2 minutes" message, counted
-  down to "Please try again later." (2026-11-09; no more "about 1 minute" floor). Every other
-  error people can see is the plain "Something went wrong. Please try again later.", except
-  mistakes they can fix (2026-11-09). A copy of an API that starts while the
-  database is away now starts anyway and gives the same message until it has connected; one
-  whose sign-in the database refuses (a wrong password, a missing namespace) doesn't start at
-  all, so Cloud Run keeps the previous version (2026-11-08). A Cloud Monitoring dashboard
-  (OpenTofu) shows 503s, instances and Google's reclaims per service. Not covered yet: the legal text pages show the plain "Something went wrong. Please try again
-  later." rather than the countdown.
-
-- **The nightly clean-up only reports on dev.** It will start deleting once someone has read a
-  night's report and it looks right.
-- **Temporary database build.** Dev runs a patched SurrealDB 3.2.4 so it accepts Clerk's sign-in
-  tokens. It misses security fixes from later SurrealDB versions. It must be replaced by the
-  official release once that includes the fix, and before any real data.
-- **Stripe's monthly-gift portal:** a bug in the Stripe tool we use means the portal's
-  "change the amount" setting can't be managed in code. Dev keeps the setting it already has; it
-  must be fixed before donations go live.
-- **Old encrypted-state copies** expire around 2026-11-28; check once then that they're gone.
-- **Spot servers are pinned to one London zone** until the Google billing account is upgraded.
-
-## What blocks Go live
-
-Before the 24 real testimonies come in ("Real stories"):
-
-- The four consent texts are drafts today ("to be reviewed before go-live"). Real, checked
-  versions must be published, and the privacy notice must name everything it has to (Bunny.net
-  and Germany for video storage, the record of deleted accounts, where background processing runs).
-- Media links must last about an hour or less (dev uses 6–7 hours), and deleting an account must
-  cut off links already handed out. "Download my data" keeps its 7-day links, a named exception
-  (Joel, 2026-11-11).
-- How the 24 existing storytellers' agreement is recorded must be decided.
-- The CI planning account must stop reading dev's logs.
-- The official SurrealDB release must replace the patched build.
-
-Before the site goes public ("Go live"):
-
-- The organisation-wide "UK only" settings: Google refuses to create anything outside the UK,
-  and new projects (prod) keep their logs in London. Joel brought them forward (2026-11-08, O1):
-  the code is built (`infra/terraform/live/org`); Joel applies it from his own machine: first
-  bootstrap (so automated jobs can't touch its saved state), then three steps
-  (infra/terraform/README.md, "Organisation settings"). It must be on before the
-  prod project is created. Nothing running in dev conflicts with it.
-- A front door for the heisreal.today domain, Clerk's production instance, and moving from
-  Squarespace.
-- Stripe's portal fix (above), then the switch from test mode to live payments.
-- Background processing on church hardware needs disk encryption and physical security once it
-  holds real data.
-
-Before anything is posted to social media: decide how a withdrawn or deleted story, or a deleted
-account, takes down copies on our own channels (two decisions disagree; see "Needs Joel to
-confirm" in how-the-app-works.md). Nothing does that yet, and nothing posts yet.
-
-Before public submissions open: emails must work, so nobody shares a testimony without a
-confirmation (decided, D95).
+- **Temporary database build:** dev runs a patched database so it accepts Clerk's sign-in. It
+  must be replaced by the official release before any real data.
+- **Database restarts:** dev's database runs on cheap servers that Google can restart. The site
+  shows a calm "restarting, try again in about 2 minutes" message. The legal pages still show the
+  plain error instead.
+- **Stripe's monthly-gift portal** can't yet be set up in code. Must be fixed before real
+  payments.
+- **Dev servers sit in one London zone** until the Google billing account is upgraded.
+- **Before anything is posted to social media**, Joel decides how a deleted story is taken down
+  from our own channels. Nothing posts yet.
