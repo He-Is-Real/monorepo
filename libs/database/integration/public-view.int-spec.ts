@@ -485,7 +485,7 @@ describe('what everyone sees of stories (R11 leak tests)', () => {
         await outcome(
           admin,
           `CREATE storyStatusLog CONTENT { story: story:ann_editing, action: $action,
-             comment: 'A note', by: user:moderator }`,
+             comment: 'A note', by: user:moderator, staffEmail: 'moderator@heisreal.today' }`,
           { action },
         ),
       ).toMatchObject({

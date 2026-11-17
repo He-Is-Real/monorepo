@@ -336,7 +336,7 @@ describe('service identities (D13 B)', () => {
         await outcome(
           svc.admin,
           `CREATE storyStatusLog CONTENT { story: story:ann_mod, action: 'changesRequested',
-             by: user:moderator }`,
+             by: user:moderator, staffEmail: 'moderator@heisreal.today' }`,
         ),
       ).toMatchObject({
         ok: false,
@@ -360,7 +360,7 @@ describe('service identities (D13 B)', () => {
         await outcome(
           svc.admin,
           `CREATE storyStatusLog CONTENT { story: story:ann_mod, action: 'approved',
-             by: user:moderator }`,
+             by: user:moderator, staffEmail: 'moderator@heisreal.today' }`,
         ),
       ).toMatchObject({
         ok: false,

@@ -671,7 +671,8 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       };
       const forgeSql = `CREATE type::record('storyStatusLog', rand::ulid()) CONTENT {
          story: type::record('story', $id), action: $action, actor: 'system',
-         by: IF $auth = service:api_admin { user:moderator } }`;
+         by: IF $auth = service:api_admin { user:moderator },
+         staffEmail: IF $auth = service:api_admin { 'moderator@heisreal.today' } }`;
       const HISTORY = ['fileReplaced', 'pictureReplaced', 'wordsChanged'];
       const SYSTEM = ['hiddenBySystem', 'shownBySystem', 'fileUnusable'];
       // A never-sent draft: refused, so it can't suppress a later real entry.

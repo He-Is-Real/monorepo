@@ -687,6 +687,8 @@ describe('download my data', () => {
       );
       const res = await call('POST', `/v1/stories/${id}/submit`, who, {
         headers: {
+          // The sign-in's verified email: kept with the story (EM-1 B).
+          authorization: `Bearer ${clerk.token(`user_${who}`, { email: `${who}@example.com`, email_verified: true })}`,
           'if-match': `"${version}"`,
           'idempotency-key': `export-ip-${who}-${++keySeq}-${'x'.repeat(16)}`,
           'x-forwarded-for': ip,
@@ -702,20 +704,45 @@ describe('download my data', () => {
     await run(
       migrator,
       `CREATE storyStatusLog CONTENT { story: story:ipa_old, action: 'sent', actor: 'person',
-         at: time::now() - 31d, senderIp: '203.0.113.33' }`,
+         at: time::now() - 31d, senderIp: '203.0.113.33', senderEmail: 'ipa@example.com' }`,
+    );
+    // A moderator sends her recent story back: the entry names the staff member, which her file
+    // never shows (EM-1).
+    await run(
+      await t.service('api_admin'),
+      `CREATE storyStatusLog CONTENT { story: type::record('story', $id), action: 'changesRequested',
+         comment: 'A little more, please', by: user:staffer, staffEmail: 'staffer@heisreal.today' }`,
+      { id: recent },
     );
 
     const file = (await call('GET', '/v1/account/export', 'ipa')).body;
     const history = (id: string) =>
       file.stories.find((s: { id: string }) => s.id === id).statusHistory;
     expect(history(recent)).toEqual([
-      expect.objectContaining({ action: 'sent', senderIp: '203.0.113.31' }),
+      expect.objectContaining({
+        action: 'sent',
+        senderIp: '203.0.113.31',
+        senderEmail: 'ipa@example.com',
+      }),
+      expect.objectContaining({
+        action: 'changesRequested',
+        actor: 'moderator',
+        senderEmail: null,
+      }),
     ]);
+    // The address goes after 30 days; the email stays as long as the story (EM-1 B).
     expect(history('ipa_old')).toEqual([
-      expect.objectContaining({ action: 'sent', senderIp: null }),
+      expect.objectContaining({
+        action: 'sent',
+        senderIp: null,
+        senderEmail: 'ipa@example.com',
+      }),
     ]);
     expect(file.about.sections.stories).toContain('"senderIp"');
+    expect(file.about.sections.stories).toContain('"senderEmail"');
     const text = JSON.stringify(file);
+    expect(text).not.toContain('staffer@heisreal.today');
+    expect(text).not.toContain('staffEmail');
     expect(text).not.toContain('203.0.113.33');
     expect(text).not.toContain('198.51.100.32');
     expect(text).not.toContain(theirs);
@@ -725,6 +752,8 @@ describe('download my data', () => {
     );
     expect(his).toContain('198.51.100.32');
     expect(his).not.toContain('203.0.113.31');
+    expect(his).toContain('ipz@example.com');
+    expect(his).not.toContain('ipa@example.com');
   });
 
   it('is all or nothing: when Clerk can’t answer, 503 and no file', async () => {

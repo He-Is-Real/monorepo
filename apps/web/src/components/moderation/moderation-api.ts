@@ -84,6 +84,8 @@ export interface StatusEntry {
   status: string;
   actor: 'person' | 'moderator' | 'system';
   comment: string | null;
+  /** On a moderator's entry: the Moderator's or Admin's email (EM-1); else null. */
+  staffEmail: string | null;
   at: string;
 }
 
@@ -111,6 +113,12 @@ export interface ModerationStory {
   submittedAt: string | null;
   /** The IP address it was last sent from: Admins only, for 30 days (block list); else null. */
   senderIp: string | null;
+  /** Whether `senderIp` is on the block list (EM-2); null when `senderIp` is. */
+  senderIpBlocked: boolean | null;
+  /** The email it was last sent with: Admins only, kept as long as the story (EM-1 B). */
+  senderEmail: string | null;
+  /** Whether `senderEmail` is on the block list (EM-2); null when `senderEmail` is. */
+  senderEmailBlocked: boolean | null;
   /** What a decision names in `If-Match` (G14 B). */
   reviewTag: string;
   statusLog: StatusEntry[];

@@ -111,8 +111,9 @@ const LIST_DRAFTS_SQL = `
 
 /**
  * One story under review (task 3.2): what the public would see, its files' processing state, and
- * its status log with moderators' notes, never who wrote an entry (`by`) or anything about the
- * person beyond their byline.
+ * its status log with moderators' notes and, on a moderator's entry, the staff member's email
+ * (EM-1, Joel 2026-11-17); never an entry's user id (`by`). Of the person, beyond their byline,
+ * only what an Admin gets: the email and IP address it was sent with (block list).
  */
 const STORY_SQL = `
   LET $s = type::record('story', $id);
@@ -131,10 +132,16 @@ const STORY_SQL = `
         { path: record::id(image.file) })
     } AS image
   FROM $s;
-  SELECT id, action, status, actor, comment, at,
-    IF at > fn::story::sender_ips_expire_before() { senderIp } AS senderIp
+  SELECT id, action, status, actor, comment, staffEmail, at,
+    IF at > fn::story::sender_ips_expire_before() { senderIp } AS senderIp, senderEmail
   FROM storyStatusLog WITH INDEX storyStatusLog_story
     WHERE story = $s ORDER BY at ASC, id ASC;`;
+
+/** EM-2: whether the sender's email and IP address are on the block list (Admins only). */
+const BLOCKED_SQL = `RETURN {
+  email: IF $email != NONE { record::exists(type::record('blockedEmail', $email)) } ELSE { false },
+  ip: IF $ip != NONE { record::exists(type::record('blockedIp', $ip)) } ELSE { false }
+};`;
 
 type Opt<T> = T | null | undefined;
 
@@ -186,9 +193,13 @@ interface EntryRow {
   status: string;
   actor: string;
   comment?: Opt<string>;
+  /** On a moderator's entry: the Moderator's or Admin's email (EM-1). */
+  staffEmail?: Opt<string>;
   at: string;
   /** The sent entry's sender IP address, if it is under 30 days old (block list). */
   senderIp?: Opt<string>;
+  /** The sent entry's sender email (EM-1 B: kept as long as the story). */
+  senderEmail?: Opt<string>;
 }
 
 const or = <T>(v: Opt<T>): T | null => v ?? null;
@@ -318,9 +329,10 @@ export class ModerationController {
   ) {
     if (!isStoryId(id)) throw new NotFoundException();
     const reviewed = reviewedOf(ifMatch);
-    const { role } = await this.people.authenticate(req);
+    const { role, email: staffEmail } = await this.people.authenticate(req);
     requireAdminForAnyway(anyway, role);
-    // Who decides: the moderator's own user record, from their own database session (D27).
+    // Who decides: the moderator's own user record, from their own database session (D27), and
+    // their email from their verified sign-in (EM-1: the history shows staff who did what).
     const by = await this.people.run(req, async ({ user }) => user);
     // Approve, Approve anyway and Show again put the story on the site (RE-2 B, RE-3 A).
     if (action === 'approved' || action === 'shownByModerator') {
@@ -331,6 +343,7 @@ export class ModerationController {
       reviewed,
       action,
       by,
+      staffEmail,
       comment,
       anyway,
     });
@@ -524,9 +537,21 @@ export class ModerationController {
     // there, as it isn't on their list.
     if (!s.entry && role !== 'Admin') throw new NotFoundException();
     const sent = log.filter((e) => e.action === 'sent').at(-1);
-    // Block list (G21 D, G24): the address it was sent from, for an Admin to copy into the block
-    // list; Moderators never see it. Kept 30 days (then housekeeping clears it).
-    const senderIp = role === 'Admin' && sent ? or(sent.senderIp) : null;
+    // Block list (G21 D, G24; EM-1 B, EM-2): the address and the email it was sent with, for an
+    // Admin to block from the page; Moderators never see them. The address is kept 30 days (then
+    // housekeeping clears it), the email as long as the story.
+    const admin = role === 'Admin';
+    const senderIp = admin && sent ? or(sent.senderIp) : null;
+    const senderEmail = admin && sent ? or(sent.senderEmail) : null;
+    const blocked =
+      senderIp || senderEmail
+        ? ((
+            await runQuery(this.db, BLOCKED_SQL, {
+              email: senderEmail ?? undefined,
+              ip: senderIp ?? undefined,
+            })
+          ).at(-1) as { email: boolean; ip: boolean })
+        : { email: false, ip: false };
     const urls = this.links.expiringIn(MODERATION_LINK_SECONDS);
     return conditional(
       res,
@@ -568,6 +593,9 @@ export class ModerationController {
         ),
         submittedAt: sent ? iso(sent.at) : null,
         senderIp,
+        senderIpBlocked: senderIp ? blocked.ip : null,
+        senderEmail,
+        senderEmailBlocked: senderEmail ? blocked.email : null,
         reviewTag: reviewTag({
           entry: s.entry ?? '',
           media: or(s.mediaKey),
@@ -578,6 +606,7 @@ export class ModerationController {
           status: e.status,
           actor: e.actor,
           comment: or(e.comment),
+          staffEmail: e.actor === 'moderator' ? or(e.staffEmail) : null,
           at: iso(e.at),
         })),
       },

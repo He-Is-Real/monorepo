@@ -388,7 +388,7 @@ describe('consent, privacy and terms (plan 4e)', () => {
       );
       const r = await outcome(
         admin,
-        `CREATE storyStatusLog CONTENT { story: story:legacy, action: 'approved', by: user:moderator }`,
+        `CREATE storyStatusLog CONTENT { story: story:legacy, action: 'approved', by: user:moderator, staffEmail: 'moderator@heisreal.today' }`,
       );
       expect(!r.ok && r.error).toContain('testimony_consent_required');
     });

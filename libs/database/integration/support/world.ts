@@ -134,7 +134,8 @@ export function step(
     who,
     `CREATE type::record('storyStatusLog', rand::ulid()) CONTENT object::extend({
        story: type::record('story', $id), action: $action,
-       by: IF $auth = service:api_admin { user:moderator }
+       by: IF $auth = service:api_admin { user:moderator },
+       staffEmail: IF $auth = service:api_admin { 'moderator@heisreal.today' }
      }, $extra)`,
     { id, action, extra: { ...note, ...extra } },
   );
@@ -218,7 +219,7 @@ export async function approve(admin: SurrealQueryable, id: string) {
   await run(
     admin,
     `CREATE type::record('storyStatusLog', rand::ulid()) CONTENT {
-       story: type::record('story', $id), action: 'approved', by: user:moderator };`,
+       story: type::record('story', $id), action: 'approved', by: user:moderator, staffEmail: 'moderator@heisreal.today' };`,
     { id },
   );
 }
@@ -233,7 +234,7 @@ export async function loadApproval(migrator: SurrealQueryable, id: string) {
     migrator,
     `CREATE type::record('storyStatusLog', rand::ulid()) CONTENT {
        story: type::record('story', $id), action: 'approved', actor: 'moderator',
-       by: user:moderator };`,
+       by: user:moderator, staffEmail: 'moderator@heisreal.today' };`,
     { id },
   );
 }

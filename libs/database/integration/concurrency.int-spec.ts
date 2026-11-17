@@ -165,7 +165,7 @@ describe('concurrent transactions are fenced per person', () => {
     const approving = await begin(admin);
     await approving
       .query(
-        `CREATE storyStatusLog CONTENT { story: story:vic_story, action: 'approved', by: user:moderator }`,
+        `CREATE storyStatusLog CONTENT { story: story:vic_story, action: 'approved', by: user:moderator, staffEmail: 'moderator@heisreal.today' }`,
       )
       .collect();
     // The video breaks meanwhile (Bunny re-encodes it; commits first).
@@ -178,7 +178,7 @@ describe('concurrent transactions are fenced per person', () => {
     expect(
       await outcome(
         admin,
-        `CREATE storyStatusLog CONTENT { story: story:vic_story, action: 'approved', by: user:moderator }`,
+        `CREATE storyStatusLog CONTENT { story: story:vic_story, action: 'approved', by: user:moderator, staffEmail: 'moderator@heisreal.today' }`,
       ),
     ).toMatchObject({
       ok: false,
@@ -194,7 +194,7 @@ describe('concurrent transactions are fenced per person', () => {
     await approving
       .query(
         `CREATE storyStatusLog CONTENT { story: story:vic_twice, action: 'rejected',
-           comment: 'Not for the site', by: user:moderator }`,
+           comment: 'Not for the site', by: user:moderator, staffEmail: 'moderator@heisreal.today' }`,
       )
       .collect();
     // The other moderator sends it back first.
@@ -204,7 +204,7 @@ describe('concurrent transactions are fenced per person', () => {
       await outcome(
         admin,
         `CREATE storyStatusLog CONTENT { story: story:vic_twice, action: 'rejected',
-           comment: 'Not for the site', by: user:moderator }`,
+           comment: 'Not for the site', by: user:moderator, staffEmail: 'moderator@heisreal.today' }`,
       ),
     ).toMatchObject({
       ok: false,

@@ -354,7 +354,8 @@ export class StoriesController {
     const idempotencyKey = parseIdempotencyKey(key);
     const { socialMediaSharingConsent: share } = parseSubmit(body);
     // The block list (G21 D): a blocked email (the token's verified one) or IP address can't send
-    // a story. The address is kept on the sent entry for 30 days, for Admins only.
+    // a story. Both are kept on the sent entry for Admins: the address for 30 days, the email as
+    // long as the story (EM-1 B, Joel 2026-11-17).
     const ip = senderIp(req);
     const { email } = await this.people.authenticate(req);
     // Checked in each fresh attempt, after the media checks (which may wait on Bunny), so a block
@@ -396,6 +397,7 @@ export class StoriesController {
             // submission's own write, or neither is.
             share?.version,
             ip,
+            email,
           ),
         // Waits on Bunny for the file (decision T): a fresh pass, and a deadline for retries.
         'slow',

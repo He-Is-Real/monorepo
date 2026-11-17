@@ -378,6 +378,64 @@ describe('moderation, the read side (api-admin)', () => {
     ).toBe(null);
   });
 
+  it('shows an Admin, never a Moderator, the email a story was sent with, kept as long as the story, and whether it and the address are blocked (EM-1 B, EM-2)', async () => {
+    await draft(ann, 'ann_em');
+    await run(
+      ann,
+      `CREATE storyStatusLog CONTENT { story: story:ann_em, action: 'sent',
+         senderIp: '203.0.113.9', senderEmail: 'ann@example.com' }`,
+    );
+    await draft(ann, 'ann_em_old');
+    await run(
+      migrator,
+      `CREATE storyStatusLog CONTENT { story: story:ann_em_old, action: 'sent', actor: 'person',
+         at: time::now() - 31d, senderIp: '203.0.113.10', senderEmail: 'ann@example.com' }`,
+    );
+    const asAdmin = { role: 'Admin', sub: 'user_mod' };
+    const sender = async (id: string, who = {}) => {
+      const { senderIp, senderIpBlocked, senderEmail, senderEmailBlocked } = (
+        await get(`/v1/moderation/stories/${id}`, who)
+      ).body;
+      return { senderIp, senderIpBlocked, senderEmail, senderEmailBlocked };
+    };
+    expect(await sender('ann_em', asAdmin)).toEqual({
+      senderIp: '203.0.113.9',
+      senderIpBlocked: false,
+      senderEmail: 'ann@example.com',
+      senderEmailBlocked: false,
+    });
+    // After 30 days the address is gone, the email stays.
+    expect(await sender('ann_em_old', asAdmin)).toEqual({
+      senderIp: null,
+      senderIpBlocked: null,
+      senderEmail: 'ann@example.com',
+      senderEmailBlocked: false,
+    });
+    const nothing = {
+      senderIp: null,
+      senderIpBlocked: null,
+      senderEmail: null,
+      senderEmailBlocked: null,
+    };
+    expect(await sender('ann_em')).toEqual(nothing);
+    await run(
+      await t.service('api_admin'),
+      `CREATE blockedEmail:⟨ann@example.com⟩ CONTENT { email: 'ann@example.com', addedBy: 'joel@heisreal.today' };
+       CREATE blockedIp:⟨203.0.113.9⟩ CONTENT { ip: '203.0.113.9', addedBy: 'joel@heisreal.today' };`,
+    );
+    try {
+      expect(await sender('ann_em', asAdmin)).toEqual({
+        senderIp: '203.0.113.9',
+        senderIpBlocked: true,
+        senderEmail: 'ann@example.com',
+        senderEmailBlocked: true,
+      });
+      expect(await sender('ann_em')).toEqual(nothing);
+    } finally {
+      await run(migrator, 'DELETE blockedEmail; DELETE blockedIp;');
+    }
+  });
+
   // Part 1a (Joel, 2026-11-10; P1-5, P1-9, 2026-11-14): a waiting story, or one the site took
   // off itself, whose file's check gave up on our side after the nightly housekeeping's 3 new
   // checks, says so in the list; every other says nothing.

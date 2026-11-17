@@ -96,6 +96,7 @@ Kept basic for now. Joel will decide later how stories are shared out between mo
 - ✅ Stories have clear states, and Edit replaces Withdraw
 - ✅ Old rejected and abandoned stories are deleted automatically
 - ✅ Block list for email and internet addresses
+- ✅ Admins block a story's sender from its review page; the history shows which staff member did what
 - ✅ Share flow tidy: drag and drop, file names, "attached" ticks, clearer preview button
 - ✅ A deleted story's pictures go straight away
 - ✅ A video that can't be used is sent back to its owner to replace

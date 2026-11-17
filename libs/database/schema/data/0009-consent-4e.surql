@@ -19,7 +19,9 @@
 -- no database keeps the earlier copy: no audit log (R3), no deletion date (R3), and admins can
 -- see drafts (R15). Edited again in M3 (LT-1, Joel 2026-11-11): Edit replaced Withdraw, and
 -- super admins are now admins; and for the block list and AI tools (Joel 2026-11-11, LT-1 and
--- G18; m3-plan-and-m2-extras.html, "Legal text changes"; dev wiped again, reset m3-block-list).
+-- G18; m3-plan-and-m2-extras.html, "Legal text changes"; dev wiped again, reset m3-block-list);
+-- and for the email each story is sent with (EM-1 B, Joel 2026-11-17; dev wiped again, reset
+-- sender-staff-emails).
 -- The old data scripts 0001, 0003, 0005 and 0007 wrote that machinery's rows and could no longer
 -- run on a fresh database, so they left the bundle (as 0002 did, D44): databases that applied
 -- them keep their _migration rows (the runner warns that the scripts are gone).
@@ -184,6 +186,8 @@ use it for advertising.
   keep the site working and safe.
 - **Where a story was sent from.** The IP address each story is sent from, kept for 30 days, so
   we can stop abuse.
+- **The email a story was sent with.** The email address each story is sent with, so we can
+  stop abuse.
 - **Block list.** If we block someone for breaking our terms of use, their email address and the
   IP addresses they used.
 
@@ -211,8 +215,8 @@ is protected as UK law requires.
 - **Sharing a story beyond this site:** your consent for that story.
 - **Your account and favourites:** to provide the service you signed up for (a contract,
   Article 6(1)(b)).
-- **Security logs, limits, deleted-account records, the IP addresses stories are sent from, and
-  the block list:** our legitimate interest in keeping the site safe, fair and accountable
+- **Security logs, limits, deleted-account records, the IP address and email address each story
+  is sent with, and the block list:** our legitimate interest in keeping the site safe, fair and accountable
   (Article 6(1)(f)).
 
 ## How long we keep it
@@ -228,6 +232,8 @@ is protected as UK law requires.
 - **Block list:** blocked email and IP addresses until we remove them, even after the account is
   deleted.
 - **The IP addresses stories are sent from:** 30 days.
+- **The email address a story was sent with:** as long as the story. It goes when the story or
+  your account is deleted.
 - **Backups:** deleted after 30 days.
 
 ## Your rights

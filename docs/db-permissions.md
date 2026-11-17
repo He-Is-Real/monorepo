@@ -208,8 +208,15 @@ their fence (see "Transactions").
   api-admin alone reads it), `senderIp` (block list, G21 D: the IP address a person's own
   `sent` entry was sent from, as api-user supplies it, lower-case; dropped on any other entry;
   api-admin reads it and shows it to Admins only; the owner reads it too, for their own "Download
-  my data" export, BL-4).
-  - **Read:** the owner (never `by`; `senderIp` only on their own stories' entries) and
+  my data" export, BL-4), `senderEmail` (EM-1 B, Joel 2026-11-17: the email a person's own `sent`
+  entry was sent with, the sign-in's verified email as api-user supplies it, lower-case, a valid
+  email of at most 254 characters; dropped on any other entry; `READONLY` and never cleared, so it
+  goes only with the entry, i.e. with the story or the account; api-admin reads it and shows it to
+  Admins only; the owner reads it for their own export), `staffEmail` (EM-1: on a moderator's
+  entry, the Moderator's or Admin's verified email, as api-admin supplies it; required on every
+  entry api-admin writes (`storyStatusLog_step`), dropped on any other entry, same email checks,
+  `READONLY`; api-admin alone reads it, like `by`).
+  - **Read:** the owner (never `by` or `staffEmail`; `senderIp` and `senderEmail` only on their own stories' entries) and
     api-admin; housekeeping every entry that isn't pending for its `story`, `status` and `at`
     only, never who, what was said, the action, the files or `publishedAt` (G3 B: to find the
     stories due for deletion; a pending story never is), and a pending (`sent`) entry only while
@@ -227,7 +234,7 @@ their fence (see "Transactions").
     pending, approved or hidden); a moderator (api-admin, naming `by`) approves, sends back or
     rejects (from pending, so of two decisions the first wins, D-1; and from hidden only when its
     current entry is the system's `hiddenBySystem`: P1-9, P1-11, Joel 2026-11-14), hides (from approved, with
-    a note) and shows again (from hidden); the system hides and shows again for media
+    a note) and shows again (from hidden), each naming the staff member's email (`staffEmail`); the system hides and shows again for media
     (`hiddenBySystem` needs a `hiddenReason`) and sends a story back when its video or audio file
     can't be used (`fileUnusable`, from pending, approved or hidden: `fn::story::check_files`, in
     the same write as the file becomes `failed`; Part 1a). Sending back and rejecting need a note.
@@ -430,7 +437,7 @@ and here.
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------- | ------------------------------------------------------------- |
 | `user`            | the person (Clerk id until erasure)                                                                                                     | root   | fence; binding and erasure rules (D37); `status` → `deleted` only by erasure | stub: id, `createdAt`, `status`                               |
 | `story`           | testimony; `submitter`                                                                                                                  | linked | submitter live; owner and agreement rules                                    | deleted                                                       |
-| `storyStatusLog`  | a story's status history; `story`, `by`, `senderIp` (30 days)                                                                           | linked | step rules; submitter live (the pointer move)                                | deleted (cascade)                                             |
+| `storyStatusLog`  | a story's status history; `story`, `by`, `senderIp` (30 days), `senderEmail`, `staffEmail`                                              | linked | step rules; submitter live (the pointer move)                                | deleted (cascade)                                             |
 | `storySearch`     | a published story's words; `story`                                                                                                      | linked | events only, with the write that publishes or unpublishes the story          | deleted with the story                                        |
 | `storyFile`       | one uploaded file; `person`, `story`                                                                                                    | linked | created by api-user, processed by workflow, cleaned by housekeeping; live    | deleted                                                       |
 | `mediaJob`        | a media job about one file; `file`                                                                                                      | linked | api-user and workflow create; file's person live; one open per file and kind | deleted with the file                                         |
@@ -448,6 +455,8 @@ and here.
 
 - **Staff links.** `storyStatusLog.by`, the legal texts' `publishedBy` and the settings' and
   themes' `changedBy` point at staff `user` rows, which become stubs like anyone's.
+  `storyStatusLog.staffEmail` holds a staff member's work email as text (like `addedBy` on the
+  Staff page and block list): it goes with the story's entries, not with the staff member.
 - **A new table** that holds or links person data calls `fn::person::live` on create/update, bumps
   the fence on delete, and is classified in the spec and here.
 

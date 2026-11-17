@@ -84,7 +84,7 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
     outcome(
       admin,
       `CREATE storyStatusLog CONTENT object::extend({ story: type::record('story', $id),
-         action: 'approved', by: user:moderator }, $extra)`,
+         action: 'approved', by: user:moderator, staffEmail: 'moderator@heisreal.today' }, $extra)`,
       { id, extra },
     );
   const statusOf = async (id: string) =>
@@ -306,7 +306,7 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
         await outcome(
           admin,
           `CREATE storyStatusLog CONTENT { story: type::record('story', $id),
-             action: 'shownByModerator', by: user:moderator }`,
+             action: 'shownByModerator', by: user:moderator, staffEmail: 'moderator@heisreal.today' }`,
           { id },
         ),
       ).toMatchObject({
@@ -359,7 +359,7 @@ describe('a moderator’s approval waits for the media (decision 5, J6)', () => 
         await outcome(
           admin,
           `CREATE storyStatusLog CONTENT { story: type::record('story', $id),
-             action: 'changesRequested', comment: 'A note', by: user:moderator,
+             action: 'changesRequested', comment: 'A note', by: user:moderator, staffEmail: 'moderator@heisreal.today',
              skippedMediaWait: true }`,
           { id: other },
         ),
