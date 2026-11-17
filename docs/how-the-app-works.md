@@ -220,16 +220,18 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   P1-13 A: "Dont use jobs for pictures"):** sending a video story (and sending it again after Edit)
   tells Bunny to show the story's picture for the video, or, if the person took their picture off,
   Bunny's own frame again, and reads the video back, all in the same request, after the picture's
-  own check. Nothing goes to Bunny when the picture is the one Bunny was last confirmed to show,
-  or when there is no picture and Bunny still shows the video's first, untouched thumbnail. A
-  video without a picture whose thumbnail Bunny ever changed (even by a send that failed
-  half-way) gets Bunny's own frame put back at every send. If Bunny
+  own check. Nothing goes to Bunny only when the picture is the one Bunny was last confirmed to
+  show and Bunny still shows that very picture file (the one recorded), or when there is no
+  picture, nothing recorded, and Bunny still shows the video's first, untouched thumbnail. If
+  Bunny shows any other file (a change from an earlier send that arrived late, or another tab),
+  the picture (or Bunny's own frame, for none) is set again and read back, as for a change; a file
+  name Bunny shows that our own confirmed set didn't produce is never recorded. If Bunny
   refuses, can't be reached, takes more than 20 seconds or doesn't show the new picture, the story
   isn't sent: it stays as it was, and the person is told "We couldn't add your picture. Please add
   it again, then submit." There is no retry in the background and no picture job. Once Bunny shows
   it, the database records it on the video's record, with the name of the picture file Bunny
-  showed (Joel, 2026-11-17, RE-2 B; when nothing went to Bunny, the name Bunny showed just
-  before); the story can't be approved until Bunny shows the picture it has now
+  showed (Joel, 2026-11-17, RE-2 B; for a video never given a picture, its untouched
+  thumbnail); the story can't be approved until Bunny shows the picture it has now
   (video-bundle-rethink part A, Joel 2026-11-06). The video's own checks never touch its picture
   or that file name. The story page shows Bunny's player as before, with no picture
   of our own over it (Joel, 2026-11-08, T2).

@@ -164,14 +164,16 @@ A video's own picture is set at Bunny by api-user when the story is sent, never 
 2026-11-17, P1-13 A). In the submit request, after the picture check, api-user calls Bunny's "set
 thumbnail" with a signed link to the story's picture (or `thumbnail_1.jpg`, Bunny's own frame,
 when the person took their picture off), reads the video back, and once Bunny names a new
-thumbnail file records the picture as the video's `thumbnailOf`. Nothing goes to Bunny when
-`thumbnailOf` is already the story's picture, or when there is no picture and Bunny still names
-the video's untouched first thumbnail, `thumbnail.jpg` (every picture set, frame included, gets a
+thumbnail file records the picture as the video's `thumbnailOf`. Nothing goes to Bunny only when
+`thumbnailOf` is already the story's picture and Bunny still names the file recorded in
+`thumbnailPath`, or when there is no picture, nothing recorded, and Bunny still names the
+video's untouched first thumbnail, `thumbnail.jpg` (every picture set, frame included, gets a
 new `thumbnail_<random>.jpg`; checked on dev Bunny 2026-11-17). So a set whose read-back failed
-is still undone when the person removes the picture. All of Bunny's calls get 20 seconds together. In
+is still undone when the person removes the picture, and a picture that reached Bunny late
+(a send that timed out) is replaced at the next send, never recorded. All of Bunny's calls get 20 seconds together. In
 the same write as `thumbnailOf`, api-user records the thumbnail file Bunny's read-back named as the
-video's `thumbnailPath`, `<video id>/<file name>` (Joel, 2026-11-17, RE-2 B; when nothing went to
-Bunny, the name Bunny showed just before). The writer's checks of the video never touch its
+video's `thumbnailPath`, `<video id>/<file name>` (Joel, 2026-11-17, RE-2 B; for a
+video never given a picture, its untouched `thumbnail.jpg`). The writer's checks of the video never touch its
 picture or its `thumbnailPath` (only a picture video's).
 
 **"The picture changed at Bunny"** (api-admin logs `Video <id>: Bunny shows another picture than

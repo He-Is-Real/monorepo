@@ -1172,10 +1172,11 @@ describe('video and audio uploads', () => {
       expect((await submit('wes', id, version)).status).toBe(200);
     });
 
-    it('sending again after Edit with the same picture asks Bunny nothing; taking the picture off puts Bunny’s frame back', async () => {
+    it('sending again after Edit with the same picture asks Bunny nothing while Bunny shows the recorded file; taking the picture off puts Bunny’s frame back', async () => {
       const { id, video, version } = await videoWithPicture('xan');
       expect((await submit('xan', id, version)).status).toBe(200);
       expect(calls(video)).toHaveLength(1);
+      const first = await thumbnailPath(video);
 
       const edit = (v: number) =>
         call('POST', `/v1/stories/${id}/edit`, 'xan', {
@@ -1183,17 +1184,11 @@ describe('video and audio uploads', () => {
         });
       const editing = await edit(version + 1);
       expect(editing.status).toBe(200);
-      // A picture that reached Bunny late (an earlier send that timed out): the shortcut records
-      // what Bunny showed just before (RE-2 B), so the path follows Bunny.
-      const first = await thumbnailPath(video);
-      bunny.videos.get(video)!.thumbnailFileName = 'thumbnail_0badf00d.jpg';
+      // Bunny still shows the recorded file: nothing goes to Bunny.
       const resent = await submit('xan', id, editing.body.version);
       expect(resent.status).toBe(200);
       expect(calls(video)).toHaveLength(1);
-      expect(await thumbnailPath(video)).toBe(
-        `${video}/thumbnail_0badf00d.jpg`,
-      );
-      expect(first).not.toBe(await thumbnailPath(video));
+      expect(await thumbnailPath(video)).toBe(first);
 
       const again = await edit(resent.body.version);
       const removed = await call('PATCH', `/v1/stories/${id}`, 'xan', {
@@ -1208,6 +1203,25 @@ describe('video and audio uploads', () => {
       expect(calls(video)).toEqual([expect.any(String), 'thumbnail_1.jpg']);
       expect(await thumbnailOf(video)).toBeNull();
       expect(await thumbnailPath(video)).toBe(atBunny(video));
+    });
+
+    it('a picture that reached Bunny late is set again at the next send with the same picture, and never recorded (RE-2 B)', async () => {
+      const { id, video, path, version } = await videoWithPicture('xia');
+      expect((await submit('xia', id, version)).status).toBe(200);
+      const edit = await call('POST', `/v1/stories/${id}/edit`, 'xia', {
+        headers: { 'if-match': `"${version + 1}"` },
+      });
+      expect(edit.status).toBe(200);
+      // An earlier send that timed out lands at Bunny now: Bunny shows a file nobody confirmed.
+      const late = 'thumbnail_0badf00d.jpg';
+      bunny.videos.get(video)!.thumbnailFileName = late;
+      const resent = await submit('xia', id, edit.body.version);
+      expect(resent.status).toBe(200);
+      // The story's picture is set again and read back, and only that name is recorded.
+      expect(calls(video)).toHaveLength(2);
+      expect(await thumbnailOf(video)).toBe(path);
+      expect(await thumbnailPath(video)).toBe(atBunny(video));
+      expect(await thumbnailPath(video)).not.toBe(`${video}/${late}`);
     });
 
     it('a video never given a picture asks Bunny nothing at submit', async () => {

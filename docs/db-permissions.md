@@ -282,8 +282,8 @@ their fence (see "Transactions").
     isn't its picture now (`media_not_ready`).
   - **`thumbnailPath` (Joel 2026-11-17, RE-2 B):** api-user writes a person's video's
     `thumbnailPath` when the story is sent, in the write that records `thumbnailOf`: `<bunny video
-id>/<the file name Bunny's read-back named>` (or the name Bunny showed just before, when
-    nothing went to Bunny). The field allows api-user only on a `video` with no `renderOf`, and
+id>/<the file name Bunny's read-back named>` (or, for a video never given a picture, its
+    untouched `thumbnail.jpg`; never a name our own confirmed set didn't produce). The field allows api-user only on a `video` with no `renderOf`, and
     `storyFile_update` only on the video a story being edited shows now and only a value
     `fn::media::own_thumbnail` accepts (`picture_set:`). workflow writes `thumbnailPath` only on
     audio rows (an audio story's picture video), never on a person's video. api-admin's approval

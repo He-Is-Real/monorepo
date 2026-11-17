@@ -18,9 +18,10 @@ import { StaleVersionException } from './story-store';
  * submitting. If picture uploads fails then no submission."). SubmitStory (and sending a story
  * again after Edit) of a video story, after the picture check and the video's own checks, in the
  * same request:
- * - nothing to do when the video's `thumbnailOf` is already the story's picture: it's recorded
- *   only once Bunny was read back showing it, and a picture's path is never used again;
- * - with no picture and none recorded, nothing to do only while Bunny still shows the video's
+ * - nothing to do when the video's `thumbnailOf` is already the story's picture and Bunny still
+ *   shows the thumbnail file recorded in its `thumbnailPath`: both are recorded only once Bunny
+ *   was read back showing it, and a picture's path is never used again;
+ * - with no picture and nothing recorded, nothing to do only while Bunny still shows the video's
  *   untouched first thumbnail ({@link BUNNY_UNTOUCHED}): an earlier Submit may have set a picture
  *   at Bunny and then lost the read-back, which recorded nothing (Codex, #233 review);
  * - otherwise Bunny is told to show the story's picture, fetched through a signed link to the
@@ -29,10 +30,13 @@ import { StaleVersionException } from './story-store';
  * - on success, api-user's own login records the picture as the video's `thumbnailOf` (NONE for
  *   Bunny's frame), which the database allows only for the story being edited's current picture,
  *   and, in the same write, the thumbnail file Bunny's read-back named as its `thumbnailPath`,
- *   `<video id>/<file name>` (Joel, 2026-11-17, RE-2 B). When nothing needs doing at Bunny, the
- *   `thumbnailPath` is the file name Bunny showed just before ({@link VideoPicture.before}), if it
- *   named one. api-admin's approval compares it with what Bunny shows then: a picture that reached
- *   Bunny late (a send that timed out, another tab) is refused, never published unseen;
+ *   `<video id>/<file name>` (Joel, 2026-11-17, RE-2 B). Nothing needs doing at Bunny only while
+ *   it shows ({@link VideoPicture.before}) exactly the file already recorded there: any other name
+ *   is a picture that reached Bunny late (a send that timed out, another tab), so the picture is
+ *   set and read back again. A name Bunny shows that our own confirmed write didn't produce is
+ *   never recorded (the untouched thumbnail of a video never given a picture aside). api-admin's
+ *   approval compares the recorded name with what Bunny shows then: a late change is refused,
+ *   never published unseen;
  * - all Bunny's calls together get {@link PICTURE_BUDGET_MS}. Bunny down, refusing, too slow, or
  *   the read-back not showing a new file: `400 image_not_uploaded` with {@link PICTURE_FAILED}, and
  *   the story isn't sent (it stays as it was). No retry in the background, and no job.
@@ -120,25 +124,32 @@ export async function setVideoPicture({
 }: VideoPicture): Promise<void> {
   const [recorded] = (await runQuery(
     service,
-    `SELECT VALUE IF thumbnailOf != NONE { record::id(thumbnailOf) }
+    `SELECT IF thumbnailOf != NONE { record::id(thumbnailOf) } AS picture, thumbnailPath AS path
        FROM ONLY type::record('storyFile', $video)`,
     { video: videoId },
-  )) as [string | null | undefined];
+  )) as [{ picture?: string | null; path?: string | null } | undefined];
   const wanted = picture ?? null;
-  // Nothing changed since Bunny last took it (a re-send after Edit with the same picture), or,
-  // with no picture, Bunny has never been given one. A video Bunny shows any other picture for
-  // gets its frame back, even if that is what it shows already (a frame put back gets a new name).
-  if (
-    (recorded ?? null) === wanted &&
-    (wanted !== null || before.thumbnailFileName === BUNNY_UNTOUCHED)
-  ) {
-    // RE-2 B: what the read just before showed; with no file name, the path is left as it is.
-    if (before.thumbnailFileName) {
-      await record(service, videoId, {
-        thumbnailPath: `${videoId}/${before.thumbnailFileName}`,
-      });
+  const shownBefore = before.thumbnailFileName
+    ? `${videoId}/${before.thumbnailFileName}`
+    : null;
+  const recordedPath = recorded?.path ?? null;
+  // Nothing changed since Bunny last took it (a re-send after Edit with the same picture): only
+  // while Bunny still shows the very file our own confirmed write recorded. Any other name there
+  // is a change that reached Bunny late (a send that timed out, another tab), never accepted
+  // (RE-2 B): the picture is set again and read back. With no picture, a video Bunny has never
+  // been given one (its untouched thumbnail, nothing recorded) is kept, and recorded; any other
+  // picture there gets Bunny's frame back (a frame put back gets a new name).
+  if ((recorded?.picture ?? null) === wanted) {
+    if (shownBefore !== null && shownBefore === recordedPath) return;
+    if (
+      wanted === null &&
+      recordedPath === null &&
+      before.thumbnailFileName === BUNNY_UNTOUCHED &&
+      shownBefore !== null
+    ) {
+      await record(service, videoId, { thumbnailPath: shownBefore });
+      return;
     }
-    return;
   }
   let shown: string;
   try {
