@@ -6,8 +6,9 @@ Nx + pnpm workspace on Node 24 LTS: Next.js (`apps/web`), NestJS on Express (`ap
 
 Two docs record where we are and how the site behaves. Read both before starting a task:
 
-- `docs/delivery-status.md`: progress only (done, in progress, next, known issues, what blocks
-  Go live), in plain English. Update it in the same PR when work starts or finishes.
+- `docs/delivery-status.md`: progress only, written for the non-technical project owner. Each
+  milestone is a heading with a checklist of its parts; a done part is a tick and a few words. Follow
+  its "How to edit this file" section. Update it in the same PR when work starts or finishes.
 - `docs/how-the-app-works.md`: the rules for how the app behaves, by area, plus the technical
   decisions that override the `project` repo's plan. A new or changed rule needs Joel's decision
   first (the ownership rule below); record it there in the same PR.
