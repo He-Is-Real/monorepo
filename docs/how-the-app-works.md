@@ -779,7 +779,9 @@ Planned (M3):
   most pages; the full 1200 pixels for Limits; twice the standard column for Consent texts on
   desktop), starting at the header's left edge when it fits inside the container and centred on
   the page when it is wider. The page always keeps room for the scrollbar, so a page that
-  scrolls doesn't shift sideways from one that doesn't.
+  scrolls doesn't shift sideways from one that doesn't. A story's review page has the staff menu
+  in the same place but no page title or description of its own: its heading is the story's own
+  title, inside the story exactly as the public will see it (Joel, 2026-11-17, OQ-3 A).
 - **Staff links in the site's navigation** (Joel, 2026-11-14): after the public links, set apart
   by a thin line (desktop and tablet; where the row is full, both move together onto the next
   line) or a gap and line (phone menu). Moderators and Admins see
