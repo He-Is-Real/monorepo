@@ -338,26 +338,46 @@ function SenderIp({ ip }: { ip: string | null }) {
 type Open = 'request-changes' | 'reject' | 'hide' | null;
 export type Noted = Exclude<Open, null>;
 
+/**
+ * Decision colours (Joel, 17 November 2026): Send back is orange, Reject and Delete are red,
+ * filled like Approve, on the decision button and on the confirm button it leads to.
+ * Contrast (WCAG AA): light, white on warning 5.9:1 and on destructive 5.6:1; dark, near-black
+ * on warning 8.6:1, and white on destructive at 80% over the card 5.6:1 (the dark destructive
+ * token itself is 4.2:1 with white, 4.5:1 with black, so it isn't used as a solid fill).
+ */
+const SEND_BACK_BUTTON = 'bg-warning text-background hover:bg-warning/90';
+const RED_BUTTON =
+  'bg-destructive text-white hover:bg-destructive/90 dark:bg-destructive/80 dark:hover:bg-destructive/70';
+
 const NOTED: Record<
   Noted,
-  { label: string; hint: string; confirm: string; field: string }
+  {
+    label: string;
+    hint: string;
+    confirm: string;
+    confirmColour: string;
+    field: string;
+  }
 > = {
   'request-changes': {
     label: 'Your note to the person',
     hint: 'They see it as “What our team said”, with their story to change. Write kindly: thank them, and say what would help.',
     confirm: 'Send back',
+    confirmColour: SEND_BACK_BUTTON,
     field: 'feedbackToSubmitter',
   },
   reject: {
     label: 'Your note to the person',
     hint: 'They see it as “What our team said”. Write kindly: thank them for sharing, and say why it can’t go on the site.',
     confirm: 'Reject',
+    confirmColour: RED_BUTTON,
     field: 'feedbackToSubmitter',
   },
   hide: {
     label: 'Why it’s being taken down',
     hint: 'The person can read this, as “What our team said”, beside “Taken down by our team” on their profile.',
     confirm: 'Take down',
+    confirmColour: '',
     field: 'reason',
   },
 };
@@ -416,7 +436,7 @@ export function NoteForm({
       <div className="mt-4 flex flex-wrap gap-3">
         <Button
           type="submit"
-          className={WRAPPING_BUTTON}
+          className={`${WRAPPING_BUTTON} ${noted.confirmColour}`}
           disabled={busy || noteLength === 0}
         >
           {noted.confirm}
@@ -535,8 +555,7 @@ function Decisions({
           <div className="flex flex-wrap gap-3">
             <Button
               autoFocus
-              variant="destructive"
-              className={WRAPPING_BUTTON}
+              className={`${WRAPPING_BUTTON} ${RED_BUTTON}`}
               disabled={busy}
               onClick={() => void remove()}
             >
@@ -568,16 +587,14 @@ function Decisions({
                 Approve
               </Button>
               <Button
-                variant="outline"
-                className={WRAPPING_BUTTON}
+                className={`${WRAPPING_BUTTON} ${SEND_BACK_BUTTON}`}
                 disabled={busy}
                 onClick={() => setOpen('request-changes')}
               >
                 Send back
               </Button>
               <Button
-                variant="outline"
-                className={WRAPPING_BUTTON}
+                className={`${WRAPPING_BUTTON} ${RED_BUTTON}`}
                 disabled={busy}
                 onClick={() => setOpen('reject')}
               >
@@ -606,8 +623,7 @@ function Decisions({
           )}
           {hiddenBySite && (
             <Button
-              variant="outline"
-              className={WRAPPING_BUTTON}
+              className={`${WRAPPING_BUTTON} ${RED_BUTTON}`}
               disabled={busy}
               onClick={() => setOpen('reject')}
             >
@@ -616,8 +632,7 @@ function Decisions({
           )}
           {isAdmin && (
             <Button
-              variant="outline"
-              className={WRAPPING_BUTTON}
+              className={`${WRAPPING_BUTTON} ${RED_BUTTON}`}
               disabled={busy}
               onClick={() => setConfirmDelete(true)}
             >
