@@ -223,7 +223,7 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   own check. Bunny downloads the picture through a link made just before it is asked, which
   expires 15 seconds later, before the 20 seconds the site waits for Bunny run out (Joel,
   2026-11-17, RE-4 A): a request the site has given up on can't change the picture afterwards,
-  because Bunny refuses an expired link. Pages' own picture links keep their usual lifetime. Nothing goes to Bunny only when the picture is the one Bunny was last confirmed to
+  because Bunny refuses an expired link. Pages' own picture links keep their usual lifetime. One case is accepted as known (Joel, 2026-11-17, RE-5 A): Bunny downloads the picture in time but takes more than 20 seconds to save it, and meanwhile the person removes or changes the picture and sends again; the old picture can then still land. If it does, a moderator or Admin takes the story down and the person sends it again. Nothing goes to Bunny only when the picture is the one Bunny was last confirmed to
   show and Bunny still shows that very picture file (the one recorded), or when there is no
   picture, nothing recorded, and Bunny still shows the video's first, untouched thumbnail. If
   Bunny shows any other file (a change from an earlier send that arrived late, or another tab),

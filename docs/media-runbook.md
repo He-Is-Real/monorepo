@@ -198,6 +198,11 @@ answering `Origin returned HTTP 403` means the images pull zone refused the 15-s
 expired before Bunny fetched it (Bunny slower than 15 seconds), or the signing machine's clock is
 off by more than a few seconds (a laptop without time sync: local runs against dev Bunny).
 
+**A removed picture showing on a published video** (accepted as known, Joel, 2026-11-17, RE-5 A):
+Bunny downloaded an earlier send's picture in time but saved it more than 20 seconds later, after
+the person had removed or changed it and sent again. Take the story down (Hide); the person sends
+it again, which sets the picture at Bunny again and records it; then approve as usual.
+
 A render job's failure codes: `source_gone` / `source_not_ready` (Bunny no longer has the audio
 file, or hasn't finished it), `source_missing` (no MP4 copy in storage: is the library's MP4
 fallback on?), `source_unreachable`, `sound_rejected` / `sound_malformed` (the writer refused the
