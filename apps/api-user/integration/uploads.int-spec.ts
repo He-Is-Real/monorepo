@@ -53,6 +53,8 @@ interface SetCall {
   source: string;
   /** held: not fetched yet; fetched: picture in hand, not saved; refused: link expired; saved. */
   stage: 'held' | 'fetched' | 'refused' | 'saved';
+  /** When api-user made the call (ms), so a test can say when Bunny fetches without the real clock. */
+  calledAt: number;
   /** Answers api-user, if it's still waiting. */
   answer: { resolve: () => void; reject: (err: Error) => void };
 }
@@ -74,11 +76,6 @@ class FakeStream implements BunnyStream {
    * holds the call before its fetch until the test moves it on ({@link held}).
    */
   thumbnailMode: 'take' | 'refuse' | 'ignore' | 'lose' | 'hold' = 'take';
-  /**
-   * Bunny's clock for fetching a picture, ms ahead of the real one: a link whose `expires` has
-   * passed by Bunny's clock is refused.
-   */
-  clockAheadMs = 0;
   /** The calls `hold` is holding, in order. */
   readonly held: SetCall[] = [];
   private arrivedHeld?: (call: SetCall) => void;
@@ -111,6 +108,7 @@ class FakeStream implements BunnyStream {
         video: id,
         source,
         stage: 'held',
+        calledAt: Date.now(),
         answer: { resolve, reject },
       };
       // api-user giving up cuts off its side only: Bunny goes on with the call.
@@ -131,12 +129,14 @@ class FakeStream implements BunnyStream {
   /**
    * Bunny fetches the call's picture now, by its clock: as on dev Bunny (2026-11-17, RE-4 A), a
    * picture link that has expired is refused ("Origin returned HTTP 403") and the thumbnail stays
-   * as it is. One of Bunny's own frames needs no fetch. Says whether it has the picture.
+   * as it is. One of Bunny's own frames needs no fetch. `at` is Bunny's clock (ms) at the fetch;
+   * tests pass a time relative to `call.calledAt` so the result doesn't depend on how long the test
+   * took. Says whether it has the picture.
    */
-  fetch(call: SetCall): boolean {
+  fetch(call: SetCall, at = Date.now()): boolean {
     const link = URL.canParse(call.source) ? new URL(call.source) : null;
     const expires = Number(link?.searchParams.get('expires')) * 1000;
-    if (link && !(expires > Date.now() + this.clockAheadMs)) {
+    if (link && !(expires > at)) {
       call.stage = 'refused';
       call.answer.reject(new Error('Origin returned HTTP 403'));
       return false;
@@ -1417,18 +1417,12 @@ describe('video and audio uploads', () => {
       expect(frame).toBe(atBunny(video));
       expect(frame).not.toBe(shownA);
       expect(await thumbnailOf(video)).toBeNull();
-      // Bunny gets round to send 1's call only now, after its link expired (Bunny's clock moved
-      // on by the budget): the fetch is refused and nothing changes.
-      bunny.clockAheadMs = PICTURE_BUDGET_MS;
-      try {
-        const expires = Number(
-          new URL(send1.source).searchParams.get('expires'),
-        );
-        expect(expires * 1000).toBeLessThan(Date.now() + bunny.clockAheadMs);
-        expect(bunny.fetch(send1)).toBe(false);
-      } finally {
-        bunny.clockAheadMs = 0;
-      }
+      // Bunny gets round to send 1's call only now, a whole budget after it was made, so after
+      // its link expired: the fetch is refused and nothing changes.
+      const late = send1.calledAt + PICTURE_BUDGET_MS;
+      const expires = Number(new URL(send1.source).searchParams.get('expires'));
+      expect(expires * 1000).toBeLessThan(late);
+      expect(bunny.fetch(send1, late)).toBe(false);
       bunny.save(send1);
       expect(send1.stage).toBe('refused');
       expect(atBunny(video)).toBe(frame);
@@ -1445,7 +1439,8 @@ describe('video and audio uploads', () => {
         version,
       );
       expect(refused.status).toBe(400);
-      expect(bunny.fetch(send1)).toBe(true);
+      // Fetched the moment the call was made, so in time however long the test has taken.
+      expect(bunny.fetch(send1, send1.calledAt)).toBe(true);
       // Send 2 puts Bunny's frame back and reads it back.
       const send2 = await removeAndSend('xom', id, version);
       expect(send2.status).toBe(200);
