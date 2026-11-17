@@ -1,6 +1,6 @@
 import { retryOnConflict, runQuery } from '@heisreal/database';
 import type { SurrealQueryable } from 'surrealdb';
-import { BunnyCallFailed, callWithin, type WriterBunny } from './bunny';
+import { BunnyCallFailed, type WriterBunny } from './bunny';
 import type { QueuedJob } from './media-queue';
 
 /**
@@ -229,17 +229,11 @@ export function parseFailure(input: unknown): string {
  *   only once its picture video is (approval needs that), so a render job of it opens;
  * - a picture video (renderOf): its facts as a video's; if the story's picture is no longer the
  *   one it was made with (thumbnailOf), a render job of it opens (reason picture_changed).
- * A video its story shows, ready, with Bunny on (`$bunny`), then gets the story's picture at Bunny
- * (video-bundle-rethink part A; Joel, 2026-11-08, T3), whatever this answer's outcome: the job
- * stays OPEN, so approval waits (fn::story::approval_wait), and the writer closes it once Bunny
- * shows the picture ({@link applyThumbnail}). If the job had already ended (the queue delivered it
- * again), a check job of the file is opened first (fn::media::queue_job, with this job's reasons;
- * Codex r4 finding 2), so a failure at Bunny leaves an open job for the redelivery, the 18:00
- * resend or the nightly sweep to finish. Any other answer ends the job if it is still open; a job
- * already ended keeps its outcome. Neither that check nor a render opens for a waiting or
- * system-hidden story whose file has used its nightly retries (Part 1a, P1-9; Codex r6): the
- * database's mediaJob_rules refuses every new job then, so `thumbnail` and `render` come back
- * empty and "a problem on our side" stays.
+ * A video's picture is never touched here: api-user sets it at Bunny when the story is sent
+ * (Joel, 2026-11-17, P1-13 A). Every answer ends the job if it is still open; a job already ended
+ * keeps its outcome. A render doesn't open for a waiting or system-hidden story whose file has
+ * used its nightly retries (Part 1a, P1-9; Codex r6): the database's mediaJob_rules refuses every
+ * new job then, so `render` comes back empty and "a problem on our side" stays.
  * Part 1a (Joel, 2026-11-10; P1a-4 A): what a not-ready answer writes (`$failure`, set by
  * {@link answerVars}):
  * - `reencoding`: Bunny's first "failed to process", which the writer confirmed and is about to
@@ -253,8 +247,7 @@ export function parseFailure(input: unknown): string {
  * - `gone`: Bunny has no such video (never the person's fault): the file is `processing` and the
  *   job gives up with errorType other, for the housekeeping to try again and the moderators to see.
  * A failure is recorded only on a job still open (else `stale`).
- * Answers the outcome, the render job opened, if any (the writer sends it after the commit), and
- * the job the picture step closes, if any.
+ * Answers the outcome, and the render job opened, if any (the writer sends it after the commit).
  */
 export const ANSWER_SQL = `
   LET $j = (SELECT kind, file, doneAt, reasons FROM ONLY type::record('mediaJob', $job));
@@ -288,16 +281,9 @@ export const ANSWER_SQL = `
       ELSE { object::extend($video, { thumbnailPath: <string> record::id($f.id) + '/' + $thumb }) };
     UPDATE $f.id MERGE object::extend($facts, { checkedAt: <datetime> $at }) RETURN NONE;
   };
-  -- Part A, T3: the story's picture goes to Bunny with the job open.
-  LET $thumbnail = $bunny AND $shown AND $f.format = 'video'
-    AND (SELECT VALUE processing FROM ONLY $f.id) = 'ready';
-  LET $hold = IF !$thumbnail { NONE } ELSE IF $j.doneAt = NONE { $job } ELSE {
-    LET $queued = $j.reasons.map(|$r| fn::media::queue_job($f.id, 'check', $r));
-    $queued[array::len($queued) - 1].job
-  };
   LET $end = IF $outcome = 'applied' AND $failure IN ['unusable', 'gone'] { 'gave_up' }
     ELSE { $outcome };
-  IF $j.doneAt = NONE AND !$thumbnail {
+  IF $j.doneAt = NONE {
     UPDATE type::record('mediaJob', $job) SET doneAt = time::now(), outcome = $end,
       errorType = IF $end != 'gave_up' { NONE } ELSE IF $failure = 'unusable' { 'file_unusable' }
         ELSE { 'other' },
@@ -310,7 +296,7 @@ export const ANSWER_SQL = `
   LET $followUp = IF $outcome = 'applied' AND $failure = 'reencoding' {
     fn::media::queue_job($f.id, 'check', 'resent').job
   };
-  { outcome: $end, render: $render, thumbnail: $hold, followUp: $followUp };`;
+  { outcome: $end, render: $render, followUp: $followUp };`;
 
 /** What a not-ready answer records (ANSWER_SQL's `$failure`). */
 type Failure = 'reencoding' | 'unusable' | 'gone';
@@ -328,20 +314,18 @@ export type WriterAnswer =
  * The query's variables: whether the answer is ready, the facts for a file that isn't
  * (`notReady`) and for a ready one (`video`; an audio upload keeps only its length), its
  * thumbnail's file name, which the write puts under the video's own folder at Bunny (its file's
- * id, R12), and whether the writer sets a ready video's picture at Bunny (`bunny`).
+ * id, R12).
  */
 export function answerVars(
   job: string,
   video: string,
   answer: WriterAnswer,
   arrivedAt: string,
-  bunny = false,
 ): Record<string, unknown> {
   const vars = {
     job,
     videoId: video,
     at: arrivedAt,
-    bunny,
     reencoded: REENCODED,
     failure: undefined as Failure | undefined,
   };
@@ -378,11 +362,6 @@ export interface AnswerResult {
   outcome: AnswerOutcome | 'gave_up';
   render: QueuedJob | null;
   /**
-   * Set for a ready video with Bunny on: the open check job (this one, or one just opened) that
-   * {@link applyThumbnail} closes once Bunny shows the story's picture.
-   */
-  thumbnail: { job: string } | null;
-  /**
    * Set when the answer recorded Bunny's first failure (`reencoding`): the check job opened for
    * the re-encode's result, before Bunny is asked for it ({@link answerFailed}).
    */
@@ -392,8 +371,7 @@ export interface AnswerResult {
 /**
  * Applies the worker's answer about `video` to the job's file (refused with
  * {@link MediaJobWrongVideo} if that isn't the job's video), signed in as service:workflow (the
- * only login that may set a file's processing, A2), and ends the job, in one transaction; for a
- * ready video with `bunny`, it leaves a check job open instead ({@link applyThumbnail} finishes).
+ * only login that may set a file's processing, A2), and ends the job, in one transaction.
  * `arrivedAt` is when the worker's call reached the writer (F1): an answer applies only if no
  * answer that arrived at or after it is in. A transaction conflict (another answer, a moderator's
  * step or an erasure on the same person) re-runs it from scratch.
@@ -404,9 +382,8 @@ export async function answerJob(
   video: string,
   answer: WriterAnswer,
   arrivedAt: string,
-  bunny = false,
 ): Promise<AnswerResult> {
-  const vars = answerVars(job, video, answer, arrivedAt, bunny);
+  const vars = answerVars(job, video, answer, arrivedAt);
   return retryOnConflict(async () => {
     const results = await runQuery(
       db,
@@ -416,13 +393,11 @@ export async function answerJob(
     const r = results[results.length - 2] as {
       outcome: AnswerOutcome | 'gave_up';
       render?: Omit<QueuedJob, 'kind'> | null;
-      thumbnail?: string | null;
       followUp?: string | null;
     };
     return {
       outcome: r.outcome,
       render: r.render ? { ...r.render, kind: 'render' } : null,
-      thumbnail: r.thumbnail ? { job: r.thumbnail } : null,
       ...(r.followUp ? { followUp: r.followUp } : {}),
     };
   });
@@ -515,186 +490,6 @@ export async function answerFailed(
   } catch (err) {
     if (!(err instanceof BunnyCallFailed)) throw err;
     return failJob(db, job, video, err.code);
-  }
-}
-
-/**
- * T3's two timings (Joel, 2026-11-08, org-setup-and-picture-video.html): how long a writer holds
- * a video's lock (`lockMs`, default 2 minutes), and how long all its calls to Bunny under it may
- * take together (`callMs`, default 20 seconds: each call is cut off when that runs out). The rest
- * of the lock (at least 100 seconds) is the margin for a call Bunny might still apply after we
- * gave up on it. The database's clock judges the lock (Codex r5): the writer never sends a time
- * of its own. `now` is a monotonic clock in milliseconds, used only for the calls' budget (tests
- * may replace it).
- */
-export interface ThumbnailLock {
-  lockMs: number;
-  callMs: number;
-  now: () => number;
-}
-export const THUMBNAIL_LOCK = Symbol('THUMBNAIL_LOCK');
-
-/** The least margin between the calls' end and the lock's (T4; Joel, 2026-11-09). */
-export const LOCK_MARGIN_MS = 100_000;
-
-/**
- * The lock's timings from THUMBNAIL_LOCK_SECONDS and THUMBNAIL_CALL_SECONDS (whole seconds), or
- * the defaults (120 and 20). Fails start-up unless the lock outlasts the calls by at least
- * {@link LOCK_MARGIN_MS}, so settings can't shrink the safety margin.
- */
-export function thumbnailLockFromEnv(
-  env: Record<string, string | undefined> = process.env,
-): ThumbnailLock {
-  const seconds = (name: string, fallback: number) => {
-    const raw = env[name]?.trim();
-    if (!raw) return fallback;
-    if (!/^[1-9][0-9]{0,4}$/.test(raw)) throw new Error(`Malformed ${name}`);
-    return Number(raw);
-  };
-  const lockMs = seconds('THUMBNAIL_LOCK_SECONDS', 120) * 1000;
-  const callMs = seconds('THUMBNAIL_CALL_SECONDS', 20) * 1000;
-  if (lockMs - callMs < LOCK_MARGIN_MS) {
-    throw new Error(
-      'THUMBNAIL_LOCK_SECONDS must be at least 100 more than THUMBNAIL_CALL_SECONDS',
-    );
-  }
-  return { lockMs, callMs, now: () => performance.now() };
-}
-
-/**
- * T3 step a and b, in one transaction: take the video's lock only if it is empty or already past
- * the database's clock (T4: a past one is an unfinished write, which any writer may take over),
- * setting it to the database's now + `$lockFor`, and read the story's picture while holding it.
- * The value the database set, read back as text (to the nanosecond), is this holder's mark. A
- * file its story no longer shows needs no picture: the open job ends as gone.
- */
-const LOCK_SQL = `BEGIN TRANSACTION;
-  LET $now = time::now();
-  LET $f = (SELECT id, format, story, detachedAt, removedAt, thumbnailLockedUntil
-    FROM ONLY type::record('storyFile', $videoId));
-  LET $shown = $f != NONE AND $f.format = 'video' AND $f.detachedAt = NONE
-    AND $f.removedAt = NONE AND record::exists($f.story) AND $f.story.mediaFile = $f.id;
-  LET $held = $shown AND $f.thumbnailLockedUntil != NONE AND $f.thumbnailLockedUntil > $now;
-  LET $until = IF $shown AND !$held {
-    (UPDATE ONLY $f.id SET thumbnailLockedUntil = $now + <duration> $lockFor
-      RETURN VALUE thumbnailLockedUntil)
-  };
-  IF !$shown {
-    UPDATE type::record('mediaJob', $job) SET doneAt = time::now(), outcome = 'gone'
-      WHERE doneAt = NONE RETURN NONE;
-  };
-  LET $picture = IF $shown AND !$held { (SELECT VALUE image.file FROM ONLY $f.story) };
-  IF !$shown { { state: 'gone' } } ELSE IF $held { { state: 'held' } }
-    ELSE { { state: 'locked', until: <string> $until,
-      picture: IF $picture != NONE { <string> record::id($picture) } } };
-  COMMIT TRANSACTION;`;
-
-/**
- * T3 step d, in one transaction, after Bunny took `$mine` (NONE for its own frame; `$thumb`,
- * Bunny's thumbnail file afterwards): only if the lock is still this writer's (still exactly
- * `$until`, and the database's clock before it). Then, if the story's picture is still `$mine`:
- * record it as thumbnailOf, empty the lock (T4: the only write that empties it for a video its
- * story shows) and close the job as applied; if it changed meanwhile, answer the new one (the
- * lock kept) for the writer to send. A file its story no longer shows: empty the lock, the job
- * ends as gone. A lock lost (run out, or taken by another writer since) records nothing.
- */
-const SETTLE_SQL = `BEGIN TRANSACTION;
-  LET $f = (SELECT id, format, story, detachedAt, removedAt, processing, thumbnailLockedUntil
-    FROM ONLY type::record('storyFile', $videoId));
-  LET $ours = $f != NONE AND $f.thumbnailLockedUntil = <datetime> $until
-    AND time::now() < <datetime> $until;
-  LET $shown = $ours AND $f.format = 'video' AND $f.detachedAt = NONE
-    AND $f.removedAt = NONE AND record::exists($f.story) AND $f.story.mediaFile = $f.id;
-  LET $picture = IF $shown { (SELECT VALUE image.file FROM ONLY $f.story) };
-  LET $mineRec = IF $mine = NONE { NONE } ELSE { type::record('storyFile', $mine) };
-  LET $kept = $shown AND $picture = $mineRec;
-  IF $kept {
-    UPDATE $f.id SET thumbnailOf = $mineRec, thumbnailLockedUntil = NONE,
-      thumbnailPath = IF processing = 'ready' { <string> record::id(id) + '/' + $thumb }
-        ELSE { thumbnailPath } RETURN NONE;
-  };
-  IF $ours AND !$shown {
-    UPDATE $f.id SET thumbnailLockedUntil = NONE RETURN NONE;
-  };
-  IF $kept OR ($ours AND !$shown) {
-    UPDATE type::record('mediaJob', $job) SET doneAt = time::now(),
-      outcome = IF $shown { 'applied' } ELSE { 'gone' } WHERE doneAt = NONE RETURN NONE;
-  };
-  IF !$ours { { state: 'lost' } } ELSE IF $kept OR !$shown { { state: 'closed' } }
-    ELSE { { state: 'changed', picture: IF $picture != NONE { <string> record::id($picture) } } };
-  COMMIT TRANSACTION;`;
-
-/**
- * How {@link applyThumbnail} ended: `closed` (Bunny shows the story's picture, recorded, and the
- * job closed), or `retry` (the job stays open, approval keeps waiting, and the worker leaves it in
- * the queue: another writer holds the lock, or this one's ran out before it could record).
- */
-export type ThumbnailOutcome = 'closed' | 'retry';
-
-/**
- * Sets a ready video's picture at Bunny under its lock (T3; Joel, 2026-11-08), then closes the
- * job `job` that {@link answerJob} left open:
- * a. takes the lock for `lock.lockMs` by the database's clock, or answers `retry` if another
- *    writer holds it;
- * b. reads the story's picture (in the same transaction);
- * c. sets it at Bunny, every call cut off once `lock.callMs` has passed on the writer's monotonic
- *    clock, counted from before the lock was taken (so the calls end before the lock's margin);
- * d. records it and empties the lock, only if the picture is still that one and the lock still
- *    this writer's; if the picture changed, sends the new one first, still under the lock.
- * e. A Bunny error from `setThumbnail` (or the cut-off) is thrown as it comes, with the job open
- *    and the lock left to run out: a call that failed or was cut off might still be applied at
- *    Bunny. Once past, the lock means "unfinished: Bunny may be wrong" (T4; Joel, 2026-11-09):
- *    approval keeps waiting until a later writer takes it over and finishes. It never counts as
- *    the worker's failure; a redelivery, the 18:00 resend or the nightly re-check finishes it.
- */
-export async function applyThumbnail(
-  db: SurrealQueryable,
-  setThumbnail: (
-    video: string,
-    picture: string | null,
-    signal: AbortSignal,
-  ) => Promise<string>,
-  job: string,
-  video: string,
-  lock: ThumbnailLock,
-): Promise<ThumbnailOutcome> {
-  const callsEnd = lock.now() + lock.callMs;
-  const taken = await retryOnConflict(async () => {
-    const results = await runQuery(db, LOCK_SQL, {
-      job,
-      videoId: video,
-      lockFor: `${lock.lockMs}ms`,
-    });
-    return results[results.length - 2] as {
-      state: 'gone' | 'held' | 'locked';
-      until?: string;
-      picture?: string | null;
-    };
-  });
-  if (taken.state === 'gone') return 'closed';
-  if (taken.state === 'held') return 'retry';
-  const until = taken.until as string;
-  let picture = taken.picture ?? null;
-  for (;;) {
-    const thumb = await callWithin(callsEnd - lock.now(), (signal) =>
-      setThumbnail(video, picture, signal),
-    );
-    const r = await retryOnConflict(async () => {
-      const results = await runQuery(db, SETTLE_SQL, {
-        job,
-        videoId: video,
-        until,
-        mine: picture ?? undefined,
-        thumb,
-      });
-      return results[results.length - 2] as {
-        state: 'lost' | 'closed' | 'changed';
-        picture?: string | null;
-      };
-    });
-    if (r.state === 'lost') return 'retry';
-    if (r.state === 'closed') return 'closed';
-    picture = r.picture ?? null;
   }
 }
 

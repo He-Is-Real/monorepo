@@ -124,7 +124,9 @@ module "cluster" {
   # (Joel 2026-11-11, LT-1 and G18: dev only, no real users); data/0009 changed, so wiped again.
   # share-flow-tidy: a story's picture has no description any more (image.alt removed, Joel
   # 2026-11-14); wiped again, no migration.
-  dev_database_reset = "share-flow-tidy"
+  # picture-at-submit: a video's picture is set at Bunny when the story is sent, and the picture
+  # lock field is gone (Joel 2026-11-17, P1-13 A); wiped again, no migration.
+  dev_database_reset = "picture-at-submit"
   # D42: the automatic cluster plan's identity (modules/bootstrap), dry-run RBAC in `database`.
   cluster_planner_email = "tf-cluster-planner@heisreal-dev.iam.gserviceaccount.com"
 

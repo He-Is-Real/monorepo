@@ -160,45 +160,19 @@ An audio story is shown as a video of its picture (or the site's default wavefor
    ends the job. The check then works like any other, and the story is approvable once it is
    ready.
 
-A video's own picture (video-bundle-rethink part A; Joel, 2026-11-08, T3: one lock per video).
-When a check finds a video its story shows ready, the writer records the answer in one
-transaction and leaves a check job open (an open job keeps a moderator from approving,
-`media_still_processing`). If the delivered job had already ended (the queue delivered it again),
-it opens a check of the file first, with the job's reasons. Then:
+A video's own picture is set at Bunny by api-user when the story is sent, never by a job (Joel,
+2026-11-17, P1-13 A). In the submit request, after the picture check, api-user calls Bunny's "set
+thumbnail" with a signed link to the story's picture (or `thumbnail_1.jpg`, Bunny's own frame,
+when the person took their picture off), reads the video back, and once Bunny names a new
+thumbnail file records the picture as the video's `thumbnailOf`. Nothing goes to Bunny when
+`thumbnailOf` is already the story's picture. All of Bunny's calls get 20 seconds together. The
+writer's checks of the video never touch its picture.
 
-1. It takes the video's lock: `storyFile.thumbnailLockedUntil` = the database's now + 2 minutes,
-   only if it is empty or already past by the database's clock (the writer never sends a time of
-   its own). The exact value the database set is the holder's mark. If another writer holds it,
-   the answer is `{ retry: true }` (log `thumbnail: retry`): nothing is counted as a failure, and
-   the redelivery tries again. Approval waits while the lock is set at all (below).
-2. It reads the story's picture while holding the lock.
-3. It sets that picture with Bunny's "set thumbnail" call (or Bunny's own first frame,
-   `thumbnail_1.jpg`, when the story has no picture). Every call under one lock must finish within
-   20 seconds (on the writer's monotonic clock, counted from just before it asked for the lock),
-   or it is cut off. It does so on every ready check, so if Bunny was left
-   showing something else, the next check puts it right.
-4. In one transaction, only if the lock is still its own (the exact value the database set, and
-   not yet run out by the database's clock): if the story's picture is still the one it sent, it
-   records it (`thumbnailOf`, and Bunny's new `thumbnailPath`), empties the lock and closes the job
-   (`applied`); if the picture changed
-   meanwhile, it sends the new one first, still under the lock. If the lock ran out first, it
-   records nothing and answers `{ retry: true }`; the job stays open for a later delivery.
-
-If Bunny won't take the picture or is cut off, the writer answers `{ retry: true }` (log
-`thumbnail: <code>`): the job stays open and the lock is left to run out rather than cleared,
-because a call that failed or was cut off might still be applied at Bunny; the rest of the 2
-minutes is that margin. The lock's three states (Joel, 2026-11-09, T4 = A): empty = Bunny
-confirmed (approval may go ahead); in the future = a writer at work (approval waits, others
-retry); in the past = unfinished, Bunny may be wrong (approval still waits; the next writer takes
-it over). Only step 4's confirmed write empties it; a failure, a cut-off, the lock running out or
-the job giving up (5 failures) never does. The redelivery or the 18:00 resend finishes it; if the
-job has ended (gave up), the nightly housekeeping's `unfinished-pictures` chore opens a check of
-the video (reason `resent`) for the 18:00 resend to send. To find stuck ones by hand: storyFile
-rows with `thumbnailLockedUntil` set and in the past. The timings can be changed with
-`THUMBNAIL_LOCK_SECONDS` (default 120) and `THUMBNAIL_CALL_SECONDS` (default 20) on the workflow
-service; it refuses to start unless the lock is at least 100 seconds longer than the calls' time.
-The one thing assumed: Bunny never applies a "set thumbnail" request more than 100 seconds after
-we gave up on it.
+**Picture failed at submit** (api-user logs `Bunny didn’t take video <id>’s picture: …`): the
+story wasn't sent and the person saw "We couldn't add your picture. Please add it again, then
+submit." Nothing to put right: the person adds the picture again (or sends again) and the next
+submit tries Bunny again. If it keeps happening for everyone, check Bunny's status and that
+api-user can sign picture links (its `BUNNY_IMAGES_*` settings and the images token key).
 
 A render job's failure codes: `source_gone` / `source_not_ready` (Bunny no longer has the audio
 file, or hasn't finished it), `source_missing` (no MP4 copy in storage: is the library's MP4

@@ -61,6 +61,12 @@ class FakeStream implements BunnyStream {
   sign(videoId: string, now?: number) {
     return signUpload('42', 'library-key', videoId, now);
   }
+  /** Bunny names a new thumbnail file each time a picture is set. */
+  async setThumbnail(id: string): Promise<void> {
+    const v = this.videos.get(id);
+    if (!v) throw new Error('Bunny Stream set thumbnail answered 404');
+    v.thumbnailFileName = `thumbnail_${randomUUID().slice(0, 8)}.jpg`;
+  }
 }
 
 const SECRET_KEY = 'sk_test_fresh_pass_stand_in';

@@ -56,6 +56,9 @@ class FakeBunny implements BunnyStream {
   sign(videoId: string, now?: number) {
     return signUpload('42', 'library-key', videoId, now);
   }
+  async setThumbnail(): Promise<void> {
+    throw new Error('No video’s picture is set in these tests');
+  }
   readonly zone = {
     deleteFolder: async (folder: string) => {
       if (this.stalled) return NEVER;

@@ -337,60 +337,9 @@ describe('housekeeping: media jobs', () => {
     expect(await job(reencoded.job)).toBeDefined();
   });
 
-  it('the nightly run opens a check of each video whose picture at Bunny is unfinished (T4), and only those', async () => {
-    /** The result writer's lock on the video, until `delta` from now (SurrealQL). */
-    const lockUntil = (video: string, delta: string) =>
-      run(
-        migrator,
-        `UPDATE type::record('storyFile', $video) SET thumbnailLockedUntil = time::now() ${delta}`,
-        { video },
-      );
-    const openCheck = async (video: string) =>
-      (
-        await rows<{ id: string; reasons: string[] }>(
-          migrator,
-          `SELECT <string> record::id(id) AS id, reasons FROM mediaJob
-             WHERE file = type::record('storyFile', $video) AND kind = 'check'
-               AND doneAt = NONE`,
-          { video },
-        )
-      )[0];
-    // Unfinished: its check gave up, and the lock ran out.
-    const gaveUp = await openJob();
-    await ended(gaveUp.job, 'gave_up');
-    await lockUntil(gaveUp.video, '- 1h');
-    // A writer still at work (lock ahead), and one unfinished whose check is still open.
-    const atWork = await openJob();
-    await ended(atWork.job, 'gave_up');
-    await lockUntil(atWork.video, '+ 1m');
-    const stillOpen = await openJob();
-    await lockUntil(stillOpen.video, '- 1h');
-
-    await sweep(RUNS.nightly, { dryRun: true });
-    expect(lastLog('unfinished-pictures')).toMatchObject({
-      dryRun: true,
-      ids: [gaveUp.video],
-    });
-    expect(await openCheck(gaveUp.video)).toBeUndefined();
-
-    expect(await sweep(RUNS.nightly)).toBe(0);
-    expect(lastLog('unfinished-pictures')).toMatchObject({
-      selected: 1,
-      deleted: 1,
-      ids: [gaveUp.video],
-    });
-    // The 18:00 resend sends it; nothing is sent at night.
-    expect(await openCheck(gaveUp.video)).toMatchObject({
-      reasons: ['resent'],
-    });
-    expect(queue.sent).toEqual([]);
-    expect(await openCheck(atWork.video)).toBeUndefined();
-    expect(await openCheck(stillOpen.video)).toMatchObject({
-      id: stillOpen.job,
-      reasons: ['bunny_finished'],
-    });
-
-    // Housekeeping may open only that: a check with its own reason.
+  it('housekeeping may open only a check with its own reason (resent)', async () => {
+    const { job, video } = await openJob();
+    await ended(job, 'gave_up');
     for (const [kind, reason] of [
       ['check', 'bunny_finished'],
       ['render', 'resent'],
@@ -399,7 +348,7 @@ describe('housekeeping: media jobs', () => {
         rows(
           housekeeping,
           `RETURN fn::media::queue_job(type::record('storyFile', $video), $kind, $reason)`,
-          { video: atWork.video, kind, reason },
+          { video, kind, reason },
         ),
       ).rejects.toThrow();
     }
@@ -558,9 +507,9 @@ describe('housekeeping: media jobs', () => {
     ).toEqual([{ retry: false, ours: true }]);
   });
 
-  // P1-9 (Joel, 2026-11-14: "Retries must be capped"): the unfinished-picture re-check (T4) shares
-  // the 3 nightly retries; after them no chore opens a check, and the "our side" marker stays.
-  it('the whole nightly run opens no check after the 3 retries, even for an unfinished picture', async () => {
+  // P1-9 (Joel, 2026-11-14: "Retries must be capped"): after the 3 nightly retries no chore opens
+  // a check, and the "our side" marker stays.
+  it('the whole nightly run opens no check after the 3 retries', async () => {
     const admin = await t.service('api_admin');
     const openCheck = async (video: string) =>
       (
@@ -585,12 +534,6 @@ describe('housekeeping: media jobs', () => {
       { story: j.story },
     );
     await ended(j.job, 'gave_up');
-    // The result writer's lock ran out, unfinished: the T4 re-check would pick it every night.
-    await run(
-      migrator,
-      `UPDATE type::record('storyFile', $video) SET thumbnailLockedUntil = time::now() - 1h`,
-      { video: j.video },
-    );
 
     let checks = 0;
     for (let night = 1; night <= 6; night++) {

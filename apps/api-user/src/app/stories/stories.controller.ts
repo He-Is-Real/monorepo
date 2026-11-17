@@ -180,7 +180,7 @@ export class StoriesController {
     @Inject(STORY_MEDIA_BUDGET_MS) budgetMs: number,
   ) {
     this.service = service;
-    this.uploads = new Uploads(service, bunny, images);
+    this.uploads = new Uploads(service, bunny, images, urls);
     this.deletedMedia = {
       stream: bunny,
       folders: images,

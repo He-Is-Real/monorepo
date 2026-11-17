@@ -442,8 +442,7 @@ describe('result writer: the worker’s answers → the job’s file row and the
   // unusable and sends the story back. Bunny is a fake here: what matters is what's written.
   // Codex review r6 (P1-9, Joel, 2026-11-14: "Retries must be capped"): a queue copy delivered
   // late, after a waiting story's check and its 3 nightly retries gave up on our side, never
-  // opens a new check (for the story's picture at Bunny) or a render: "a problem on our side"
-  // stays.
+  // opens a render: "a problem on our side" stays.
   describe('a late redelivery after the nightly retries are used', () => {
     const openJobs = (video: string) =>
       rows<string>(
@@ -490,21 +489,6 @@ describe('result writer: the worker’s answers → the job’s file row and the
     let housekeeping: Surreal;
     beforeAll(async () => {
       housekeeping = await t.service('housekeeping');
-    });
-
-    it('a ready video: no new check for its picture at Bunny; the marker stays', async () => {
-      const { story, video, first } = await capped('video');
-      const result = await writeAnswer(
-        workflow,
-        first,
-        video,
-        ready(story),
-        next(),
-        true,
-      );
-      expect(result.thumbnail).toBeNull();
-      expect(await openJobs(video)).toEqual([]);
-      expect(await ours(video)).toBe(true);
     });
 
     it('a ready audio file: no render of its picture video', async () => {

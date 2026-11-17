@@ -216,28 +216,18 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 - A story is one of three types: **written** (text, with an optional picture), **video** (one
   video, with optional text) or **audio** (one audio file, with optional text). (D53)
 - A written story's picture, an audio story's picture and a video's own thumbnail can all be
-  uploaded. A video's own picture is sent to Bunny as its thumbnail once its check finds the
-  video ready, and again whenever the picture changes or is taken off (then Bunny shows its own
-  frame again); the story can't be approved until Bunny shows the picture it has now
-  (video-bundle-rethink part A, Joel 2026-11-06). The story page shows Bunny's player as before,
-  with no picture of our own over it (Joel, 2026-11-08, T2). Only one writer at a time may change
-  a video's picture at Bunny: it takes a lock on the video's record (for 2 minutes), reads the
-  story's picture, tells Bunny (giving up after 20 seconds), and records it, lets go and closes
-  the video's check only if the picture is still the one it sent (sending the new one first if it
-  changed). The database's clock judges the lock, never a writer's own. The lock has three states
-  (Joel, 2026-11-08, T3: "a lock field is fine"; 2026-11-09, T4: A):
-  - **empty**: Bunny confirmed the picture; approval may go ahead (if nothing else holds it);
-  - **in the future**: a writer is at work; approval waits and other writers try again later;
-  - **in the past but not emptied**: unfinished, Bunny may show another picture (Bunny refused,
-    was slow, or its reply was lost); approval still waits, and any later writer may take it over
-    and finish.
-    Only a write Bunny confirmed and the database recorded empties it; a failed or cut-off call, a
-    lock running out or the check giving up after 5 failures never does. The nightly housekeeping
-    opens a check of any video left unfinished with no check open, and the 18:00 resend sends it, so
-    it is retried rather than stuck. What people see: such a story's moderator gets "can't approve
-    yet: still processing" until a try succeeds; an Admin can still approve anyway, as with any
-    open job. So a picture the person removed can't go public through a moderator approving in
-    between.
+  uploaded. **A video's own picture is set at Bunny when the story is sent (Joel, 2026-11-17,
+  P1-13 A: "Dont use jobs for pictures"):** sending a video story (and sending it again after Edit)
+  tells Bunny to show the story's picture for the video, or, if the person took their picture off,
+  Bunny's own frame again, and reads the video back, all in the same request, after the picture's
+  own check. Nothing goes to Bunny when the picture is the one Bunny already shows. If Bunny
+  refuses, can't be reached, takes more than 20 seconds or doesn't show the new picture, the story
+  isn't sent: it stays as it was, and the person is told "We couldn't add your picture. Please add
+  it again, then submit." There is no retry in the background and no picture job. Once Bunny shows
+  it, the database records it on the video's record; the story can't be approved until Bunny
+  shows the picture it has now (video-bundle-rethink part A, Joel 2026-11-06). The video's own
+  checks never touch its picture. The story page shows Bunny's player as before, with no picture
+  of our own over it (Joel, 2026-11-08, T2).
 - **An audio story becomes a picture video (Joel, 2026-11-07, audio-picture-video.html):** once
   its audio file is ready at Bunny, the media worker makes a video of the story's picture (or,
   without one, the site's default waveform picture) in the picture's own shape, at most 1280 px
@@ -585,8 +575,7 @@ Built in the database (the decisions and their pages are planned, M3):
 - **Retries are capped (P1-3, P1-9, P1-10, Joel 2026-11-14):** a story's media jobs are kept while
   it waits for review or is off the site because the site took it off itself, so its give-ups keep
   counting and its 3 nightly retries never start again (the 30-day tidy-up skips them; they go
-  30 days after it is decided, shown again or deleted). The nightly re-check of an unfinished
-  picture (T4) shares those 3 retries. Once they are used, nothing opens another check or render
+  30 days after it is decided, shown again or deleted). Once they are used, nothing opens another check or render
   of that story's file: not a chore, not Bunny's notice, not a late copy of an answer from the
   queue, and not the owner sending the same file again after Edit (the database refuses every new
   job, in one place). "A problem on our side" stays on the moderators' list. A new file the owner

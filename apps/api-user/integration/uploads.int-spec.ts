@@ -16,7 +16,7 @@ import {
   TestDatabase,
 } from '@heisreal/database/integration-testing';
 import { SECRET_MANAGER_CLIENT, SECRETS_PROJECT } from '@heisreal/secrets';
-import { tusSignature } from '@heisreal/story-cards';
+import { MediaUrls, tusSignature } from '@heisreal/story-cards';
 import type { Surreal } from 'surrealdb';
 import { AppModule } from '../src/app/app.module';
 import {
@@ -41,13 +41,38 @@ import {
 class FakeStream implements BunnyStream {
   readonly videos = new Map<string, StreamVideo & { title: string }>();
   readonly deleted: string[] = [];
+  /** Every picture Bunny was told to show (set thumbnail), as `[video, source]`, in order. */
+  readonly thumbnails: [string, string][] = [];
+  /**
+   * How Bunny answers set thumbnail: takes the picture (a new thumbnail file, as on dev Bunny,
+   * 2026-11-17), refuses it, or answers OK but keeps showing the old one.
+   */
+  thumbnailMode: 'take' | 'refuse' | 'ignore' = 'take';
   async createVideo(title: string) {
     const id = randomUUID();
-    this.videos.set(id, { title, status: 0, length: 0, mp4Height: null });
+    this.videos.set(id, {
+      title,
+      status: 0,
+      length: 0,
+      mp4Height: null,
+      thumbnailFileName: 'thumbnail.jpg',
+    });
     return id;
   }
+  async setThumbnail(id: string, source: string) {
+    this.thumbnails.push([id, source]);
+    const v = this.videos.get(id);
+    if (!v || this.thumbnailMode === 'refuse') {
+      throw new Error('Bunny Stream set thumbnail answered 500');
+    }
+    if (this.thumbnailMode === 'take') {
+      v.thumbnailFileName = `thumbnail_${randomUUID().slice(0, 8)}.jpg`;
+    }
+  }
+  /** A copy, as Bunny's answer is: later changes at Bunny don't reach it. */
   async video(id: string) {
-    return this.videos.get(id) ?? null;
+    const v = this.videos.get(id);
+    return v ? { ...v } : null;
   }
   async deleteVideo(id: string) {
     this.videos.delete(id);
@@ -172,6 +197,31 @@ function webp({
   }
   return new Uint8Array(b);
 }
+
+/**
+ * Media links: off (every link null), as with no BUNNY_* settings, except while `signing.on`
+ * (the video picture tests: api-user gives Bunny a signed link to the picture at submit).
+ */
+const signing = { on: false };
+const signedUrls = new MediaUrls({
+  config: {
+    streamLibraryId: '42',
+    streamCdnHost: 'stream-test.b-cdn.net',
+    imagesCdnHost: 'images-test.b-cdn.net',
+    streamTokenKeySecret: 'bunny-stream-token-key',
+    imagesTokenKeySecret: 'bunny-images-token-key',
+  },
+  streamKey: 'stream-token-key',
+  imagesKey: 'images-token-key',
+});
+const unsignedUrls = new MediaUrls(null);
+const urls = new Proxy(unsignedUrls, {
+  get(_, prop) {
+    const target = signing.on ? signedUrls : unsignedUrls;
+    const value = Reflect.get(target, prop, target);
+    return typeof value === 'function' ? value.bind(target) : value;
+  },
+});
 
 describe('video and audio uploads', () => {
   const contract = new Contract('api-user.yaml');
@@ -310,6 +360,8 @@ describe('video and audio uploads', () => {
       .useValue(bunny)
       .overrideProvider(BUNNY_STORAGE)
       .useValue(images)
+      .overrideProvider(MediaUrls)
+      .useValue(urls)
       .compile();
     app = moduleRef.createNestApplication({ logger: false });
     await app.listen(0, '127.0.0.1');
@@ -1017,6 +1069,115 @@ describe('video and audio uploads', () => {
       });
       expect((await submit(who, id, back.body.version)).status, what).toBe(200);
     }
+  });
+
+  // Joel, 2026-11-17, P1-13 A: a video's picture is set at Bunny in the submit itself, never by a
+  // job; if Bunny doesn't take it, nothing is sent and the person adds it again.
+  describe('a video’s picture at submit', () => {
+    const PICTURE = {
+      format: 'image',
+      contentType: 'image/webp',
+      fileSizeBytes: 40_000,
+      width: 1200,
+      height: 900,
+    };
+    const PICTURE_FAILED = {
+      code: 'image_not_uploaded',
+      detail: 'We couldn’t add your picture. Please add it again, then submit.',
+    };
+    /** A video draft whose file arrived at Bunny, with a picture that passes its check. */
+    const videoWithPicture = async (who: string) => {
+      await person(who);
+      const id = await draft(who);
+      const video = (await upload(who, id, 1)).body.headers.VideoId as string;
+      bunny.arrived(video);
+      const granted = await upload(who, id, 2, {
+        ...PICTURE,
+        expectedImage: null,
+      });
+      expect(granted.status).toBe(200);
+      const path = granted.body.path as string;
+      zone.files.set(path, webp());
+      return { id, video, path, version: granted.body.version as number };
+    };
+    const thumbnailOf = async (video: string) =>
+      (
+        await rows(
+          migrator,
+          `SELECT VALUE IF thumbnailOf != NONE { record::id(thumbnailOf) }
+             FROM ONLY type::record('storyFile', $video)`,
+          { video },
+        )
+      )[0] ?? null;
+    const statusOf = async (who: string, id: string) =>
+      (await call('GET', `/v1/account/stories/${id}`, who)).body.status;
+    const calls = (video: string) =>
+      bunny.thumbnails.filter(([v]) => v === video).map(([, source]) => source);
+    beforeAll(() => {
+      signing.on = true;
+    });
+    afterAll(() => {
+      signing.on = false;
+    });
+
+    it('submit sets the story’s picture at Bunny and records it', async () => {
+      const { id, video, path, version } = await videoWithPicture('vic');
+      const sent = await submit('vic', id, version);
+      expect(sent.status).toBe(200);
+      // A signed link to the picture in the images zone, which Bunny fetches itself.
+      const [source] = calls(video);
+      const link = new URL(source);
+      expect(`${link.host}${link.pathname}`).toBe(
+        `images-test.b-cdn.net/${path}`,
+      );
+      expect(link.searchParams.get('token')).toMatch(/^HS256-/);
+      expect(await thumbnailOf(video)).toBe(path);
+      expect(await statusOf('vic', id)).toBe('pending');
+    });
+
+    it('Bunny not taking the picture keeps the draft and asks for the picture again', async () => {
+      const { id, video, version } = await videoWithPicture('wes');
+      for (const mode of ['refuse', 'ignore'] as const) {
+        bunny.thumbnailMode = mode;
+        const refused = await submit('wes', id, version);
+        expect(refused.status, mode).toBe(400);
+        expect(refused.body, mode).toMatchObject(PICTURE_FAILED);
+        expect(await thumbnailOf(video), mode).toBeNull();
+        expect(await statusOf('wes', id), mode).toBe('editing');
+      }
+      bunny.thumbnailMode = 'take';
+      // Added again (or just sent again): it goes through.
+      expect((await submit('wes', id, version)).status).toBe(200);
+    });
+
+    it('sending again after Edit with the same picture asks Bunny nothing; taking the picture off puts Bunny’s frame back', async () => {
+      const { id, video, version } = await videoWithPicture('xan');
+      expect((await submit('xan', id, version)).status).toBe(200);
+      expect(calls(video)).toHaveLength(1);
+
+      const edit = (v: number) =>
+        call('POST', `/v1/stories/${id}/edit`, 'xan', {
+          headers: { 'if-match': `"${v}"` },
+        });
+      const editing = await edit(version + 1);
+      expect(editing.status).toBe(200);
+      const resent = await submit('xan', id, editing.body.version);
+      expect(resent.status).toBe(200);
+      expect(calls(video)).toHaveLength(1);
+
+      const again = await edit(resent.body.version);
+      const removed = await call('PATCH', `/v1/stories/${id}`, 'xan', {
+        body: { image: null },
+        headers: {
+          'if-match': `"${again.body.version}"`,
+          'content-type': 'application/merge-patch+json',
+        },
+      });
+      expect(removed.status).toBe(200);
+      expect((await submit('xan', id, removed.body.version)).status).toBe(200);
+      expect(calls(video)).toEqual([expect.any(String), 'thumbnail_1.jpg']);
+      expect(await thumbnailOf(video)).toBeNull();
+    });
   });
 
   it('a written story takes no upload', async () => {

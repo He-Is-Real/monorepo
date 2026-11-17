@@ -308,17 +308,109 @@ describe('picture videos and the picture Bunny shows (1B, part A)', () => {
         ok: false,
         error: expect.stringContaining('a picture of its own story'),
       });
-      await run(
-        apiUser,
-        `UPDATE type::record('storyFile', $render) SET thumbnailOf = NONE`,
-        { render },
-      );
+      // api-user writes a person's own video's picture only (below), never a picture video's.
+      expect(
+        await outcome(
+          apiUser,
+          `UPDATE type::record('storyFile', $render) SET thumbnailOf = NONE`,
+          { render },
+        ),
+      ).toMatchObject({
+        ok: false,
+        error: expect.stringContaining('picture_set:'),
+      });
       expect(
         await truth(
           `SELECT VALUE thumbnailOf FROM ONLY type::record('storyFile', $render)`,
           { render },
         ),
       ).toEqual(before);
+    });
+
+    // Joel, 2026-11-17, P1-13 A: api-user sets a video's picture at Bunny when the story is sent
+    // and records it, on its own login.
+    it('api-user records a video’s picture only while its story is being edited, and only its current picture or none', async () => {
+      const id = `pv_${++n}`;
+      const video = randomUUID();
+      await draft(pat, id, { primaryFormat: 'video', body: undefined });
+      expect(
+        await grantUpload(apiUser, {
+          video,
+          story: id,
+          person: 'pat',
+          version: await versionOf(id),
+          format: 'video',
+        }),
+      ).toMatchObject({ ok: true });
+      const current = async () =>
+        (
+          await truth<string | null>(
+            `SELECT VALUE IF image != NONE { <string> record::id(image.file) }
+               FROM ONLY type::record('story', $id)`,
+            { id },
+          )
+        )[0] ?? null;
+      const picture = async () => {
+        expect(
+          await grantImage(apiUser, {
+            story: id,
+            person: 'pat',
+            version: await versionOf(id),
+            name: (++n).toString(16).padStart(32, '0'),
+            expectedImage: await current(),
+          }),
+        ).toMatchObject({ ok: true });
+        return (
+          await truth<string>(
+            `SELECT VALUE <string> record::id(image.file) FROM ONLY type::record('story', $id)`,
+            { id },
+          )
+        )[0];
+      };
+      const record = (path: string | null) =>
+        outcome(
+          apiUser,
+          `UPDATE type::record('storyFile', $video)
+             SET thumbnailOf = IF $path = NONE { NONE } ELSE { type::record('storyFile', $path) }`,
+          { video, path: path ?? undefined },
+        );
+      const recorded = async () =>
+        (
+          await truth<string | null>(
+            `SELECT VALUE IF thumbnailOf != NONE { <string> record::id(thumbnailOf) }
+               FROM ONLY type::record('storyFile', $video)`,
+            { video },
+          )
+        )[0] ?? null;
+      const refused = {
+        ok: false,
+        error: expect.stringContaining('picture_set:'),
+      };
+
+      const first = await picture();
+      expect(await record(first)).toMatchObject({ ok: true });
+      expect(await recorded()).toBe(first);
+      // A replaced picture is no longer the story's: refused.
+      const second = await picture();
+      expect(await record(null)).toMatchObject(refused);
+      expect(await record(second)).toMatchObject({ ok: true });
+      expect(await record(first)).toMatchObject(refused);
+      expect(await recorded()).toBe(second);
+      // Taken off: only NONE (Bunny's own frame) is the story's now.
+      await run(pat, `UPDATE type::record('story', $id) SET image = NONE`, {
+        id,
+      });
+      expect(await record(null)).toMatchObject({ ok: true });
+      expect(await recorded()).toBeNull();
+      expect(await record(second)).toMatchObject(refused);
+      expect(await recorded()).toBeNull();
+      // Once sent, the story isn't being edited: nothing more.
+      const third = await picture();
+      await processed(workflow, id);
+      expect(await submit(pat, id)).toHaveLength(1);
+      expect(await recorded()).toBe(third);
+      expect(await record(null)).toMatchObject(refused);
+      expect(await recorded()).toBe(third);
     });
   });
 

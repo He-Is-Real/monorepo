@@ -274,22 +274,20 @@ their fence (see "Transactions").
   - **Picture videos and pictures shown by Bunny (Joel 2026-11-06/07):** `renderOf` (read-only:
     the audio file a picture video was made from) and `thumbnailOf` (the picture Bunny shows for
     this video, or that this picture video was made with; only ever a picture of the same story,
-    `storyFile_render`). Only workflow writes either; both are private (not in the public read).
-    `fn::story::approval_problem` refuses a story whose file's `thumbnailOf` isn't its picture now
-    (`media_not_ready`). `thumbnailLockedUntil` (Joel 2026-11-08, T3): the lock a result writer
-    holds on a video's row while it changes the video's picture at Bunny, judged by the database's
-    clock; only workflow writes it, and housekeeping also reads it for the nightly re-check (T4);
-    no other login sees it. `fn::story::approval_wait` refuses a moderator's approval while it is
-    set at all (`media_still_processing`): in the future a writer is at work, in the past the
-    write is unfinished (Joel 2026-11-09, T4 = A). Only the writer's Bunny-confirmed write empties
-    it.
+    `storyFile_render`). Both are private (not in the public read). Only workflow writes
+    `renderOf`, and `thumbnailOf` of a picture video. api-user writes a video's `thumbnailOf` when
+    the story is sent, once Bunny shows the picture (Joel 2026-11-17, P1-13 A): only the current
+    picture of the video a story being edited shows now, or NONE for none (`storyFile_update`,
+    `picture_set:`). `fn::story::approval_problem` refuses a story whose file's `thumbnailOf`
+    isn't its picture now (`media_not_ready`).
   - **Update:** workflow the processing fields (`width`, `height`, `lengthSeconds`,
     `thumbnailPath`, `processing`) and `checkedAt` (when the newest answer applied reached the result
     writer; it applies only later ones, in the same transaction, Joel 2026-11-07, F1; read like `processing`); api-user `renewedAt` (server time, through `fn::upload::renew`,
     which refuses unless the story still exists, is the person's, is editable and shows that file:
     `nothing_to_resume:`); api-user a picture's `processing`, only as the picture check at submit
     (Joel 2026-10-30, R3 = A): only to `ready`, only on a picture not marked yet, and only the one a
-    draft (or story sent back for changes) shows now (`storyFile_update`, `picture_check:`); events `detachedAt`; housekeeping `removedAt` (once, not before
+    draft (or story sent back for changes) shows now (`storyFile_update`, `picture_check:`);
+    api-user a video's `thumbnailOf` (above); events `detachedAt`; housekeeping `removedAt` (once, not before
     `fn::upload::links_expire_after()`, 2 h: `file_not_removable`). Housekeeping deletes the file
     at Bunny or in the images zone first (a 404 counts as done, so a placeholder's made-up id is
     fine); a picture outside the stories' folders (dev-seed's fixed pictures, which every reset
@@ -324,8 +322,8 @@ their fence (see "Transactions").
   writes it, only api-admin reads it). No person's session or the public reads a job; api-admin
   reads them for the moderators' list's "a problem on our side" (`fn::media::our_problem`).
   **Create:** api-user and
-  workflow, and housekeeping only a `check` with the reason `resent` (the nightly re-check of a
-  video whose picture at Bunny is unfinished; Joel 2026-11-09, T4), through `fn::media::queue_job`, which adds a reason to the file's open job of that
+  workflow, and housekeeping only a `check` with the reason `resent` (the nightly retry of a
+  waiting story's file after our own give-up, Part 1a), through `fn::media::queue_job`, which adds a reason to the file's open job of that
   kind instead (the `mediaJob_rules` event refuses a second open one). The same event (elevated,
   since workflow and api-user can't read a waiting story's status) takes a new job away at once
   when its file's story is waiting for review or off the site because the site took it off, and

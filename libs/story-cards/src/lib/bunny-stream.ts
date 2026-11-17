@@ -41,6 +41,12 @@ export interface StreamVideo {
    * encode. Bunny makes one per encoded resolution, up to 1080p.
    */
   mp4Height: number | null;
+  /**
+   * The file name of the picture Bunny shows for it now (`thumbnailFileName`: `thumbnail.jpg`, or
+   * a new `thumbnail_<random>.jpg` each time a picture is set), or null if Bunny names none or
+   * something that isn't a plain file name.
+   */
+  thumbnailFileName?: string | null;
 }
 
 /** What RequestUpload returns for the browser's TUS client: the contract's `UploadTarget` bits. */
@@ -59,12 +65,19 @@ export interface SignedUpload {
 export interface BunnyStream {
   /** Creates an empty video titled `title` (the story id only, D69); answers its id. */
   createVideo(title: string): Promise<string>;
-  /** The video, or null if Bunny has none with that id. */
-  video(id: string): Promise<StreamVideo | null>;
+  /** The video, or null if Bunny has none with that id. Once `signal` aborts, it is cut off. */
+  video(id: string, signal?: AbortSignal): Promise<StreamVideo | null>;
   /** Deletes it; a video that's already gone is fine. */
   deleteVideo(id: string): Promise<void>;
   /** A TUS upload link for that video only, valid for UPLOAD_LINK_SECONDS. */
   sign(videoId: string, now?: number): SignedUpload;
+  /**
+   * Tells Bunny which picture to show for the video (Bunny's "Set Thumbnail"): `source` is a link
+   * Bunny fetches the picture from, or the name of one of its own frames (`thumbnail_1.jpg`).
+   * Bunny answers once the picture is saved. Throws if Bunny refuses or doesn't answer; once
+   * `signal` aborts, the call is cut off.
+   */
+  setThumbnail(id: string, source: string, signal?: AbortSignal): Promise<void>;
 }
 
 const LIBRARY = /^[0-9]{1,12}$/;
@@ -72,6 +85,8 @@ const SECRET = /^[A-Za-z0-9_-]{1,255}$/;
 /** Bunny's video ids are GUIDs; anything else never reaches a URL. */
 export const VIDEO_ID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** One path segment at Bunny, e.g. `thumbnail_1a2b3c4d.jpg` (fn::media::safe_segment). */
+const FILE_NAME = /^[A-Za-z0-9._-]{1,200}$/;
 
 export class BunnyStreamApi implements BunnyStream {
   constructor(
@@ -80,7 +95,13 @@ export class BunnyStreamApi implements BunnyStream {
     private readonly fetcher: typeof fetch = fetch,
   ) {}
 
-  private async call(method: string, path: string, body?: unknown) {
+  private async call(
+    method: string,
+    path: string,
+    body?: unknown,
+    signal?: AbortSignal,
+  ) {
+    const timeout = AbortSignal.timeout(TIMEOUT_MS);
     const res = await this.fetcher(
       `${API}/library/${this.libraryId}/videos${path}`,
       {
@@ -93,7 +114,7 @@ export class BunnyStreamApi implements BunnyStream {
         body: body ? JSON.stringify(body) : undefined,
         // The library key goes to Bunny's API only, never on to wherever a redirect points.
         redirect: 'error',
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
       },
     );
     return res;
@@ -109,9 +130,9 @@ export class BunnyStreamApi implements BunnyStream {
     return guid;
   }
 
-  async video(id: string): Promise<StreamVideo | null> {
+  async video(id: string, signal?: AbortSignal): Promise<StreamVideo | null> {
     if (!VIDEO_ID.test(id)) return null;
-    const res = await this.call('GET', `/${id}`);
+    const res = await this.call('GET', `/${id}`, undefined, signal);
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`Bunny Stream get answered ${res.status}`);
     const v = (await res.json()) as {
@@ -119,12 +140,19 @@ export class BunnyStreamApi implements BunnyStream {
       length?: unknown;
       hasMP4Fallback?: unknown;
       availableResolutions?: unknown;
+      thumbnailFileName?: unknown;
     };
     return {
       status: typeof v.status === 'number' ? v.status : -1,
       length: typeof v.length === 'number' ? v.length : 0,
       mp4Height:
         v.hasMP4Fallback === true ? largestMp4(v.availableResolutions) : null,
+      thumbnailFileName:
+        typeof v.thumbnailFileName === 'string' &&
+        FILE_NAME.test(v.thumbnailFileName) &&
+        !/^[.]+$/.test(v.thumbnailFileName)
+          ? v.thumbnailFileName
+          : null,
     };
   }
 
@@ -138,6 +166,23 @@ export class BunnyStreamApi implements BunnyStream {
 
   sign(videoId: string, now = Date.now()): SignedUpload {
     return signUpload(this.libraryId, this.key, videoId, now);
+  }
+
+  async setThumbnail(
+    id: string,
+    source: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (!VIDEO_ID.test(id)) throw new Error('Not a Bunny video id');
+    const res = await this.call(
+      'POST',
+      `/${id}/thumbnail?thumbnailUrl=${encodeURIComponent(source)}`,
+      undefined,
+      signal,
+    );
+    if (!res.ok) {
+      throw new Error(`Bunny Stream set thumbnail answered ${res.status}`);
+    }
   }
 }
 

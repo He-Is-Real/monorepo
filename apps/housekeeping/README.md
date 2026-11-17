@@ -55,19 +55,15 @@ oldest first; the rest wait for the next run. One chore failing doesn't stop the
 8. **`old-file-rows`**: deletes file records that no longer count towards the 7-day upload limits
    and whose file is removed or whose story is gone. Their media jobs go with them. No file is
    deleted here.
-9. **`unfinished-pictures`**: opens a check job (reason `resent`) for each video whose picture at
-   Bunny is unfinished: the result writer's lock on it ran out without Bunny confirming the
-   picture, and no check of it is open (the last one gave up, say). Approval waits until it is
-   finished (Joel, 2026-11-09, T4). It sends nothing: the 18:00 resend sends the job that evening.
-10. **`media-retry`** (Part 1a, Joel 2026-11-10): opens a check job (reason `resent`) of the file
-    of each story waiting for review, or taken off the site by the system (a `hiddenBySystem`
-    entry, P1-5 and P1-8, Joel 2026-11-14; never one a moderator hid), whose newest media job gave
-    up on our side (never Bunny's final failure: that story went back to its owner) and has none
-    open, while the file has given up at most 3 times (`fn::media::our_problem`): a new check on
-    up to 3 nights. After that the moderators' list shows "a problem on our side" (a story off the
-    site stays off, and is never deleted automatically: P1-9). It sends nothing: the 18:00 resend
-    sends the job that evening.
-11. **`old-media-jobs`**: deletes media jobs 30 days after they ended, except those
+9. **`media-retry`** (Part 1a, Joel 2026-11-10): opens a check job (reason `resent`) of the file
+   of each story waiting for review, or taken off the site by the system (a `hiddenBySystem`
+   entry, P1-5 and P1-8, Joel 2026-11-14; never one a moderator hid), whose newest media job gave
+   up on our side (never Bunny's final failure: that story went back to its owner) and has none
+   open, while the file has given up at most 3 times (`fn::media::our_problem`): a new check on
+   up to 3 nights. After that the moderators' list shows "a problem on our side" (a story off the
+   site stays off, and is never deleted automatically: P1-9). It sends nothing: the 18:00 resend
+   sends the job that evening.
+10. **`old-media-jobs`**: deletes media jobs 30 days after they ended, except those
     `fn::media::job_kept` keeps: every job of a story waiting for review or taken off the site by
     the system (P1-3, P1-9, Joel 2026-11-14: they go 30 days after it is decided, shown again or
     deleted, so its give-ups keep counting and its retries never start again), and the check that
