@@ -492,9 +492,19 @@ function EditVersion({
             >
               New text (version {next}) · Markdown
             </label>
-            <details className="mb-2 text-sm text-secondary-text">
-              <summary className="inline-flex min-h-11 cursor-pointer items-center font-medium text-foreground">
+            <details className="group mb-2 text-sm text-secondary-text">
+              {/* A down arrow that turns up when open, in link colour, so it reads as something to
+                  click (Joel, 2026-11-17). */}
+              <summary className="inline-flex min-h-11 cursor-pointer list-none items-center gap-2 font-medium text-link hover:text-link-hover [&::-webkit-details-marker]:hidden">
                 How to format it
+                <svg
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  className="size-4 shrink-0 fill-none stroke-current transition-transform group-open:rotate-180"
+                  strokeWidth="2"
+                >
+                  <path d="M6 9l6 6 6-6" />
+                </svg>
               </summary>
               <dl
                 className="mt-2 grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-[auto_1fr]"
