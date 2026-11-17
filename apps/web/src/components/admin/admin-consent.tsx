@@ -6,6 +6,7 @@ import {
   useDeferredValue,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -58,6 +59,56 @@ const CHEAT_SHEET: [string, string][] = [
     'A table: a header row, a line of dashes, then rows',
   ],
 ];
+
+/** From this width (tablets and up) the text box is as tall as its text (Joel, 2026-11-17). */
+const FULL_HEIGHT = '(min-width: 768px)';
+
+/**
+ * Tablets and desktops: makes the text box as tall as its whole text, so it never scrolls inside
+ * (the page does), at least its 20 rows. Phones keep the 20 rows and scroll inside. Measures
+ * scrollHeight (not CSS field-sizing, which Safari lacks) on every change of the text, of the
+ * box's width (resize, rotation) and of the screen band, keeping the page where it was.
+ */
+function useFullHeight(
+  box: React.RefObject<HTMLTextAreaElement | null>,
+  text: string,
+) {
+  const fit = useCallback(() => {
+    const el = box.current;
+    if (!el) return;
+    if (!window.matchMedia(FULL_HEIGHT).matches) {
+      el.style.height = '';
+      return;
+    }
+    const { scrollX, scrollY } = window;
+    el.style.height = 'auto'; // its 20 rows: the minimum
+    const border = el.offsetHeight - el.clientHeight;
+    el.style.height = `${el.scrollHeight + border}px`;
+    if (window.scrollY !== scrollY) window.scrollTo(scrollX, scrollY);
+  }, [box]);
+
+  useLayoutEffect(fit, [fit, text]);
+
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const media = window.matchMedia(FULL_HEIGHT);
+    media.addEventListener('change', fit);
+    let width = el.clientWidth;
+    const observer = new ResizeObserver(() => {
+      // Only a new width rewraps the text; fit's own height change is ignored.
+      if (el.clientWidth === width) return;
+      width = el.clientWidth;
+      fit();
+    });
+    observer.observe(el);
+    void document.fonts?.ready.then(fit);
+    return () => {
+      media.removeEventListener('change', fit);
+      observer.disconnect();
+    };
+  }, [box, fit]);
+}
 
 /** Who sees the new version's redline, said under the button (8b P6). */
 const WHO_SEES: Partial<Record<LegalDocumentName, (n: number) => string>> = {
@@ -257,6 +308,8 @@ function EditVersion({
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const alert = useRef<HTMLDivElement>(null);
   const confirm = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLTextAreaElement>(null);
+  useFullHeight(box, text);
   const content = text.replace(/\r\n?/g, '\n');
   const whoSees = WHO_SEES[document]?.(current.version);
 
@@ -376,6 +429,7 @@ function EditVersion({
               <p className="mt-2">Leave a blank line between paragraphs.</p>
             </details>
             <textarea
+              ref={box}
               id={`${id}-text`}
               value={text}
               rows={20}

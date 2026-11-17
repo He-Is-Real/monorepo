@@ -180,6 +180,9 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   once, and records which admin published it. On desktop (1280 px and wider) the page is twice
   the standard content width, so the text box and the preview side by side each get up to the
   standard width; phones and tablets keep the standard column (Joel, 2026-11-14).
+  From 768 px wide (tablets and desktops) the text box grows to its whole text, so it never
+  scrolls inside and the page scrolls instead; phones keep a 20-line box that scrolls inside
+  (Joel, 2026-11-17).
 - **Withdrawing:** deleting the account withdraws everything; deleting a story withdraws it for
   that story, and taking it down to edit stops its use until it is approved again. There is no
   other withdrawal.
