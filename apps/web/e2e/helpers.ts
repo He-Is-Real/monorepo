@@ -209,3 +209,24 @@ export async function fetchesTakenIn(page: Page) {
       ),
   );
 }
+
+/**
+ * The box is focused and nothing (a sticky bar) covers it: the element at its centre is the
+ * box itself (Codex review of #237).
+ */
+export async function expectFocusedAndUncovered(box: Locator) {
+  await expect(box).toBeFocused();
+  await expect
+    .poll(() =>
+      box.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return (
+          document.elementFromPoint(
+            r.left + r.width / 2,
+            r.top + r.height / 2,
+          ) === el
+        );
+      }),
+    )
+    .toBe(true);
+}

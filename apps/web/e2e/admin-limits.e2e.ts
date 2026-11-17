@@ -1,7 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { expect, type Page, test } from '@playwright/test';
 import { BEHAVIOUR_DEVICES } from './devices';
-import { expectAllTargets, expectNoHorizontalOverflow } from './helpers';
+import {
+  expectAllTargets,
+  expectFocusedAndUncovered,
+  expectNoHorizontalOverflow,
+} from './helpers';
 import { WEB_SIGNED_IN_URL } from './servers';
 
 // /admin/limits (W3, D94, D112, D113): an admin sees the limits in force in plain words with
@@ -60,8 +64,11 @@ test('/admin/limits fits with 44 px targets, and its save bar and confirmation f
   await expect(video).toHaveValue('4096');
   await video.fill('2048');
   await showGroup(page, 'How often');
-  await page.getByLabel('Stories one person can send for review').fill('2');
+  const weekly = page.getByLabel('Stories one person can send for review');
+  await weekly.fill('2');
   await expect(saveBar(page)).toContainText('2 changes not saved yet');
+  // The box being typed in stays visible above the save bar (Codex review of #237).
+  await expectFocusedAndUncovered(weekly);
   await expectNoHorizontalOverflow(page);
   await expectAllTargets(page);
   await saveButton(page).click();

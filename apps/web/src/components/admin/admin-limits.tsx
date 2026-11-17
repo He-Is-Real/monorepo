@@ -1,6 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import {
   AdminAccess,
   problemText,
@@ -603,55 +610,150 @@ function LimitsForm({
         )}
 
         {edited.length > 0 && status.kind !== 'confirm' && (
-          <div
-            role="region"
-            aria-label="Unsaved changes"
-            data-save-bar=""
-            className="sticky bottom-0 z-20 border-t border-border bg-background/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur sm:rounded-t-2xl sm:border-x"
-          >
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <div className="min-w-0 flex-1 text-sm [overflow-wrap:anywhere]">
-                <p className="font-semibold text-foreground">
-                  {edited.length === 1
-                    ? '1 change not saved yet'
-                    : `${edited.length} changes not saved yet`}
-                </p>
-                <ul
-                  // Scrolls when long, so keyboard users can reach it too.
-                  tabIndex={0}
-                  aria-label="Changes not saved yet"
-                  className="max-h-16 overflow-y-auto text-secondary-text focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none sm:max-h-24"
-                >
-                  {edited.map(({ field, label, unit }) => (
-                    <li key={field}>
-                      {label}: {typed(start[field])} → {typed(text[field])}{' '}
-                      {unit}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div className="flex flex-wrap gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="min-h-11 flex-1 sm:flex-none"
-                  disabled={status.kind === 'busy'}
-                  onClick={undo}
-                >
-                  Undo
-                </Button>
-                <Button
-                  type="submit"
-                  className="min-h-11 flex-1 sm:flex-none"
-                  disabled={status.kind === 'busy' || status.kind === 'stale'}
-                >
-                  {status.kind === 'busy' ? 'Saving…' : 'Save'}
-                </Button>
-              </div>
-            </div>
-          </div>
+          <SaveBar
+            changes={edited.map(({ field, label, unit }) => ({
+              field,
+              text: `${label}: ${typed(start[field])} → ${typed(text[field])} ${unit}`,
+            }))}
+            busy={status.kind === 'busy'}
+            stale={status.kind === 'stale'}
+            onUndo={undo}
+          />
         )}
       </form>
     </section>
+  );
+}
+
+/** The tallest share of the screen the save bar may take with its list of changes shown. */
+const BAR_SHARE = 0.35;
+
+/**
+ * The sticky save bar (SL-1 C): what changed, with Undo and Save. When the list of changes
+ * wouldn't fit comfortably (small or short screens, large text) it folds behind a "Show
+ * changes" button, and the page keeps the focused box above the bar (Codex review of #237).
+ */
+function SaveBar({
+  changes,
+  busy,
+  stale,
+  onUndo,
+}: {
+  changes: { field: Field; text: string }[];
+  busy: boolean;
+  stale: boolean;
+  onUndo: () => void;
+}) {
+  const id = useId();
+  const bar = useRef<HTMLDivElement>(null);
+  const top = useRef<HTMLDivElement>(null);
+  /** Whether the bar with its list shown fits in its share of the screen. */
+  const [fits, setFits] = useState(true);
+  const [open, setOpen] = useState(false);
+  const shown = fits || open;
+
+  useLayoutEffect(() => {
+    const el = bar.current;
+    if (!el) return;
+    const root = document.documentElement;
+    const measure = () => {
+      const rem = parseFloat(getComputedStyle(root).fontSize);
+      const cs = getComputedStyle(el);
+      const padding =
+        parseFloat(cs.paddingTop) +
+        parseFloat(cs.paddingBottom) +
+        parseFloat(cs.borderTopWidth);
+      // The list is capped at 6 rem (plus its 0.5 rem gap), so this is the bar at its tallest.
+      const tallest = (top.current?.offsetHeight ?? 0) + padding + 6.5 * rem;
+      setFits(tallest <= window.innerHeight * BAR_SHARE);
+      // Scrolling (focus, scrollIntoView) keeps clear of the bar.
+      const height = el.offsetHeight;
+      root.style.scrollPaddingBottom = `${height}px`;
+      uncover();
+    };
+    /** The box being typed in stays visible above the bar as it appears, grows or moves. */
+    const uncover = () => {
+      const active = document.activeElement;
+      if (
+        active instanceof HTMLElement &&
+        active !== document.body &&
+        !el.contains(active) &&
+        active.getBoundingClientRect().bottom > el.getBoundingClientRect().top
+      )
+        active.scrollIntoView({ block: 'nearest' });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    window.addEventListener('resize', measure);
+    document.addEventListener('focusin', uncover);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', measure);
+      document.removeEventListener('focusin', uncover);
+      root.style.scrollPaddingBottom = '';
+    };
+  }, []);
+
+  return (
+    <div
+      ref={bar}
+      role="region"
+      aria-label="Unsaved changes"
+      data-save-bar=""
+      className="sticky bottom-0 z-20 border-t border-border bg-background/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur sm:rounded-t-2xl sm:border-x"
+    >
+      <div ref={top} className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <p className="min-w-0 flex-1 basis-40 text-sm font-semibold text-foreground [overflow-wrap:anywhere]">
+          {changes.length === 1
+            ? '1 change not saved yet'
+            : `${changes.length} changes not saved yet`}
+          {!fits && (
+            <>
+              {' '}
+              <button
+                type="button"
+                aria-expanded={open}
+                aria-controls={`${id}-changes`}
+                onClick={() => setOpen((o) => !o)}
+                className="inline-flex min-h-11 items-center rounded-md px-1 font-normal text-primary underline underline-offset-4 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+              >
+                {open ? 'Hide changes' : 'Show changes'}
+              </button>
+            </>
+          )}
+        </p>
+        <div className="flex min-w-0 flex-1 flex-wrap gap-3 sm:flex-none">
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-11 flex-1 sm:flex-none"
+            disabled={busy}
+            onClick={onUndo}
+          >
+            Undo
+          </Button>
+          <Button
+            type="submit"
+            className="min-h-11 flex-1 sm:flex-none"
+            disabled={busy || stale}
+          >
+            {busy ? 'Saving…' : 'Save'}
+          </Button>
+        </div>
+      </div>
+      <ul
+        id={`${id}-changes`}
+        hidden={!shown}
+        // Scrolls when long, so keyboard users can reach it too.
+        tabIndex={0}
+        aria-label="Changes not saved yet"
+        className="mt-2 max-h-24 overflow-y-auto text-sm text-secondary-text [overflow-wrap:anywhere] focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+      >
+        {changes.map(({ field, text }) => (
+          <li key={field}>{text}</li>
+        ))}
+      </ul>
+    </div>
   );
 }

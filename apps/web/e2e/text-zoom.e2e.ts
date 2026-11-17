@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
-import { enlargeText as enlarge, expectNoHorizontalOverflow } from './helpers';
+import {
+  enlargeText as enlarge,
+  expectFocusedAndUncovered,
+  expectNoHorizontalOverflow,
+} from './helpers';
 import { STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 
 // T7 (WCAG 1.4.4): with text at 200% on the smallest phone, every page still fits without
@@ -97,21 +101,34 @@ test('200% text: /admin/limits with its save bar and confirmation fits on a 320 
     `admin-text-zoom-limits-${randomUUID()}`,
   );
   await page.goto(`${WEB_SIGNED_IN_URL}/admin/limits`);
+  // The box being typed in stays visible above the save bar as it appears (Codex review of
+  // #237): the bar keeps to one line with its list of changes folded away.
+  const longest = page.getByLabel('Longest story');
+  await longest.fill('12000');
+  const bar = page.locator('[data-save-bar]');
+  await expect(bar).toContainText('1 change not saved yet');
+  await expectFocusedAndUncovered(longest);
   // SL-1 C: one group at a time, from the "Group" drop-down on a phone.
   const group = page.getByLabel('Group', { exact: true });
   await group.selectOption({ label: 'Video and audio' });
   await page.getByLabel('Largest video file').fill('10240');
   await group.selectOption({ label: 'How often' });
-  await page.getByLabel('Upload attempts one person can start').fill('10000');
-  // The save bar, listing both changes, fits too.
-  await expect(page.locator('[data-save-bar]')).toContainText(
-    '2 changes not saved yet',
-  );
+  const uploads = page.getByLabel('Upload attempts one person can start');
+  await uploads.fill('10000');
+  await expect(bar).toContainText('3 changes not saved yet');
+  await expectFocusedAndUncovered(uploads);
+  // The list of changes opens from its button, and fits too.
+  const list = bar.getByRole('list', { name: 'Changes not saved yet' });
+  await expect(list).toBeHidden();
+  const show = bar.getByRole('button', { name: 'Show changes' });
+  await expect(show).toHaveAttribute('aria-expanded', 'false');
+  await show.click();
+  await expect(
+    bar.getByRole('button', { name: 'Hide changes' }),
+  ).toHaveAttribute('aria-expanded', 'true');
+  await expect(list).toContainText('Longest story: 10,000 → 12,000 characters');
   await expectNoHorizontalOverflow(page);
-  await page
-    .locator('[data-save-bar]')
-    .getByRole('button', { name: 'Save', exact: true })
-    .click();
+  await bar.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('alertdialog')).toBeVisible();
   await expectNoHorizontalOverflow(page);
 });
