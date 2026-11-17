@@ -277,6 +277,10 @@ test.describe('behaviour', () => {
       page.getByRole('listbox').getByRole('option', { name: 'All formats' }),
     ).toBeFocused();
     await page.keyboard.press('ArrowDown');
+    // The highlight moves a moment after the key (Radix); Enter picks what is highlighted.
+    await expect(
+      page.getByRole('listbox').getByRole('option', { name: 'Video' }),
+    ).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(page).toHaveURL(/\/stories\?.*format=video/);
     await expect(page.getByText('Video stories')).toBeVisible();

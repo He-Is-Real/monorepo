@@ -129,6 +129,10 @@ test.describe('the Group drop-down on a computer', () => {
       list.getByRole('option', { name: 'Video and audio' }),
     ).toBeFocused();
     await page.keyboard.press('ArrowDown');
+    // The highlight moves a moment after the key (Radix); Enter picks what is highlighted.
+    await expect(
+      list.getByRole('option', { name: 'Deleting old stories' }),
+    ).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(list).toHaveCount(0);
     await expect(
