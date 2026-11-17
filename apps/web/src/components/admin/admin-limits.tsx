@@ -505,7 +505,7 @@ function LimitsForm({
                               )
                                 setStatus({ kind: 'idle' });
                             }}
-                            className={`min-h-11 w-32 rounded-lg border border-input bg-input-background px-3 py-2 text-right text-foreground tabular-nums focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive @lg:w-full ${
+                            className={`min-h-11 w-32 max-w-full min-w-0 rounded-lg border border-input bg-input-background px-3 py-2 text-right text-foreground tabular-nums focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive @lg:w-full ${
                               changed
                                 ? 'outline-2 outline-offset-0 outline-primary outline-solid'
                                 : 'focus-visible:outline-none'
@@ -630,7 +630,7 @@ function LimitsForm({
                   ))}
                 </ul>
               </div>
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3">
                 <Button
                   type="button"
                   variant="outline"

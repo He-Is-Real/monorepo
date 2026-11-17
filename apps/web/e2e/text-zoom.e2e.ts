@@ -87,7 +87,7 @@ for (const path of PAGES) {
   });
 }
 
-test('200% text: /admin/limits with its confirmation fits on a 320 px phone', async ({
+test('200% text: /admin/limits with its save bar and confirmation fits on a 320 px phone', async ({
   page,
 }) => {
   await enlarge(page);
@@ -97,9 +97,21 @@ test('200% text: /admin/limits with its confirmation fits on a 320 px phone', as
     `admin-text-zoom-limits-${randomUUID()}`,
   );
   await page.goto(`${WEB_SIGNED_IN_URL}/admin/limits`);
+  // SL-1 C: one group at a time, from the "Group" drop-down on a phone.
+  const group = page.getByLabel('Group', { exact: true });
+  await group.selectOption({ label: 'Video and audio' });
   await page.getByLabel('Largest video file').fill('10240');
+  await group.selectOption({ label: 'How often' });
   await page.getByLabel('Upload attempts one person can start').fill('10000');
-  await page.getByRole('button', { name: 'Save' }).click();
+  // The save bar, listing both changes, fits too.
+  await expect(page.locator('[data-save-bar]')).toContainText(
+    '2 changes not saved yet',
+  );
+  await expectNoHorizontalOverflow(page);
+  await page
+    .locator('[data-save-bar]')
+    .getByRole('button', { name: 'Save', exact: true })
+    .click();
   await expect(page.getByRole('alertdialog')).toBeVisible();
   await expectNoHorizontalOverflow(page);
 });
