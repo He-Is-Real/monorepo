@@ -183,6 +183,10 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   From 768 px wide (tablets and desktops) the text box grows to its whole text, so it never
   scrolls inside and the page scrolls instead; phones keep a 20-line box that scrolls inside
   (Joel, 2026-11-17).
+  The texts are picked with underlined tabs, each giving its current version and the date it came
+  into force ("v0 · 14 Nov"): one row from 768 px, two rows of two on phones. The chosen text is in
+  the page's address (`?text=privacy-notice`), so a link opens it and Back returns to the one
+  before (CS-1 C4, Joel 2026-11-17).
 - **Withdrawing:** deleting the account withdraws everything; deleting a story withdraws it for
   that story, and taking it down to edit stops its use until it is approved again. There is no
   other withdrawal.
