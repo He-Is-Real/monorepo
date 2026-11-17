@@ -77,7 +77,8 @@ Everything is built. Two small steps are left.
 - ✅ Nightly clean-up of abandoned drafts and leftover files
 - ✅ Videos and audio checked automatically once Bunny has processed them
 - ✅ An audio story becomes a video of its picture
-- ⏸ Joel connects his PC to the video checker once (it then signs itself in for good)
+- ⏸ Joel connects his PC to the video checker (it then renews its own sign-in while it runs; after
+  more than a day switched off, Joel connects it again)
 - ⚪ A final "try it all" walk-through on dev, then M2 is closed
 
 ## M3 Moderation 🟡
@@ -99,7 +100,8 @@ Kept basic for now. Joel will decide later how stories are shared out between mo
 - ✅ A deleted story's pictures go straight away
 - ✅ A video that can't be used is sent back to its owner to replace
 - ✅ Logs in one standard format
-- 🟡 Video pictures without background jobs: being measured first (Joel's question P1-13)
+- ⏸ Joel's question P1-13: a published video's picture is still re-checked every night with no
+  limit. Joel suggested dropping background jobs for pictures; Bunny's speed is being measured first
 - ⏸ Joel answers SF-2: what "Review and submit" says when the page can't tell if a video arrived
 - ⚪ Final docs and a demo walk-through on dev
 - ⚪ Two-step sign-in for staff: deferred until we're happy to pay for it
@@ -128,7 +130,8 @@ Kept basic for now. Joel will decide later how stories are shared out between mo
 Bring in the 24 existing testimonies. Before that:
 
 - ⚪ The consent, terms and privacy texts are checked and published for real
-- ⚪ Video links expire within about an hour, and deleting an account cuts them off
+- ⚪ Video, audio and picture links expire within about an hour, and deleting an account cuts them
+  off ("Download my data" keeps its 7-day links)
 - ⚪ Joel decides how the 24 storytellers' agreement is recorded
 - ⚪ The temporary database build is replaced by the official release
 - ⚪ The automatic planning account stops reading dev's logs
@@ -156,5 +159,7 @@ Bring in the 24 existing testimonies. Before that:
 - **Stripe's monthly-gift portal** can't yet be set up in code. Must be fixed before real
   payments.
 - **Dev servers sit in one London zone** until the Google billing account is upgraded.
+- **Old encrypted copies of our cloud set-up** expire around 28 November 2026; check then that
+  they're gone.
 - **Before anything is posted to social media**, Joel decides how a deleted story is taken down
   from our own channels. Nothing posts yet.
