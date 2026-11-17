@@ -350,4 +350,102 @@ test.describe('layout', () => {
       expect(panesBox.width).toBeLessThanOrEqual(800);
     }
   });
+
+  // Joel, 2026-11-17: from 768 px (tablets and desktops) the edit box is as tall as its whole
+  // text, so it never scrolls inside (the page does); phones keep 20 rows and scroll inside.
+  test('admin consent: the edit box grows to its whole text on tablets and desktops only', async ({
+    page,
+    request,
+  }) => {
+    await person(page, request, {}, 'admin');
+    await page.goto(`${WEB_SIGNED_IN_URL}/admin/consent`);
+    const text = page.getByLabel('New text (version 3) · Markdown');
+    await expect(text).toBeVisible();
+    const size = () =>
+      text.evaluate((el) => ({
+        scroll: el.scrollHeight,
+        client: el.clientHeight,
+      }));
+    const lines = (n: number, word: string) =>
+      Array.from({ length: n }, (_, i) => `${word} ${i + 1}.`).join('\n\n');
+    const fixed = await size();
+    await text.fill(lines(60, 'A long paragraph'));
+    const long = await size();
+    await text.press('End');
+    await text.pressSequentially('\n\nMore.\n\nAnd more.\n\nAnd more again.');
+    const longer = await size();
+    if ((page.viewportSize()?.width ?? 0) >= 768) {
+      expect(long.scroll).toBeLessThanOrEqual(long.client);
+      expect(long.client).toBeGreaterThan(fixed.client);
+      expect(longer.scroll).toBeLessThanOrEqual(longer.client);
+      expect(longer.client).toBeGreaterThan(long.client);
+    } else {
+      expect(long.client).toBe(fixed.client);
+      expect(longer.client).toBe(fixed.client);
+      expect(long.scroll).toBeGreaterThan(long.client); // scrolls inside
+    }
+    await expectNoHorizontalOverflow(page);
+  });
+
+  // Typing near the end of a box taller than the preview must not move the page: no jump while
+  // the box is measured, and no smooth scroll back (Codex review of the full-height box).
+  test('admin consent: typing at the end of a long text keeps the page still on tablets and desktops', async ({
+    page,
+    request,
+  }) => {
+    test.skip(
+      (page.viewportSize()?.width ?? 0) < 768,
+      'the box only grows from 768 px',
+    );
+    await person(page, request, {}, 'admin');
+    await page.goto(`${WEB_SIGNED_IN_URL}/admin/consent`);
+    const text = page.getByLabel('New text (version 3) · Markdown');
+    await expect(text).toBeVisible();
+    await text.fill(`Top\n${'\n'.repeat(200)}Bottom`);
+    // The preview and redline follow the text a moment later; wait for them to settle.
+    await expect(page.locator('[data-preview]')).toHaveText(
+      /^\s*Top\s*Bottom\s*$/,
+    );
+    await text.evaluate((el: HTMLTextAreaElement) => {
+      el.setSelectionRange(el.value.length, el.value.length);
+      const box = el.getBoundingClientRect();
+      window.scrollTo({
+        top: window.scrollY + box.bottom - window.innerHeight / 2,
+        behavior: 'instant',
+      });
+    });
+    // Scrolling (and putting the caret at the end) can take a frame to land: wait until the
+    // page holds still for a few frames.
+    const before = await page.evaluate(
+      () =>
+        new Promise<number>((resolve) => {
+          let last = window.scrollY;
+          let still = 0;
+          const next = () => {
+            still = window.scrollY === last ? still + 1 : 0;
+            last = window.scrollY;
+            if (still >= 3) resolve(last);
+            else requestAnimationFrame(next);
+          };
+          requestAnimationFrame(next);
+        }),
+    );
+    expect(before).toBeGreaterThan(0);
+    await page.keyboard.type('x');
+    // scrollY on each of the next frames, long enough to see any smooth scroll.
+    const frames = await page.evaluate(
+      () =>
+        new Promise<number[]>((resolve) => {
+          const seen: number[] = [window.scrollY];
+          const next = () => {
+            seen.push(window.scrollY);
+            if (seen.length >= 20) resolve(seen);
+            else requestAnimationFrame(next);
+          };
+          requestAnimationFrame(next);
+        }),
+    );
+    await expect(text).toHaveValue(/Bottomx$/);
+    for (const y of frames) expect(Math.abs(y - before)).toBeLessThanOrEqual(1);
+  });
 });
