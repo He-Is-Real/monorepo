@@ -162,8 +162,11 @@ An audio story is shown as a video of its picture (or the site's default wavefor
 
 A video's own picture is set at Bunny by api-user when the story is sent, never by a job (Joel,
 2026-11-17, P1-13 A). In the submit request, after the picture check, api-user calls Bunny's "set
-thumbnail" with a signed link to the story's picture (or `thumbnail_1.jpg`, Bunny's own frame,
-when the person took their picture off), reads the video back, and once Bunny names a new
+thumbnail" with a signed link to the story's picture, signed right before the call and valid for
+15 seconds (`PICTURE_LINK_SECONDS`, below the 20-second budget; Joel, 2026-11-17, RE-4 A: a call
+api-user gave up on can't fetch the picture later, as Bunny refuses an expired link with "Origin
+returned HTTP 403" and leaves the thumbnail as it was), or `thumbnail_1.jpg` (Bunny's own frame)
+when the person took their picture off, reads the video back, and once Bunny names a new
 thumbnail file records the picture as the video's `thumbnailOf`. Nothing goes to Bunny only when
 `thumbnailOf` is already the story's picture and Bunny still names the file recorded in
 `thumbnailPath`, or when there is no picture, nothing recorded, and Bunny still names the
@@ -177,7 +180,8 @@ video never given a picture, its untouched `thumbnail.jpg`). The writer's checks
 picture or its `thumbnailPath` (only a picture video's).
 
 **"The picture changed at Bunny"** (api-admin logs `Video <id>: Bunny shows another picture than
-the one recorded at send; approval refused`): a moderator's approval found Bunny showing another
+the one recorded at send; approval refused`): a moderator's approval or Show again (RE-3 A; the
+story stays hidden) found Bunny showing another
 thumbnail file than the video's `thumbnailPath`. Usually an earlier send's picture that timed out
 reached Bunny late, or two tabs sent at once. Nothing to fix by hand: the moderator sends the story
 back and the person sends it again, which sets the picture at Bunny again and records it. Approve
@@ -189,7 +193,10 @@ check Bunny's status and api-admin's Bunny Stream key.
 story wasn't sent and the person saw "We couldn't add your picture. Please add it again, then
 submit." Nothing to put right: the person adds the picture again (or sends again) and the next
 submit tries Bunny again. If it keeps happening for everyone, check Bunny's status and that
-api-user can sign picture links (its `BUNNY_IMAGES_*` settings and the images token key).
+api-user can sign picture links (its `BUNNY_IMAGES_*` settings and the images token key). Bunny
+answering `Origin returned HTTP 403` means the images pull zone refused the 15-second link: it
+expired before Bunny fetched it (Bunny slower than 15 seconds), or the signing machine's clock is
+off by more than a few seconds (a laptop without time sync: local runs against dev Bunny).
 
 A render job's failure codes: `source_gone` / `source_not_ready` (Bunny no longer has the audio
 file, or hasn't finished it), `source_missing` (no MP4 copy in storage: is the library's MP4

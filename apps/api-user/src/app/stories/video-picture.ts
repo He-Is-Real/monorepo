@@ -25,7 +25,7 @@ import { StaleVersionException } from './story-store';
  *   untouched first thumbnail ({@link BUNNY_UNTOUCHED}): an earlier Submit may have set a picture
  *   at Bunny and then lost the read-back, which recorded nothing (Codex, #233 review);
  * - otherwise Bunny is told to show the story's picture, fetched through a signed link to the
- *   images zone, or, with no picture any more, its own frame again ({@link BUNNY_FRAME}); then the
+ *   images zone that expires {@link PICTURE_LINK_SECONDS} after it's made (RE-4 A), or, with no picture any more, its own frame again ({@link BUNNY_FRAME}); then the
  *   video is read back, and the new picture counts only once Bunny names a new thumbnail file;
  * - on success, api-user's own login records the picture as the video's `thumbnailOf` (NONE for
  *   Bunny's frame), which the database allows only for the story being edited's current picture,
@@ -44,6 +44,17 @@ import { StaleVersionException } from './story-store';
 
 /** All of Bunny's calls for one picture: setting it and reading it back. */
 export const PICTURE_BUDGET_MS = 20_000;
+
+/**
+ * How long the link Bunny fetches the picture through lasts (Joel, 2026-11-17, RE-4 A): signed
+ * right before the set call, it expires 15 seconds later (16 at most: the signer rounds up to the
+ * second), before {@link PICTURE_BUDGET_MS} runs out. So a set call this send has given up on can't
+ * fetch the picture afterwards: Bunny refuses a link that has expired ("Origin returned HTTP 403",
+ * the thumbnail unchanged; checked on dev Bunny on 2026-11-17, where it fetched a 5-second link at
+ * once, 1.3–2.4 s, five runs out of five). Only this link: pages' own picture links keep theirs.
+ * The link lifetime must stay below the budget.
+ */
+export const PICTURE_LINK_SECONDS = 15;
 
 /**
  * Bunny's own frame of the video (Bunny's "Set Thumbnail": the frames it made are named
@@ -153,10 +164,16 @@ export async function setVideoPicture({
   }
   let shown: string;
   try {
-    const source =
-      wanted === null ? BUNNY_FRAME : (urls?.imageUrl(wanted) ?? null);
-    if (!source) throw new PictureNotTaken('picture links are off');
+    if (wanted !== null && !urls?.imageUrl(wanted)) {
+      throw new PictureNotTaken('picture links are off');
+    }
     const after = await within(budgetMs, async (signal) => {
+      // Signed right before the call, so the link expires inside the budget (RE-4 A).
+      const source =
+        wanted === null
+          ? BUNNY_FRAME
+          : urls?.expiringIn(PICTURE_LINK_SECONDS).imageUrl(wanted);
+      if (!source) throw new PictureNotTaken('picture links are off');
       await bunny.setThumbnail(videoId, source, signal);
       return bunny.video(videoId, signal);
     });

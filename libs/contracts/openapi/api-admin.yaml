@@ -445,6 +445,16 @@ paths:
         the testimony consent, the same `409` codes) and records the files it shows; an Admin may
         show it anyway while its media is still being processed (`approveAnyway`), never during
         the upload cooldown (G11 B).
+
+        A person's video story (not an audio story's picture video) gets approval's picture check
+        at Bunny first (Joel, 2026-11-17, RE-3 A; `approveAnyway` too): it stays hidden, nothing
+        written, when:
+        - `409` `code: picture_changed_at_bunny`: Bunny shows another picture than the one
+          api-user recorded when the story was sent, or none was recorded. The web says "The
+          picture changed at Bunny. Send it back so the person sends again.";
+        - `502` `code: bunny_unavailable`: Bunny didn't answer within 10 seconds, refused, or has no
+          such video. The web shows its generic "try again" message.
+        With Bunny Stream off (no key: local runs without Bunny) the check is skipped.
         Every decision names what the moderator reviewed in `If-Match` (`reviewTag`, G14 B), and is
         refused, nothing written, when the story has moved on: `409` `already_decided` when another
         moderator's decision is the story's newest entry (the first decision wins, D-1; the web
@@ -481,6 +491,8 @@ paths:
           $ref: './components.yaml#/components/responses/PreconditionRequired'
         '503':
           $ref: './components.yaml#/components/responses/ServiceRestarting'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
 
   /v1/moderation/flags:
     get:

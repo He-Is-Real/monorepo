@@ -24,6 +24,10 @@ import {
   BunnyImageStore,
 } from '../src/app/stories/bunny-storage';
 import {
+  PICTURE_BUDGET_MS,
+  PICTURE_LINK_SECONDS,
+} from '../src/app/stories/video-picture';
+import {
   BUNNY_STREAM,
   type BunnyStream,
   signUpload,
@@ -41,14 +45,20 @@ import {
 class FakeStream implements BunnyStream {
   readonly videos = new Map<string, StreamVideo & { title: string }>();
   readonly deleted: string[] = [];
-  /** Every picture Bunny was told to show (set thumbnail), as `[video, source]`, in order. */
-  readonly thumbnails: [string, string][] = [];
+  /**
+   * Every picture Bunny was told to show (set thumbnail), as `[video, source, when (ms)]`, in
+   * order.
+   */
+  readonly thumbnails: [string, string, number][] = [];
   /**
    * How Bunny answers set thumbnail: takes the picture (a new thumbnail file, as on dev Bunny,
-   * 2026-11-17), refuses it, answers OK but keeps showing the old one, or takes it but the
-   * read-back straight after fails (the picture is at Bunny, but api-user can't know).
+   * 2026-11-17), refuses it, answers OK but keeps showing the old one, takes it but the
+   * read-back straight after fails (the picture is at Bunny, but api-user can't know), or gives
+   * no answer in time (`late`: api-user gives up; Bunny may still fetch it, {@link fetchLate}).
    */
-  thumbnailMode: 'take' | 'refuse' | 'ignore' | 'lose' = 'take';
+  thumbnailMode: 'take' | 'refuse' | 'ignore' | 'lose' | 'late' = 'take';
+  /** Set calls api-user gave up on that Bunny hasn't fetched yet, by video. */
+  private readonly unfetched = new Map<string, string>();
   private readFails = false;
   async createVideo(title: string) {
     const id = randomUUID();
@@ -62,15 +72,34 @@ class FakeStream implements BunnyStream {
     return id;
   }
   async setThumbnail(id: string, source: string) {
-    this.thumbnails.push([id, source]);
+    this.thumbnails.push([id, source, Date.now()]);
     const v = this.videos.get(id);
     if (!v || this.thumbnailMode === 'refuse') {
       throw new Error('Bunny Stream set thumbnail answered 500');
+    }
+    if (this.thumbnailMode === 'late') {
+      this.unfetched.set(id, source);
+      throw new Error('no answer within the budget');
     }
     if (this.thumbnailMode === 'take' || this.thumbnailMode === 'lose') {
       v.thumbnailFileName = `thumbnail_${randomUUID().slice(0, 8)}.jpg`;
       this.readFails = this.thumbnailMode === 'lose';
     }
+  }
+  /**
+   * Bunny gets round to a set call api-user gave up on, at `atMs`: as on dev Bunny (2026-11-17,
+   * RE-4 A), a picture link that has expired by then is refused ("Origin returned HTTP 403") and
+   * the thumbnail stays as it is. Says whether the picture changed.
+   */
+  fetchLate(id: string, atMs: number): boolean {
+    const source = this.unfetched.get(id);
+    this.unfetched.delete(id);
+    const v = this.videos.get(id);
+    if (!source || !v) return false;
+    const expires = Number(new URL(source).searchParams.get('expires'));
+    if (!(expires * 1000 > atMs)) return false;
+    v.thumbnailFileName = `thumbnail_${randomUUID().slice(0, 8)}.jpg`;
+    return true;
   }
   /** A copy, as Bunny's answer is: later changes at Bunny don't reach it. */
   async video(id: string) {
@@ -1149,6 +1178,16 @@ describe('video and audio uploads', () => {
         `images-test.b-cdn.net/${path}`,
       );
       expect(link.searchParams.get('token')).toMatch(/^HS256-/);
+      // RE-4 A: signed for this call only, it expires 15 s after it's made (the signer rounds up
+      // to the second), well before api-user's 20 s budget for the call runs out.
+      const [[, , calledAt]] = bunny.thumbnails.filter(([v]) => v === video);
+      const expires = Number(link.searchParams.get('expires')) * 1000;
+      expect(expires - calledAt).toBeGreaterThan(14_000);
+      expect(expires - calledAt).toBeLessThanOrEqual(16_000);
+      expect(PICTURE_LINK_SECONDS).toBe(15);
+      expect(PICTURE_LINK_SECONDS * 1000 + 1000).toBeLessThan(
+        PICTURE_BUDGET_MS,
+      );
       expect(await thumbnailOf(video)).toBe(path);
       // RE-2 B: and the file name Bunny's read-back named, for the approval check.
       expect(await thumbnailPath(video)).toBe(atBunny(video));
@@ -1222,6 +1261,32 @@ describe('video and audio uploads', () => {
       expect(await thumbnailOf(video)).toBe(path);
       expect(await thumbnailPath(video)).toBe(atBunny(video));
       expect(await thumbnailPath(video)).not.toBe(`${video}/${late}`);
+    });
+
+    it('a set call a send gave up on can’t change the picture after a later send: its link has expired by then (Codex, #233 review 3; RE-4 A)', async () => {
+      const { id, video, version } = await videoWithPicture('xiu');
+      // Send 1: Bunny doesn't answer in time; the person is asked to add the picture again.
+      bunny.thumbnailMode = 'late';
+      const refused = await submit('xiu', id, version);
+      bunny.thumbnailMode = 'take';
+      expect(refused.status).toBe(400);
+      expect(refused.body).toMatchObject(PICTURE_FAILED);
+      const [, , gaveUpOn] = bunny.thumbnails.filter(([v]) => v === video)[0];
+      // The person takes the picture off and sends again: Bunny's frame is put back.
+      const removed = await call('PATCH', `/v1/stories/${id}`, 'xiu', {
+        body: { image: null },
+        headers: {
+          'if-match': `"${version}"`,
+          'content-type': 'application/merge-patch+json',
+        },
+      });
+      expect((await submit('xiu', id, removed.body.version)).status).toBe(200);
+      const recorded = await thumbnailPath(video);
+      expect(recorded).toBe(atBunny(video));
+      // Send 1's call was given up on once its budget ran out; Bunny fetching it any time after
+      // that finds the link expired and changes nothing, so what was recorded stays true.
+      expect(bunny.fetchLate(video, gaveUpOn + PICTURE_BUDGET_MS)).toBe(false);
+      expect(atBunny(video)).toBe(recorded);
     });
 
     it('a video never given a picture asks Bunny nothing at submit', async () => {

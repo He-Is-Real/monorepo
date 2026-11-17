@@ -220,7 +220,10 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   P1-13 A: "Dont use jobs for pictures"):** sending a video story (and sending it again after Edit)
   tells Bunny to show the story's picture for the video, or, if the person took their picture off,
   Bunny's own frame again, and reads the video back, all in the same request, after the picture's
-  own check. Nothing goes to Bunny only when the picture is the one Bunny was last confirmed to
+  own check. Bunny downloads the picture through a link made just before it is asked, which
+  expires 15 seconds later, before the 20 seconds the site waits for Bunny run out (Joel,
+  2026-11-17, RE-4 A): a request the site has given up on can't change the picture afterwards,
+  because Bunny refuses an expired link. Pages' own picture links keep their usual lifetime. Nothing goes to Bunny only when the picture is the one Bunny was last confirmed to
   show and Bunny still shows that very picture file (the one recorded), or when there is no
   picture, nothing recorded, and Bunny still shows the video's first, untouched thumbnail. If
   Bunny shows any other file (a change from an earlier send that arrived late, or another tab),
@@ -723,15 +726,15 @@ Built (M3 plan, pull requests 1 and 6; Joel, 2026-11-09 and 2026-11-11):
   a story already gone answers that it wasn't found. Moderators have no Delete (DEL-2 A).
 - **Approve anyway is Admin only (G24)**, offered after an approval was refused because the media
   is still being processed; never during the upload link's time (G11 B).
-- **A video's picture is checked at Bunny on approval (Joel, 2026-11-17, RE-2 B):** a picture
-  from an earlier send that timed out (or from another tab) can still reach Bunny later. So when
-  a moderator approves a video story (Approve or Approve anyway; not an audio story's picture
-  video), the site asks Bunny which picture file it shows and compares it with the one recorded
+- **A video's picture is checked at Bunny on approval and on Show again (Joel, 2026-11-17, RE-2 B,
+  RE-3 A):** a picture from an earlier send that timed out (or from another tab) can still reach
+  Bunny later. So when a moderator approves a video story (Approve or Approve anyway) or shows a
+  hidden one again (Show again, also by an Admin "anyway"; not an audio story's picture video), the site asks Bunny which picture file it shows and compares it with the one recorded
   when the story was sent. If they differ (or none was recorded) the story isn't approved and
   the moderator reads "The picture changed at Bunny. Send it back so the person sends again."
-  Approve anyway can't get past it. If Bunny can't answer within 10 seconds the story isn't
-  approved either ("Something went wrong. Please try again later."): it is never approved
-  unchecked. Show again doesn't check.
+  (a hidden story stays hidden). Approve anyway can't get past it. If Bunny can't answer within
+  10 seconds the story isn't approved or shown either ("Something went wrong. Please try again
+  later."): it never goes on the site unchecked.
 - **Refusals in plain words** (Joel, 2026-11-09: never codes): for example "The video is still
   being processed. You can approve it from 14:05." A story that moved on since the page opened
   (another moderator decided first, or the person pressed Edit) says so and refreshes.

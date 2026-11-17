@@ -548,6 +548,53 @@ describe('moderation, the decisions (api-admin)', () => {
     expect(bunny.looked).toContain(ok.video);
   });
 
+  // RE-3 A (Joel, 2026-11-17): Show again puts a story back on the site, so it gets approval's
+  // picture check at Bunny too.
+  it('Show again shows a hidden video story only while Bunny shows the picture recorded at send', async () => {
+    const { id, video } = await sentVideo();
+    await processed(await t.service('workflow'), id);
+    expect((await decide(id, 'approve', (await open(id)).tag)).status).toBe(
+      200,
+    );
+    expect(
+      (await decide(id, 'hide', (await open(id)).tag, { reason: NOTE })).status,
+    ).toBe(200);
+    const { tag } = await open(id);
+
+    // Bunny shows another file: stays hidden, for a Moderator and an Admin showing anyway alike.
+    bunny.pictures.set(video, 'thumbnail_0badf00d.jpg');
+    for (const [body, who] of [
+      [undefined, undefined],
+      [{ approveAnyway: true }, ADMIN],
+    ] as const) {
+      const refused = await decide(id, 'show', tag, body, who);
+      expect([refused.status, refused.body]).toEqual([
+        409,
+        expect.objectContaining({
+          code: 'picture_changed_at_bunny',
+          detail:
+            'The picture changed at Bunny. Send it back so the person sends again.',
+        }),
+      ]);
+      expect(await statusOf(migrator, id)).toBe('hidden');
+    }
+
+    // Bunny down: the generic answer, still hidden.
+    bunny.pictures.set(video, 'thumbnail_1a2b3c4d.jpg');
+    bunny.down = true;
+    const failed = await decide(id, 'show', tag);
+    bunny.down = false;
+    expect([failed.status, failed.body.code]).toEqual([
+      502,
+      'bunny_unavailable',
+    ]);
+    expect(await statusOf(migrator, id)).toBe('hidden');
+
+    // Bunny shows the recorded file: back on the site.
+    expect((await decide(id, 'show', tag)).status).toBe(200);
+    expect(await statusOf(migrator, id)).toBe('approved');
+  });
+
   it('a story the site took off itself can be rejected (P1-9, P1-11); a moderator’s take-down can’t', async () => {
     const hidBySite = await waiting();
     expect(

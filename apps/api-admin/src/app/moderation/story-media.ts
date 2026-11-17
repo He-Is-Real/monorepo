@@ -61,7 +61,8 @@ export class StoryMedia {
   ) {}
 
   /**
-   * RE-2 B (Joel, 2026-11-17): before a person's video story is approved (also "approve anyway"),
+   * RE-2 B (Joel, 2026-11-17): before a person's video story is approved (also "approve anyway",
+   * and "show again": RE-3 A),
    * Bunny's current thumbnail file must be the one api-user recorded when the story was sent
    * (`thumbnailPath`, `<video id>/<file name>`). A picture that reached Bunny late (an earlier send
    * that timed out, or another tab) would otherwise be published unseen.
