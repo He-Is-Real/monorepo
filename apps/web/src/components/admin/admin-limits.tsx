@@ -734,7 +734,7 @@ function SaveBar({
                 aria-expanded={open}
                 aria-controls={`${id}-changes`}
                 onClick={() => setOpen((o) => !o)}
-                className="inline-flex min-h-[44px] items-center rounded-md px-[4px] font-normal text-primary underline underline-offset-4 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+                className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md px-[4px] font-normal text-primary underline underline-offset-4 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
               >
                 {open ? 'Hide' : 'Show'}
                 <span className="sr-only">&nbsp;changes</span>
