@@ -309,7 +309,8 @@ DEFINE FUNCTION OVERWRITE fn::story::approval_problem($s: any) {
   -- picture; audio-picture-video decision 1B, 2026-11-07, for an audio story's picture video):
   -- the video or audio file's thumbnailOf is the story's picture now, or both are empty (a video
   -- shows Bunny's own frame; an audio story's picture video has the site's default background).
-  -- The result writer sets it once Bunny has that picture, so the public never sees another.
+  -- api-user sets it for a video when the story is sent, once Bunny has that picture (Joel,
+  -- 2026-11-17, P1-13 A); the result writer for a picture video. So the public never sees another.
   IF $s.mediaFile != NONE AND $m.thumbnailOf != $s.image.file {
     RETURN 'media_not_ready: Bunny doesn’t show the story’s picture yet';
   };
@@ -325,12 +326,9 @@ DEFINE FUNCTION OVERWRITE fn::story::approval_problem($s: any) {
 --   the time, rounded up to the second, from which it can be approved.
 -- - An open media job (J6): a check or render for the story's media file or picture that hasn't
 --   ended (mediaJob doneAt), e.g. the picture video of an audio story whose picture changed.
--- - A video's picture at Bunny not confirmed (Joel, 2026-11-08, T3; 2026-11-09, T4 = A): its
---   storyFile thumbnailLockedUntil is set, whether in the future (a writer is at work) or past (an
---   unfinished write: Bunny may show another picture). Only a write Bunny confirmed and the result
---   writer recorded empties it. Here, not in approval_problem: like an open job it is a moment of
---   the review, not the files being unfit to show, so it must never hide an approved story or stop
---   one coming back (check_files, restorable).
+--   Here, not in approval_problem: it is a moment of the review, not the files being unfit to
+--   show, so it must never hide an approved story or stop one coming back (check_files,
+--   restorable).
 -- An Admin may approve anyway while the media is still being processed (not during the upload
 -- cooldown: G11 B), and the entry records it (storyStatusLog.skippedMediaWait).
 -- Messages start with a code for api-admin (409). $now: the time to judge at (the approval's).
@@ -346,12 +344,6 @@ DEFINE FUNCTION OVERWRITE fn::story::approval_wait($s: any, $now: datetime) {
   IF $until != NONE AND $now < $until {
     RETURN 'media_recently_uploaded: the story’s file was uploaded recently; it can be approved after '
       + <string> time::ceil($until, 1s);
-  };
-  -- T3/T4 (Joel, 2026-11-08/09): the video's picture at Bunny isn't confirmed yet (a writer at
-  -- work, or one that ran out unfinished).
-  LET $lock = IF $s.mediaFile != NONE { (SELECT VALUE thumbnailLockedUntil FROM ONLY $s.mediaFile) };
-  IF $lock != NONE {
-    RETURN 'media_still_processing: the story’s media is still being processed';
   };
   IF $files != [] AND (SELECT VALUE id FROM mediaJob WHERE file IN $files AND doneAt = NONE LIMIT 1) != [] {
     RETURN 'media_still_processing: the story’s media is still being processed';
@@ -1274,12 +1266,20 @@ DEFINE FIELD OVERWRITE height          ON storyFile TYPE option<int> ASSERT $val
   VALUE IF $auth = service:workflow AND $this.format = 'image' { $before } ELSE { $value }
   PERMISSIONS FOR update WHERE $auth = service:workflow;
 -- Bunny's real length (cards show it, M1 step 6a; the approval gate means a published clip has
--- it) and the thumbnail's path at Bunny (D53/D60: Bunny's generated frame, or for audio the
--- picture shown for it, Joel 2026-10-24).
+-- it) and the thumbnail's path at Bunny, `<bunny video id>/<file name>` (D53/D60; for audio the
+-- picture shown for it, Joel 2026-10-24). Who writes thumbnailPath (Joel, 2026-11-17, RE-2 B):
+-- - a person's video: api-user, when the story is sent, the file name Bunny's read-back named
+--   (in the write that records thumbnailOf; storyFile_update holds it to the video of the story
+--   being sent and to fn::media::own_thumbnail). api-admin's approval compares it with Bunny's
+--   file name then, so a picture that reached Bunny late (an earlier send that timed out, or
+--   another tab) is never approved unseen;
+-- - an audio file's picture video: workflow (the result writer), as before. Never a person's video.
 DEFINE FIELD OVERWRITE lengthSeconds   ON storyFile TYPE option<int> ASSERT $value = NONE OR $value > 0
   PERMISSIONS FOR create, update WHERE $auth = service:workflow;
 DEFINE FIELD OVERWRITE thumbnailPath   ON storyFile TYPE option<string>
-  PERMISSIONS FOR create, update WHERE $auth = service:workflow;
+  PERMISSIONS FOR create WHERE $auth = service:workflow,
+    FOR update WHERE ($auth = service:workflow AND format = 'audio')
+      OR ($auth = service:api_user AND format = 'video' AND renderOf = NONE);
 -- A2: NONE = not processed yet (just uploaded); then 'processing', 'ready' or 'failed'. Only
 -- 'ready' can be approved and published (fn::story::approval_problem). Workflow writes it (M7).
 -- A picture is also marked 'ready' by api-user's login, only as part of submitting (Joel,
@@ -1323,30 +1323,16 @@ DEFINE FIELD OVERWRITE renderOf        ON storyFile TYPE option<record<storyFile
     FOR create WHERE $auth = service:workflow, FOR update NONE;
 -- The picture Bunny shows for this video or audio file (Joel: video-bundle-rethink part A,
 -- 2026-11-06; audio-picture-video 1B, 2026-11-07): a picture row of the same story, or NONE
--- (Bunny's own frame for a video; the site's default background for a picture video). Set by the
--- result writer once Bunny has it: a video's thumbnail it set at Bunny, or the picture a picture
--- video was made with. Approval needs it to be the story's picture now (approval_problem).
+-- (Bunny's own frame for a video; the site's default background for a picture video). Set once
+-- Bunny has it: for a video, by api-user when the story is sent, after Bunny confirmed the
+-- picture (Joel, 2026-11-17, P1-13 A; only the story being edited's current picture, or NONE:
+-- storyFile_update); for a picture video, by the result writer, the picture it was made with.
+-- Approval needs it to be the story's picture now (approval_problem).
 DEFINE FIELD OVERWRITE thumbnailOf     ON storyFile TYPE option<record<storyFile>>
   PERMISSIONS FOR select WHERE person = $auth
       OR $auth IN [service:api_user, service:api_admin, service:workflow, service:housekeeping],
-    FOR create, update WHERE $auth = service:workflow;
--- T3 (Joel, 2026-11-08, org-setup-and-picture-video.html): the lock a result writer holds on a
--- video's row while it changes the video's picture at Bunny, so only one writer at a time does:
--- until when it is held (the database's clock, now + 2 minutes; Codex r5). Three states (T4 = A,
--- Joel, 2026-11-09):
--- - NONE: Bunny confirmed the picture (thumbnailOf);
--- - in the future: a writer is at work; other writers try again later;
--- - in the past: unfinished (the writer failed, timed out or crashed), so Bunny may show another
---   picture; any writer may take it over and finish.
--- The writer takes it only if it is NONE or past, and empties it with thumbnailOf only if it still
--- holds this exact value (the holder's mark) and it hasn't run out. Nothing else empties it while
--- its story shows the video (a job giving up doesn't). A moderator's approval waits while it is
--- set at all (fn::story::approval_wait). The nightly housekeeping opens a check of any video
--- left unfinished, so it is retried rather than stuck. Only workflow writes it; housekeeping
--- reads it for that re-check; nobody else sees it.
-DEFINE FIELD OVERWRITE thumbnailLockedUntil ON storyFile TYPE option<datetime>
-  PERMISSIONS FOR select WHERE $auth IN [service:workflow, service:housekeeping],
-    FOR create, update WHERE $auth = service:workflow;
+    FOR create WHERE $auth = service:workflow,
+    FOR update WHERE $auth IN [service:workflow, service:api_user];
 -- When its story stopped pointing at it: set by story_files only (events run elevated).
 DEFINE FIELD OVERWRITE detachedAt      ON storyFile TYPE option<datetime>
   PERMISSIONS FOR select WHERE person = $auth
@@ -1544,6 +1530,9 @@ DEFINE EVENT OVERWRITE storyFile_fence ON storyFile
 --   (fn::story::check_files), and its version steps (D29: the owner's ETag and If-Match) when
 --   something its owner's story shows changed (fn::story::file_view): once, so not again if
 --   that write already hid it or showed it again. As before R12, when processing wrote the story.
+-- - thumbnailOf (api-user, a video's picture set at Bunny at submit; Joel, 2026-11-17, P1-13 A):
+--   only the current picture (or NONE) of the video a story being edited shows now; and its
+--   thumbnailPath (RE-2 B), only on that video and only a path fn::media::own_thumbnail accepts.
 -- - processing (api-user, the picture check at submit; Joel, 2026-10-30, R3 = A): only 'ready',
 --   only on a picture not marked yet, only the one the person's story being edited shows now. It doesn't step the version: the owner's story never shows a picture's
 --   processing, and the submit that follows is still at the version the person's page sent.
@@ -1559,6 +1548,23 @@ DEFINE EVENT OVERWRITE storyFile_update ON storyFile
       };
       IF fn::story::status_of($s) != 'editing' { THROW 'story_cmd:locked' };
       fn::legal::require_testimony($after.person);
+    };
+    -- A video's picture at Bunny (api-user, at submit; Joel, 2026-11-17, P1-13 A): only on the
+    -- video the story being edited shows now, and only its current picture, or NONE for none.
+    IF $auth = service:api_user AND $after.thumbnailOf != $before.thumbnailOf
+      AND ($after.format != 'video' OR $s = NONE OR $s.mediaFile != $after.id
+        OR $after.detachedAt != NONE OR fn::story::status_of($s) != 'editing'
+        OR $after.thumbnailOf != $s.image.file) {
+      THROW 'picture_set: api-user only records the current picture of the video a story being edited shows';
+    };
+    -- The file name Bunny's read-back named for that video's picture (api-user, at submit; Joel,
+    -- 2026-11-17, RE-2 B): only on the video (not a picture video) the story being edited shows
+    -- now, and only `<that video's id>/<one file name>`.
+    IF $auth = service:api_user AND $after.thumbnailPath != $before.thumbnailPath
+      AND ($after.format != 'video' OR $after.renderOf != NONE OR $s = NONE
+        OR $s.mediaFile != $after.id OR $after.detachedAt != NONE
+        OR fn::story::status_of($s) != 'editing' OR !fn::media::own_thumbnail($after)) {
+      THROW 'picture_set: api-user only records the thumbnail of the video a story being edited shows';
     };
     IF $auth = service:api_user AND $after.processing != $before.processing
       AND ($after.format != 'image' OR $before.processing != NONE OR $after.processing != 'ready'
@@ -1611,8 +1617,8 @@ DEFINE FUNCTION OVERWRITE fn::upload::renew($story: record<story>, $person: reco
 -- - errorType (Part 1a): why it gave up, set with gave_up and only then.
 -- Services only (no person's session sees it; api-admin reads them for the moderators' list's
 -- "a problem on our side", Part 1a): api-user and workflow create jobs, housekeeping only
--- the nightly re-check of a video whose picture at Bunny is unfinished (T4: a check, reason
--- resent); api-user records its sends and new reasons, housekeeping its resends; only workflow
+-- the nightly retry of a waiting story's file after our own give-up (a check, reason resent);
+-- api-user records its sends and new reasons, housekeeping its resends; only workflow
 -- ends a job. Housekeeping
 -- deletes done jobs 30 days after they ended (J2). Person-linked through its file: every write
 -- needs the person to exist and not be erased, and bumps their fence, so it conflicts with an
@@ -1791,9 +1797,9 @@ DEFINE FUNCTION OVERWRITE fn::media::retries_used($file: record<storyFile>,
 -- to 3, media-job-table.html J1 check e; audio-picture-video "also assumed"), written in the
 -- same transaction as the step, so none is lost if sending it fails (api-user sends it after,
 -- and the 18:00 resend sends any it couldn't):
--- - submitting a video or audio story: a check of its file (reason submitted), so the result
---   writer gives Bunny the picture the story has now (the video's own picture, or an audio
---   story's picture video);
+-- - submitting a video or audio story: a check of its file (reason submitted), so its facts are
+--   read from Bunny again (a video's picture went to Bunny in the submit itself; an audio
+--   story's file gets its picture video);
 -- - an audio story's picture put on, replaced or taken off while it can still be edited: a render
 --   of its file (reason picture_changed), so its picture video is made again with the new one.
 -- Elevated (an event): the person's session can't see mediaJob.

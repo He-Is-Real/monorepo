@@ -47,7 +47,13 @@ class FakeStream implements BunnyStream {
   whileAsked?: () => Promise<void>;
   async createVideo() {
     const id = randomUUID();
-    this.videos.set(id, { status: 0, length: 0, mp4Height: null });
+    // A new video's thumbnail, as on dev Bunny (2026-11-17), until a picture is set.
+    this.videos.set(id, {
+      status: 0,
+      length: 0,
+      mp4Height: null,
+      thumbnailFileName: 'thumbnail.jpg',
+    });
     return id;
   }
   async video(id: string) {
@@ -60,6 +66,12 @@ class FakeStream implements BunnyStream {
   }
   sign(videoId: string, now?: number) {
     return signUpload('42', 'library-key', videoId, now);
+  }
+  /** Bunny names a new thumbnail file each time a picture is set. */
+  async setThumbnail(id: string): Promise<void> {
+    const v = this.videos.get(id);
+    if (!v) throw new Error('Bunny Stream set thumbnail answered 404');
+    v.thumbnailFileName = `thumbnail_${randomUUID().slice(0, 8)}.jpg`;
   }
 }
 

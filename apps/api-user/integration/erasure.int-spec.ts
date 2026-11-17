@@ -56,6 +56,9 @@ class FakeStream implements BunnyStream {
   sign(videoId: string, now?: number) {
     return signUpload('42', 'library-key', videoId, now);
   }
+  async setThumbnail(): Promise<void> {
+    throw new Error('No video’s picture is set in these tests');
+  }
 }
 
 /** The images zone: records the story folders it was asked to delete. */

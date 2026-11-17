@@ -216,28 +216,28 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 - A story is one of three types: **written** (text, with an optional picture), **video** (one
   video, with optional text) or **audio** (one audio file, with optional text). (D53)
 - A written story's picture, an audio story's picture and a video's own thumbnail can all be
-  uploaded. A video's own picture is sent to Bunny as its thumbnail once its check finds the
-  video ready, and again whenever the picture changes or is taken off (then Bunny shows its own
-  frame again); the story can't be approved until Bunny shows the picture it has now
-  (video-bundle-rethink part A, Joel 2026-11-06). The story page shows Bunny's player as before,
-  with no picture of our own over it (Joel, 2026-11-08, T2). Only one writer at a time may change
-  a video's picture at Bunny: it takes a lock on the video's record (for 2 minutes), reads the
-  story's picture, tells Bunny (giving up after 20 seconds), and records it, lets go and closes
-  the video's check only if the picture is still the one it sent (sending the new one first if it
-  changed). The database's clock judges the lock, never a writer's own. The lock has three states
-  (Joel, 2026-11-08, T3: "a lock field is fine"; 2026-11-09, T4: A):
-  - **empty**: Bunny confirmed the picture; approval may go ahead (if nothing else holds it);
-  - **in the future**: a writer is at work; approval waits and other writers try again later;
-  - **in the past but not emptied**: unfinished, Bunny may show another picture (Bunny refused,
-    was slow, or its reply was lost); approval still waits, and any later writer may take it over
-    and finish.
-    Only a write Bunny confirmed and the database recorded empties it; a failed or cut-off call, a
-    lock running out or the check giving up after 5 failures never does. The nightly housekeeping
-    opens a check of any video left unfinished with no check open, and the 18:00 resend sends it, so
-    it is retried rather than stuck. What people see: such a story's moderator gets "can't approve
-    yet: still processing" until a try succeeds; an Admin can still approve anyway, as with any
-    open job. So a picture the person removed can't go public through a moderator approving in
-    between.
+  uploaded. **A video's own picture is set at Bunny when the story is sent (Joel, 2026-11-17,
+  P1-13 A: "Dont use jobs for pictures"):** sending a video story (and sending it again after Edit)
+  tells Bunny to show the story's picture for the video, or, if the person took their picture off,
+  Bunny's own frame again, and reads the video back, all in the same request, after the picture's
+  own check. Bunny downloads the picture through a link made just before it is asked, which
+  expires 15 seconds later, before the 20 seconds the site waits for Bunny run out (Joel,
+  2026-11-17, RE-4 A): a request the site has given up on can't change the picture afterwards,
+  because Bunny refuses an expired link. Pages' own picture links keep their usual lifetime. One case is accepted as known (Joel, 2026-11-17, RE-5 A): Bunny downloads the picture in time but takes more than 20 seconds to save it, and meanwhile the person removes or changes the picture and sends again; the old picture can then still land. If it does, a moderator or Admin takes the story down and the person sends it again. Nothing goes to Bunny only when the picture is the one Bunny was last confirmed to
+  show and Bunny still shows that very picture file (the one recorded), or when there is no
+  picture, nothing recorded, and Bunny still shows the video's first, untouched thumbnail. If
+  Bunny shows any other file (a change from an earlier send that arrived late, or another tab),
+  the picture (or Bunny's own frame, for none) is set again and read back, as for a change; a file
+  name Bunny shows that our own confirmed set didn't produce is never recorded. If Bunny
+  refuses, can't be reached, takes more than 20 seconds or doesn't show the new picture, the story
+  isn't sent: it stays as it was, and the person is told "We couldn't add your picture. Please add
+  it again, then submit." There is no retry in the background and no picture job. Once Bunny shows
+  it, the database records it on the video's record, with the name of the picture file Bunny
+  showed (Joel, 2026-11-17, RE-2 B; for a video never given a picture, its untouched
+  thumbnail); the story can't be approved until Bunny shows the picture it has now
+  (video-bundle-rethink part A, Joel 2026-11-06). The video's own checks never touch its picture
+  or that file name. The story page shows Bunny's player as before, with no picture
+  of our own over it (Joel, 2026-11-08, T2).
 - **An audio story becomes a picture video (Joel, 2026-11-07, audio-picture-video.html):** once
   its audio file is ready at Bunny, the media worker makes a video of the story's picture (or,
   without one, the site's default waveform picture) in the picture's own shape, at most 1280 px
@@ -585,8 +585,7 @@ Built in the database (the decisions and their pages are planned, M3):
 - **Retries are capped (P1-3, P1-9, P1-10, Joel 2026-11-14):** a story's media jobs are kept while
   it waits for review or is off the site because the site took it off itself, so its give-ups keep
   counting and its 3 nightly retries never start again (the 30-day tidy-up skips them; they go
-  30 days after it is decided, shown again or deleted). The nightly re-check of an unfinished
-  picture (T4) shares those 3 retries. Once they are used, nothing opens another check or render
+  30 days after it is decided, shown again or deleted). Once they are used, nothing opens another check or render
   of that story's file: not a chore, not Bunny's notice, not a late copy of an answer from the
   queue, and not the owner sending the same file again after Edit (the database refuses every new
   job, in one place). "A problem on our side" stays on the moderators' list. A new file the owner
@@ -727,6 +726,15 @@ Built (M3 plan, pull requests 1 and 6; Joel, 2026-11-09 and 2026-11-11):
   a story already gone answers that it wasn't found. Moderators have no Delete (DEL-2 A).
 - **Approve anyway is Admin only (G24)**, offered after an approval was refused because the media
   is still being processed; never during the upload link's time (G11 B).
+- **A video's picture is checked at Bunny on approval and on Show again (Joel, 2026-11-17, RE-2 B,
+  RE-3 A):** a picture from an earlier send that timed out (or from another tab) can still reach
+  Bunny later. So when a moderator approves a video story (Approve or Approve anyway) or shows a
+  hidden one again (Show again, also by an Admin "anyway"; not an audio story's picture video), the site asks Bunny which picture file it shows and compares it with the one recorded
+  when the story was sent. If they differ (or none was recorded) the story isn't approved and
+  the moderator reads "The picture changed at Bunny. Send it back so the person sends again."
+  (a hidden story stays hidden). Approve anyway can't get past it. If Bunny can't answer within
+  10 seconds the story isn't approved or shown either ("Something went wrong. Please try again
+  later."): it never goes on the site unchecked.
 - **Refusals in plain words** (Joel, 2026-11-09: never codes): for example "The video is still
   being processed. You can approve it from 14:05." A story that moved on since the page opened
   (another moderator decided first, or the person pressed Edit) says so and refreshes.

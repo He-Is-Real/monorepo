@@ -5,9 +5,10 @@ import { signCdnUrl, tusSignature } from '@heisreal/story-cards';
  * Bunny, as the result writer uses it (Joel, 2026-11-07: audio-picture-video.html decisions 1B
  * and 2 = K1; 2026-11-06: video-bundle-rethink.html part A). The full library key never leaves
  * Google Cloud: with it the writer makes an audio story's picture video at Bunny and signs the
- * worker a one-hour upload pass for that one video, and tells Bunny which picture to show for a
- * video. With the images zone's token key it signs a 10-minute link to the story's picture, for
- * the worker (its picture video) or for Bunny (a video's thumbnail). With the sound zone's token
+ * worker a one-hour upload pass for that one video. (A video's own picture is set at Bunny by
+ * api-user when the story is sent: Joel, 2026-11-17, P1-13 A.) With the images zone's token key
+ * it signs a 10-minute link to the story's picture, for the worker (its picture video). With the
+ * sound zone's token
  * key it signs the worker a 2-minute link to one MP4 copy of an audio file, when the worker is
  * about to download it (Joel, 2026-11-08, R3: single-file links on a need-to-use basis). The keys
  * come from Secret Manager and are never logged.
@@ -37,8 +38,6 @@ const TIMEOUT_MS = 15_000;
 /** Bunny's video ids are GUIDs; anything else never reaches a URL. */
 export const VIDEO_ID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-/** One path segment at Bunny (fn::media::safe_segment). */
-const FILE_NAME = /^[A-Za-z0-9._-]{1,200}$/;
 /** A story's own picture (fn::media::own_image). */
 const PICTURE = /^stories\/[A-Za-z0-9_]{1,64}\/[0-9a-f]{32}\.webp$/;
 
@@ -47,31 +46,6 @@ export class BunnyCallFailed extends Error {
   override name = 'BunnyCallFailed';
   constructor(readonly code: string) {
     super(code);
-  }
-}
-
-/**
- * Runs `call` with a signal that aborts after `ms`, and throws {@link BunnyCallFailed}
- * (`bunny_timeout`) then, whether or not `call` heeds it (T3: a hard limit on Bunny calls under a
- * video's lock). With no time left, `call` never starts.
- */
-export async function callWithin<T>(
-  ms: number,
-  call: (signal: AbortSignal) => Promise<T>,
-): Promise<T> {
-  if (!(ms > 0)) throw new BunnyCallFailed('bunny_timeout');
-  const abort = new AbortController();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const cutOff = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      abort.abort();
-      reject(new BunnyCallFailed('bunny_timeout'));
-    }, ms);
-  });
-  try {
-    return await Promise.race([call(abort.signal), cutOff]);
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -102,16 +76,6 @@ export interface WriterBunny {
   createVideo(title: string): Promise<string>;
   /** Whether Bunny still has the video (a picture video made for an earlier try). */
   exists(videoId: string): Promise<boolean>;
-  /**
-   * Shows `picture` (a story picture's path in the images zone) as the video's thumbnail, or, with
-   * null, Bunny's own first frame again; answers the video's thumbnail file name afterwards. Once
-   * `signal` aborts, no further request is sent and the one under way is cut off.
-   */
-  setThumbnail(
-    videoId: string,
-    picture: string | null,
-    signal?: AbortSignal,
-  ): Promise<string>;
   /**
    * What Bunny says of the video now (Part 1a: the writer's own look before it believes a
    * "failed" answer, so the worker can never make a file unusable): `failed` (Bunny couldn't
@@ -188,7 +152,6 @@ export class BunnyLibrary implements WriterBunny {
     method: string,
     path: string,
     body?: unknown,
-    signal?: AbortSignal,
   ): Promise<Response> {
     await this.refreshKeys();
     const timeout = AbortSignal.timeout(TIMEOUT_MS);
@@ -205,7 +168,7 @@ export class BunnyLibrary implements WriterBunny {
           body: body ? JSON.stringify(body) : undefined,
           // The library key goes to Bunny's API only, never on to wherever a redirect points.
           redirect: 'error',
-          signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
+          signal: timeout,
         },
       );
     } catch {
@@ -259,43 +222,6 @@ export class BunnyLibrary implements WriterBunny {
     if (!VIDEO_ID.test(videoId)) throw new BunnyCallFailed('bunny_error');
     const res = await this.call('POST', `/${videoId}/reencode`);
     if (!res.ok) BunnyLibrary.fail(res);
-  }
-
-  async setThumbnail(
-    videoId: string,
-    picture: string | null,
-    signal?: AbortSignal,
-  ): Promise<string> {
-    if (!VIDEO_ID.test(videoId)) throw new BunnyCallFailed('bunny_error');
-    await this.refreshKeys();
-    // Bunny fetches the picture itself through a 10-minute link; null puts back its own first
-    // frame (Bunny's docs, "Set Thumbnail": thumbnail_1.jpg is one it made).
-    const source =
-      picture === null
-        ? 'thumbnail_1.jpg'
-        : this.signPicture(picture, Date.now());
-    if (!source) throw new BunnyCallFailed('picture_unsafe');
-    const set = await this.call(
-      'POST',
-      `/${videoId}/thumbnail?thumbnailUrl=${encodeURIComponent(source)}`,
-      undefined,
-      signal,
-    );
-    if (!set.ok) BunnyLibrary.fail(set);
-    const res = await this.call('GET', `/${videoId}`, undefined, signal);
-    if (!res.ok) BunnyLibrary.fail(res);
-    const { thumbnailFileName } = (await res.json().catch(() => ({}))) as {
-      thumbnailFileName?: unknown;
-    };
-    if (
-      typeof thumbnailFileName !== 'string' ||
-      !FILE_NAME.test(thumbnailFileName) ||
-      thumbnailFileName === '.' ||
-      thumbnailFileName === '..'
-    ) {
-      throw new BunnyCallFailed('bunny_bad_reply');
-    }
-    return thumbnailFileName;
   }
 
   async uploadPass(videoId: string, now = Date.now()): Promise<UploadPass> {
@@ -383,8 +309,8 @@ const KEY_MAX_AGE_MS = 5 * 60_000;
 
 /**
  * Bunny on when every variable is set (OpenTofu, modules/gcp/media.tf), off (null) when none is:
- * then no picture video is made (the render routes answer 503 and the worker tries later) and a
- * video's thumbnail isn't set. Anything in between fails startup.
+ * then no picture video is made (the render routes answer 503 and the worker tries later).
+ * Anything in between fails startup.
  */
 export function writerBunnyFromEnv(
   secrets: Pick<SecretsService, 'get'>,

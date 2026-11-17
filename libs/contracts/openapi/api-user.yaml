@@ -938,6 +938,14 @@ paths:
         removes it; the story stays a draft). `503` `uploads_unavailable` when the zone gives no clear
         answer (never a pass). A picture that passes is marked checked, which approval needs.
 
+        **A video's picture (Joel, 2026-11-17, P1-13 A):** last, for a video story, api-user tells
+        Bunny to show the story's picture for the video (or, with none any more, Bunny's own frame
+        again) and reads the video back, in this request; nothing is sent when the picture is the one
+        Bunny already shows for it. If Bunny refuses, can't be reached, takes more than 20 seconds or
+        doesn't show the new picture: `400` `image_not_uploaded` ("We couldn't add your picture.
+        Please add it again, then submit."), and nothing is sent: the story stays as it was. No retry
+        in the background.
+
         **Social media sharing (plan 4e):** the optional body's `socialMediaSharingConsent` is the box at
         the end of the upload, ticked, with the version the page showed: it is recorded on this story in
         the same write as the submission, with the database's time (both or neither; a replay records

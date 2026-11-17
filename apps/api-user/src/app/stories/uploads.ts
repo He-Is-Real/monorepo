@@ -23,7 +23,7 @@ import {
 } from '@heisreal/database';
 import type { RecordId, SurrealQueryable } from 'surrealdb';
 import { recordKey } from '@heisreal/http';
-import { STORY_IMAGE_PATH } from '@heisreal/story-cards';
+import { type MediaUrls, STORY_IMAGE_PATH } from '@heisreal/story-cards';
 import type { ImageStore, SignedImageUpload } from './bunny-storage';
 import { pictureProblem, type RecordedPicture } from './picture-check';
 import type {
@@ -32,6 +32,7 @@ import type {
 } from '@heisreal/story-cards/bunny-stream';
 import { StaleVersionException } from './story-store';
 import { agreementRefusalOf } from '../account/agreements';
+import { setVideoPicture } from './video-picture';
 
 /**
  * Video and audio uploads (M2 plan PR 7; D65, D68, D80, D113): RequestUpload, and the checks
@@ -49,7 +50,8 @@ import { agreementRefusalOf } from '../account/agreements';
  *   row is written, and at submit with the limits in force then and Bunny's own length.
  *
  * Images (M2 plan PR 10; D53, D65, D80): a written story's image, an audio story's picture or a
- * video's own thumbnail (Joel, 2026-10-30; shown instead of Bunny's, never set at Bunny). The
+ * video's own thumbnail (Joel, 2026-10-30; shown instead of Bunny's, and set at Bunny when the
+ * story is sent: video-picture.ts, Joel 2026-11-17). The
  * browser re-encodes it to WebP without metadata and sends its size, pixel size and description;
  * api-user picks its path, `stories/<story id>/<random>.webp`, records its storyFile row (whose
  * event points the draft at it) and signs an S3 presigned PUT binding that path, the type and the
@@ -272,6 +274,8 @@ export class Uploads {
     private readonly service: SurrealQueryable,
     private readonly bunny: BunnyStream | null,
     private readonly images: ImageStore | null = null,
+    /** Signs the link Bunny fetches a video's picture through, at submit (video-picture.ts). */
+    private readonly urls: MediaUrls | null = null,
   ) {}
 
   private stream(): BunnyStream {
@@ -658,7 +662,8 @@ export class Uploads {
    * audio story's file (D80, D113) has arrived at Bunny (`409 media_not_uploaded`), Bunny could
    * read it (`409 media_failed`), and it's within the limits in force now (`409
    * media_over_limit`): "new rules apply to everyone" (Joel, 2026-10-30), so a draft started
-   * under older limits is checked against today's.
+   * under older limits is checked against today's. Last, a video's picture is set at Bunny
+   * (video-picture.ts: `400 image_not_uploaded` if Bunny doesn't take it; Joel, 2026-11-17).
    */
   async checkBeforeSubmit(person: SurrealQueryable, id: string): Promise<void> {
     const draft = await this.draft(person, id);
@@ -713,6 +718,17 @@ export class Uploads {
         } than we can take now. Please upload a ${
           grant.sizeBytes > maxBytes ? 'smaller' : 'shorter'
         } one, then submit your story.`,
+      });
+    }
+    // A video's picture goes to Bunny now, or the story isn't sent (Joel, 2026-11-17, P1-13 A).
+    if (grant.format === 'video') {
+      await setVideoPicture({
+        service: this.service,
+        bunny,
+        urls: this.urls,
+        videoId: draft.videoId,
+        picture: draft.imagePath,
+        before: video,
       });
     }
   }

@@ -147,6 +147,8 @@ export const INPUT_REFUSALS: ReadonlySet<string> = new Set([
   // that no longer allows it
   'already_decided',
   'wrong_status',
+  // A video's picture at Bunny isn't the one recorded when it was sent (Joel, 2026-11-17, RE-2 B)
+  'picture_changed_at_bunny',
   // Their story's state
   'story_locked',
   'story_not_submittable',
@@ -196,6 +198,7 @@ export const SYSTEM_CODES: ReadonlySet<string> = new Set([
   'upload_outcome_unknown',
   'export_unavailable',
   'clerk_unavailable',
+  'bunny_unavailable',
   'service_restarting',
 ]);
 

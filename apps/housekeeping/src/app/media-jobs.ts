@@ -16,7 +16,6 @@ import type { Task, TaskContext, TaskResult } from './tasks';
  * - the tidy-up, in the nightly run: ended jobs go 30 days after they ended (J2), except while
  *   their story waits for review (P1-3: then they go once it is decided or deleted). The database
  *   lets housekeeping delete only those (docs/db-permissions.md), so the query only picks;
- * - the nightly re-check of a video whose picture at Bunny is unfinished (T4), below;
  * - the nightly new check of a waiting story whose newest job gave up on our side (Part 1a).
  * Job ids are ULIDs: no personal data, so the logs carry them.
  */
@@ -118,65 +117,6 @@ export const mediaResendTask: Task = {
       } catch {
         // Not sent, or sent but not recorded: either way the next evening sends it (again).
         result.failed.push(j.job);
-      }
-    }
-    return result;
-  },
-};
-
-/**
- * Videos whose picture at Bunny is unfinished (T4 = A; Joel, 2026-11-09): the result writer's lock
- * (storyFile.thumbnailLockedUntil) has run out without being emptied, so Bunny may show another
- * picture, and no check of the file is open to finish it (the job gave up, say). Only files a
- * story still shows; the oldest lock first. The nightly retry cap holds here too (P1-9, Joel,
- * 2026-11-14: "Retries must be capped"): a waiting or system-hidden story's file whose checks gave
- * up more than fn::media::nightly_retries() times (fn::media::retries_used, the rule the database
- * applies to every new job in mediaJob_rules) is never re-checked, so its "a problem on our side"
- * marker stays. One count, shared with the media retry
- * below: before the cap this chore's check is that night's retry.
- */
-const UNFINISHED = `SELECT VALUE record::id(id) FROM storyFile
-  WHERE thumbnailLockedUntil != NONE AND thumbnailLockedUntil <= time::now()
-    AND format = 'video' AND detachedAt = NONE AND removedAt = NONE
-    AND (SELECT VALUE id FROM mediaJob
-      WHERE file = $parent.id AND kind = 'check' AND doneAt = NONE LIMIT 1) = []
-    AND !fn::media::retries_used(id)
-  ORDER BY thumbnailLockedUntil ASC LIMIT $limit`;
-
-/**
- * The nightly re-check of an unfinished picture (T4: "the nightly housekeeping re-checks any
- * unfinished lock"): opens a check job of each such video through fn::media::queue_job, reason
- * `resent` (housekeeping's own reason: the work is sent again, not newly asked for; the database
- * lets housekeeping create only such a job). It sends nothing: the 18:00 resend sends it that
- * evening, the worker's answer takes the lock over and puts Bunny right, and approval waits until
- * then.
- */
-export const unfinishedPicturesTask: Task = {
-  name: 'unfinished-pictures',
-  async run(ctx): Promise<TaskResult> {
-    const [found] = (await runQuery(ctx.db, UNFINISHED, {
-      limit: ctx.maxDeletions + 1,
-    })) as [string[]];
-    const selected = (found ?? []).slice(0, ctx.maxDeletions);
-    const result: TaskResult = {
-      selected,
-      deleted: [],
-      failed: [],
-      more: (found ?? []).length > ctx.maxDeletions,
-    };
-    if (ctx.dryRun) return result;
-    for (const video of selected) {
-      try {
-        await retryOnConflict(() =>
-          runQuery(
-            ctx.db,
-            `RETURN fn::media::queue_job(type::record('storyFile', $video), 'check', 'resent')`,
-            { video },
-          ),
-        );
-        result.deleted.push(video);
-      } catch {
-        result.failed.push(video);
       }
     }
     return result;

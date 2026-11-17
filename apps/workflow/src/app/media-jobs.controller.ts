@@ -19,7 +19,6 @@ import {
   answerJob,
   type AnswerOutcome,
   type AnswerResult,
-  applyThumbnail,
   failJob,
   type FailureReply,
   InvalidMediaJobCall,
@@ -29,9 +28,6 @@ import {
   parseJobId,
   parseMediaAnswer,
   parseVideoId,
-  THUMBNAIL_LOCK,
-  type ThumbnailLock,
-  type ThumbnailOutcome,
 } from './media-jobs';
 import { MEDIA_QUEUE, type MediaQueue, sendJobs } from './media-queue';
 import {
@@ -63,16 +59,12 @@ export class MediaJobsController {
     @Inject(SURREAL) private readonly db: Surreal,
     @Inject(WRITER_BUNNY) private readonly bunny: WriterBunny | null,
     @Inject(MEDIA_QUEUE) private readonly queue: MediaQueue | null,
-    @Inject(THUMBNAIL_LOCK) private readonly lock: ThumbnailLock,
   ) {}
 
   /**
    * The answer to a check job: the file's facts and the job's end, in one transaction. A ready
-   * video's picture (video-bundle-rethink part A; Joel, 2026-11-08, T3) then goes to Bunny under
-   * the video's lock, with a check job left open until Bunny shows it and it is recorded. If
-   * another writer holds the lock, Bunny won't, or this writer's lock ran out first, the reply is
-   * "try again later" (`retry: true`), with the job still open and nothing counted as the
-   * worker's failure.
+   * video's picture is left alone: api-user set it at Bunny when the story was sent (Joel,
+   * 2026-11-17, P1-13 A).
    * Part 1a: a "failed" answer is believed only once Bunny tells the writer the same
    * ({@link answerFailed}); the writer then asks Bunny for its one re-encode, or records the file
    * as unusable. 503 with Bunny off: the worker tries again later.
@@ -104,16 +96,11 @@ export class MediaJobsController {
       }
       result = reply;
     } else {
-      result = await answerJob(
-        this.db,
-        job,
-        video,
-        answer,
-        arrivedAt,
-        bunny !== null,
-      ).catch((err: unknown) => this.refuse(job, err));
+      result = await answerJob(this.db, job, video, answer, arrivedAt).catch(
+        (err: unknown) => this.refuse(job, err),
+      );
     }
-    const { outcome, render, thumbnail } = result;
+    const { outcome, render } = result;
     // Ids and outcomes only: no personal data is in an answer.
     const entry = {
       job,
@@ -123,32 +110,8 @@ export class MediaJobsController {
       ...(render ? { render: render.job } : {}),
     };
     if (render) await sendJobs(this.db, this.queue, [render]);
-    if (!thumbnail || !bunny) {
-      this.logger.log(JSON.stringify(entry));
-      return { outcome };
-    }
-    let done: ThumbnailOutcome;
-    try {
-      done = await applyThumbnail(
-        this.db,
-        (v, picture, signal) => bunny.setThumbnail(v, picture, signal),
-        thumbnail.job,
-        video,
-        this.lock,
-      );
-    } catch (err) {
-      if (!(err instanceof BunnyCallFailed)) return this.refuse(job, err);
-      this.logger.warn(JSON.stringify({ ...entry, thumbnail: err.code }));
-      return { retry: true };
-    }
-    this.logger.log(
-      JSON.stringify({
-        ...entry,
-        thumbnailJob: thumbnail.job,
-        thumbnail: done,
-      }),
-    );
-    return done === 'closed' ? { outcome } : { retry: true };
+    this.logger.log(JSON.stringify(entry));
+    return { outcome };
   }
 
   /**

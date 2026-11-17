@@ -322,6 +322,10 @@ export class ModerationController {
     requireAdminForAnyway(anyway, role);
     // Who decides: the moderator's own user record, from their own database session (D27).
     const by = await this.people.run(req, async ({ user }) => user);
+    // Approve, Approve anyway and Show again put the story on the site (RE-2 B, RE-3 A).
+    if (action === 'approved' || action === 'shownByModerator') {
+      await this.confirmVideoPicture(id);
+    }
     const done = await decide(this.db, {
       id,
       reviewed,
@@ -332,6 +336,24 @@ export class ModerationController {
     });
     res.setHeader('ETag', `"${done.tag}"`);
     return { id, version: done.version };
+  }
+
+  /**
+   * RE-2 B (Joel, 2026-11-17): a person's video story (not an audio story's picture video) is
+   * approved only while Bunny shows the picture api-user recorded at send (StoryMedia). RE-3 A
+   * (Joel, 2026-11-17): "Show again" runs the same check, so a hidden story never goes back on
+   * the site unchecked.
+   */
+  private async confirmVideoPicture(id: string): Promise<void> {
+    const [video] = (await runQuery(
+      this.db,
+      `SELECT VALUE IF mediaFile != NONE AND mediaFile.format = 'video'
+           AND mediaFile.renderOf = NONE {
+         { id: <string> record::id(mediaFile), thumbnailPath: mediaFile.thumbnailPath }
+       } FROM ONLY type::record('story', $id)`,
+      { id },
+    )) as [{ id: string; thumbnailPath?: string } | null | undefined];
+    if (video) await this.media.confirmPicture(video);
   }
 
   @Post('stories/:id/approve')

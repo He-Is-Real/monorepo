@@ -28,7 +28,10 @@ import {
 import type { Surreal } from 'surrealdb';
 import { AppModule } from '../src/app/app.module';
 import { useBodyParser } from '../src/app/body-parser';
-import { STORY_FOLDERS } from '../src/app/moderation/story-media';
+import {
+  PICTURE_CHECK_MS,
+  STORY_FOLDERS,
+} from '../src/app/moderation/story-media';
 import { STORY_MEDIA_BUDGET_MS } from '@heisreal/story-cards/story-media';
 
 /**
@@ -42,11 +45,20 @@ class FakeBunny implements BunnyStream {
   stalled = false;
   readonly videos: string[] = [];
   readonly folders: string[] = [];
+  /** The thumbnail file Bunny names for each video it has (RE-2 B's approval check). */
+  readonly pictures = new Map<string, string>();
+  readonly looked: string[] = [];
   async createVideo(): Promise<string> {
     throw new Error('api-admin never creates videos');
   }
-  async video() {
-    return null;
+  async video(id: string) {
+    this.looked.push(id);
+    if (this.stalled) return NEVER;
+    if (this.down) throw new Error('Bunny Stream get answered 503');
+    const name = this.pictures.get(id);
+    return name === undefined
+      ? null
+      : { status: 4, length: 60, mp4Height: 1080, thumbnailFileName: name };
   }
   async deleteVideo(id: string) {
     if (this.stalled) return NEVER;
@@ -55,6 +67,9 @@ class FakeBunny implements BunnyStream {
   }
   sign(videoId: string, now?: number) {
     return signUpload('42', 'library-key', videoId, now);
+  }
+  async setThumbnail(): Promise<void> {
+    throw new Error('No video’s picture is set in these tests');
   }
   readonly zone = {
     deleteFolder: async (folder: string) => {
@@ -183,6 +198,8 @@ describe('moderation, the decisions (api-admin)', () => {
       .useValue(bunny.zone)
       // A short wait for Bunny, so the stalled-Bunny case is quick (8 s in the service).
       .overrideProvider(STORY_MEDIA_BUDGET_MS)
+      .useValue(300)
+      .overrideProvider(PICTURE_CHECK_MS)
       .useValue(300)
       .compile();
     app = moduleRef.createNestApplication<NestExpressApplication>({
@@ -400,24 +417,38 @@ describe('moderation, the decisions (api-admin)', () => {
     expect(await statusOf(migrator, id)).toBe('pending');
   });
 
-  it('a story whose media is still being processed: a Moderator waits, an Admin approves anyway and the entry says so', async () => {
+  /**
+   * Ann's video story, sent, its file uploaded a day ago, with the thumbnail file api-user
+   * recorded at send (RE-2 B) and Bunny showing that file. Answers the story and video ids.
+   */
+  const sentVideo = async (
+    recorded: string | null = 'thumbnail_1a2b3c4d.jpg',
+  ) => {
     const id = `dec_${++n}`;
+    const video = randomUUID();
     await draft(ann, id, { primaryFormat: 'video', body: undefined });
     await run(
       migrator,
-      `CREATE type::record('storyFile', $id + '-video') CONTENT {
+      `CREATE type::record('storyFile', $video) CONTENT {
          story: type::record('story', $id), person: user:ann, format: 'video',
-         contentType: 'video/mp4', sizeBytes: 1000, storyVersion: 1, at: time::now() - 1d };
-       UPDATE type::record('story', $id) SET mediaFile = type::record('storyFile', $id + '-video');`,
-      { id },
+         contentType: 'video/mp4', sizeBytes: 1000, storyVersion: 1, at: time::now() - 1d,
+         thumbnailPath: IF $recorded != NONE { $video + '/' + $recorded } };
+       UPDATE type::record('story', $id) SET mediaFile = type::record('storyFile', $video);`,
+      { id, video, recorded: recorded ?? undefined },
     );
+    if (recorded) bunny.pictures.set(video, recorded);
     await submit(ann, id);
+    return { id, video };
+  };
+
+  it('a story whose media is still being processed: a Moderator waits, an Admin approves anyway and the entry says so', async () => {
+    const { id, video } = await sentVideo();
     await processed(await t.service('workflow'), id);
     // A check of the video still open (J6), as api-user opens one.
     await run(
       await t.service('api_user'),
-      `RETURN fn::media::queue_job(type::record('storyFile', $id + '-video'), 'check', 'submitted')`,
-      { id },
+      `RETURN fn::media::queue_job(type::record('storyFile', $video), 'check', 'submitted')`,
+      { video },
     );
     const { tag } = await open(id);
     const waits = await decide(id, 'approve', tag);
@@ -436,6 +467,132 @@ describe('moderation, the decisions (api-admin)', () => {
         { id },
       ),
     ).toEqual([true]);
+  });
+
+  // RE-2 B (Joel, 2026-11-17): a picture can reach Bunny late (a send that timed out, another
+  // tab), so approval compares Bunny's thumbnail file with the one recorded at send.
+  it('a video story is approved only while Bunny shows the picture recorded at send; approve anyway too', async () => {
+    const PICTURE_CHANGED = {
+      code: 'picture_changed_at_bunny',
+      detail:
+        'The picture changed at Bunny. Send it back so the person sends again.',
+    };
+    // Bunny shows another file: refused, for a Moderator and an Admin approving anyway alike.
+    const late = await sentVideo();
+    await processed(await t.service('workflow'), late.id);
+    bunny.pictures.set(late.video, 'thumbnail_0badf00d.jpg');
+    const lateTag = (await open(late.id)).tag;
+    const refused = await decide(late.id, 'approve', lateTag);
+    expect([refused.status, refused.body]).toEqual([
+      409,
+      expect.objectContaining(PICTURE_CHANGED),
+    ]);
+    const anyway = await decide(
+      late.id,
+      'approve',
+      lateTag,
+      { approveAnyway: true },
+      ADMIN,
+    );
+    expect([anyway.status, anyway.body]).toEqual([
+      409,
+      expect.objectContaining(PICTURE_CHANGED),
+    ]);
+    expect(await statusOf(migrator, late.id)).toBe('pending');
+    // Sending it back still works, so the person sends again.
+    expect(
+      (
+        await decide(late.id, 'request-changes', lateTag, {
+          feedbackToSubmitter: NOTE,
+        })
+      ).status,
+    ).toBe(200);
+
+    // Nothing recorded at send: refused the same way.
+    const none = await sentVideo(null);
+    await processed(await t.service('workflow'), none.id);
+    bunny.pictures.set(none.video, 'thumbnail.jpg');
+    const noneRefused = await decide(
+      none.id,
+      'approve',
+      (await open(none.id)).tag,
+    );
+    expect([noneRefused.status, noneRefused.body.code]).toEqual([
+      409,
+      'picture_changed_at_bunny',
+    ]);
+    expect(await statusOf(migrator, none.id)).toBe('pending');
+
+    // Bunny down, stalled or without the video: never approved unchecked; the generic answer.
+    const ok = await sentVideo();
+    await processed(await t.service('workflow'), ok.id);
+    const { tag } = await open(ok.id);
+    for (const how of ['down', 'stalled', 'gone'] as const) {
+      bunny.down = how === 'down';
+      bunny.stalled = how === 'stalled';
+      if (how === 'gone') bunny.pictures.delete(ok.video);
+      const failed = await decide(ok.id, 'approve', tag);
+      expect([failed.status, failed.body.code], how).toEqual([
+        502,
+        'bunny_unavailable',
+      ]);
+      expect(await statusOf(migrator, ok.id), how).toBe('pending');
+    }
+    bunny.down = false;
+    bunny.stalled = false;
+    bunny.pictures.set(ok.video, 'thumbnail_1a2b3c4d.jpg');
+
+    // Bunny shows the recorded file: approved.
+    expect((await decide(ok.id, 'approve', tag)).status).toBe(200);
+    expect(await statusOf(migrator, ok.id)).toBe('approved');
+    expect(bunny.looked).toContain(ok.video);
+  });
+
+  // RE-3 A (Joel, 2026-11-17): Show again puts a story back on the site, so it gets approval's
+  // picture check at Bunny too.
+  it('Show again shows a hidden video story only while Bunny shows the picture recorded at send', async () => {
+    const { id, video } = await sentVideo();
+    await processed(await t.service('workflow'), id);
+    expect((await decide(id, 'approve', (await open(id)).tag)).status).toBe(
+      200,
+    );
+    expect(
+      (await decide(id, 'hide', (await open(id)).tag, { reason: NOTE })).status,
+    ).toBe(200);
+    const { tag } = await open(id);
+
+    // Bunny shows another file: stays hidden, for a Moderator and an Admin showing anyway alike.
+    bunny.pictures.set(video, 'thumbnail_0badf00d.jpg');
+    for (const [body, who] of [
+      [undefined, undefined],
+      [{ approveAnyway: true }, ADMIN],
+    ] as const) {
+      const refused = await decide(id, 'show', tag, body, who);
+      expect([refused.status, refused.body]).toEqual([
+        409,
+        expect.objectContaining({
+          code: 'picture_changed_at_bunny',
+          detail:
+            'The picture changed at Bunny. Send it back so the person sends again.',
+        }),
+      ]);
+      expect(await statusOf(migrator, id)).toBe('hidden');
+    }
+
+    // Bunny down: the generic answer, still hidden.
+    bunny.pictures.set(video, 'thumbnail_1a2b3c4d.jpg');
+    bunny.down = true;
+    const failed = await decide(id, 'show', tag);
+    bunny.down = false;
+    expect([failed.status, failed.body.code]).toEqual([
+      502,
+      'bunny_unavailable',
+    ]);
+    expect(await statusOf(migrator, id)).toBe('hidden');
+
+    // Bunny shows the recorded file: back on the site.
+    expect((await decide(id, 'show', tag)).status).toBe(200);
+    expect(await statusOf(migrator, id)).toBe('approved');
   });
 
   it('a story the site took off itself can be rejected (P1-9, P1-11); a moderator’s take-down can’t', async () => {

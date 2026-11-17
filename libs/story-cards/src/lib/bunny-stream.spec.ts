@@ -35,6 +35,7 @@ describe('Bunny Stream calls never follow a redirect with the library key', () =
     ['create', () => api.createVideo('story-id')],
     ['read', () => api.video(ID)],
     ['delete', () => api.deleteVideo(ID)],
+    ['set picture', () => api.setThumbnail(ID, 'thumbnail_1.jpg')],
   ])('%s', async (_, call) => {
     await expect(call()).rejects.toThrow();
     expect(reachedElsewhere).toEqual([]);

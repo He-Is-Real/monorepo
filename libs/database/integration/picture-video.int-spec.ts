@@ -308,17 +308,188 @@ describe('picture videos and the picture Bunny shows (1B, part A)', () => {
         ok: false,
         error: expect.stringContaining('a picture of its own story'),
       });
-      await run(
-        apiUser,
-        `UPDATE type::record('storyFile', $render) SET thumbnailOf = NONE`,
-        { render },
-      );
+      // api-user writes a person's own video's picture only (below), never a picture video's.
+      expect(
+        await outcome(
+          apiUser,
+          `UPDATE type::record('storyFile', $render) SET thumbnailOf = NONE`,
+          { render },
+        ),
+      ).toMatchObject({
+        ok: false,
+        error: expect.stringContaining('picture_set:'),
+      });
       expect(
         await truth(
           `SELECT VALUE thumbnailOf FROM ONLY type::record('storyFile', $render)`,
           { render },
         ),
       ).toEqual(before);
+    });
+
+    // Joel, 2026-11-17, P1-13 A: api-user sets a video's picture at Bunny when the story is sent
+    // and records it, on its own login.
+    it('api-user records a video’s picture only while its story is being edited, and only its current picture or none', async () => {
+      const id = `pv_${++n}`;
+      const video = randomUUID();
+      await draft(pat, id, { primaryFormat: 'video', body: undefined });
+      expect(
+        await grantUpload(apiUser, {
+          video,
+          story: id,
+          person: 'pat',
+          version: await versionOf(id),
+          format: 'video',
+        }),
+      ).toMatchObject({ ok: true });
+      const current = async () =>
+        (
+          await truth<string | null>(
+            `SELECT VALUE IF image != NONE { <string> record::id(image.file) }
+               FROM ONLY type::record('story', $id)`,
+            { id },
+          )
+        )[0] ?? null;
+      const picture = async () => {
+        expect(
+          await grantImage(apiUser, {
+            story: id,
+            person: 'pat',
+            version: await versionOf(id),
+            name: (++n).toString(16).padStart(32, '0'),
+            expectedImage: await current(),
+          }),
+        ).toMatchObject({ ok: true });
+        return (
+          await truth<string>(
+            `SELECT VALUE <string> record::id(image.file) FROM ONLY type::record('story', $id)`,
+            { id },
+          )
+        )[0];
+      };
+      const record = (path: string | null) =>
+        outcome(
+          apiUser,
+          `UPDATE type::record('storyFile', $video)
+             SET thumbnailOf = IF $path = NONE { NONE } ELSE { type::record('storyFile', $path) }`,
+          { video, path: path ?? undefined },
+        );
+      const recorded = async () =>
+        (
+          await truth<string | null>(
+            `SELECT VALUE IF thumbnailOf != NONE { <string> record::id(thumbnailOf) }
+               FROM ONLY type::record('storyFile', $video)`,
+            { video },
+          )
+        )[0] ?? null;
+      const refused = {
+        ok: false,
+        error: expect.stringContaining('picture_set:'),
+      };
+
+      const first = await picture();
+      expect(await record(first)).toMatchObject({ ok: true });
+      expect(await recorded()).toBe(first);
+      // A replaced picture is no longer the story's: refused.
+      const second = await picture();
+      expect(await record(null)).toMatchObject(refused);
+      expect(await record(second)).toMatchObject({ ok: true });
+      expect(await record(first)).toMatchObject(refused);
+      expect(await recorded()).toBe(second);
+      // Taken off: only NONE (Bunny's own frame) is the story's now.
+      await run(pat, `UPDATE type::record('story', $id) SET image = NONE`, {
+        id,
+      });
+      expect(await record(null)).toMatchObject({ ok: true });
+      expect(await recorded()).toBeNull();
+      expect(await record(second)).toMatchObject(refused);
+      expect(await recorded()).toBeNull();
+      // Once sent, the story isn't being edited: nothing more.
+      const third = await picture();
+      await processed(workflow, id);
+      expect(await submit(pat, id)).toHaveLength(1);
+      expect(await recorded()).toBe(third);
+      expect(await record(null)).toMatchObject(refused);
+      expect(await recorded()).toBe(third);
+    });
+
+    // Joel, 2026-11-17, RE-2 B: api-user records the thumbnail file Bunny's read-back named for a
+    // video at send; the result writer never does for a person's video.
+    it('api-user records a video’s thumbnailPath only on the video its story being edited shows, and only `<its id>/<file name>`', async () => {
+      const id = `pv_${++n}`;
+      const video = randomUUID();
+      await draft(pat, id, { primaryFormat: 'video', body: undefined });
+      const grant = async (v: string) =>
+        expect(
+          await grantUpload(apiUser, {
+            video: v,
+            story: id,
+            person: 'pat',
+            version: await versionOf(id),
+            format: 'video',
+          }),
+        ).toMatchObject({ ok: true });
+      await grant(video);
+      const write = (db: Surreal, v: string, path: string) =>
+        outcome(
+          db,
+          `UPDATE type::record('storyFile', $v) SET thumbnailPath = $path`,
+          { v, path },
+        );
+      const pathOf = async (v: string) =>
+        (
+          await truth<string | null>(
+            `SELECT VALUE thumbnailPath FROM ONLY type::record('storyFile', $v)`,
+            { v },
+          )
+        )[0] ?? null;
+      const refused = {
+        ok: false,
+        error: expect.stringContaining('picture_set:'),
+      };
+
+      expect(
+        await write(apiUser, video, `${video}/thumbnail_1a2b3c4d.jpg`),
+      ).toMatchObject({ ok: true });
+      expect(await pathOf(video)).toBe(`${video}/thumbnail_1a2b3c4d.jpg`);
+      // Only `<this video's id>/<one file name>` (fn::media::own_thumbnail).
+      for (const bad of [
+        `${randomUUID()}/thumbnail.jpg`,
+        `${video}/..`,
+        `${video}/a/b.jpg`,
+        `${video}/thumb nail.jpg`,
+        'thumbnail.jpg',
+      ]) {
+        expect(await write(apiUser, video, bad), bad).toMatchObject(refused);
+      }
+      expect(await pathOf(video)).toBe(`${video}/thumbnail_1a2b3c4d.jpg`);
+      // The result writer no longer writes a person's video's: its write is dropped.
+      await write(workflow, video, `${video}/thumbnail_00ffee11.jpg`);
+      expect(await pathOf(video)).toBe(`${video}/thumbnail_1a2b3c4d.jpg`);
+
+      // A video the story no longer shows (replaced): refused.
+      const replacement = randomUUID();
+      await grant(replacement);
+      expect(
+        await write(apiUser, video, `${video}/thumbnail_99887766.jpg`),
+      ).toMatchObject(refused);
+      expect(await pathOf(video)).toBe(`${video}/thumbnail_1a2b3c4d.jpg`);
+
+      // Another story's file: an audio story's file (not a video) keeps its path.
+      const { audio } = await audioDraft();
+      await write(apiUser, audio, `${audio}/thumbnail.jpg`);
+      expect(await pathOf(audio)).toBeNull();
+
+      // Once sent, the story isn't being edited: nothing more.
+      expect(
+        await write(apiUser, replacement, `${replacement}/thumbnail.jpg`),
+      ).toMatchObject({ ok: true });
+      await processed(workflow, id);
+      expect(await submit(pat, id)).toHaveLength(1);
+      expect(
+        await write(apiUser, replacement, `${replacement}/thumbnail_5.jpg`),
+      ).toMatchObject(refused);
+      expect(await pathOf(replacement)).toBe(`${replacement}/thumbnail.jpg`);
     });
   });
 
