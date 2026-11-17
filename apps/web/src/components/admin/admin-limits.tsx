@@ -626,12 +626,14 @@ function LimitsForm({
 }
 
 /** The tallest share of the screen the save bar may take with its list of changes shown. */
-const BAR_SHARE = 0.35;
+const BAR_SHARE = 0.38;
 
 /**
  * The sticky save bar (SL-1 C): what changed, with Undo and Save. When the list of changes
  * wouldn't fit comfortably (small or short screens, large text) it folds behind a "Show
- * changes" button, and the page keeps the focused box above the bar (Codex review of #237).
+ * changes" button; shown, it scrolls within what's left of the bar's share of the screen,
+ * and it folds again when focus goes back to the page. The page keeps the focused box above
+ * the bar (Codex reviews of #237).
  */
 function SaveBar({
   changes,
@@ -647,8 +649,10 @@ function SaveBar({
   const id = useId();
   const bar = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
-  /** Whether the bar with its list shown fits in its share of the screen. */
+  /** Whether the bar with its list shown (6 rem at most) fits in its share of the screen. */
   const [fits, setFits] = useState(true);
+  /** The height left for the list within the bar's share of the screen, in px. */
+  const [room, setRoom] = useState(0);
   const [open, setOpen] = useState(false);
   const shown = fits || open;
 
@@ -663,12 +667,14 @@ function SaveBar({
         parseFloat(cs.paddingTop) +
         parseFloat(cs.paddingBottom) +
         parseFloat(cs.borderTopWidth);
-      // The list is capped at 6 rem (plus its 0.5 rem gap), so this is the bar at its tallest.
-      const tallest = (top.current?.offsetHeight ?? 0) + padding + 6.5 * rem;
-      setFits(tallest <= window.innerHeight * BAR_SHARE);
+      // The controls, and the 8 px gap above the list. innerHeight follows the dynamic
+      // viewport (a phone's browser bars, the on-screen keyboard).
+      const controls = (top.current?.offsetHeight ?? 0) + padding + 8;
+      const left = window.innerHeight * BAR_SHARE - controls;
+      setRoom(Math.floor(left));
+      setFits(6 * rem <= left);
       // Scrolling (focus, scrollIntoView) keeps clear of the bar.
-      const height = el.offsetHeight;
-      root.style.scrollPaddingBottom = `${height}px`;
+      root.style.scrollPaddingBottom = `${el.offsetHeight}px`;
       uncover();
     };
     /** The box being typed in stays visible above the bar as it appears, grows or moves. */
@@ -682,29 +688,41 @@ function SaveBar({
       )
         active.scrollIntoView({ block: 'nearest' });
     };
+    /** Focus back on the page folds the list away, so the bar doesn't cover the box. */
+    const focusin = (event: FocusEvent) => {
+      if (event.target instanceof Node && !el.contains(event.target))
+        setOpen(false);
+      uncover();
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     window.addEventListener('resize', measure);
-    document.addEventListener('focusin', uncover);
+    document.addEventListener('focusin', focusin);
     return () => {
       observer.disconnect();
       window.removeEventListener('resize', measure);
-      document.removeEventListener('focusin', uncover);
+      document.removeEventListener('focusin', focusin);
       root.style.scrollPaddingBottom = '';
     };
   }, []);
 
+  // Sizes in px where they don't hold text (padding, gaps, the 44 px targets), so large
+  // text grows only the words and the bar stays small.
+  const control = 'h-auto min-h-[44px] px-[12px] py-[4px]';
   return (
     <div
       ref={bar}
       role="region"
       aria-label="Unsaved changes"
       data-save-bar=""
-      className="sticky bottom-0 z-20 border-t border-border bg-background/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur sm:rounded-t-2xl sm:border-x"
+      className="sticky bottom-0 z-20 border-t border-border bg-background/95 px-[12px] pt-[8px] pb-[max(8px,env(safe-area-inset-bottom))] backdrop-blur sm:rounded-t-2xl sm:border-x sm:px-[16px]"
     >
-      <div ref={top} className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <p className="min-w-0 flex-1 basis-40 text-sm font-semibold text-foreground [overflow-wrap:anywhere]">
+      <div
+        ref={top}
+        className="flex flex-wrap items-center gap-x-[12px] gap-y-[4px]"
+      >
+        <p className="min-w-0 flex-1 basis-48 text-sm font-semibold text-foreground [overflow-wrap:anywhere]">
           {changes.length === 1
             ? '1 change not saved yet'
             : `${changes.length} changes not saved yet`}
@@ -716,28 +734,25 @@ function SaveBar({
                 aria-expanded={open}
                 aria-controls={`${id}-changes`}
                 onClick={() => setOpen((o) => !o)}
-                className="inline-flex min-h-11 items-center rounded-md px-1 font-normal text-primary underline underline-offset-4 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+                className="inline-flex min-h-[44px] items-center rounded-md px-[4px] font-normal text-primary underline underline-offset-4 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
               >
-                {open ? 'Hide changes' : 'Show changes'}
+                {open ? 'Hide' : 'Show'}
+                <span className="sr-only">&nbsp;changes</span>
               </button>
             </>
           )}
         </p>
-        <div className="flex min-w-0 flex-1 flex-wrap gap-3 sm:flex-none">
+        <div className="ml-auto flex flex-none gap-[8px]">
           <Button
             type="button"
             variant="outline"
-            className="min-h-11 flex-1 sm:flex-none"
+            className={control}
             disabled={busy}
             onClick={onUndo}
           >
             Undo
           </Button>
-          <Button
-            type="submit"
-            className="min-h-11 flex-1 sm:flex-none"
-            disabled={busy || stale}
-          >
+          <Button type="submit" className={control} disabled={busy || stale}>
             {busy ? 'Saving…' : 'Save'}
           </Button>
         </div>
@@ -745,10 +760,14 @@ function SaveBar({
       <ul
         id={`${id}-changes`}
         hidden={!shown}
-        // Scrolls when long, so keyboard users can reach it too.
+        // Scrolls when long, so keyboard users can reach it too. At least a line, even on
+        // the shortest screens with the largest text.
         tabIndex={0}
         aria-label="Changes not saved yet"
-        className="mt-2 max-h-24 overflow-y-auto text-sm text-secondary-text [overflow-wrap:anywhere] focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+        style={{
+          maxHeight: fits ? '6rem' : `max(${room}px, 1lh)`,
+        }}
+        className="mt-[8px] overflow-y-auto text-sm text-secondary-text [overflow-wrap:anywhere] focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
       >
         {changes.map(({ field, text }) => (
           <li key={field}>{text}</li>

@@ -34,7 +34,11 @@ const PAGES = [
 
 // eslint-disable-next-line no-empty-pattern
 test.beforeEach(({}, info) => {
-  test.skip(info.project.name !== 'phone-320', 'the smallest phone');
+  // The limits page's save bar is also checked on the shortest screen (Codex review of #237).
+  const devices = info.title.includes('/admin/limits')
+    ? ['phone-320', 'phone-320-landscape']
+    : ['phone-320'];
+  test.skip(!devices.includes(info.project.name), 'the smallest phone');
 });
 
 const fontSize = (locator: import('@playwright/test').Locator) =>
@@ -91,7 +95,7 @@ for (const path of PAGES) {
   });
 }
 
-test('200% text: /admin/limits with its save bar and confirmation fits on a 320 px phone', async ({
+test('200% text: /admin/limits with its save bar and confirmation fits on the smallest phone', async ({
   page,
 }) => {
   await enlarge(page);
@@ -123,9 +127,29 @@ test('200% text: /admin/limits with its save bar and confirmation fits on a 320 
   const show = bar.getByRole('button', { name: 'Show changes' });
   await expect(show).toHaveAttribute('aria-expanded', 'false');
   await show.click();
-  await expect(
-    bar.getByRole('button', { name: 'Hide changes' }),
-  ).toHaveAttribute('aria-expanded', 'true');
+  const hide = bar.getByRole('button', { name: 'Hide changes' });
+  await expect(hide).toHaveAttribute('aria-expanded', 'true');
+  // Shown, the list keeps the bar to its share of the screen; going back to a box folds it
+  // away, so the box is never under the bar (Codex review of #237, round 2).
+  await page.keyboard.press('Shift+Tab');
+  const box = page.locator('input:focus');
+  await expect(box).toHaveCount(1);
+  await expect(show).toHaveAttribute('aria-expanded', 'false');
+  await expect(list).toBeHidden();
+  await expectFocusedAndUncovered(box);
+  const { height, viewport } = await bar.evaluate((el) => ({
+    height: el.getBoundingClientRect().height,
+    viewport: window.innerHeight,
+  }));
+  expect(height).toBeLessThanOrEqual(viewport * 0.4);
+  for (const name of ['Undo', 'Save'])
+    await expect(bar.getByRole('button', { name, exact: true })).toBeInViewport(
+      {
+        ratio: 1,
+      },
+    );
+  await show.click();
+  await expect(hide).toHaveAttribute('aria-expanded', 'true');
   await expect(list).toContainText('Longest story: 10,000 → 12,000 characters');
   await expectNoHorizontalOverflow(page);
   await bar.getByRole('button', { name: 'Save', exact: true }).click();
