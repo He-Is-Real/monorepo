@@ -228,6 +228,21 @@ test.describe('behaviour', () => {
     request,
   }) => {
     await person(page, request, {}, 'admin');
+    // The tabs' first look at the privacy notice (version 1) answers only after the save below:
+    // its tab must still show the saved version 2 then.
+    let saved: () => void = () => undefined;
+    const afterSave = new Promise<void>((resolve) => (saved = resolve));
+    let held = false;
+    await page.route(
+      '**/v1/admin/legal-documents/privacy-notice/versions',
+      async (route) => {
+        if (held || route.request().method() !== 'GET') return route.fallback();
+        held = true;
+        const response = await route.fetch();
+        await afterSave;
+        await route.fulfill({ response });
+      },
+    );
     await page.goto(`${WEB_SIGNED_IN_URL}/admin/consent`);
     await page.getByRole('tab', { name: 'Privacy notice' }).click();
     await expect(page.locator('[data-current-version]')).toContainText(
@@ -261,6 +276,16 @@ test.describe('behaviour', () => {
     await expect(
       page.getByRole('tab', { name: 'Privacy notice' }),
     ).toContainText('v2 · ');
+    const late = page.waitForResponse(
+      (r) =>
+        r.url().endsWith('/v1/admin/legal-documents/privacy-notice/versions') &&
+        r.request().method() === 'GET',
+    );
+    saved();
+    await late;
+    await expect(
+      page.getByRole('tab', { name: 'Privacy notice' }),
+    ).toContainText('v2 · ');
   });
 
   // CS-1 C4 (Joel, 2026-11-17): underlined tabs with each text's current version and date, and
@@ -270,11 +295,18 @@ test.describe('behaviour', () => {
     request,
   }) => {
     await person(page, request, {}, 'admin');
+    // The fixtures' dates are in October 2026; the year shows only outside the current one, in
+    // UK time. The browser's clock is pinned so the runner's date and time zone don't matter.
+    const now = new Date('2026-11-17T12:00:00Z');
+    await page.clock.setFixedTime(now);
+    const londonYear = new Intl.DateTimeFormat('en-GB', {
+      year: 'numeric',
+      timeZone: 'Europe/London',
+    }).format(now);
+    const when = (day: number) =>
+      londonYear === '2026' ? `${day} Oct` : `${day} Oct 2026`;
     await page.goto(`${WEB_SIGNED_IN_URL}/admin/consent`);
     const tab = (name: string) => page.getByRole('tab', { name });
-    // The fixtures' dates are in October 2026; the year shows only outside the current one.
-    const when = (day: number) =>
-      new Date().getFullYear() === 2026 ? `${day} Oct` : `${day} Oct 2026`;
     await expect(tab('Terms of use')).toContainText(`v2 · ${when(20)}`);
     await expect(tab('Testimony consent')).toContainText(`v3 · ${when(22)}`);
     await expect(tab('Social media sharing')).toContainText(`v1 · ${when(15)}`);

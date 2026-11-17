@@ -190,9 +190,14 @@ function ConsentTexts({ client }: { client: ApiUser }) {
   const load = useRef(0);
   const id = useId();
 
+  // Versions only go up: a slow answer from before a save never puts the tab back to an older one.
   const setCurrent = useCallback(
     (which: LegalDocumentName, { version, releaseDate }: Current) =>
-      setCurrents((all) => ({ ...all, [which]: { version, releaseDate } })),
+      setCurrents((all) =>
+        (all[which]?.version ?? -1) > version
+          ? all
+          : { ...all, [which]: { version, releaseDate } },
+      ),
     [],
   );
 
