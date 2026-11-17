@@ -168,8 +168,20 @@ thumbnail file records the picture as the video's `thumbnailOf`. Nothing goes to
 `thumbnailOf` is already the story's picture, or when there is no picture and Bunny still names
 the video's untouched first thumbnail, `thumbnail.jpg` (every picture set, frame included, gets a
 new `thumbnail_<random>.jpg`; checked on dev Bunny 2026-11-17). So a set whose read-back failed
-is still undone when the person removes the picture. All of Bunny's calls get 20 seconds together. The
-writer's checks of the video never touch its picture.
+is still undone when the person removes the picture. All of Bunny's calls get 20 seconds together. In
+the same write as `thumbnailOf`, api-user records the thumbnail file Bunny's read-back named as the
+video's `thumbnailPath`, `<video id>/<file name>` (Joel, 2026-11-17, RE-2 B; when nothing went to
+Bunny, the name Bunny showed just before). The writer's checks of the video never touch its
+picture or its `thumbnailPath` (only a picture video's).
+
+**"The picture changed at Bunny"** (api-admin logs `Video <id>: Bunny shows another picture than
+the one recorded at send; approval refused`): a moderator's approval found Bunny showing another
+thumbnail file than the video's `thumbnailPath`. Usually an earlier send's picture that timed out
+reached Bunny late, or two tabs sent at once. Nothing to fix by hand: the moderator sends the story
+back and the person sends it again, which sets the picture at Bunny again and records it. Approve
+anyway can't skip it. `Couldn’t check video <id>’s picture at Bunny before approval` means Bunny
+didn't answer (10 seconds) or has no such video: the moderator tries again later; if it persists,
+check Bunny's status and api-admin's Bunny Stream key.
 
 **Picture failed at submit** (api-user logs `Bunny didn’t take video <id>’s picture: …`): the
 story wasn't sent and the person saw "We couldn't add your picture. Please add it again, then

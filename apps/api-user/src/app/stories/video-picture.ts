@@ -27,7 +27,12 @@ import { StaleVersionException } from './story-store';
  *   images zone, or, with no picture any more, its own frame again ({@link BUNNY_FRAME}); then the
  *   video is read back, and the new picture counts only once Bunny names a new thumbnail file;
  * - on success, api-user's own login records the picture as the video's `thumbnailOf` (NONE for
- *   Bunny's frame), which the database allows only for the story being edited's current picture;
+ *   Bunny's frame), which the database allows only for the story being edited's current picture,
+ *   and, in the same write, the thumbnail file Bunny's read-back named as its `thumbnailPath`,
+ *   `<video id>/<file name>` (Joel, 2026-11-17, RE-2 B). When nothing needs doing at Bunny, the
+ *   `thumbnailPath` is the file name Bunny showed just before ({@link VideoPicture.before}), if it
+ *   named one. api-admin's approval compares it with what Bunny shows then: a picture that reached
+ *   Bunny late (a send that timed out, another tab) is refused, never published unseen;
  * - all Bunny's calls together get {@link PICTURE_BUDGET_MS}. Bunny down, refusing, too slow, or
  *   the read-back not showing a new file: `400 image_not_uploaded` with {@link PICTURE_FAILED}, and
  *   the story isn't sent (it stays as it was). No retry in the background, and no job.
@@ -123,10 +128,19 @@ export async function setVideoPicture({
   // Nothing changed since Bunny last took it (a re-send after Edit with the same picture), or,
   // with no picture, Bunny has never been given one. A video Bunny shows any other picture for
   // gets its frame back, even if that is what it shows already (a frame put back gets a new name).
-  if ((recorded ?? null) === wanted) {
-    if (wanted !== null) return;
-    if (before.thumbnailFileName === BUNNY_UNTOUCHED) return;
+  if (
+    (recorded ?? null) === wanted &&
+    (wanted !== null || before.thumbnailFileName === BUNNY_UNTOUCHED)
+  ) {
+    // RE-2 B: what the read just before showed; with no file name, the path is left as it is.
+    if (before.thumbnailFileName) {
+      await record(service, videoId, {
+        thumbnailPath: `${videoId}/${before.thumbnailFileName}`,
+      });
+    }
+    return;
   }
+  let shown: string;
   try {
     const source =
       wanted === null ? BUNNY_FRAME : (urls?.imageUrl(wanted) ?? null);
@@ -135,24 +149,51 @@ export async function setVideoPicture({
       await bunny.setThumbnail(videoId, source, signal);
       return bunny.video(videoId, signal);
     });
-    const shown = after?.thumbnailFileName ?? null;
-    if (shown === null || shown === before.thumbnailFileName) {
+    const name = after?.thumbnailFileName ?? null;
+    if (name === null || name === before.thumbnailFileName) {
       throw new PictureNotTaken('Bunny shows no new thumbnail file');
     }
+    shown = name;
   } catch (err) {
     logger.warn(
       `Bunny didn’t take video ${videoId}’s picture: ${err instanceof Error ? err.message : 'error'}`,
     );
     throw pictureFailed();
   }
+  await record(service, videoId, {
+    picture: wanted,
+    thumbnailPath: `${videoId}/${shown}`,
+  });
+}
+
+/**
+ * api-user's one write to the video's row: its `thumbnailPath` (RE-2 B), and its `thumbnailOf`
+ * when `picture` is given (null: Bunny's own frame). Only a path that changes is written.
+ */
+async function record(
+  service: SurrealQueryable,
+  videoId: string,
+  {
+    picture,
+    thumbnailPath,
+  }: { picture?: string | null; thumbnailPath: string },
+): Promise<void> {
   try {
     await retryOnConflict(() =>
       runQuery(
         service,
         `UPDATE type::record('storyFile', $video)
-           SET thumbnailOf = IF $picture = NONE { NONE } ELSE { type::record('storyFile', $picture) }
+           SET thumbnailOf = IF !$setPicture { thumbnailOf }
+               ELSE IF $picture = NONE { NONE } ELSE { type::record('storyFile', $picture) },
+             thumbnailPath = $thumbnailPath
+           WHERE thumbnailPath != $thumbnailPath OR $setPicture
            RETURN NONE`,
-        { video: videoId, picture: wanted ?? undefined },
+        {
+          video: videoId,
+          setPicture: picture !== undefined,
+          picture: picture ?? undefined,
+          thumbnailPath,
+        },
       ),
     );
   } catch (err) {

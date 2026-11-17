@@ -527,7 +527,7 @@ describe('result writer: picture videos and Bunny’s picture', () => {
       ).toEqual({ status: 200, body: { outcome: 'applied' } });
     });
 
-    it('a ready video’s check never touches its picture: no call to Bunny, thumbnailOf as api-user left it (P1-13 A)', async () => {
+    it('a ready video’s check never touches its picture: no call to Bunny, thumbnailOf and thumbnailPath as api-user left them (P1-13 A, RE-2 B)', async () => {
       const story = await newStory('video');
       const video = await upload(story, 'video');
       const path = await picture(story);
@@ -535,23 +535,26 @@ describe('result writer: picture videos and Bunny’s picture', () => {
         title: story,
         thumbnailFileName: 'thumbnail_9f8e7d6c.jpg',
       });
-      // api-user set the picture at Bunny when the story was sent, and recorded it.
+      // api-user set the picture at Bunny when the story was sent, and recorded it with the file
+      // name Bunny's read-back named (RE-2 B).
       await rows(
         migrator,
         `UPDATE type::record('storyFile', $video)
-           SET thumbnailOf = type::record('storyFile', $path)`,
+           SET thumbnailOf = type::record('storyFile', $path),
+             thumbnailPath = $video + '/thumbnail_9f8e7d6c.jpg'`,
         { video, path },
       );
 
+      // Bunny names another file by the time the check answers (a picture that reached it late):
+      // the writer leaves api-user's record alone, for the approval check to compare.
       const job = await check(video);
       expect(
         await post(`/v1/media-jobs/${job}/answer`, {
           videoId: video,
-          ...ready(story, { thumbnailFileName: 'thumbnail_9f8e7d6c.jpg' }),
+          ...ready(story, { thumbnailFileName: 'thumbnail_00ffee11.jpg' }),
         }),
       ).toEqual({ status: 200, body: { outcome: 'applied' } });
       expect(stream.thumbnailUrls).toEqual([]);
-      // The job ended with the answer; Bunny's thumbnail file is recorded as its facts.
       expect(await jobRow(job)).toMatchObject({ outcome: 'applied' });
       expect(await file(video)).toMatchObject({
         processing: 'ready',

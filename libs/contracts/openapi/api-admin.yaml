@@ -242,11 +242,21 @@ paths:
           replaced through its upload link (an hour after the link was signed, 10 minutes for a
           picture). `availableAt`: when it can be approved. No one may skip this (G11 B).
         - `code: media_still_processing`: a media job for the story's files is still open (e.g. an
-          audio story's picture video is being made), or the video's picture at Bunny isn't
-          confirmed yet. An Admin may approve anyway (`approveAnyway`, G24); the approval's status
+          audio story's picture video is being made). An Admin may approve anyway (`approveAnyway`, G24); the approval's status
           entry records that the wait was skipped. `approveAnyway` when the wait has just ended is
           an ordinary approval.
         A Moderator sending `approveAnyway: true` gets `403` `role_required`.
+
+        A person's video story (not an audio story's picture video) is checked at Bunny first
+        (Joel, 2026-11-17, RE-2 B; `approveAnyway` too, which can't fix it): api-admin reads the
+        video at Bunny and compares its thumbnail's file name with the one api-user recorded when
+        the story was sent. Nothing is written when:
+        - `409` `code: picture_changed_at_bunny`: Bunny shows another picture (one that reached it
+          late, from an earlier send that timed out or another tab), or none was recorded. The web
+          says "The picture changed at Bunny. Send it back so the person sends again.";
+        - `502` `code: bunny_unavailable`: Bunny didn't answer within 10 seconds, refused, or has no
+          such video. The web shows its generic "try again" message.
+        With Bunny Stream off (no key: local runs without Bunny) the check is skipped.
       x-required-role: Moderator
       x-milestone: M3
       parameters:
@@ -277,6 +287,8 @@ paths:
           $ref: './components.yaml#/components/responses/PreconditionRequired'
         '503':
           $ref: './components.yaml#/components/responses/ServiceRestarting'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
 
   /v1/moderation/stories/{id}/reject:
     post:

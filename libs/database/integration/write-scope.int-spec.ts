@@ -104,12 +104,18 @@ describe('write scope on story fields (D41)', () => {
         story: 'story:bob_pending',
         sizeBytes: 1000,
         contentType: 'video/mp4',
-        thumbnailPath: 'vidorig/thumbnail_1.jpg',
         lengthSeconds: 93,
         width: 1080,
         height: 1920,
         processing: 'ready',
       });
+      // A person's video's thumbnailPath is api-user's, at send (Joel, 2026-11-17, RE-2 B): the
+      // writer's is dropped. Recorded here as api-user would have, for the tests below.
+      expect(await file()).not.toHaveProperty('thumbnailPath');
+      await run(
+        migrator,
+        `UPDATE storyFile:vidorig SET thumbnailPath = 'vidorig/thumbnail_1.jpg'`,
+      );
     });
   });
 
@@ -147,14 +153,13 @@ describe('write scope on story fields (D41)', () => {
     });
 
     it('shows processing’s corrections of a published clip at once (R12: no copy to update)', async () => {
-      // Workflow re-measures the approved clip (M7) and Bunny makes another frame of it (D60):
-      // the same file, so it stays public, with the latest facts.
+      // Workflow re-measures the approved clip (M7): the same file, so it stays public, with the
+      // latest facts.
       await run(
         workflow,
-        `UPDATE storyFile:vidorig SET lengthSeconds = 120, width = 720, height = 1280,
-           thumbnailPath = 'vidorig/thumbnail_2.jpg'`,
+        `UPDATE storyFile:vidorig SET lengthSeconds = 120, width = 720, height = 1280`,
       );
-      expect(await published()).toEqual(clip(120, 'vidorig/thumbnail_2.jpg'));
+      expect(await published()).toEqual(clip(120, 'vidorig/thumbnail_1.jpg'));
     });
 
     it('leaves the hide and show-again working, with the latest facts on return (#61)', async () => {
@@ -163,13 +168,10 @@ describe('write scope on story fields (D41)', () => {
         `UPDATE storyFile:vidorig SET processing = 'processing'`,
       );
       expect(await published()).toEqual([]);
-      await run(
-        workflow,
-        `UPDATE storyFile:vidorig SET thumbnailPath = 'vidorig/thumbnail_3.jpg'`,
-      );
+      await run(workflow, `UPDATE storyFile:vidorig SET lengthSeconds = 130`);
       expect(await published()).toEqual([]);
       await run(workflow, `UPDATE storyFile:vidorig SET processing = 'ready'`);
-      expect(await published()).toEqual(clip(120, 'vidorig/thumbnail_3.jpg'));
+      expect(await published()).toEqual(clip(130, 'vidorig/thumbnail_1.jpg'));
     });
 
     function clip(

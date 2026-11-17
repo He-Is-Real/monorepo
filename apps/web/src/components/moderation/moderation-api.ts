@@ -211,6 +211,12 @@ export function decisionRefusal(
         return {
           message: `The ${what} hasn’t finished processing, so you can’t ${verb} yet.`,
         };
+      case 'picture_changed_at_bunny':
+        // RE-2 B (Joel, 2026-11-17): approve anyway can't fix it; sending it back can.
+        return {
+          message:
+            'The picture changed at Bunny. Send it back so the person sends again.',
+        };
       case 'testimony_consent_required':
         return {
           message:

@@ -1266,12 +1266,20 @@ DEFINE FIELD OVERWRITE height          ON storyFile TYPE option<int> ASSERT $val
   VALUE IF $auth = service:workflow AND $this.format = 'image' { $before } ELSE { $value }
   PERMISSIONS FOR update WHERE $auth = service:workflow;
 -- Bunny's real length (cards show it, M1 step 6a; the approval gate means a published clip has
--- it) and the thumbnail's path at Bunny (D53/D60: Bunny's generated frame, or for audio the
--- picture shown for it, Joel 2026-10-24).
+-- it) and the thumbnail's path at Bunny, `<bunny video id>/<file name>` (D53/D60; for audio the
+-- picture shown for it, Joel 2026-10-24). Who writes thumbnailPath (Joel, 2026-11-17, RE-2 B):
+-- - a person's video: api-user, when the story is sent, the file name Bunny's read-back named
+--   (in the write that records thumbnailOf; storyFile_update holds it to the video of the story
+--   being sent and to fn::media::own_thumbnail). api-admin's approval compares it with Bunny's
+--   file name then, so a picture that reached Bunny late (an earlier send that timed out, or
+--   another tab) is never approved unseen;
+-- - an audio file's picture video: workflow (the result writer), as before. Never a person's video.
 DEFINE FIELD OVERWRITE lengthSeconds   ON storyFile TYPE option<int> ASSERT $value = NONE OR $value > 0
   PERMISSIONS FOR create, update WHERE $auth = service:workflow;
 DEFINE FIELD OVERWRITE thumbnailPath   ON storyFile TYPE option<string>
-  PERMISSIONS FOR create, update WHERE $auth = service:workflow;
+  PERMISSIONS FOR create WHERE $auth = service:workflow,
+    FOR update WHERE ($auth = service:workflow AND format = 'audio')
+      OR ($auth = service:api_user AND format = 'video' AND renderOf = NONE);
 -- A2: NONE = not processed yet (just uploaded); then 'processing', 'ready' or 'failed'. Only
 -- 'ready' can be approved and published (fn::story::approval_problem). Workflow writes it (M7).
 -- A picture is also marked 'ready' by api-user's login, only as part of submitting (Joel,
@@ -1523,7 +1531,8 @@ DEFINE EVENT OVERWRITE storyFile_fence ON storyFile
 --   something its owner's story shows changed (fn::story::file_view): once, so not again if
 --   that write already hid it or showed it again. As before R12, when processing wrote the story.
 -- - thumbnailOf (api-user, a video's picture set at Bunny at submit; Joel, 2026-11-17, P1-13 A):
---   only the current picture (or NONE) of the video a story being edited shows now.
+--   only the current picture (or NONE) of the video a story being edited shows now; and its
+--   thumbnailPath (RE-2 B), only on that video and only a path fn::media::own_thumbnail accepts.
 -- - processing (api-user, the picture check at submit; Joel, 2026-10-30, R3 = A): only 'ready',
 --   only on a picture not marked yet, only the one the person's story being edited shows now. It doesn't step the version: the owner's story never shows a picture's
 --   processing, and the submit that follows is still at the version the person's page sent.
@@ -1547,6 +1556,15 @@ DEFINE EVENT OVERWRITE storyFile_update ON storyFile
         OR $after.detachedAt != NONE OR fn::story::status_of($s) != 'editing'
         OR $after.thumbnailOf != $s.image.file) {
       THROW 'picture_set: api-user only records the current picture of the video a story being edited shows';
+    };
+    -- The file name Bunny's read-back named for that video's picture (api-user, at submit; Joel,
+    -- 2026-11-17, RE-2 B): only on the video (not a picture video) the story being edited shows
+    -- now, and only `<that video's id>/<one file name>`.
+    IF $auth = service:api_user AND $after.thumbnailPath != $before.thumbnailPath
+      AND ($after.format != 'video' OR $after.renderOf != NONE OR $s = NONE
+        OR $s.mediaFile != $after.id OR $after.detachedAt != NONE
+        OR fn::story::status_of($s) != 'editing' OR !fn::media::own_thumbnail($after)) {
+      THROW 'picture_set: api-user only records the thumbnail of the video a story being edited shows';
     };
     IF $auth = service:api_user AND $after.processing != $before.processing
       AND ($after.format != 'image' OR $before.processing != NONE OR $after.processing != 'ready'

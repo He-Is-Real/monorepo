@@ -227,9 +227,11 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   refuses, can't be reached, takes more than 20 seconds or doesn't show the new picture, the story
   isn't sent: it stays as it was, and the person is told "We couldn't add your picture. Please add
   it again, then submit." There is no retry in the background and no picture job. Once Bunny shows
-  it, the database records it on the video's record; the story can't be approved until Bunny
-  shows the picture it has now (video-bundle-rethink part A, Joel 2026-11-06). The video's own
-  checks never touch its picture. The story page shows Bunny's player as before, with no picture
+  it, the database records it on the video's record, with the name of the picture file Bunny
+  showed (Joel, 2026-11-17, RE-2 B; when nothing went to Bunny, the name Bunny showed just
+  before); the story can't be approved until Bunny shows the picture it has now
+  (video-bundle-rethink part A, Joel 2026-11-06). The video's own checks never touch its picture
+  or that file name. The story page shows Bunny's player as before, with no picture
   of our own over it (Joel, 2026-11-08, T2).
 - **An audio story becomes a picture video (Joel, 2026-11-07, audio-picture-video.html):** once
   its audio file is ready at Bunny, the media worker makes a video of the story's picture (or,
@@ -719,6 +721,15 @@ Built (M3 plan, pull requests 1 and 6; Joel, 2026-11-09 and 2026-11-11):
   a story already gone answers that it wasn't found. Moderators have no Delete (DEL-2 A).
 - **Approve anyway is Admin only (G24)**, offered after an approval was refused because the media
   is still being processed; never during the upload link's time (G11 B).
+- **A video's picture is checked at Bunny on approval (Joel, 2026-11-17, RE-2 B):** a picture
+  from an earlier send that timed out (or from another tab) can still reach Bunny later. So when
+  a moderator approves a video story (Approve or Approve anyway; not an audio story's picture
+  video), the site asks Bunny which picture file it shows and compares it with the one recorded
+  when the story was sent. If they differ (or none was recorded) the story isn't approved and
+  the moderator reads "The picture changed at Bunny. Send it back so the person sends again."
+  Approve anyway can't get past it. If Bunny can't answer within 10 seconds the story isn't
+  approved either ("Something went wrong. Please try again later."): it is never approved
+  unchecked. Show again doesn't check.
 - **Refusals in plain words** (Joel, 2026-11-09: never codes): for example "The video is still
   being processed. You can approve it from 14:05." A story that moved on since the page opened
   (another moderator decided first, or the person pressed Edit) says so and refreshes.

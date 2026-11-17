@@ -280,14 +280,22 @@ their fence (see "Transactions").
     picture of the video a story being edited shows now, or NONE for none (`storyFile_update`,
     `picture_set:`). `fn::story::approval_problem` refuses a story whose file's `thumbnailOf`
     isn't its picture now (`media_not_ready`).
+  - **`thumbnailPath` (Joel 2026-11-17, RE-2 B):** api-user writes a person's video's
+    `thumbnailPath` when the story is sent, in the write that records `thumbnailOf`: `<bunny video
+id>/<the file name Bunny's read-back named>` (or the name Bunny showed just before, when
+    nothing went to Bunny). The field allows api-user only on a `video` with no `renderOf`, and
+    `storyFile_update` only on the video a story being edited shows now and only a value
+    `fn::media::own_thumbnail` accepts (`picture_set:`). workflow writes `thumbnailPath` only on
+    audio rows (an audio story's picture video), never on a person's video. api-admin's approval
+    compares it with Bunny's current file name (no database write).
   - **Update:** workflow the processing fields (`width`, `height`, `lengthSeconds`,
-    `thumbnailPath`, `processing`) and `checkedAt` (when the newest answer applied reached the result
+    `thumbnailPath` of audio rows only, `processing`) and `checkedAt` (when the newest answer applied reached the result
     writer; it applies only later ones, in the same transaction, Joel 2026-11-07, F1; read like `processing`); api-user `renewedAt` (server time, through `fn::upload::renew`,
     which refuses unless the story still exists, is the person's, is editable and shows that file:
     `nothing_to_resume:`); api-user a picture's `processing`, only as the picture check at submit
     (Joel 2026-10-30, R3 = A): only to `ready`, only on a picture not marked yet, and only the one a
     draft (or story sent back for changes) shows now (`storyFile_update`, `picture_check:`);
-    api-user a video's `thumbnailOf` (above); events `detachedAt`; housekeeping `removedAt` (once, not before
+    api-user a video's `thumbnailOf` and `thumbnailPath` (above); events `detachedAt`; housekeeping `removedAt` (once, not before
     `fn::upload::links_expire_after()`, 2 h: `file_not_removable`). Housekeeping deletes the file
     at Bunny or in the images zone first (a 404 counts as done, so a placeholder's made-up id is
     fine); a picture outside the stories' folders (dev-seed's fixed pictures, which every reset

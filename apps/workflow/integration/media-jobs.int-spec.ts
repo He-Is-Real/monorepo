@@ -214,7 +214,7 @@ describe('result writer: the worker’s answers → the job’s file row and the
       width: 1080,
       height: 1920,
       lengthSeconds: 95,
-      thumbnailPath: `${mine.video}/thumbnail.jpg`,
+      // A person's video's thumbnailPath is api-user's, at send (RE-2 B): never the writer's.
     });
     expect(await file(other.video)).toEqual({});
     expect(await job(id)).toEqual({

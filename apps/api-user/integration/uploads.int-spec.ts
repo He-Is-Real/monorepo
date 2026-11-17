@@ -1116,6 +1116,17 @@ describe('video and audio uploads', () => {
           { video },
         )
       )[0] ?? null;
+    const thumbnailPath = async (video: string) =>
+      (
+        await rows(
+          migrator,
+          `SELECT VALUE thumbnailPath FROM ONLY type::record('storyFile', $video)`,
+          { video },
+        )
+      )[0] ?? null;
+    /** What Bunny names for the video's picture now. */
+    const atBunny = (video: string) =>
+      `${video}/${bunny.videos.get(video)?.thumbnailFileName}`;
     const statusOf = async (who: string, id: string) =>
       (await call('GET', `/v1/account/stories/${id}`, who)).body.status;
     const calls = (video: string) =>
@@ -1139,6 +1150,9 @@ describe('video and audio uploads', () => {
       );
       expect(link.searchParams.get('token')).toMatch(/^HS256-/);
       expect(await thumbnailOf(video)).toBe(path);
+      // RE-2 B: and the file name Bunny's read-back named, for the approval check.
+      expect(await thumbnailPath(video)).toBe(atBunny(video));
+      expect(atBunny(video)).toMatch(/\/thumbnail_[0-9a-f]{8}\.jpg$/);
       expect(await statusOf('vic', id)).toBe('pending');
     });
 
@@ -1150,6 +1164,7 @@ describe('video and audio uploads', () => {
         expect(refused.status, mode).toBe(400);
         expect(refused.body, mode).toMatchObject(PICTURE_FAILED);
         expect(await thumbnailOf(video), mode).toBeNull();
+        expect(await thumbnailPath(video), mode).toBeNull();
         expect(await statusOf('wes', id), mode).toBe('editing');
       }
       bunny.thumbnailMode = 'take';
@@ -1168,9 +1183,17 @@ describe('video and audio uploads', () => {
         });
       const editing = await edit(version + 1);
       expect(editing.status).toBe(200);
+      // A picture that reached Bunny late (an earlier send that timed out): the shortcut records
+      // what Bunny showed just before (RE-2 B), so the path follows Bunny.
+      const first = await thumbnailPath(video);
+      bunny.videos.get(video)!.thumbnailFileName = 'thumbnail_0badf00d.jpg';
       const resent = await submit('xan', id, editing.body.version);
       expect(resent.status).toBe(200);
       expect(calls(video)).toHaveLength(1);
+      expect(await thumbnailPath(video)).toBe(
+        `${video}/thumbnail_0badf00d.jpg`,
+      );
+      expect(first).not.toBe(await thumbnailPath(video));
 
       const again = await edit(resent.body.version);
       const removed = await call('PATCH', `/v1/stories/${id}`, 'xan', {
@@ -1184,6 +1207,7 @@ describe('video and audio uploads', () => {
       expect((await submit('xan', id, removed.body.version)).status).toBe(200);
       expect(calls(video)).toEqual([expect.any(String), 'thumbnail_1.jpg']);
       expect(await thumbnailOf(video)).toBeNull();
+      expect(await thumbnailPath(video)).toBe(atBunny(video));
     });
 
     it('a video never given a picture asks Bunny nothing at submit', async () => {
@@ -1194,6 +1218,8 @@ describe('video and audio uploads', () => {
       bunny.arrived(video);
       expect((await submit('yul', id, granted.body.version)).status).toBe(200);
       expect(calls(video)).toEqual([]);
+      // Its path is Bunny's untouched thumbnail, as the read before submit showed (RE-2 B).
+      expect(await thumbnailPath(video)).toBe(`${video}/thumbnail.jpg`);
     });
 
     it('a picture Bunny took but whose read-back failed is taken off at Bunny when the person removes it (Codex, #233 review)', async () => {

@@ -224,10 +224,11 @@ export function parseFailure(input: unknown): string {
  *   older answer arriving later still loses. The file's events then hide or show the story
  *   again (fn::story::check_files) and step its version only if something it shows changed.
  * What a ready answer writes (the render decision, audio-picture-video.html decision 1B):
- * - a video: its facts;
+ * - a person's video: its facts, never its thumbnailPath (api-user records the file name Bunny's
+ *   read-back named when the story is sent; Joel, 2026-11-17, RE-2 B);
  * - a person's own audio upload (no renderOf): its length only, still `processing`: it is ready
  *   only once its picture video is (approval needs that), so a render job of it opens;
- * - a picture video (renderOf): its facts as a video's; if the story's picture is no longer the
+ * - a picture video (renderOf): its facts and its thumbnailPath; if the story's picture is no longer the
  *   one it was made with (thumbnailOf), a render job of it opens (reason picture_changed).
  * A video's picture is never touched here: api-user sets it at Bunny when the story is sent
  * (Joel, 2026-11-17, P1-13 A). Every answer ends the job if it is still open; a job already ended
@@ -278,6 +279,8 @@ export const ANSWER_SQL = `
   IF $outcome = 'applied' {
     LET $facts = IF !$ready { $notReady }
       ELSE IF $source { { processing: 'processing', lengthSeconds: $video.lengthSeconds } }
+      -- RE-2 B (Joel, 2026-11-17): a person's video's thumbnailPath is api-user's, at send.
+      ELSE IF $f.format = 'video' { $video }
       ELSE { object::extend($video, { thumbnailPath: <string> record::id($f.id) + '/' + $thumb }) };
     UPDATE $f.id MERGE object::extend($facts, { checkedAt: <datetime> $at }) RETURN NONE;
   };
@@ -313,8 +316,8 @@ export type WriterAnswer =
 /**
  * The query's variables: whether the answer is ready, the facts for a file that isn't
  * (`notReady`) and for a ready one (`video`; an audio upload keeps only its length), its
- * thumbnail's file name, which the write puts under the video's own folder at Bunny (its file's
- * id, R12).
+ * thumbnail's file name, which the write puts under a picture video's own folder at Bunny (its
+ * file's id, R12; a person's video's is api-user's, RE-2 B).
  */
 export function answerVars(
   job: string,
