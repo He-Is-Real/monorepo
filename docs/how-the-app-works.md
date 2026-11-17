@@ -771,8 +771,10 @@ Planned (M3):
   the next full page load or sign-in (the staff pages' servers check the role on every call).
   The other staff pages are reached from the staff menu on these pages.
 - **Limits** (Admins): the submission limits in plain words with their units, and the two
-  deletion times (rejected stories, stories left in editing; G3 B, Joel 2026-11-11); Save
-  lists the changes and asks to confirm. If another admin saved meanwhile, the page asks to
+  deletion times (rejected stories, stories left in editing; G3 B, Joel 2026-11-11). One group
+  at a time, picked from a side list (a "Group" drop-down on phones); a changed box is outlined
+  in teal, and a save bar lists every unsaved change with Undo and Save (SL-1 C, Joel
+  2026-11-17). Save lists the changes and asks to confirm. If another admin saved meanwhile, the page asks to
   reload. The settings keep the name and role of the admin who changed them last; there is no
   history of changes (no audit log, see Moderation).
 - **Themes**: categories and themes on one page (drag on desktop, tap or keyboard on phones),

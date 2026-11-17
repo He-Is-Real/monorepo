@@ -7,6 +7,7 @@ import {
   WRAPPING_BUTTON,
 } from '@/components/admin/admin-access';
 import { Button } from '@/components/ui/button';
+import { NativeSelect } from '@/components/ui/native-select';
 import { type ApiUser, StaleVersion } from '@/lib/api-user';
 
 /** The contract's `SubmissionSettingsValues`: every limit, in bytes and seconds. */
@@ -39,6 +40,8 @@ const MB = 1_048_576;
 /** Each limit in plain words, with the unit shown and how many stored units make one. */
 const GROUPS: {
   title: string;
+  /** A short note about this group's limits (SL-1 C: next to the limits they're about). */
+  note?: string;
   fields: { field: Field; label: string; unit: string; per?: number }[];
 }[] = [
   {
@@ -65,6 +68,7 @@ const GROUPS: {
   },
   {
     title: 'How often',
+    note: 'Trusted submitters skip the draft, weekly and upload-count limits, and get the largest file sizes and lengths.',
     fields: [
       {
         field: 'openDraftsMax',
@@ -90,6 +94,7 @@ const GROUPS: {
   },
   {
     title: 'Video and audio',
+    note: 'Trusted submitters get the largest file sizes and lengths.',
     fields: [
       {
         field: 'videoMaxBytes',
@@ -114,6 +119,7 @@ const GROUPS: {
   {
     // G3 B (Joel, 2026-11-11): the nightly clean-up's deletion times.
     title: 'Deleting old stories',
+    note: 'How long we keep a story that was sent but won’t be published: the nightly clean-up then deletes it, files included.',
     fields: [
       {
         field: 'rejectedRetentionDays',
@@ -129,6 +135,10 @@ const GROUPS: {
   },
 ];
 const ALL = GROUPS.flatMap((g) => g.fields);
+/** Which group each limit is in. */
+const GROUP_OF = Object.fromEntries(
+  GROUPS.flatMap((g, i) => g.fields.map((f) => [f.field, i])),
+) as Record<Field, number>;
 const LABEL = Object.fromEntries(ALL.map((f) => [f.field, f])) as Record<
   Field,
   (typeof ALL)[number]
@@ -231,10 +241,17 @@ type Status =
   | { kind: 'idle' }
   | { kind: 'confirm'; values: Values; changes: Field[] }
   | { kind: 'busy' }
-  | { kind: 'error'; message: string }
+  /** `field`: the first limit to fix, focused instead of the message. */
+  | { kind: 'error'; message: string; field?: Field }
   /** Another admin saved meanwhile (412): reload, then change them again. */
   | { kind: 'stale' };
 
+/**
+ * SL-1 C (Joel, 2026-11-17): one group at a time, picked from a side list (768 px and up) or a
+ * "Group" drop-down (phones). Every limit stays in the one form, so values typed in a group
+ * survive switching. A changed box is outlined in teal, and a save bar says what changed (in
+ * every group) with Undo and Save as soon as anything differs from the saved values.
+ */
 function LimitsForm({
   settings,
   saved,
@@ -253,18 +270,26 @@ function LimitsForm({
   const [text, setText] = useState(start);
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
+  const [group, setGroup] = useState(0);
   const alert = useRef<HTMLDivElement>(null);
   const confirm = useRef<HTMLDivElement>(null);
   const done = useRef<HTMLParagraphElement>(null);
 
   useEffect(() => {
-    if (status.kind === 'error' || status.kind === 'stale')
+    if (status.kind === 'error' && status.field)
+      document.getElementById(`${id}-${status.field}`)?.focus();
+    else if (status.kind === 'error' || status.kind === 'stale')
       alert.current?.focus();
     if (status.kind === 'confirm') confirm.current?.focus();
-  }, [status]);
+  }, [status, id]);
   useEffect(() => {
     if (saved) done.current?.focus();
   }, [saved]);
+
+  /** The limits whose box differs from the saved value, in page order. */
+  const edited = ALL.filter(({ field }) => text[field].trim() !== start[field]);
+  const groupHasError = (i: number) =>
+    GROUPS[i].fields.some(({ field }) => errors[field]);
 
   /** The form's values in bytes and seconds, or the fields that are wrong. */
   function check():
@@ -305,9 +330,13 @@ function LimitsForm({
     const result = check();
     if ('errors' in result) {
       setErrors(result.errors);
+      // Never silent in a hidden group: show the first group with an error and focus the field.
+      const first = ALL.find(({ field }) => result.errors[field])?.field;
+      if (first !== undefined) setGroup(GROUP_OF[first]);
       setStatus({
         kind: 'error',
         message: 'Some limits need fixing: see the fields marked below.',
+        field: first,
       });
       return;
     }
@@ -335,8 +364,21 @@ function LimitsForm({
     }
   }
 
+  function undo() {
+    setText(start);
+    setErrors({});
+    // A stale save still needs a reload first.
+    if (status.kind !== 'stale') setStatus({ kind: 'idle' });
+  }
+
   const describe = (field: Field, value: number) =>
     `${number(Number(shown(field, value)))} ${LABEL[field].unit}`;
+  /** A box's value as the save bar shows it: grouped digits when it's a number, else as typed. */
+  const typed = (t: string) => {
+    const n = Number(t.trim());
+    return t.trim() !== '' && Number.isFinite(n) ? number(n) : `“${t}”`;
+  };
+  const current = GROUPS[group];
 
   return (
     <section className="space-y-6">
@@ -351,141 +393,265 @@ function LimitsForm({
           Saved. The new limits apply now.
         </p>
       )}
-      <form onSubmit={askConfirm} className="space-y-8" noValidate>
-        {GROUPS.map((group) => (
-          <fieldset key={group.title} className="space-y-4">
-            <legend className="mb-3 text-lg font-semibold text-foreground">
-              {group.title}
-            </legend>
-            {group.fields.map(({ field, label, unit }) => {
-              const { min, max } = range(settings, field);
-              const error = errors[field];
-              return (
-                <div key={field} className="min-w-0" data-limit={field}>
-                  <label
-                    htmlFor={`${id}-${field}`}
-                    className="mb-1 block font-medium text-foreground"
-                  >
-                    {label}
-                  </label>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <input
-                      id={`${id}-${field}`}
-                      name={field}
-                      type="text"
-                      inputMode="numeric"
-                      autoComplete="off"
-                      value={text[field]}
-                      aria-invalid={error ? true : undefined}
-                      aria-describedby={`${id}-${field}-hint${error ? ` ${id}-${field}-error` : ''}`}
-                      onChange={(e) => {
-                        setText({ ...text, [field]: e.target.value });
-                        if (status.kind !== 'busy' && status.kind !== 'stale')
-                          setStatus({ kind: 'idle' });
-                      }}
-                      className="min-h-11 w-36 rounded-lg border border-input bg-input-background px-3 py-2 text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none aria-[invalid=true]:border-destructive"
-                    />
-                    <span className="text-foreground">{unit}</span>
-                  </div>
-                  <p
-                    id={`${id}-${field}-hint`}
-                    className="mt-1 text-sm text-secondary-text"
-                  >
-                    From {number(min)} to {number(max)}.
-                  </p>
-                  {error && (
-                    <p
-                      id={`${id}-${field}-error`}
-                      className="mt-1 text-sm text-destructive"
-                    >
-                      {error}
-                    </p>
-                  )}
-                </div>
-              );
-            })}
-          </fieldset>
-        ))}
-        {status.kind !== 'confirm' && (
-          <Button
-            type="submit"
-            className={WRAPPING_BUTTON}
-            disabled={status.kind === 'busy' || status.kind === 'stale'}
+      <form onSubmit={askConfirm} className="space-y-6" noValidate>
+        <div className="md:grid md:grid-cols-[12rem_minmax(0,1fr)] md:items-start md:gap-8">
+          {/* 768 px and up: the groups down the side. */}
+          <div
+            role="group"
+            aria-label="Limit groups"
+            className="hidden md:block"
           >
-            {status.kind === 'busy' ? 'Saving…' : 'Save'}
-          </Button>
-        )}
-      </form>
+            <ul className="space-y-1">
+              {GROUPS.map((g, i) => (
+                <li key={g.title}>
+                  <button
+                    type="button"
+                    aria-current={i === group ? 'true' : undefined}
+                    onClick={() => setGroup(i)}
+                    data-group-tab={g.title}
+                    className={`flex min-h-11 w-full flex-col justify-center rounded-r-lg border-l-[3px] px-3 py-2 text-left focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none ${
+                      i === group
+                        ? 'border-primary bg-accent font-medium text-foreground'
+                        : 'border-transparent text-secondary-text hover:bg-accent hover:text-foreground'
+                    }`}
+                  >
+                    {g.title}
+                    {groupHasError(i) && (
+                      <span className="text-sm font-normal text-destructive">
+                        Needs fixing
+                      </span>
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+          {/* Phones: a drop-down. */}
+          <div className="mb-4 md:hidden">
+            <label
+              htmlFor={`${id}-group`}
+              className="mb-1 block font-medium text-foreground"
+            >
+              Group
+            </label>
+            <NativeSelect
+              id={`${id}-group`}
+              value={group}
+              onChange={(e) => setGroup(Number(e.target.value))}
+              wrapperClassName="w-full"
+              className="text-base"
+            >
+              {GROUPS.map((g, i) => (
+                <option key={g.title} value={i}>
+                  {g.title}
+                  {groupHasError(i) ? ' (needs fixing)' : ''}
+                </option>
+              ))}
+            </NativeSelect>
+          </div>
 
-      {status.kind === 'confirm' && (
-        <div
-          ref={confirm}
-          tabIndex={-1}
-          role="alertdialog"
-          aria-labelledby={`${id}-confirm`}
-          className="space-y-4 rounded-2xl border border-primary bg-card p-4 sm:p-6"
-          data-confirm=""
-        >
-          <p id={`${id}-confirm`} className="text-foreground">
-            Save these changes? They apply to everyone from their next step,
-            including stories already started.
-          </p>
-          <ul className="list-disc space-y-1 pl-5 [overflow-wrap:anywhere]">
-            {status.changes.map((f) => (
-              <li key={f}>
-                {LABEL[f].label}: {describe(f, settings.settings[f])} →{' '}
-                {describe(f, status.values[f])}
-              </li>
-            ))}
-          </ul>
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <Button
-              type="button"
-              className={WRAPPING_BUTTON}
-              onClick={() => doSave(status.values)}
-            >
-              Yes, save
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className={WRAPPING_BUTTON}
-              onClick={() => setStatus({ kind: 'idle' })}
-            >
-              Cancel
-            </Button>
+          <div className="@container min-w-0 rounded-2xl border border-border bg-card p-4 sm:p-6">
+            <fieldset key={current.title} className="min-w-0">
+              <legend className="text-lg font-semibold text-foreground">
+                {current.title}
+              </legend>
+              {current.note && (
+                <p className="mt-1 text-sm text-secondary-text">
+                  {current.note}
+                </p>
+              )}
+              <div className="mt-2 divide-y divide-border">
+                {current.fields.map(({ field, label, unit }) => {
+                  const { min, max } = range(settings, field);
+                  const error = errors[field];
+                  const changed = text[field].trim() !== start[field];
+                  return (
+                    <div
+                      key={field}
+                      className="min-w-0 py-4"
+                      data-limit={field}
+                    >
+                      <div className="flex flex-col gap-2 @lg:grid @lg:grid-cols-[minmax(0,1fr)_8rem_minmax(0,11rem)] @lg:items-center @lg:gap-x-3">
+                        <div className="min-w-0">
+                          <label
+                            htmlFor={`${id}-${field}`}
+                            className="block font-medium text-foreground"
+                          >
+                            {label}
+                          </label>
+                          <p
+                            id={`${id}-${field}-hint`}
+                            className="text-sm text-secondary-text"
+                          >
+                            Allowed {number(min)}–{number(max)}
+                          </p>
+                        </div>
+                        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 @lg:contents">
+                          <input
+                            id={`${id}-${field}`}
+                            name={field}
+                            type="text"
+                            inputMode="numeric"
+                            autoComplete="off"
+                            value={text[field]}
+                            aria-invalid={error ? true : undefined}
+                            aria-describedby={`${id}-${field}-hint${error ? ` ${id}-${field}-error` : ''}`}
+                            data-changed={changed ? '' : undefined}
+                            onChange={(e) => {
+                              setText({ ...text, [field]: e.target.value });
+                              if (
+                                status.kind !== 'busy' &&
+                                status.kind !== 'stale'
+                              )
+                                setStatus({ kind: 'idle' });
+                            }}
+                            className={`min-h-11 w-32 rounded-lg border border-input bg-input-background px-3 py-2 text-right text-foreground tabular-nums focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive @lg:w-full ${
+                              changed
+                                ? 'outline-2 outline-offset-0 outline-primary outline-solid'
+                                : 'focus-visible:outline-none'
+                            }`}
+                          />
+                          <span className="min-w-0 text-foreground">
+                            {unit}
+                          </span>
+                        </div>
+                      </div>
+                      {error && (
+                        <p
+                          id={`${id}-${field}-error`}
+                          className="mt-1 text-sm text-destructive @lg:text-right"
+                        >
+                          {error}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </fieldset>
           </div>
         </div>
-      )}
 
-      {status.kind === 'error' && (
-        <div
-          ref={alert}
-          tabIndex={-1}
-          role="alert"
-          className="rounded-xl border border-destructive px-4 py-3"
-          data-save-status="error"
-        >
-          {status.message}
-        </div>
-      )}
-      {status.kind === 'stale' && (
-        <div
-          ref={alert}
-          tabIndex={-1}
-          role="alert"
-          className="space-y-3 rounded-xl border border-destructive px-4 py-3"
-          data-save-status="stale"
-        >
-          <p>
-            Someone else changed the limits while you were editing, so yours
-            weren’t saved. Reload to see theirs, then make your changes again.
-          </p>
-          <Button type="button" className={WRAPPING_BUTTON} onClick={reload}>
-            Reload
-          </Button>
-        </div>
-      )}
+        {status.kind === 'error' && (
+          <div
+            ref={alert}
+            tabIndex={-1}
+            role="alert"
+            className="rounded-xl border border-destructive px-4 py-3"
+            data-save-status="error"
+          >
+            {status.message}
+          </div>
+        )}
+        {status.kind === 'stale' && (
+          <div
+            ref={alert}
+            tabIndex={-1}
+            role="alert"
+            className="space-y-3 rounded-xl border border-destructive px-4 py-3"
+            data-save-status="stale"
+          >
+            <p>
+              Someone else changed the limits while you were editing, so yours
+              weren’t saved. Reload to see theirs, then make your changes again.
+            </p>
+            <Button type="button" className={WRAPPING_BUTTON} onClick={reload}>
+              Reload
+            </Button>
+          </div>
+        )}
+
+        {status.kind === 'confirm' && (
+          <div
+            ref={confirm}
+            tabIndex={-1}
+            role="alertdialog"
+            aria-labelledby={`${id}-confirm`}
+            className="space-y-4 rounded-2xl border border-primary bg-card p-4 sm:p-6"
+            data-confirm=""
+          >
+            <p id={`${id}-confirm`} className="text-foreground">
+              Save these changes? They apply to everyone from their next step,
+              including stories already started.
+            </p>
+            <ul className="list-disc space-y-1 pl-5 [overflow-wrap:anywhere]">
+              {status.changes.map((f) => (
+                <li key={f}>
+                  {LABEL[f].label}: {describe(f, settings.settings[f])} →{' '}
+                  {describe(f, status.values[f])}
+                </li>
+              ))}
+            </ul>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Button
+                type="button"
+                className={WRAPPING_BUTTON}
+                onClick={() => doSave(status.values)}
+              >
+                Yes, save
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className={WRAPPING_BUTTON}
+                onClick={() => setStatus({ kind: 'idle' })}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {edited.length > 0 && status.kind !== 'confirm' && (
+          <div
+            role="region"
+            aria-label="Unsaved changes"
+            data-save-bar=""
+            className="sticky bottom-0 z-20 border-t border-border bg-background/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur sm:rounded-t-2xl sm:border-x"
+          >
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="min-w-0 flex-1 text-sm [overflow-wrap:anywhere]">
+                <p className="font-semibold text-foreground">
+                  {edited.length === 1
+                    ? '1 change not saved yet'
+                    : `${edited.length} changes not saved yet`}
+                </p>
+                <ul
+                  // Scrolls when long, so keyboard users can reach it too.
+                  tabIndex={0}
+                  aria-label="Changes not saved yet"
+                  className="max-h-16 overflow-y-auto text-secondary-text focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none sm:max-h-24"
+                >
+                  {edited.map(({ field, label, unit }) => (
+                    <li key={field}>
+                      {label}: {typed(start[field])} → {typed(text[field])}{' '}
+                      {unit}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="flex gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="min-h-11 flex-1 sm:flex-none"
+                  disabled={status.kind === 'busy'}
+                  onClick={undo}
+                >
+                  Undo
+                </Button>
+                <Button
+                  type="submit"
+                  className="min-h-11 flex-1 sm:flex-none"
+                  disabled={status.kind === 'busy' || status.kind === 'stale'}
+                >
+                  {status.kind === 'busy' ? 'Saving…' : 'Save'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </form>
     </section>
   );
 }
