@@ -1,9 +1,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { connection } from 'next/server';
-import { AdminNav } from '@/components/admin/admin-access';
+import { AdminPage } from '@/components/admin/admin-page';
 import { ModerationReview } from '@/components/moderation/moderation-review';
-import { WideColumn } from '@/components/page/page-header';
 import { apiAdminUrl } from '@/lib/config';
 import { pageMetadata } from '@/lib/seo';
 
@@ -31,9 +30,9 @@ export default async function ModerationReviewPage({ params }: Props) {
   await connection();
   const { id } = await params;
   return (
-    <main id="main" className="flex-1 py-10 sm:py-16">
-      <WideColumn>
-        <AdminNav />
+    <AdminPage
+      width="story"
+      header={
         <p className="mb-6">
           <Link
             href="/moderation"
@@ -42,18 +41,9 @@ export default async function ModerationReviewPage({ params }: Props) {
             ← Back to the list
           </Link>
         </p>
-      </WideColumn>
-      {/* As the story page: the article sets its own widths inside the page's padding. */}
-      <div className="px-4 sm:px-10">
-        <div className="mx-auto w-full max-w-narrow">
-          <noscript>
-            <p className="mb-6 rounded-2xl border border-border bg-card p-6">
-              This page needs JavaScript.
-            </p>
-          </noscript>
-          <ModerationReview id={id} apiAdminUrl={apiAdminUrl()} />
-        </div>
-      </div>
-    </main>
+      }
+    >
+      <ModerationReview id={id} apiAdminUrl={apiAdminUrl()} />
+    </AdminPage>
   );
 }

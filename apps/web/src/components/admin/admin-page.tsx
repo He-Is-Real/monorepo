@@ -1,0 +1,81 @@
+import { AdminNav } from '@/components/admin/admin-access';
+
+/** The site's default container, as the site header and footer use it. */
+const SITE = 'mx-auto w-full max-w-site px-4 sm:px-10';
+/** The standard content column's inner width (800 px less the page's 40 px padding each side). */
+const NARROW = 'max-w-[calc(var(--container-narrow)-5rem)]';
+
+/**
+ * How wide an admin page's content is, below its header (Joel, 2026-11-17: each keeps the width
+ * it had): `narrow` the standard 800 px column; `site` the site's full content width (1200 px);
+ * `double` the standard column on phones and tablets, and twice it from 1280 px (consent's edit
+ * box and preview side by side, Joel 2026-11-14), centred on the page there; `story` 800 px,
+ * as the story page's article, which sets its own widths inside it (a story under review).
+ */
+export type AdminPageWidth = 'narrow' | 'site' | 'double' | 'story';
+
+/**
+ * The shell every admin and moderation page shares (Joel, 2026-11-17): the admin pages' links,
+ * the h1 and the description always sit in the site's default container, so they stay in the
+ * same place when switching pages; the content below keeps its own width, left-aligned with them
+ * where it fits the container. `data-admin-page` reserves the scrollbar's gutter (global.css), so
+ * a page that scrolls doesn't shift sideways from one that doesn't.
+ */
+export function AdminPage({
+  title,
+  description,
+  header,
+  width = 'narrow',
+  children,
+}: {
+  /** The page's h1; a page whose content renders its own h1 leaves it out. */
+  title?: React.ReactNode;
+  /** One or more paragraphs under the h1. */
+  description?: React.ReactNode;
+  /** Anything else in the header, after the description (a back link). */
+  header?: React.ReactNode;
+  width?: AdminPageWidth;
+  children: React.ReactNode;
+}) {
+  const content = (
+    <>
+      <noscript>
+        <p className="mb-6 rounded-2xl border border-border bg-card p-6">
+          This page needs JavaScript.
+        </p>
+      </noscript>
+      {children}
+    </>
+  );
+  return (
+    <main id="main" data-admin-page="" className="flex-1 py-10 sm:py-16">
+      <div data-admin-header="" className={SITE}>
+        <AdminNav />
+        {title && (
+          <h1 className="mb-3 text-[2rem] leading-tight font-normal text-balance sm:text-[2.5rem]">
+            {title}
+          </h1>
+        )}
+        {description && (
+          <div className="mb-8 max-w-measure space-y-3 text-[1.0625rem] text-secondary-text">
+            {description}
+          </div>
+        )}
+        {header}
+      </div>
+      {width === 'site' ? (
+        <div className={SITE}>{content}</div>
+      ) : width === 'narrow' || width === 'story' ? (
+        <div className={SITE}>
+          <div className={width === 'story' ? 'max-w-narrow' : NARROW}>
+            {content}
+          </div>
+        </div>
+      ) : (
+        <div className={`${SITE} xl:max-w-[calc(var(--container-narrow)*2)]`}>
+          <div className={`${NARROW} xl:max-w-none`}>{content}</div>
+        </div>
+      )}
+    </main>
+  );
+}

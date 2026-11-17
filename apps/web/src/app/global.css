@@ -178,6 +178,12 @@
       env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
 
+  /* Admin and moderation pages (Joel, 2026-11-17): always keep the scrollbar's space, so a page
+     that scrolls and one that doesn't put their shared header in the same place. */
+  :root:has([data-admin-page]) {
+    scrollbar-gutter: stable;
+  }
+
   body {
     @apply bg-background text-foreground font-sans antialiased;
     line-height: 1.6;

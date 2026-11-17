@@ -177,8 +177,8 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   The time recorded is the database's.
 - **Admins publish new versions** at the consent admin page: a text box, the
   changes against the current version, a preview, then confirm. A saved version is in force at
-  once, and records which admin published it. On desktop (1280 px and wider) the page is twice
-  the standard content width, so the text box and the preview side by side each get up to the
+  once, and records which admin published it. On desktop (1280 px and wider) the editor below
+  the page's header is twice the standard content width, so the text box and the preview side by side each get up to the
   standard width; phones and tablets keep the standard column (Joel, 2026-11-14).
   From 768 px wide (tablets and desktops) the text box grows to its whole text, so it never
   scrolls inside and the page scrolls instead; phones keep a 20-line box that scrolls inside
@@ -541,6 +541,8 @@ recording | picture` (worked out from the status history: set while the story's 
 - Every page works from 320-pixel phones to large desktops, in light or dark (following the
   device, with a switch), with text enlarged to 200%. Body text sits in a reading column of at
   most about 80 characters a line.
+- **Wide pages with columns** (Joel, 2026-11-17): a page laid out in columns may be wider than
+  the site's 1200-pixel content width, as long as no single column is wider than 1200 pixels.
 - The About and Next Steps pages play the founder's videos.
 
 ## Moderation
@@ -770,6 +772,14 @@ Planned (M3):
 
 ## Admin pages
 
+- **One steady header** (Joel, 2026-11-17): on every admin and moderation page, the staff menu,
+  the page's title and its description sit in the site's standard 1200-pixel container (the same
+  as the site's header and footer), so they stay in exactly the same place when switching pages,
+  on every screen size. The content below keeps its own width (the standard 800-pixel column on
+  most pages; the full 1200 pixels for Limits; twice the standard column for Consent texts on
+  desktop), starting at the header's left edge when it fits inside the container and centred on
+  the page when it is wider. The page always keeps room for the scrollbar, so a page that
+  scrolls doesn't shift sideways from one that doesn't.
 - **Staff links in the site's navigation** (Joel, 2026-11-14): after the public links, set apart
   by a thin line (desktop and tablet; where the row is full, both move together onto the next
   line) or a gap and line (phone menu). Moderators and Admins see
@@ -778,7 +788,7 @@ Planned (M3):
   The staff links reflect the role when the page was loaded; after a role change they update on
   the next full page load or sign-in (the staff pages' servers check the role on every call).
   The other staff pages are reached from the staff menu on these pages.
-- **Limits** (Admins): the submission limits in plain words with their units, and the two
+- **Limits** (Admins, on the site's full 1200-pixel content width): the submission limits in plain words with their units, and the two
   deletion times (rejected stories, stories left in editing; G3 B, Joel 2026-11-11). One group
   at a time, picked from a side list (a "Group" drop-down on phones); a changed box is outlined
   in teal, and a save bar lists every unsaved change with Undo and Save (SL-1 C, Joel

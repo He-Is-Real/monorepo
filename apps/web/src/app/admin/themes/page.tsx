@@ -1,8 +1,7 @@
 import type { Metadata } from 'next';
 import { connection } from 'next/server';
-import { AdminNav } from '@/components/admin/admin-access';
+import { AdminPage } from '@/components/admin/admin-page';
 import { AdminThemes } from '@/components/admin/admin-themes';
-import { WideColumn } from '@/components/page/page-header';
 import { apiAdminUrl } from '@/lib/config';
 import { pageMetadata } from '@/lib/seo';
 
@@ -27,26 +26,21 @@ export function generateMetadata(): Metadata {
 export default async function AdminThemesPage() {
   await connection();
   return (
-    <main id="main" className="flex-1 pt-10 sm:pt-16">
-      <WideColumn>
-        <AdminNav />
-        <h1 className="mb-3 text-[2rem] leading-tight font-normal text-balance sm:text-[2.5rem]">
-          Themes
-        </h1>
-        <p className="mb-8 max-w-measure text-[1.0625rem] text-secondary-text">
-          Themes in a category’s Highlighted section are shown first everywhere.
-          Drag a theme in or out of Highlighted or to another category, click
-          its name to edit it, or press × to delete it. On a phone or with a
-          keyboard, open a theme to change it. Nothing is stored until you press
-          Save changes.
-        </p>
-        <noscript>
-          <p className="mb-6 rounded-2xl border border-border bg-card p-6">
-            This page needs JavaScript.
+    <AdminPage
+      title="Themes"
+      description={
+        <>
+          <p>
+            Themes in a category’s Highlighted section are shown first
+            everywhere. Drag a theme in or out of Highlighted or to another
+            category, click its name to edit it, or press × to delete it. On a
+            phone or with a keyboard, open a theme to change it. Nothing is
+            stored until you press Save changes.
           </p>
-        </noscript>
-        <AdminThemes apiAdminUrl={apiAdminUrl()} />
-      </WideColumn>
-    </main>
+        </>
+      }
+    >
+      <AdminThemes apiAdminUrl={apiAdminUrl()} />
+    </AdminPage>
   );
 }

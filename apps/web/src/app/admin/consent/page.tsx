@@ -1,8 +1,7 @@
 import type { Metadata } from 'next';
 import { connection } from 'next/server';
-import { AdminNav } from '@/components/admin/admin-access';
+import { AdminPage } from '@/components/admin/admin-page';
 import { AdminConsent } from '@/components/admin/admin-consent';
-import { WideColumn } from '@/components/page/page-header';
 import { apiAdminUrl } from '@/lib/config';
 import { pageMetadata } from '@/lib/seo';
 
@@ -28,27 +27,20 @@ export function generateMetadata(): Metadata {
 export default async function AdminConsentPage() {
   await connection();
   return (
-    <main id="main" className="flex-1 py-10 sm:py-16">
-      {/* Desktop (1280 px and up): twice the standard content width, so the edit box and the
-          preview side by side each get up to the standard width (Joel, 2026-11-14). Phones and
-          tablets keep the standard column. */}
-      <WideColumn className="xl:max-w-[calc(var(--container-narrow)*2)]">
-        <AdminNav />
-        <h1 className="mb-3 text-[2rem] leading-tight font-normal text-balance sm:text-[2.5rem]">
-          Consent &amp; legal
-        </h1>
-        <p className="mb-8 max-w-measure text-[1.0625rem] text-secondary-text">
-          Each text has numbered versions. Edit the latest, check what changes
-          and how it will look, and save it as the next version. It’s in force
-          at once, and saved versions never change.
-        </p>
-        <noscript>
-          <p className="mb-6 rounded-2xl border border-border bg-card p-6">
-            This page needs JavaScript.
+    <AdminPage
+      title="Consent & legal"
+      width="double"
+      description={
+        <>
+          <p>
+            Each text has numbered versions. Edit the latest, check what changes
+            and how it will look, and save it as the next version. It’s in force
+            at once, and saved versions never change.
           </p>
-        </noscript>
-        <AdminConsent apiAdminUrl={apiAdminUrl()} />
-      </WideColumn>
-    </main>
+        </>
+      }
+    >
+      <AdminConsent apiAdminUrl={apiAdminUrl()} />
+    </AdminPage>
   );
 }

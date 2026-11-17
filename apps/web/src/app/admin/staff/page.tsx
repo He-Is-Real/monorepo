@@ -1,8 +1,7 @@
 import type { Metadata } from 'next';
 import { connection } from 'next/server';
-import { AdminNav } from '@/components/admin/admin-access';
+import { AdminPage } from '@/components/admin/admin-page';
 import { AdminStaff } from '@/components/admin/admin-staff';
-import { WideColumn } from '@/components/page/page-header';
 import { apiAdminUrl } from '@/lib/config';
 import { pageMetadata } from '@/lib/seo';
 
@@ -27,13 +26,10 @@ export function generateMetadata(): Metadata {
 export default async function AdminStaffPage() {
   await connection();
   return (
-    <main id="main" className="flex-1 py-10 sm:py-16">
-      <WideColumn>
-        <AdminNav />
-        <h1 className="mb-3 text-[2rem] leading-tight font-normal text-balance sm:text-[2.5rem]">
-          Staff
-        </h1>
-        <div className="mb-8 max-w-measure space-y-3 text-[1.0625rem] text-secondary-text">
+    <AdminPage
+      title="Staff"
+      description={
+        <>
           <p>
             Moderators review the stories waiting for review. Admins can do that
             too, and also change themes, limits and legal texts, and who is
@@ -48,14 +44,10 @@ export default async function AdminStaffPage() {
             when the admin service restarts) if they are removed or their role
             is changed here, so we can’t lock ourselves out.
           </p>
-        </div>
-        <noscript>
-          <p className="mb-6 rounded-2xl border border-border bg-card p-6">
-            This page needs JavaScript.
-          </p>
-        </noscript>
-        <AdminStaff apiAdminUrl={apiAdminUrl()} />
-      </WideColumn>
-    </main>
+        </>
+      }
+    >
+      <AdminStaff apiAdminUrl={apiAdminUrl()} />
+    </AdminPage>
   );
 }
