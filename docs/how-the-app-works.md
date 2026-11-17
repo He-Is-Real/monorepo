@@ -998,6 +998,13 @@ For developers. Details are in the linked documents.
   writer refuses one that names another; anything the worker can't do, the writer refusing its
   answer and the worker's own errors included, counts as a failure, and a job gives up after 5,
   so none loops for ever (Joel, 2026-11-08).
+- **A worker machine keeps its clock right (Joel, 2026-11-17).** Every machine that runs workers
+  (Joel's, and each church machine when it is set up) has automatic time sync on
+  (`timedatectl set-ntp true` on Linux, then `timedatectl` shows "System clock synchronized: yes").
+  Its certificates (24 hours) and the Google sign-in it gets with them are checked against the time,
+  so a clock that drifts can make them look not yet valid or already expired (Joel's machine was
+  found 26 seconds fast with sync off).
+  Check it whenever a worker machine is set up or enrolled.
 - **No CDN in front of the site or APIs in dev;** browsers and CDNs are told not to keep API
   responses in dev. (D51) api-public-read keeps public answers in its own memory, per running
   copy, with no timers, so Cloud Run still bills only per request and scales to zero: served for
