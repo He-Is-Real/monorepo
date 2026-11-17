@@ -14,7 +14,7 @@ the limits, and what we keep and delete. Progress (what is built and what is nex
 - The bracketed codes, like (D71), point to the decision record in the `project` repo
   (`context/research/*.html`), for anyone who needs the reasoning.
 
-**Last updated:** 2026-11-12
+**Last updated:** 2026-11-17
 
 ## Needs Joel to confirm
 
@@ -1046,6 +1046,15 @@ For developers. Details are in the linked documents.
   copy, with no timers, so Cloud Run still bills only per request and scales to zero: served for
   60 seconds (R13), and kept up to 30 minutes for when the database is restarting (cache B, Joel
   2026-11-07), within the same 500-answer limit.
+- **The website's building blocks live in one library, `libs/web-ui` (`@heisreal/web-ui`)**
+  (Joel, 2026-11-17: "Ensure the styled drop down is part of the site library and default style
+  for drop downs in the whole project. Standardise other components via a heisreal web library").
+  Pages use its components instead of their own styled copies. **Every drop-down is its
+  `Select`:** the theme's field and chevron when closed; open on a computer (a mouse or trackpad),
+  the site's themed list in every browser; on phones and tablets, and before the page's
+  JavaScript runs or without it, a native drop-down (the phone's own picker; forms still work).
+  The components use the site's theme colours, which stay in `apps/web/src/app/global.css`
+  (`libs/web-ui/README.md`).
 - **Logs are JSON everywhere** (Joel, 2026-11-14: "yes add JSON formatting to all logs with
   severity levels eg DEBUG INFO WARNING including the worker with timestamps. dont force surrealdb
   to do this if it does not support it out of the box"). Every service, job and the media worker

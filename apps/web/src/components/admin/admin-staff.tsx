@@ -6,8 +6,7 @@ import {
   problemText,
   WRAPPING_BUTTON,
 } from '@/components/admin/admin-access';
-import { Button } from '@/components/ui/button';
-import { NativeSelect } from '@/components/ui/native-select';
+import { Button, Select } from '@heisreal/web-ui';
 import type { ApiUser } from '@/lib/api-user';
 
 type StaffRole = 'Moderator' | 'Admin';
@@ -24,6 +23,7 @@ interface StaffMember {
 /** G7: only these can be staff (api-admin and the database check it too). */
 const STAFF_EMAIL = /^[a-z0-9._%+-]+@heisreal\.today$/;
 const ROLES: StaffRole[] = ['Moderator', 'Admin'];
+const ROLE_OPTIONS = ROLES.map((r) => ({ value: r, label: r }));
 
 const day = (iso: string) =>
   new Date(iso).toLocaleDateString('en-GB', {
@@ -192,18 +192,13 @@ function Staff({ client }: { client: ApiUser }) {
             >
               Role
             </label>
-            <NativeSelect
+            <Select
               id={`${id}-role`}
               wrapperClassName="w-full sm:w-44"
               value={role}
-              onChange={(e) => setRole(e.target.value as StaffRole)}
-            >
-              {ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
-              ))}
-            </NativeSelect>
+              options={ROLE_OPTIONS}
+              onValueChange={(v) => setRole(v as StaffRole)}
+            />
           </div>
           <Button type="submit" className={WRAPPING_BUTTON} disabled={busy}>
             Add
@@ -246,13 +241,14 @@ function Staff({ client }: { client: ApiUser }) {
                 <label className="sr-only" htmlFor={`${id}-${m.email}`}>
                   Role for {m.email}
                 </label>
-                <NativeSelect
+                <Select
                   id={`${id}-${m.email}`}
                   wrapperClassName="w-full sm:w-40"
                   value={m.role}
+                  options={ROLE_OPTIONS}
                   disabled={busy}
-                  onChange={(e) => {
-                    const next = e.target.value as StaffRole;
+                  onValueChange={(v) => {
+                    const next = v as StaffRole;
                     void change(
                       () =>
                         client.command(path(m.email), {
@@ -262,13 +258,7 @@ function Staff({ client }: { client: ApiUser }) {
                       `${m.email} is now ${next === 'Admin' ? 'an Admin' : 'a Moderator'}.`,
                     );
                   }}
-                >
-                  {ROLES.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </NativeSelect>
+                />
                 <Button
                   type="button"
                   variant="outline"

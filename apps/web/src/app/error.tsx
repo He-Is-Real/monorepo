@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Button } from '@/components/ui/button';
+import { Button } from '@heisreal/web-ui';
 
 /**
  * Anything a page couldn't render, most likely api-public-read being unreachable. Only "Something

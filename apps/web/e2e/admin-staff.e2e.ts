@@ -1,7 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { expect, type Page, test } from '@playwright/test';
 import { BEHAVIOUR_DEVICES } from './devices';
-import { expectAllTargets, expectNoHorizontalOverflow } from './helpers';
+import {
+  chooseOption,
+  expectAllTargets,
+  expectChosen,
+  expectNoHorizontalOverflow,
+} from './helpers';
 import { WEB_SIGNED_IN_URL } from './servers';
 
 // /admin/staff (S-1 to S-4, G7, G8 B, G24; Joel 2026-11-11): an Admin sees the staff list, adds an
@@ -72,9 +77,10 @@ test.describe('/admin/staff', () => {
     await expect(member(page, 'nobody@heisreal.today')).toHaveCount(0);
 
     await page.getByLabel('Email').fill('Ann@heisreal.today');
-    await page
-      .getByRole('combobox', { name: 'Role', exact: true })
-      .selectOption('Moderator');
+    await chooseOption(
+      page.getByRole('combobox', { name: 'Role', exact: true }),
+      'Moderator',
+    );
     await page.getByRole('button', { name: 'Add' }).click();
     await expect(page.locator('[data-staff-status="done"]')).toHaveText(
       'ann@heisreal.today is now a Moderator.',
@@ -82,16 +88,14 @@ test.describe('/admin/staff', () => {
     const ann = member(page, 'ann@heisreal.today');
     await expect(ann).toContainText('Added by e2e-admin@heisreal.today');
     const role = page.getByLabel('Role for ann@heisreal.today');
-    await expect(role).toHaveValue('Moderator');
+    await expectChosen(role, 'Moderator');
 
-    await role.selectOption('Admin');
+    await chooseOption(role, 'Admin');
     await expect(page.locator('[data-staff-status="done"]')).toHaveText(
       'ann@heisreal.today is now an Admin.',
     );
     await page.reload();
-    await expect(page.getByLabel('Role for ann@heisreal.today')).toHaveValue(
-      'Admin',
-    );
+    await expectChosen(page.getByLabel('Role for ann@heisreal.today'), 'Admin');
 
     await page
       .getByRole('button', { name: 'Remove ann@heisreal.today' })

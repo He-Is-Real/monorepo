@@ -59,6 +59,9 @@
     },
     {
       "path": "./libs/logging"
+    },
+    {
+      "path": "./libs/web-ui"
     }
   ],
   "compilerOptions": {}

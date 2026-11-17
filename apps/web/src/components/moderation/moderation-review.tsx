@@ -15,7 +15,7 @@ import {
   WRAPPING_BUTTON,
 } from '@/components/admin/admin-access';
 import { StoryArticle } from '@/components/stories/story-view';
-import { Button } from '@/components/ui/button';
+import { Button } from '@heisreal/web-ui';
 import { type ApiUser, ApiUserProblem } from '@/lib/api-user';
 import {
   decisionRefusal,

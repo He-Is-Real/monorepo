@@ -1,16 +1,18 @@
 import { expect, type Locator, type Page, test } from '@playwright/test';
 import {
+  expectAtLeastTarget,
+  expectChosen,
   expectNoHorizontalOverflow,
   expectTarget,
-  expectAtLeastTarget,
 } from './helpers';
 
-// Themed dropdowns (Joel, 2026-10-24: "the drop down menus look dated, bring them in line with
-// the site theme"). They stay native <select>s, so the browse form works without JavaScript and
-// keeps the keyboard behaviour browsers give them. The closed select has the theme's field and
-// chevron everywhere. On computers (a mouse or trackpad) the open list is styled too, in
-// Chromium (customizable select: `appearance: base-select`, `::picker(select)`), in the theme's
-// colours, light and dark. Phones and tablets keep their own picker (Joel, U3 = A).
+// The site's drop-down (`Select`, libs/web-ui). Joel, 2026-10-24: "the drop down menus look
+// dated, bring them in line with the site theme"; 2026-11-17: the styled drop-down is the
+// default for every drop-down, in every browser. Closed, it's the theme's field and chevron
+// everywhere. On computers (a mouse or trackpad), once the page's JavaScript runs, the open list
+// is the themed one (Radix Select) in every browser, light and dark. Before that and without
+// JavaScript it's a native <select>, so the browse form works without JavaScript; phones and
+// tablets keep the native one and their own picker (Joel, U3 = A).
 
 /** The device matrix's touch devices (phones, tablets): their own picker, not the themed list. */
 const touch = (info: { project: { use: { hasTouch?: boolean } } }) =>
@@ -27,18 +29,16 @@ const colour = (page: Page, css: string) =>
     return out;
   }, css);
 
-const pickerStyle = (select: Locator) =>
-  select.evaluate((el) => {
-    const s = getComputedStyle(el, '::picker(select)');
-    return {
-      open: el.matches(':open'),
-      background: s.backgroundColor,
-      color: s.color,
-      radius: parseFloat(s.borderTopLeftRadius),
-    };
-  });
+/** The control once the page's JavaScript has run: the themed list's button on a computer. */
+async function hydrated(control: Locator, info: Parameters<typeof touch>[0]) {
+  await expect(control).toHaveAttribute(
+    'data-slot',
+    touch(info) ? 'select-native' : 'select-trigger',
+  );
+  return control;
+}
 
-/** The open list has finished its opening transition (sizes are final). */
+/** The open list has finished its opening animation (sizes are final). */
 const settled = (page: Page) =>
   page.evaluate(() =>
     Promise.all(document.getAnimations().map((a) => a.finished)),
@@ -46,12 +46,12 @@ const settled = (page: Page) =>
 
 /**
  * An option's text and focus ring against what is really behind them: its own background (a
- * translucent tint) composited on the picker's surface, through a 1 px canvas. WCAG 2.1
- * contrast ratios.
+ * translucent tint) composited on the list's surface, through a 1 px canvas. WCAG 2.1 contrast
+ * ratios.
  */
-const optionContrast = async (select: Locator, option: Locator) =>
+const optionContrast = async (list: Locator, option: Locator) =>
   option.evaluate(
-    (el, sel) => {
+    (el, listEl) => {
       const canvas = document.createElement('canvas');
       canvas.width = canvas.height = 1;
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -76,38 +76,38 @@ const optionContrast = async (select: Locator, option: Locator) =>
         const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m);
         return (x + 0.05) / (y + 0.05);
       };
-      const pickerBg = getComputedStyle(
-        sel as Element,
-        '::picker(select)',
-      ).backgroundColor;
+      const surface = getComputedStyle(listEl as Element).backgroundColor;
       const s = getComputedStyle(el);
-      const behind = paint(pickerBg, s.backgroundColor);
+      const behind = paint(surface, s.backgroundColor);
       return {
         focusVisible: el.matches(':focus-visible'),
-        text: ratio(paint(pickerBg, s.backgroundColor, s.color), behind),
+        text: ratio(paint(surface, s.backgroundColor, s.color), behind),
         outline: {
           style: s.outlineStyle,
           width: parseFloat(s.outlineWidth),
           offset: parseFloat(s.outlineOffset),
-          ratio: ratio(paint(pickerBg, s.outlineColor), paint(pickerBg)),
+          ratio: ratio(paint(surface, s.outlineColor), paint(surface)),
         },
       };
     },
-    await select.elementHandle(),
+    await list.elementHandle(),
   );
 
 for (const scheme of ['light', 'dark'] as const) {
   test.describe(`${scheme} scheme`, () => {
     test.use({ colorScheme: scheme });
 
-    test('the closed selects use the theme’s field and chevron', async ({
+    test('the closed drop-downs use the theme’s field and chevron', async ({
       page,
     }, info) => {
       await page.goto('/stories');
       for (const name of ['Sort', 'Format']) {
-        const select = page.getByLabel(name, { exact: true });
-        await expectTarget(page, select);
-        const style = await select.evaluate((el) => {
+        const control = await hydrated(
+          page.getByLabel(name, { exact: true }),
+          info,
+        );
+        await expectTarget(page, control);
+        const style = await control.evaluate((el) => {
           const s = getComputedStyle(el);
           return {
             appearance: s.appearance,
@@ -116,14 +116,14 @@ for (const scheme of ['light', 'dark'] as const) {
           };
         });
         // Touch screens: a plain styled select, so the system picker opens (U3).
-        expect(style.appearance).toBe(touch(info) ? 'none' : 'base-select');
+        if (touch(info)) expect(style.appearance).toBe('none');
         expect(style.background).toBe(
           await colour(page, 'var(--input-background)'),
         );
         expect(style.color).toBe(await colour(page, 'var(--foreground)'));
         // The theme's chevron, not the browser's.
         await expect(
-          select.locator('xpath=..').locator('svg[data-chevron]'),
+          control.locator('xpath=..').locator('svg[data-chevron]'),
         ).toBeVisible();
       }
     });
@@ -133,40 +133,54 @@ for (const scheme of ['light', 'dark'] as const) {
     }, info) => {
       test.skip(touch(info), 'touch screens keep their own picker (U3)');
       await page.goto('/stories');
-      const select = page.getByLabel('Format', { exact: true });
-      await select.click();
+      const control = await hydrated(
+        page.getByLabel('Format', { exact: true }),
+        info,
+      );
+      await control.click();
+      const list = page.getByRole('listbox');
+      await expect(list).toBeVisible();
       await settled(page);
-      const picker = await pickerStyle(select);
-      expect(picker.open).toBe(true);
-      expect(picker.background).toBe(await colour(page, 'var(--popover)'));
-      expect(picker.color).toBe(
+      const surface = await list.evaluate((el) => {
+        const s = getComputedStyle(el);
+        return {
+          background: s.backgroundColor,
+          color: s.color,
+          radius: parseFloat(s.borderTopLeftRadius),
+        };
+      });
+      expect(surface.background).toBe(await colour(page, 'var(--popover)'));
+      expect(surface.color).toBe(
         await colour(page, 'var(--popover-foreground)'),
       );
-      expect(picker.radius).toBeGreaterThanOrEqual(8);
+      expect(surface.radius).toBeGreaterThanOrEqual(8);
 
-      const options = select.locator('option');
       const width = page.viewportSize()?.width ?? 0;
-      for (const option of await options.all()) {
+      for (const option of await list.getByRole('option').all()) {
         const box = await option.boundingBox();
         expectAtLeastTarget(box?.height, 'option height');
-        // The list fits on the screen, also on a 320 px phone.
+        // The list fits on the screen.
         expect(
           (box?.x ?? -1) >= 0 && (box?.x ?? 0) + (box?.width ?? 0) <= width,
         ).toBe(true);
       }
-      // The chosen option is marked in the theme's teal.
-      const checked = select.locator('option:checked');
+      // The chosen option is marked in the theme's teal, with a check mark (with the pointer on
+      // another option: the one under the pointer is tinted).
+      const checked = list.locator('[role=option][data-state=checked]');
+      await expect(checked).toHaveText('All formats');
+      await list.getByRole('option').nth(1).hover();
       expect(await checked.evaluate((el) => getComputedStyle(el).color)).toBe(
         await colour(page, 'var(--link)'),
       );
+      await expect(checked.locator('svg')).toBeVisible();
       // Hovered, the chosen option stays readable on the tint (4.5:1 for 14 px text).
       await checked.hover();
-      expect(
-        (await optionContrast(select, checked)).text,
-      ).toBeGreaterThanOrEqual(4.5);
+      expect((await optionContrast(list, checked)).text).toBeGreaterThanOrEqual(
+        4.5,
+      );
       await expectNoHorizontalOverflow(page);
       await page.keyboard.press('Escape');
-      expect((await pickerStyle(select)).open).toBe(false);
+      await expect(list).toHaveCount(0);
     });
 
     test('keyboard focus in the open list shows the site’s focus ring, and text stays readable', async ({
@@ -174,35 +188,39 @@ for (const scheme of ['light', 'dark'] as const) {
     }, info) => {
       test.skip(touch(info), 'touch screens keep their own picker (U3)');
       await page.goto('/stories');
-      const select = page.getByLabel('Format', { exact: true });
-      await select.focus();
+      const control = await hydrated(
+        page.getByLabel('Format', { exact: true }),
+        info,
+      );
+      await control.focus();
       await page.keyboard.press('Enter');
-      expect((await pickerStyle(select)).open).toBe(true);
+      const list = page.getByRole('listbox');
+      await expect(list).toBeVisible();
       await settled(page);
+      const options = list.getByRole('option');
       // The chosen option has focus first; then the next one.
-      for (const option of [
-        select.locator('option:checked'),
-        select.locator('option').nth(1),
-      ]) {
-        if (!(await option.evaluate((el) => el.matches(':checked'))))
-          await page.keyboard.press('ArrowDown');
+      for (const [i, option] of [options.nth(0), options.nth(1)].entries()) {
+        if (i > 0) await page.keyboard.press('ArrowDown');
         await expect(option).toBeFocused();
-        const c = await optionContrast(select, option);
+        const c = await optionContrast(list, option);
         expect(c.focusVisible).toBe(true);
         expect(c.outline.style).toBe('solid');
         expect(c.outline.width).toBeGreaterThanOrEqual(2);
-        // Inside the option (the site-wide ring sits 2 px outside, under the next option).
+        // Inside the option, not under the next one.
         expect(
           c.outline.offset + c.outline.width,
           'ring inside the option',
         ).toBeLessThanOrEqual(0);
         expect(
           c.outline.ratio,
-          'focus ring on the picker',
+          'focus ring on the list',
         ).toBeGreaterThanOrEqual(3);
         expect(c.text, 'text on the tint').toBeGreaterThanOrEqual(4.5);
       }
       await page.keyboard.press('Escape');
+      await expect(list).toHaveCount(0);
+      // Focus goes back to the drop-down.
+      await expect(control).toBeFocused();
     });
   });
 }
@@ -213,23 +231,21 @@ test.describe('on phones and tablets (U3)', () => {
     test.skip(!touch(info), 'touch screens only');
   });
 
-  test('the select opens the system picker, and choosing applies the filter', async ({
+  test('the drop-down is a native select that opens the system picker, and choosing applies the filter', async ({
     page,
-  }) => {
+  }, info) => {
     await page.goto('/stories');
-    // The emulated device really is a touch screen without hover.
+    // The emulated device really is a touch screen.
     expect(
       await page.evaluate(
-        () => matchMedia('(hover: hover) and (pointer: fine)').matches,
+        () => matchMedia('(hover: none), (pointer: coarse)').matches,
       ),
-    ).toBe(false);
-    const format = page.getByLabel('Format', { exact: true });
-    const appearance = await format.evaluate((el) => ({
-      select: getComputedStyle(el).appearance,
-      picker: getComputedStyle(el, '::picker(select)').appearance,
-    }));
-    expect(appearance.select).toBe('none');
-    expect(appearance.picker).not.toBe('base-select');
+    ).toBe(true);
+    const format = await hydrated(
+      page.getByLabel('Format', { exact: true }),
+      info,
+    );
+    expect(await format.evaluate((el) => el.tagName)).toBe('SELECT');
     // What the system picker does: set the value, which applies the filter.
     await format.selectOption('video');
     await expect(page).toHaveURL(/\/stories\?.*format=video/);
@@ -246,39 +262,47 @@ test.describe('behaviour', () => {
     );
   });
 
-  test('choosing from the keyboard applies the filter, as before', async ({
+  test('choosing from the keyboard applies the filter', async ({
     page,
-  }) => {
+  }, info) => {
     await page.goto('/stories');
-    const format = page.getByLabel('Format', { exact: true });
+    const format = await hydrated(
+      page.getByLabel('Format', { exact: true }),
+      info,
+    );
     await format.focus();
     await page.keyboard.press('Enter');
-    expect((await pickerStyle(format)).open).toBe(true);
+    // The list opens with the chosen option focused.
+    await expect(
+      page.getByRole('listbox').getByRole('option', { name: 'All formats' }),
+    ).toBeFocused();
     await page.keyboard.press('ArrowDown');
     await page.keyboard.press('Enter');
     await expect(page).toHaveURL(/\/stories\?.*format=video/);
     await expect(page.getByText('Video stories')).toBeVisible();
-    await expect(page.getByLabel('Format', { exact: true })).toHaveValue(
-      'video',
-    );
+    await expectChosen(page.getByLabel('Format', { exact: true }), 'Video');
   });
 
-  test('choosing with a pointer applies the filter', async ({ page }) => {
+  test('choosing with a mouse reloads the stories sorted', async ({
+    page,
+  }, info) => {
     await page.goto('/stories');
-    const sort = page.getByLabel('Sort', { exact: true });
+    const titles = page.locator('main article h3');
+    const latestFirst = await titles.allTextContents();
+    expect(latestFirst.length).toBeGreaterThan(1);
+    const sort = await hydrated(page.getByLabel('Sort', { exact: true }), info);
     await sort.click();
-    await settled(page);
-    // Click where the open option is, as a person would: Playwright's own scrolling to an
-    // option in the picker's top layer can lose it (Codex, #78).
-    const box = await sort
+    await page
+      .getByRole('listbox')
       .getByRole('option', { name: 'Oldest first' })
-      .boundingBox();
-    expect(box).not.toBeNull();
-    await page.mouse.click(
-      (box?.x ?? 0) + (box?.width ?? 0) / 2,
-      (box?.y ?? 0) + (box?.height ?? 0) / 2,
-    );
+      .click();
     await expect(page).toHaveURL(/sort=oldest/);
+    await expectChosen(
+      page.getByLabel('Sort', { exact: true }),
+      'Oldest first',
+    );
+    // The oldest story now comes first.
+    await expect(titles.first()).not.toHaveText(latestFirst[0]);
   });
 });
 
@@ -292,17 +316,23 @@ test.describe('with reduced motion', () => {
     );
   });
 
-  test('the open list appears without its fade', async ({ page }) => {
+  test('the open list appears without its animation', async ({
+    page,
+  }, info) => {
     await page.goto('/stories');
-    const select = page.getByLabel('Format', { exact: true });
-    await select.click();
-    expect((await pickerStyle(select)).open).toBe(true);
-    const durations = await select.evaluate((el) =>
-      getComputedStyle(el, '::picker(select)')
-        .transitionDuration.split(',')
-        .map((d) => parseFloat(d)),
+    const control = await hydrated(
+      page.getByLabel('Format', { exact: true }),
+      info,
     );
-    expect(durations.every((d) => d === 0)).toBe(true);
+    await control.click();
+    const list = page.getByRole('listbox');
+    await expect(list).toBeVisible();
+    // Radix puts the list inside a positioning wrapper; the animation is on the list's panel.
+    const animation = await list.evaluate((el) => {
+      const panel = el.closest('[data-state]') ?? el;
+      return getComputedStyle(panel).animationName;
+    });
+    expect(animation).toBe('none');
   });
 });
 
@@ -313,7 +343,7 @@ test.describe('without JavaScript', () => {
     test.skip(info.project.name !== 'desktop-1280', 'one device');
   });
 
-  test('the selects still submit with the form', async ({ page }) => {
+  test('the native drop-downs still submit with the form', async ({ page }) => {
     await page.goto('/stories');
     await page.getByLabel('Format', { exact: true }).selectOption('audio');
     await page.getByLabel('Sort', { exact: true }).selectOption('oldest');

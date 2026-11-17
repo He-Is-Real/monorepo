@@ -2,9 +2,7 @@
 
 import Form from 'next/form';
 import { useSearchParams } from 'next/navigation';
-import { type ChangeEvent } from 'react';
-import { Button } from '@/components/ui/button';
-import { NativeSelect } from '@/components/ui/native-select';
+import { Button, Select } from '@heisreal/web-ui';
 import {
   type BrowseFilters as Filters,
   FAVOURITES_PARAM,
@@ -13,6 +11,13 @@ import {
 
 const field =
   'h-11 rounded-lg border border-input bg-input-background px-3 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30';
+
+const FORMATS = [
+  { value: '', label: 'All formats' },
+  { value: 'video', label: 'Video' },
+  { value: 'audio', label: 'Audio' },
+  { value: 'written', label: 'Written' },
+];
 
 /**
  * Search, sort and format (browse mockup's filter bar). A plain GET form to /stories, so it
@@ -23,8 +28,6 @@ const field =
  */
 export function BrowseFilters({ filters }: { filters: Filters }) {
   const favourites = favouritesOn(useSearchParams());
-  const submitOnChange = (e: ChangeEvent<HTMLSelectElement>) =>
-    e.currentTarget.form?.requestSubmit();
   return (
     <Form
       // The fields start from the URL's filters; when those change without a new page (Back,
@@ -56,30 +59,27 @@ export function BrowseFilters({ filters }: { filters: Filters }) {
       <label htmlFor="browse-sort" className="sr-only">
         Sort
       </label>
-      <NativeSelect
+      <Select
         id="browse-sort"
         name="sort"
         defaultValue={filters.sort}
-        onChange={submitOnChange}
-      >
-        {filters.q && <option value="relevance">Best match</option>}
-        <option value="latest">Latest first</option>
-        <option value="oldest">Oldest first</option>
-      </NativeSelect>
+        options={[
+          ...(filters.q ? [{ value: 'relevance', label: 'Best match' }] : []),
+          { value: 'latest', label: 'Latest first' },
+          { value: 'oldest', label: 'Oldest first' },
+        ]}
+        submitOnChange
+      />
       <label htmlFor="browse-format" className="sr-only">
         Format
       </label>
-      <NativeSelect
+      <Select
         id="browse-format"
         name="format"
         defaultValue={filters.format ?? ''}
-        onChange={submitOnChange}
-      >
-        <option value="">All formats</option>
-        <option value="video">Video</option>
-        <option value="audio">Audio</option>
-        <option value="written">Written</option>
-      </NativeSelect>
+        options={FORMATS}
+        submitOnChange
+      />
       <Button type="submit" className="h-11 px-5">
         Search
       </Button>

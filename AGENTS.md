@@ -114,4 +114,7 @@ Tests in the Nest apps and libs use Vitest (`vitest.config.mts`; `vi.fn()`, glob
 real-SurrealDB suites use `vitest.integration.config.mts` with libs/database's global setup.
 `apps/web` uses Jest.
 
+**Web UI building blocks** live in `libs/web-ui` (`@heisreal/web-ui`): pages use them instead of their own
+styled copies, and every drop-down is its `Select` (`docs/how-the-app-works.md`, technical decisions).
+
 Run tasks through Nx with the package manager prefix (`pnpm nx run-many -t lint test build typecheck`, `pnpm nx affected -t ...`). Check `pnpm nx <target> --help` rather than guessing flags. Scaffold with the Nx generators (`pnpm nx g ...`).

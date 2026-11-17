@@ -103,6 +103,12 @@ export async function expectAllTargets(page: Page) {
       const r = el.getBoundingClientRect();
       if (r.width === 0 && r.height === 0) continue; // not displayed
       if (el.closest('.sr-only') || el.classList.contains('sr-only')) continue;
+      // Hidden from everyone and out of the tab order (e.g. the drop-down's hidden form field).
+      if (
+        el.closest('[aria-hidden="true"]') &&
+        el.getAttribute('tabindex') === '-1'
+      )
+        continue;
       if (r.width < min || r.height < min)
         out.push(
           `${el.tagName.toLowerCase()} "${(el.textContent ?? '').trim().slice(0, 40)}" ${Math.round(r.width)}×${Math.round(r.height)}`,
@@ -229,4 +235,71 @@ export async function expectFocusedAndUncovered(box: Locator) {
       }),
     )
     .toBe(true);
+}
+
+// The site's drop-down (`Select`, libs/web-ui) is a native <select> on touch screens (and before
+// the page's JavaScript runs), and Radix's themed list on a computer once it has. These work
+// with either, by what a person sees: the option labels.
+
+/** Which form the device gets once the page has hydrated (U3: touch screens keep the native). */
+async function themedSelect(control: Locator) {
+  const touch = await control
+    .page()
+    .evaluate(() => matchMedia('(hover: none), (pointer: coarse)').matches);
+  if (touch) {
+    await expect(control).toHaveAttribute('data-slot', 'select-native');
+    return false;
+  }
+  // Waits for hydration: the native select is replaced by the themed list's button.
+  await expect(control).toHaveAttribute('data-slot', 'select-trigger');
+  return true;
+}
+
+/** Chooses an option by its label, by mouse on a computer (as a person would). */
+export async function chooseOption(control: Locator, label: string | RegExp) {
+  if (!(await themedSelect(control))) {
+    const option = control.locator('option', {
+      hasText: typeof label === 'string' ? undefined : label,
+    });
+    const value =
+      typeof label === 'string'
+        ? { label }
+        : ((await option.first().getAttribute('value')) ?? '');
+    await control.selectOption(value);
+    return;
+  }
+  await control.click();
+  const list = control.page().getByRole('listbox');
+  await list
+    .getByRole('option', {
+      name: label,
+      exact: typeof label === 'string' ? true : undefined,
+    })
+    .click();
+  await expect(list).toHaveCount(0);
+}
+
+/** The label of the chosen option. */
+export async function expectChosen(control: Locator, label: string) {
+  await expect
+    .poll(() =>
+      control.evaluate((el) =>
+        el instanceof HTMLSelectElement
+          ? (el.selectedOptions[0]?.text ?? '')
+          : (el.querySelector('[data-slot="select-value"]')?.textContent ?? ''),
+      ),
+    )
+    .toBe(label);
+}
+
+/** Every option's label, in order (on a computer: opens the list, reads it and closes it). */
+export async function optionLabels(control: Locator) {
+  if (!(await themedSelect(control)))
+    return control.locator('option').allTextContents();
+  await control.click();
+  const list = control.page().getByRole('listbox');
+  const labels = await list.getByRole('option').allTextContents();
+  await control.page().keyboard.press('Escape');
+  await expect(list).toHaveCount(0);
+  return labels;
 }

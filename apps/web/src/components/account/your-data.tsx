@@ -3,7 +3,7 @@
 import { useClerk } from '@clerk/react';
 import { useRouter } from 'next/navigation';
 import { useId, useRef, useState } from 'react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@heisreal/web-ui';
 import {
   type ApiUser,
   ApiUserProblem,

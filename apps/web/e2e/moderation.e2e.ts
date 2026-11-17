@@ -2,7 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { expect, type Page, test } from '@playwright/test';
 import { Contract } from '@heisreal/contracts/testing';
 import { BEHAVIOUR_DEVICES } from './devices';
-import { expectAllTargets, expectNoHorizontalOverflow } from './helpers';
+import {
+  chooseOption,
+  expectAllTargets,
+  expectChosen,
+  expectNoHorizontalOverflow,
+  optionLabels,
+} from './helpers';
 import { fixtureToken, STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 
 // The moderators' pages (M3 plan PRs 1 and 6; MD-1 to MD-4): /moderation lists every story that
@@ -95,7 +101,7 @@ test.describe('moderation', () => {
     const menu = page.getByRole('navigation', { name: 'Admin pages' });
     await expect(menu.getByRole('link')).toHaveText(['Moderation']);
 
-    await expect(page.getByLabel('Show')).toHaveValue('pending');
+    await expectChosen(page.getByLabel('Show'), 'Waiting for review');
     await expect(listItems(page)).toHaveCount(20);
     const first = listItems(page).first();
     await expect(first).toContainText('The night I stopped running');
@@ -396,19 +402,19 @@ test.describe('moderation', () => {
     await useSession(page, 'moderator-states');
     await page.goto(`${WEB_SIGNED_IN_URL}/moderation`);
     const show = page.getByLabel('Show');
-    await expect(show.locator('option')).toHaveText([
+    expect(await optionLabels(show)).toEqual([
       'Waiting for review',
       'Being edited',
       'Taken down',
       'Rejected',
     ]);
-    await show.selectOption('editing');
+    await chooseOption(show, 'Being edited');
     await expect(page).toHaveURL(/\/moderation\?state=editing$/);
     await expect(states(page)).toHaveText([
       'State: Sent back by a moderator',
       'State: Being edited by the person',
     ]);
-    await show.selectOption('hidden');
+    await chooseOption(show, 'Taken down');
     await expect(states(page)).toHaveText([
       // Part 1a: its check gave up on our side for good (mediaProblem ours).
       'State: Hidden by the site while its video or audio can’t playA problem on our side',
@@ -417,7 +423,7 @@ test.describe('moderation', () => {
     await expect(
       listItems(page).last().locator('[data-list-dates]'),
     ).toContainText('Taken down');
-    await show.selectOption('rejected');
+    await chooseOption(show, 'Rejected');
     await expect(states(page)).toHaveText(['State: Rejected']);
     // A rejected story opens read only, with its history.
     await listItems(page).first().getByRole('link').click();
@@ -432,7 +438,7 @@ test.describe('moderation', () => {
     await expect(page).toHaveURL(/\/moderation\?theme=healing$/);
     await expect(listItems(page)).toHaveCount(1);
     await expect(listItems(page)).toContainText('The night I stopped running');
-    await show.selectOption('editing');
+    await chooseOption(show, 'Being edited');
     await expect(page).toHaveURL(/state=editing&theme=healing$/);
     await expect(page.locator('[data-list-empty]')).toHaveText(
       'No stories here.',
@@ -442,7 +448,7 @@ test.describe('moderation', () => {
 
     // Drafts never sent aren't a moderator's, even by address.
     await page.goto(`${WEB_SIGNED_IN_URL}/moderation?state=draft`);
-    await expect(show).toHaveValue('pending');
+    await expectChosen(show, 'Waiting for review');
     await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_draft`);
     await expect(page.locator('[data-review-gone]')).toBeVisible();
   });
@@ -452,7 +458,7 @@ test.describe('moderation', () => {
   }) => {
     await useSession(page, 'admin-drafts');
     await page.goto(`${WEB_SIGNED_IN_URL}/moderation`);
-    await page.getByLabel('Show').selectOption('draft');
+    await chooseOption(page.getByLabel('Show'), 'Drafts never sent');
     await expect(listItems(page)).toHaveCount(1);
     await expect(states(page)).toHaveText(['State: Draft, never sent']);
     await listItems(page).first().getByRole('link').click();

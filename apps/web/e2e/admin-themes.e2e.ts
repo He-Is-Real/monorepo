@@ -1,7 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { expect, type Page, test } from '@playwright/test';
 import { BEHAVIOUR_DEVICES } from './devices';
-import { expectAllTargets, expectNoHorizontalOverflow } from './helpers';
+import {
+  chooseOption,
+  expectAllTargets,
+  expectNoHorizontalOverflow,
+} from './helpers';
 import { WEB_SIGNED_IN_URL } from './servers';
 
 // /admin/themes (themes plan v3): the page, its panels and its dialogs fit every device; the
@@ -131,7 +135,7 @@ test.describe('/admin/themes', () => {
 
     // The panel moves a theme to another category.
     dialog = await panel(page, 'Coming to faith');
-    await dialog.getByLabel('Category').selectOption({ label: 'Topics' });
+    await chooseOption(dialog.getByLabel('Category'), 'Topics');
     await dialog.getByRole('button', { name: 'Done' }).click();
     await expect(namesIn(page, 'Topics', 'rest')).toHaveText([
       'Coming to faith×',

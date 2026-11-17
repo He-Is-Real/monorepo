@@ -1,7 +1,7 @@
 'use client';
 
 import { useClerk } from '@clerk/react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@heisreal/web-ui';
 
 /**
  * D81: name, email, password and Google sign-in are Clerk's, changed in Clerk's own "Manage

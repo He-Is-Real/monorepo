@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
 import { previewHref } from '@/components/share/own-media';
-import { Button } from '@/components/ui/button';
+import { Button } from '@heisreal/web-ui';
 import {
   type Agreement,
   type ApiUser,

@@ -7,7 +7,7 @@ import {
   StoryMasonry,
 } from '@/components/stories/story-masonry';
 import { useNearEnd } from '@/components/stories/use-near-end';
-import { Button } from '@/components/ui/button';
+import { Button } from '@heisreal/web-ui';
 import type { StorySummary } from '@/lib/browse';
 import {
   type BrowseFilters,

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useMemo, useRef, useEffect, useState } from 'react';
 import { useRole, WRAPPING_BUTTON } from '@/components/admin/admin-access';
-import { Button } from '@/components/ui/button';
+import { Button } from '@heisreal/web-ui';
 import { apiUser, type ApiUser } from '@/lib/api-user';
 import { usePersonalSession } from '@/lib/personal-session';
 import {

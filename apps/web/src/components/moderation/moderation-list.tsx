@@ -9,8 +9,7 @@ import {
   WRAPPING_BUTTON,
 } from '@/components/admin/admin-access';
 import { ThemeLinks } from '@/components/browse/theme-filter';
-import { Button } from '@/components/ui/button';
-import { NativeSelect } from '@/components/ui/native-select';
+import { Button, Select } from '@heisreal/web-ui';
 import type { ApiUser } from '@/lib/api-user';
 import type { ThemeCategory } from '@/lib/browse';
 import {
@@ -103,19 +102,14 @@ function Filtered({
           <label htmlFor="moderation-state" className="font-semibold">
             Show
           </label>
-          <NativeSelect
+          <Select
             id="moderation-state"
             name="state"
             defaultValue={state}
+            options={states.map((s) => ({ value: s.state, label: s.label }))}
             wrapperClassName="min-w-0 max-w-full"
-            onChange={(e) => e.currentTarget.form?.requestSubmit()}
-          >
-            {states.map((s) => (
-              <option key={s.state} value={s.state}>
-                {s.label}
-              </option>
-            ))}
-          </NativeSelect>
+            submitOnChange
+          />
           {/* After the state, so the address reads ?state=…&theme=…, as the theme links' do. */}
           {theme && <input type="hidden" name="theme" value={theme} />}
           <Button type="submit" variant="outline" className="h-11 px-5">

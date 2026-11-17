@@ -23,6 +23,7 @@
 @import 'tw-animate-css';
 
 /* Sources outside apps/web (libs) need an @source line when they add classes. */
+@source '../../../../libs/web-ui/src';
 
 @custom-variant dark (&:is(.dark *));
 
@@ -223,11 +224,13 @@
 }
 
 /*
- * Themed selects (components/ui/native-select.tsx; Joel, 2026-10-24). Closed: no native arrow
- * (the component draws the theme's chevron), everywhere. Open, on computers (a mouse or
- * trackpad) in browsers with customizable select (Chromium): the list is a rounded panel on the
- * theme's popover surface, 44 px options, teal for the hovered and the chosen option. Phones and
- * tablets keep their own picker (Joel, U3 = A), and other browsers their own list.
+ * The native form of the site's drop-down (`Select` in libs/web-ui; Joel, 2026-10-24). Once the
+ * page's JavaScript runs on a computer, `Select` draws its own themed list (Radix) in every
+ * browser; the native <select> is what phones and tablets (U3 = A) get, and what everyone gets
+ * before that or without JavaScript. Closed: no native arrow (the component draws the theme's
+ * chevron), everywhere. Open, without JavaScript on a computer in a browser with customizable
+ * select (Chromium): the same themed list as Select's (rounded popover panel, 44 px options,
+ * teal for the hovered and the chosen option); other browsers show their own list then.
  */
 @layer components {
   .native-select {
