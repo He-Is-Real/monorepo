@@ -81,10 +81,19 @@ function useFullHeight(
       return;
     }
     const { scrollX, scrollY } = window;
+    // Measuring shrinks the box to its 20 rows for a moment; holding its column at its current
+    // height keeps the page from shortening meanwhile, which would clamp the page's scroll.
+    const column = el.parentElement;
+    if (column) column.style.minHeight = `${column.offsetHeight}px`;
     el.style.height = 'auto'; // its 20 rows: the minimum
     const border = el.offsetHeight - el.clientHeight;
     el.style.height = `${el.scrollHeight + border}px`;
-    if (window.scrollY !== scrollY) window.scrollTo(scrollX, scrollY);
+    if (column) column.style.minHeight = '';
+    // If the page moved anyway, put it back at once ('instant': the site's smooth scrolling
+    // would otherwise animate it back).
+    if (window.scrollX !== scrollX || window.scrollY !== scrollY) {
+      window.scrollTo({ left: scrollX, top: scrollY, behavior: 'instant' });
+    }
   }, [box]);
 
   useLayoutEffect(fit, [fit, text]);

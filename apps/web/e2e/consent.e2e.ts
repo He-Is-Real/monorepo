@@ -386,4 +386,66 @@ test.describe('layout', () => {
     }
     await expectNoHorizontalOverflow(page);
   });
+
+  // Typing near the end of a box taller than the preview must not move the page: no jump while
+  // the box is measured, and no smooth scroll back (Codex review of the full-height box).
+  test('admin consent: typing at the end of a long text keeps the page still on tablets and desktops', async ({
+    page,
+    request,
+  }) => {
+    test.skip(
+      (page.viewportSize()?.width ?? 0) < 768,
+      'the box only grows from 768 px',
+    );
+    await person(page, request, {}, 'admin');
+    await page.goto(`${WEB_SIGNED_IN_URL}/admin/consent`);
+    const text = page.getByLabel('New text (version 3) · Markdown');
+    await expect(text).toBeVisible();
+    await text.fill(`Top\n${'\n'.repeat(200)}Bottom`);
+    // The preview and redline follow the text a moment later; wait for them to settle.
+    await expect(page.locator('[data-preview]')).toHaveText(
+      /^\s*Top\s*Bottom\s*$/,
+    );
+    await text.evaluate((el: HTMLTextAreaElement) => {
+      el.setSelectionRange(el.value.length, el.value.length);
+      const box = el.getBoundingClientRect();
+      window.scrollTo({
+        top: window.scrollY + box.bottom - window.innerHeight / 2,
+        behavior: 'instant',
+      });
+    });
+    // Scrolling (and putting the caret at the end) can take a frame to land: wait until the
+    // page holds still for a few frames.
+    const before = await page.evaluate(
+      () =>
+        new Promise<number>((resolve) => {
+          let last = window.scrollY;
+          let still = 0;
+          const next = () => {
+            still = window.scrollY === last ? still + 1 : 0;
+            last = window.scrollY;
+            if (still >= 3) resolve(last);
+            else requestAnimationFrame(next);
+          };
+          requestAnimationFrame(next);
+        }),
+    );
+    expect(before).toBeGreaterThan(0);
+    await page.keyboard.type('x');
+    // scrollY on each of the next frames, long enough to see any smooth scroll.
+    const frames = await page.evaluate(
+      () =>
+        new Promise<number[]>((resolve) => {
+          const seen: number[] = [window.scrollY];
+          const next = () => {
+            seen.push(window.scrollY);
+            if (seen.length >= 20) resolve(seen);
+            else requestAnimationFrame(next);
+          };
+          requestAnimationFrame(next);
+        }),
+    );
+    await expect(text).toHaveValue(/Bottomx$/);
+    for (const y of frames) expect(Math.abs(y - before)).toBeLessThanOrEqual(1);
+  });
 });
