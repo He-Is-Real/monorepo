@@ -1453,7 +1453,7 @@ describe('data/0009 fills in the agreements of the people who exist when it runs
     );
     refusedBefore = await outcome(
       admin,
-      `CREATE storyStatusLog CONTENT { story: story:waiting, action: 'approved', by: user:moderator }`,
+      `CREATE storyStatusLog CONTENT { story: story:waiting, action: 'approved', by: user:moderator, staffEmail: 'moderator@heisreal.today' }`,
     );
     ranFrom = await now();
     expect(await t.migrate(t.params())).toMatchObject({

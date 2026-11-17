@@ -60,6 +60,17 @@ test('/moderation and a story under review fit, with 44 px targets', async ({
   await page.getByRole('button', { name: 'Send back' }).click();
   await expect(page.getByLabel('Your note to the person')).toBeVisible();
   await expectNoHorizontalOverflow(page);
+  await expectAllTargets(page); // An Admin's view: the sender's email and address, with a Block confirm open (EM-2).
+  await useSession(page, fresh('admin-fit'));
+  await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_video`);
+  await page
+    .locator('[data-sender-email]')
+    .getByRole('button', { name: 'Block' })
+    .click();
+  await expect(page.locator('[data-sender-email]')).toContainText(
+    'It stays until an Admin removes it.',
+  );
+  await expectNoHorizontalOverflow(page);
   await expectAllTargets(page);
 });
 
@@ -127,7 +138,9 @@ test.describe('moderation', () => {
     ).toBeVisible();
     const history = page.locator('[data-history-entry]');
     await expect(history).toHaveCount(3);
-    await expect(history.nth(1)).toContainText('Sent back by a moderator');
+    await expect(history.nth(1)).toContainText(
+      'Sent back by e2e-moderator@heisreal.today',
+    );
     await expect(history.nth(1)).toContainText(
       'Thank you for sharing this. Could you say a little more about what changed that winter?',
     );
@@ -160,7 +173,7 @@ test.describe('moderation', () => {
       decisions(page).getByRole('button', { name: 'Take down' }),
     ).toBeVisible();
     await expect(page.locator('[data-history-entry]').last()).toContainText(
-      'Approved by a moderator',
+      'Approved by e2e-moderator@heisreal.today',
     );
   });
 
@@ -268,7 +281,9 @@ test.describe('moderation', () => {
       'Taken down by a moderator',
     );
     const last = page.locator('[data-history-entry]').last();
-    await expect(last).toContainText('Taken down by a moderator');
+    await expect(last).toContainText(
+      'Taken down by e2e-moderator@heisreal.today',
+    );
     await expect(last).toContainText(
       'Why it was taken downA family member asked us to check it first.',
     );
@@ -608,24 +623,64 @@ test.describe('moderation', () => {
     ]);
   });
 
-  test('an admin, never a moderator, sees the address a story was sent from, with a link to block it', async ({
+  test('an admin, never a moderator, sees the email and address a story was sent with, and blocks each on the page (EM-1 B, EM-2)', async ({
     page,
   }) => {
-    await useSession(page, 'moderator-no-ip');
+    await useSession(page, 'moderator-no-sender');
     await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_video`);
     await expect(page.locator('[data-history-entry]').first()).toBeVisible();
-    await expect(page.locator('[data-sender-ip]')).toHaveCount(0);
+    await expect(page.locator('[data-sender]')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Block' })).toHaveCount(0);
 
-    await useSession(page, 'admin-sees-ip');
+    await useSession(page, fresh('admin-blocks'));
     await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_video`);
+    const email = page.locator('[data-sender-email]');
     const ip = page.locator('[data-sender-ip]');
+    await expect(email).toContainText(
+      'Sent with email robin.test@example.com. Only admins see this.',
+    );
     await expect(ip).toContainText(
       'Sent from IP address 203.0.113.7. Only admins see this, for 30 days.',
     );
-    await ip.getByRole('link', { name: 'Block this address' }).click();
-    await expect(page).toHaveURL(/\/admin\/block-list\?ip=203\.0\.113\.7$/);
-    await expect(page.getByLabel('IP address', { exact: true })).toHaveValue(
-      '203.0.113.7',
+    await expect(page.locator('[data-sender]').getByRole('link')).toHaveCount(
+      0,
+    );
+    // Block, then a short confirm; Cancel changes nothing.
+    await email.getByRole('button', { name: 'Block' }).click();
+    await expect(email).toContainText(
+      'Block robin.test@example.com? It stays until an Admin removes it.',
+    );
+    await email.getByRole('button', { name: 'Cancel' }).click();
+    await expect(email.locator('[data-sender-blocked]')).toHaveCount(0);
+    await email.getByRole('button', { name: 'Block' }).click();
+    await email.getByRole('button', { name: 'Block' }).click();
+    await expect(email.locator('[data-sender-blocked]')).toHaveText('Blocked');
+    await expect(page).toHaveURL(/\/moderation\/mod_video$/);
+    // The address still has its own button.
+    await expect(ip.getByRole('button', { name: 'Block' })).toBeVisible();
+    // Opened again, the page says it's blocked; so does the Block list page.
+    await page.reload();
+    await expect(email.locator('[data-sender-blocked]')).toHaveText('Blocked');
+    await page.goto(`${WEB_SIGNED_IN_URL}/admin/block-list`);
+    await expect(page.locator('main')).toContainText('robin.test@example.com');
+
+    // A story whose address is past 30 days shows only its email, here already blocked.
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_written`);
+    await expect(page.locator('[data-sender-ip]')).toHaveCount(0);
+    await expect(
+      page.locator('[data-sender-email] [data-sender-blocked]'),
+    ).toHaveText('Blocked');
+  });
+
+  test('the history names the staff member who took each action, to staff (EM-1)', async ({
+    page,
+  }) => {
+    await useSession(page, fresh('admin-approves-named'));
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_video`);
+    await decisions(page).getByRole('button', { name: 'Approve' }).click();
+    await expect(notice(page)).toHaveText('Approved. It’s on the site now.');
+    await expect(page.locator('[data-history-entry]').last()).toContainText(
+      'Approved by e2e-admin@heisreal.today',
     );
   });
 });
@@ -679,6 +734,10 @@ test('the stub api-admin’s moderation answers fit the contract', async ({
     (await check('/v1/moderation/stories/mod_video', 'admin-contract')).body
       .senderIp,
   ).toBe('203.0.113.7');
+  expect(
+    (await check('/v1/moderation/stories/mod_video', 'admin-contract')).body
+      .senderEmail,
+  ).toBe('robin.test@example.com');
   for (const id of ['mod_published', 'mod_taken_down']) {
     expect((await check(`/v1/moderation/stories/${id}`)).status).toBe(200);
   }

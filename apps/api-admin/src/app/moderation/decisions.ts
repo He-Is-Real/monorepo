@@ -107,7 +107,8 @@ const DECIDE_SQL = `BEGIN TRANSACTION;
     THROW 'moderation_cmd:changed';
   };
   LET $e = (CREATE ONLY type::record('storyStatusLog', rand::ulid()) CONTENT {
-    story: $story, action: $action, by: $by, comment: $comment, skippedMediaWait: $skip
+    story: $story, action: $action, by: $by, staffEmail: $staffEmail, comment: $comment,
+    skippedMediaWait: $skip
   } RETURN id);
   IF $e = NONE { THROW 'moderation_cmd:not_written' };
   SELECT version, record::id(currentStatus) AS entry,
@@ -248,6 +249,8 @@ export async function decide(
     reviewed: Reviewed;
     action: Decision;
     by: RecordId;
+    /** The Moderator's or Admin's verified email (EM-1); the database requires it. */
+    staffEmail?: string;
     comment?: string;
     anyway?: boolean;
   },
@@ -261,6 +264,7 @@ export async function decide(
         image: input.reviewed.image ?? undefined,
         action: input.action,
         by: input.by,
+        staffEmail: input.staffEmail,
         comment: input.comment,
         skip: skip ? true : undefined,
       }),

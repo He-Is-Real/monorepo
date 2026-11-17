@@ -319,7 +319,8 @@ paths:
         - Read in the person's own database session (D27), so the database shows them their own rows
           and nobody else's: their `user` row, every story in every status with its text, themes and
           media, the moderation outcomes on their own stories (the decision, its feedback and when;
-          never the moderator, whose field only api-admin can read), the versions of the terms of use
+          never the moderator, whose `by` and `staffEmail` only api-admin can read), the IP address
+          (30 days) and email (as long as the story) each story was sent with, the versions of the terms of use
           and the testimony consent they agreed to and when (and, per story, the social media sharing
           consent), their hearts (only which story and when, and the story's public path
           while it's public; never another person's words), their submission limits, submission log,

@@ -169,7 +169,7 @@ describe('my stories: edit and delete', () => {
       `CREATE storyStatusLog CONTENT { story: type::record('story', $id), action: 'sent',
          actor: 'person' };
        CREATE storyStatusLog CONTENT { story: type::record('story', $id), action: $action,
-         actor: 'moderator', by: user:moderator, comment: 'Please say more about the start' };`,
+         actor: 'moderator', by: user:moderator, staffEmail: 'moderator@heisreal.today', comment: 'Please say more about the start' };`,
       { id, action },
     );
   const mine = async (who: string, id: string) =>
@@ -347,7 +347,7 @@ describe('my stories: edit and delete', () => {
     await run(
       admin,
       `CREATE storyStatusLog CONTENT { story: type::record('story', $id),
-         action: 'hiddenByModerator', comment: 'Checking something', by: user:moderator }`,
+         action: 'hiddenByModerator', comment: 'Checking something', by: user:moderator, staffEmail: 'moderator@heisreal.today' }`,
       { id: hidden },
     );
     expect(await mine('ann', hidden)).toMatchObject({

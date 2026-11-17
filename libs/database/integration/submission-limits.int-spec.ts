@@ -157,7 +157,7 @@ describe('submission limits, their settings and per-person overrides (D94, W3, D
     await submit(cat, 'cat_1');
     await run(
       admin,
-      `CREATE storyStatusLog CONTENT { story: story:cat_1, action: 'changesRequested', comment: 'A note', by: user:moderator };`,
+      `CREATE storyStatusLog CONTENT { story: story:cat_1, action: 'changesRequested', comment: 'A note', by: user:moderator, staffEmail: 'moderator@heisreal.today' };`,
     );
     expect(await submit(cat, 'cat_1')).toHaveLength(1);
     expect(await status('cat_1')).toBe('pending');

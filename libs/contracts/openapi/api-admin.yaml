@@ -154,6 +154,10 @@ paths:
         and above (D1, M3 plan concern C2). The links change on every
         answer, so the `ETag` is a hash of this answer, not the story's version; decisions take
         `reviewTag` in `If-Match` (G14 B).
+        EM-1 B and EM-2 (Joel 2026-11-17): an Admin also gets the email and the IP address it was
+        last sent with (`senderEmail`, `senderIp`) and whether each is on the block list, to block
+        them from this page through the block-list routes; a Moderator gets `null` for all four.
+        Each status entry a moderator made names the Moderator or Admin by email (`staffEmail`).
       x-required-role: Moderator
       x-milestone: M3
       parameters:
@@ -741,7 +745,8 @@ paths:
       description: |
         Command `BlockEmail`: from now on the email can't create an account or send a story, until an
         Admin removes it. Someone who already has an account keeps it (and can still read, edit and
-        delete their own things), but can't send a story. Adding an email already on the list changes
+        delete their own things), but can't send a story. An Admin can block a story's sender from its
+        moderation view (`senderEmail`, EM-2), which calls this route. Adding an email already on the list changes
         nothing (it keeps who added it first). No `If-Match` (nothing to change on an entry); `version`
         is `null`. `400` for something that isn't an email address.
       x-required-role: Admin
@@ -802,7 +807,8 @@ paths:
       description: |
         Command `BlockIp`: from now on no story can be sent from this exact address, until an Admin
         removes it (reading and accounts aren't affected). An Admin finds a recent sender's address on
-        the story's moderation view (`senderIp`, kept 30 days). Adding an address already on the list
+        the story's moderation view (`senderIp`, kept 30 days), with a Block button there that calls
+        this route (EM-2). Adding an address already on the list
         changes nothing. `version` is `null`. `400` for something that isn't an IP address. The answer's
         `id` is the address as stored.
       x-required-role: Admin

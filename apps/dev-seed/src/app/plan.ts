@@ -45,6 +45,8 @@ export interface SeedVars {
   /** Plan 4e: Clerk user ids of dev's test accounts put back to never having agreed. */
   newcomerAccounts: string[];
   moderator: string;
+  /** EM-1: the made-up email on the moderator's entries (example.com: test data only). */
+  staffEmail: string;
   categories: { id: string; name: string }[];
   themes: {
     id: string;
@@ -67,6 +69,12 @@ export interface SeedVars {
     steps: Step[];
     /** Approved stories: their approved entry's publishedAt (browse order). */
     publishedAt?: Date;
+    /**
+     * Block list (G21 D; EM-1 B): what its "sent" entries were sent with, made up so Admins see
+     * both on dev: an example.com email for its submitter and a documentation address
+     * (192.0.2.0/24, RFC 5737).
+     */
+    sender: { email: string; ip: string };
   }[];
 }
 
@@ -262,6 +270,7 @@ export function buildVars(
     testAccounts: data.testAccounts,
     newcomerAccounts: data.newcomerAccounts,
     moderator: data.moderator,
+    staffEmail: `${data.moderator.replace(/^seed_/, '')}.test@example.com`,
     categories: data.categories.map(({ id, name }) => ({ id, name })),
     themes: data.themes.map((t) => ({
       id: t.id,
@@ -270,7 +279,7 @@ export function buildVars(
         data.categories.find((c) => c.key === t.category)?.id ?? 'other',
       highlighted: t.highlighted === true,
     })),
-    stories: data.stories.map((s) => {
+    stories: data.stories.map((s, i) => {
       const publishedAt =
         s.publishedDaysAgo === undefined
           ? undefined
@@ -302,6 +311,10 @@ export function buildVars(
           : undefined,
         steps: stepsFor(s, publishedAt ?? now),
         publishedAt,
+        sender: {
+          email: `${s.submitter.replace(/^seed_/, '')}.test@example.com`,
+          ip: `192.0.2.${(i % 254) + 1}`,
+        },
       };
     }),
   };

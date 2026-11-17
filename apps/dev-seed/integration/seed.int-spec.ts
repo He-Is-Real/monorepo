@@ -164,6 +164,23 @@ describe('dev-seed reset on SurrealDB (dev, the real agreement rules)', () => {
       by: 'user:seed_moderator',
     });
     expect(sentBack?.comment).toContain('test feedback');
+    // Made-up block list details (EM-1 B): each "sent" entry's email and documentation address,
+    // and the moderator's email on each of theirs; nothing on the others.
+    const who = await rows<Record<string, unknown>>(
+      migrator,
+      `SELECT action, actor, senderEmail, senderIp, staffEmail, at FROM storyStatusLog
+         WHERE story = story:seed_v03 ORDER BY at`,
+    );
+    for (const e of who) {
+      if (e['action'] === 'sent') {
+        expect(e['senderEmail']).toMatch(/^[a-z0-9_]+\.test@example\.com$/);
+        expect(e['senderIp']).toMatch(/^192\.0\.2\.\d+$/);
+        expect(e['staffEmail']).toBeUndefined();
+      } else {
+        expect(e['staffEmail']).toBe('moderator.test@example.com');
+        expect(e['senderEmail']).toBeUndefined();
+      }
+    }
     expect((await log('seed_v09')).map((e) => e.action)).toEqual(['sent']);
     // Sent, then taken down by its author to edit (ED-4).
     expect(

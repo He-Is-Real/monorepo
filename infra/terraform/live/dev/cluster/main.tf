@@ -126,7 +126,10 @@ module "cluster" {
   # 2026-11-14); wiped again, no migration.
   # picture-at-submit: a video's picture is set at Bunny when the story is sent, and the picture
   # lock field is gone (Joel 2026-11-17, P1-13 A); wiped again, no migration.
-  dev_database_reset = "picture-at-submit"
+  # sender-staff-emails: version 0 of the privacy notice edited in place for the email each story
+  # is sent with, and the status log keeps the sender's and staff members' emails (EM-1 B, EM-2,
+  # Joel 2026-11-17); data/0009 changed, so wiped again, no migration.
+  dev_database_reset = "sender-staff-emails"
   # D42: the automatic cluster plan's identity (modules/bootstrap), dry-run RBAC in `database`.
   cluster_planner_email = "tf-cluster-planner@heisreal-dev.iam.gserviceaccount.com"
 

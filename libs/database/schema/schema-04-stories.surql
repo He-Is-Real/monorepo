@@ -875,7 +875,8 @@ DEFINE EVENT OVERWRITE storySearch_theme_renamed ON theme
 -- Everyone (R11; db review 2, section 6 items 3 and 4) may read an entry's story, status and
 -- publishedAt only while it is its story's current, approved entry; older entries, comments,
 -- names and reasons never. The owner reads their own story's entries, never who wrote them; only
--- api-admin reads `by`; `senderIp` only api-admin and the owner (their export).
+-- api-admin reads `by` and `staffEmail`; `senderIp` and `senderEmail` only api-admin and the
+-- owner (their export).
 -- One exception to "never changed": the nightly housekeeping clears `senderIp` (the IP address a
 -- story was sent from, block list) 30 days after the entry, and may read and change nothing
 -- else: of the pending entries it sees only those still holding an address that old, and
@@ -1007,6 +1008,29 @@ DEFINE FIELD OVERWRITE senderIp     ON storyStatusLog TYPE option<string>
   ASSERT $value = NONE OR (string::len($value) <= 45 AND string::is_ip($value)
     AND $value = string::lowercase($value))
   PERMISSIONS FOR select WHERE $auth = service:api_admin OR story.submitter = $auth;
+-- On a person's "sent" entry: the email the story was sent with (EM-1 B, Joel 2026-11-17), the
+-- sign-in's verified email, the one api-user's block check uses, so an Admin can block it from the
+-- moderation page. Kept only on the person's own "sent" entries (anything else is dropped),
+-- lower-case. Unlike senderIp it isn't cleared after 30 days ("we have the right to retain the
+-- email in our policy to prevent abuse"): it stays as long as the entry, so it goes when the
+-- story is deleted or the account erased. Read by api-admin (Admins only: api-admin shows it to an
+-- Admin, never a Moderator) and by the person who sent it, in their own "Download my data".
+DEFINE FIELD OVERWRITE senderEmail  ON storyStatusLog TYPE option<string> READONLY
+  VALUE IF $auth = NONE OR (record::tb($auth) = 'user' AND $this.action = 'sent'
+    AND $this.actor = 'person') { $value }
+  ASSERT $value = NONE OR (string::len($value) <= 254 AND string::is_email($value)
+    AND $value = string::lowercase($value))
+  PERMISSIONS FOR select WHERE $auth = service:api_admin OR story.submitter = $auth;
+-- On a moderator's entry (every one api-admin writes: approve, send back, reject, hide, show
+-- again): the email of the Moderator or Admin who took the action (EM-1, Joel 2026-11-17: "for
+-- showing which admins took what action"), from their verified sign-in; required on every entry
+-- api-admin writes (storyStatusLog_step). Kept only on moderator entries. api-admin's alone to
+-- read, like `by`: the person who sent the story never sees it.
+DEFINE FIELD OVERWRITE staffEmail   ON storyStatusLog TYPE option<string> READONLY
+  VALUE IF ($auth = NONE OR $auth = service:api_admin) AND $this.actor = 'moderator' { $value }
+  ASSERT $value = NONE OR (string::len($value) <= 254 AND string::is_email($value)
+    AND $value = string::lowercase($value))
+  PERMISSIONS FOR select WHERE $auth = service:api_admin;
 -- On the system's fileUnusable entries, and only on them (Part 1a, P1-2, Joel, 2026-11-14; G17 B):
 -- which file couldn't be used, `recording` (the story's video or audio file) or `picture` (an
 -- audio story's picture video made with its picture: "We couldn't use your picture"). Written only
@@ -1055,6 +1079,9 @@ DEFINE EVENT OVERWRITE storyStatusLog_step ON storyStatusLog
     };
     IF $after.actor = 'moderator' AND $after.by = NONE {
       THROW 'status_step: a moderator’s entry names the moderator (by)';
+    };
+    IF $after.actor = 'moderator' AND $auth != NONE AND $after.staffEmail = NONE {
+      THROW 'status_step: a moderator’s entry names the moderator’s email (staffEmail)';
     };
     IF ($after.hiddenReason != NONE) != ($action = 'hiddenBySystem') {
       THROW 'status_step: the system’s hidden entry, and only it, has a reason';

@@ -162,7 +162,7 @@ describe('approval waits for media processing (A2, R12)', () => {
       await outcome(
         admin,
         `CREATE storyStatusLog CONTENT { story: type::record('story', $id), action: 'approved',
-           by: user:moderator }`,
+           by: user:moderator, staffEmail: 'moderator@heisreal.today' }`,
         { id },
       ),
     ).toEqual({
@@ -446,7 +446,7 @@ describe('approval waits for media processing (A2, R12)', () => {
         await outcome(
           migrator,
           `CREATE storyStatusLog CONTENT { story: type::record('story', $id), action: 'approved',
-             actor: 'moderator', by: user:moderator }`,
+             actor: 'moderator', by: user:moderator, staffEmail: 'moderator@heisreal.today' }`,
           { id },
         ),
       ).toEqual({

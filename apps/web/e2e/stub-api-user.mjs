@@ -90,7 +90,10 @@
 // - api-admin's block list (G21 D): `GET /v1/admin/block-list`, `PUT`/`DELETE
 //   /v1/admin/block-list/{emails|ips}/{value}`, Admins only, kept per session from one blocked
 //   email; values checked and stored like the real one. An Admin's moderation view of
-//   `mod_video` carries a sender IP address (`senderIp`); everyone else's is null.
+//   `mod_video` carries a sender IP address and email (`senderIp`, `senderEmail`), and of
+//   `mod_written` only an email, already blocked (EM-1 B, EM-2); each says whether the session's
+//   block list holds it. Everyone else's are null. A moderator's status entries name the staff
+//   member (`staffEmail`): the session's own on its decisions.
 //
 // It accepts only the fixtures' token (account-control.tsx): `e2e.<payload>.fixture`, whose payload
 // is the fixture person (`sub`) and an optional session a test picks (localStorage
@@ -638,6 +641,17 @@ function changeBlocks(req, res, session, kind, raw) {
 }
 
 // --- api-admin: moderation, the read side (M3 plan PR 1) ---------------------------------------
+/** What an Admin sees each story was sent with (EM-1 B): `mod_written`'s address is past 30 days. */
+const SENDER_IP = { mod_video: '203.0.113.7' };
+const SENDER_EMAIL = {
+  mod_video: 'robin.test@example.com',
+  mod_written: 'spammer@example.com',
+};
+/** The staff member a session's decision names (EM-1). */
+const staffEmailOf = (token) =>
+  roleOf(token) === 'Admin'
+    ? 'e2e-admin@heisreal.today'
+    : 'e2e-moderator@heisreal.today';
 /** A session's role: `moderator…` Moderators, `admin…` Admins, everyone else a User. */
 const roleOf = (token) =>
   token.startsWith('admin')
@@ -1062,6 +1076,7 @@ async function decideStory(req, res, token, id, route) {
     status: d.to,
     actor: 'moderator',
     comment,
+    staffEmail: staffEmailOf(token),
     at: new Date().toISOString(),
   });
   return sendJson(
@@ -1596,6 +1611,7 @@ function myDataOf(s, token, mine) {
                 publishedAt: null,
                 hiddenReason: null,
                 senderIp: null,
+                senderEmail: null,
               },
             ]
           : [],
@@ -2701,13 +2717,29 @@ createServer(async (req, res) => {
       return problem(res, 403, 'Forbidden', 'role_required');
     const story = moderated(token, decodeURIComponent(reviewed[1]));
     if (!story) return problem(res, 404, 'Not found', 'not_found');
-    // Block list (G21 D): an Admin sees the address the first story was sent from.
+    // Block list (G21 D; EM-1 B, EM-2): an Admin sees what the story was sent with, and whether
+    // the session's block list has it.
+    const admin = roleOf(token) === 'Admin';
+    const senderIp = admin ? (SENDER_IP[story.id] ?? null) : null;
+    const senderEmail = admin ? (SENDER_EMAIL[story.id] ?? null) : null;
+    const blocks = admin ? blocksFor(token) : { emails: [], ips: [] };
     return cached(req, res, {
       ...story,
-      senderIp:
-        roleOf(token) === 'Admin' && story.id === 'mod_video'
-          ? '203.0.113.7'
-          : null,
+      senderIp,
+      senderIpBlocked: senderIp
+        ? blocks.ips.some((b) => b.ip === senderIp)
+        : null,
+      senderEmail,
+      senderEmailBlocked: senderEmail
+        ? blocks.emails.some((b) => b.email === senderEmail)
+        : null,
+      statusLog: story.statusLog.map((e) => ({
+        ...e,
+        staffEmail:
+          e.actor === 'moderator'
+            ? (e.staffEmail ?? 'e2e-moderator@heisreal.today')
+            : null,
+      })),
     });
   }
   const decision =

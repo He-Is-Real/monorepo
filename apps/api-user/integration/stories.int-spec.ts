@@ -666,6 +666,14 @@ describe('the submit flow for written stories', () => {
     expect(fine.res.status).toBe(200);
     expect(await storiesOf('blkok')).toEqual(['pending']);
     expect(await sentIp(fine.id)).toEqual(['203.0.113.2']);
+    // And the email it was sent with: the sign-in's verified one (EM-1 B).
+    expect(
+      await rows(
+        admin,
+        `SELECT VALUE senderEmail FROM storyStatusLog WHERE story = type::record('story', $id) AND action = 'sent'`,
+        { id: fine.id },
+      ),
+    ).toEqual(['fine@example.com']);
   });
 
   it('a send that went through replays its success with the same Idempotency-Key, even after the sender was blocked', async () => {

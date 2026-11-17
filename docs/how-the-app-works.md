@@ -129,6 +129,19 @@ code does what it does today; nobody should build on either reading.
     Google's front end saw: api-user runs on Cloud Run with no load balancer, so it takes the last
     entry of `X-Forwarded-For` (the one Google appends; anything before it was sent by the client
     and can say anything). Addresses are compared exactly, in one form (IPv6 short and lower-case).
+  - **The email a story was sent with (EM-1 B, Joel 2026-11-17):** api-user also keeps, on the
+    same "sent" entry, the email the story was sent with: the sign-in token's verified email, the
+    one the block check uses (never anything the browser sends). It isn't cleared after 30 days
+    ("we have the right to retain the email in our policy to prevent abuse"): it stays as long as
+    the story, so it goes when the story is deleted or the account erased. Admins see it on the
+    moderation view next to the address; Moderators never do. The person who sent it gets it in
+    their own "Download my data" file.
+  - **Blocking from the moderation view (EM-2, Joel 2026-11-17):** next to "Sent with email …" and
+    "Sent from IP address …" an Admin has a **Block** button. It doesn't leave the page: it asks
+    "Block …? It stays until an Admin removes it." (Block / Cancel), adds it to the block list,
+    and the line then says "Blocked" (as it does whenever the page opens on one already blocked).
+    Once the address is cleared after 30 days only the email shows. Errors show the generic
+    message. The Block list page stays for the overview, blocking by hand and unblocking.
 - The parts of a page that are about the signed-in person (hearts, their stories, their profile)
   are filled in by the browser, with space kept so nothing jumps. Pages for signed-in people
   need JavaScript. (D83)
@@ -202,7 +215,10 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   and IP addresses of someone who breaks them, permanently; the testimony consent says we may use
   automated tools, including AI, for transcripts, captions and summaries; the privacy notice lists
   where a story was sent from (30 days) and the block list under what we collect, how long we keep
-  them and our legitimate interest, and AI tools under where it's stored.
+  them and our legitimate interest, and AI tools under where it's stored. Edited again (EM-1 B,
+  Joel 2026-11-17): the email each story is sent with, under what we collect, our legitimate
+  interest and how long we keep it (as long as the story). The notice is written to the people who
+  use the site and doesn't cover staff, so staff members' emails on their actions aren't in it.
 - **Cookies:** the site uses only essential cookies and storage (sign-in, the light or dark
   choice, the video player's own settings), so there is no cookie banner, only a footer note
   linking to the privacy notice. Anything non-essential later (analytics, error replay) needs the
@@ -442,7 +458,8 @@ recording | picture` (worked out from the status history: set while the story's 
   words: their stories in every status, each story's whole status history (their own sends and
   edits, moderators' decisions with their comments, signed "moderator" and never who made
   them, and the site's own hides and shows while a video can't play; R6, Joel 2026-11-05; on
-  their own sends, the IP address they sent from while it is still kept, 30 days, BL-4), what
+  their own sends, the IP address they sent from while it is still kept, 30 days, BL-4, and the
+  email they sent it with, EM-1 B; never a staff member's email), what
   they agreed to and when, their hearts, their limits and their sign-in details from Clerk. Videos,
   audio and pictures come as links that last 7 days (B, Joel 2026-11-06), in dev and in
   production: a named exception to the one-hour rule for the links to files that aren't public
@@ -671,6 +688,11 @@ Built in the database (the decisions and their pages are planned, M3):
   counts towards the 7-day upload limits. (R12)
 - Moderators and admins can never change the words of someone's testimony. (D41)
 - A person can read moderators' decisions and feedback on their own stories, never who made them.
+- **Staff emails in the history (EM-1, Joel 2026-11-17):** every status entry a Moderator or Admin
+  makes (approve, send back, reject, take down, show again, approve anyway) records their email,
+  from their verified sign-in, "for showing which admins took what action". The review page's
+  history shows it to Moderators and Admins ("Approved by …"). It is never shown to the person who
+  sent the story (their pages and "Download my data" keep "a moderator") and can't be blocked.
 - The status log is the moderation history; there is no separate audit log (Joel, 2026-11-05).
 
 Built (M3 plan, pull requests 1 and 6; Joel, 2026-11-09 and 2026-11-11):
@@ -699,8 +721,8 @@ Built (M3 plan, pull requests 1 and 6; Joel, 2026-11-09 and 2026-11-11):
   player's playback-speed menu on; then what the moderator can do with it; then its history as a
   timeline, oldest first (M3-7): each step (sent, sent again, sent back with the note, taken down
   to edit, approved, rejected, taken down with the reason, shown again, a new file or picture,
-  words changed, a file that can't be used), whether the person, a moderator or the system made
-  it, when, and any note a moderator left. Any story on the list opens (a draft never sent for
+  words changed, a file that can't be used), whether the person, a moderator (by their email,
+  EM-1) or the system made it, when, and any note a moderator left. Any story on the list opens (a draft never sent for
   Admins only), and a published one; only a waiting, published or hidden story has a decision to
   make, so one being edited or rejected is read only.
 - **Decisions (M3 basics, Joel 2026-11-11):** on a waiting story, Approve, Send back or Reject.
@@ -834,7 +856,9 @@ Planned (M3):
 - **Media jobs** (ids and times only) are deleted by the nightly clean-up 30 days after they
   ended, and with their file before that. (J2, Joel 2026-11-07)
 - **The IP address a story was sent from** is cleared by the nightly clean-up 30 days after it was
-  sent (the status entry itself stays), and goes with the story. **The block list** is kept until
+  sent (the status entry itself stays), and goes with the story. **The email a story was sent
+  with** is kept as long as the story and goes with it, or with the account (EM-1 B, Joel
+  2026-11-17). **The block list** is kept until
   an Admin removes an entry, even after the person deletes their account. (G21 D, Joel 2026-11-11)
 - Backups are nightly, in the UK, and age out; they aren't edited after a deletion.
 - Our services' logs are stored in London for 30 days. (D101)

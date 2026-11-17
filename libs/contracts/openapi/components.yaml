@@ -937,6 +937,9 @@ components:
           themes,
           submittedAt,
           senderIp,
+          senderIpBlocked,
+          senderEmail,
+          senderEmailBlocked,
           reviewTag,
           statusLog,
         ]
@@ -997,9 +1000,27 @@ components:
             Block list (G21 D, G24): the IP address it was last sent from, for an Admin to copy into the
             block list. Admins only: always `null` for a Moderator, and once it is 30 days old (the
             nightly housekeeping then clears it).
+        senderIpBlocked:
+          type: [boolean, 'null']
+          description: |
+            EM-2 (Joel 2026-11-17): whether `senderIp` is on the block list, so the moderation page
+            shows "Blocked" instead of its Block button. `null` whenever `senderIp` is.
+        senderEmail:
+          type: [string, 'null']
+          description: |
+            EM-1 B (Joel 2026-11-17): the email the story was last sent with (the sign-in's verified
+            email), for an Admin to block from the moderation page. Kept as long as the story, never
+            cleared after 30 days. Admins only: always `null` for a Moderator, and for a story never
+            sent or sent without a verified email.
+        senderEmailBlocked:
+          type: [boolean, 'null']
+          description: |
+            EM-2: whether `senderEmail` is on the block list. `null` whenever `senderEmail` is.
         statusLog:
           type: array
-          description: Oldest first (R6). Who added each entry by kind only, never by id.
+          description: |
+            Oldest first (R6). Who added each entry by kind, and on a moderator's entry the staff
+            member's email (EM-1, `staffEmail`); never a user id.
           items:
             $ref: '#/components/schemas/ModerationStatusEntry'
 
@@ -1007,9 +1028,10 @@ components:
       type: object
       description: |
         R6: one entry of a story's status log, as moderators read it: what happened (`action`), the
-        state it left the story in, who added it by kind (the person, a moderator, the system), the
-        moderator's note to the person, and when.
-      required: [action, status, actor, comment, at]
+        state it left the story in, who added it by kind (the person, a moderator, the system), which
+        staff member (their email) on a moderator's entry, the moderator's note to the person, and
+        when.
+      required: [action, status, actor, comment, staffEmail, at]
       properties:
         action:
           $ref: '#/components/schemas/StoryStatusAction'
@@ -1021,6 +1043,12 @@ components:
         comment:
           type: [string, 'null']
           description: A moderator's note to the person.
+        staffEmail:
+          type: [string, 'null']
+          description: |
+            EM-1 (Joel 2026-11-17): on a moderator's entry, the email of the Moderator or Admin who
+            took the action, from their verified sign-in, for staff to see who did what. `null` on
+            every other entry. Never shown to the person who sent the story.
         at:
           type: string
           format: date-time
@@ -2306,6 +2334,7 @@ components:
                       publishedAt,
                       hiddenReason,
                       senderIp,
+                      senderEmail,
                     ]
                   properties:
                     action:
@@ -2339,6 +2368,12 @@ components:
                         Block list (BL-4, Joel 2026-11-14): on the person's own `sent` entries, the IP address
                         they sent the story from, while it is still kept (30 days; then `null`, and the
                         nightly housekeeping clears it). `null` on every other entry.
+                    senderEmail:
+                      type: [string, 'null']
+                      description: |
+                        EM-1 B (Joel 2026-11-17): on the person's own `sent` entries, the email address
+                        they sent the story with, kept as long as the story. `null` on every other
+                        entry. Staff members' emails are never included.
               createdAt:
                 type: string
                 format: date-time

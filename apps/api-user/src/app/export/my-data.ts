@@ -47,7 +47,7 @@ RETURN {
   -- who) and the system's.
   history: IF array::len($mine) > 0 {
     (SELECT record::id(story) AS story, action, status, actor, comment, storyVersion, at, publishedAt,
-        hiddenReason, IF at > fn::story::sender_ips_expire_before() { senderIp } AS senderIp, id
+        hiddenReason, IF at > fn::story::sender_ips_expire_before() { senderIp } AS senderIp, senderEmail, id
        FROM storyStatusLog WHERE story IN $mine ORDER BY at ASC, id ASC)
   } ELSE { [] },
   hearts: $hearts.map(|$h| { story: $h.story, createdAt: $h.createdAt }),
@@ -124,6 +124,7 @@ interface Held {
     publishedAt?: Opt<string>;
     hiddenReason?: Opt<string>;
     senderIp?: Opt<string>;
+    senderEmail?: Opt<string>;
   }[];
   hearts: { story: string; createdAt: string }[];
   heartedPublic: { id: string; slug: string }[];
@@ -177,7 +178,7 @@ const SECTIONS = {
   signIn:
     'What Clerk, the company that runs our sign-in, holds about you: your names, email addresses, phone numbers, any accounts you sign in with (such as Google), your picture if you gave one, and when you made the account and last signed in. We read it from Clerk when you asked for this file; we don’t keep a copy. You can change it under Manage account.',
   stories:
-    'Every story you have started or shared, whatever its status, newest first: its words, themes and name on the story, and whether it is on the site now. "statusHistory" is everything that happened to it, oldest first: what happened ("action": sent for review, taken down to edit, sent back for changes, approved, not accepted, hidden or shown again, or a new file or picture added while editing), who did it ("person" is you, "moderator" one of our moderators, but never which one, and "system" the site itself, which hides a story while its video or audio can’t play and shows it again once it can), the status it was left in (editing, pending, approved, hidden or rejected), any feedback a moderator gave you, which edit of the story it was about ("storyVersion"), and when. When you sent it, "senderIp" is the internet (IP) address you sent it from: we keep it for 30 days, so we can block the address of someone who breaks our terms, then delete it, so older entries have none. A video or audio story has its id at Bunny, the company that stores and plays our videos, a link to watch or listen to it, and a link to download it as an MP4 file ("mp4Url": the largest size Bunny made, up to 1080p; empty for a file Bunny made no MP4 of, which is any file it finished before we turned MP4 copies on in November 2026, or one it hasn’t finished yet); a story’s picture has a link to the picture. These links work for 7 days, until the time in "linksExpireAt"; ask for a new file to get new ones. "deletesAt" is when we will delete the story: a draft, or a story you were changing after sending it, once nobody has touched it for a while, or a story we didn’t accept, a while after we decided. "socialMediaSharingConsent" is the version of our social media sharing consent you ticked for that story at the end of its upload, and when (null if you didn’t tick it). We only ever share a story while it is on the site.',
+    'Every story you have started or shared, whatever its status, newest first: its words, themes and name on the story, and whether it is on the site now. "statusHistory" is everything that happened to it, oldest first: what happened ("action": sent for review, taken down to edit, sent back for changes, approved, not accepted, hidden or shown again, or a new file or picture added while editing), who did it ("person" is you, "moderator" one of our moderators, but never which one, and "system" the site itself, which hides a story while its video or audio can’t play and shows it again once it can), the status it was left in (editing, pending, approved, hidden or rejected), any feedback a moderator gave you, which edit of the story it was about ("storyVersion"), and when. When you sent it, "senderIp" is the internet (IP) address you sent it from: we keep it for 30 days, so we can block the address of someone who breaks our terms, then delete it, so older entries have none. "senderEmail" is the email address you sent it with: we keep it as long as the story, so we can stop abuse. A video or audio story has its id at Bunny, the company that stores and plays our videos, a link to watch or listen to it, and a link to download it as an MP4 file ("mp4Url": the largest size Bunny made, up to 1080p; empty for a file Bunny made no MP4 of, which is any file it finished before we turned MP4 copies on in November 2026, or one it hasn’t finished yet); a story’s picture has a link to the picture. These links work for 7 days, until the time in "linksExpireAt"; ask for a new file to get new ones. "deletesAt" is when we will delete the story: a draft, or a story you were changing after sending it, once nobody has touched it for a while, or a story we didn’t accept, a while after we decided. "socialMediaSharingConsent" is the version of our social media sharing consent you ticked for that story at the end of its upload, and when (null if you didn’t tick it). We only ever share a story while it is on the site.',
   agreements:
     'The versions of our terms of use and our testimony consent you agreed to, and when (null if you haven’t). The words of every version are on our site. Deleting your account withdraws them, and we keep no record of them afterwards.',
   favourites:
@@ -242,6 +243,7 @@ export function toExport(
         publishedAt: iso(e.publishedAt),
         hiddenReason: or(e.hiddenReason),
         senderIp: or(e.senderIp),
+        senderEmail: or(e.senderEmail),
       }));
   const publicPath = new Map(
     held.heartedPublic.map((p) => [p.id, `/stories/${p.slug}`]),

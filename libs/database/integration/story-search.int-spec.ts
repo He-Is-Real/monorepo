@@ -285,7 +285,7 @@ describe('theme renames and deletes racing a story’s publication', () => {
   };
   const APPROVE = (id: string) =>
     `CREATE type::record('storyStatusLog', rand::ulid()) CONTENT {
-       story: story:${id}, action: 'approved', by: user:moderator }`;
+       story: story:${id}, action: 'approved', by: user:moderator, staffEmail: 'moderator@heisreal.today' }`;
   const words = async (id: string) =>
     (
       await rows<string>(

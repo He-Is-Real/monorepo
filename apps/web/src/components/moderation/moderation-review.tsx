@@ -1,7 +1,14 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from 'react';
 import {
   AdminAccess,
   useRole,
@@ -277,7 +284,11 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
       >
         {statusLabel(story)}
       </p>
-      <SenderIp ip={story.senderIp} />
+      <Sender
+        key={`${story.id} ${story.senderEmailBlocked} ${story.senderIpBlocked}`}
+        story={story}
+        client={client}
+      />
       <MediaNote story={story} />
       <StoryArticle
         story={story}
@@ -312,25 +323,137 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
 }
 
 /**
- * Block list (G21 D, G24): the IP address the story was sent from, which api-admin gives Admins
- * only, for 30 days, with a link to block it.
+ * Block list (G21 D, G24; EM-1 B, EM-2: Joel 2026-11-17): the email and the IP address the story
+ * was sent with, which api-admin gives Admins only (the address for 30 days, the email as long as
+ * the story), each with a Block button that blocks it here, without leaving the page. The Block
+ * list page stays for the overview, manual blocking and unblocking.
  */
-function SenderIp({ ip }: { ip: string | null }) {
-  if (!ip) return null;
+function Sender({
+  story,
+  client,
+}: {
+  story: ModerationStory;
+  client: ApiUser;
+}) {
+  if (!story.senderEmail && !story.senderIp) return null;
   return (
-    <p
-      className="mx-auto mb-6 max-w-measure rounded-2xl border border-border bg-card p-4 [overflow-wrap:anywhere]"
-      data-sender-ip={ip}
+    <div
+      className="mx-auto mb-6 max-w-measure space-y-3 rounded-2xl border border-border bg-card p-4 [overflow-wrap:anywhere]"
+      data-sender=""
     >
-      Sent from IP address <span className="font-mono">{ip}</span>. Only admins
-      see this, for 30 days.{' '}
-      <Link
-        href={`/admin/block-list?ip=${encodeURIComponent(ip)}`}
-        className="inline-flex min-h-11 items-center underline underline-offset-4"
-      >
-        Block this address
-      </Link>
-    </p>
+      {story.senderEmail && (
+        <SenderLine
+          kind="emails"
+          value={story.senderEmail}
+          blocked={story.senderEmailBlocked === true}
+          client={client}
+        >
+          Sent with email <span className="font-mono">{story.senderEmail}</span>
+          . Only admins see this.
+        </SenderLine>
+      )}
+      {story.senderIp && (
+        <SenderLine
+          kind="ips"
+          value={story.senderIp}
+          blocked={story.senderIpBlocked === true}
+          client={client}
+        >
+          Sent from IP address{' '}
+          <span className="font-mono">{story.senderIp}</span>. Only admins see
+          this, for 30 days.
+        </SenderLine>
+      )}
+    </div>
+  );
+}
+
+/** One of the sender's details with its inline Block: Block, then a short confirm, then "Blocked". */
+function SenderLine({
+  kind,
+  value,
+  blocked: blockedAtLoad,
+  client,
+  children,
+}: {
+  kind: 'emails' | 'ips';
+  value: string;
+  blocked: boolean;
+  client: ApiUser;
+  children: ReactNode;
+}) {
+  const [step, setStep] = useState<'idle' | 'confirm' | 'busy' | 'done'>(
+    blockedAtLoad ? 'done' : 'idle',
+  );
+  const [error, setError] = useState<string | null>(null);
+  const confirmRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (step === 'confirm') confirmRef.current?.focus();
+  }, [step]);
+  const block = async () => {
+    setStep('busy');
+    setError(null);
+    try {
+      await client.command(
+        `/v1/admin/block-list/${kind}/${encodeURIComponent(value)}`,
+        { method: 'PUT' },
+      );
+      setStep('done');
+    } catch (err) {
+      setError(moderationProblem(err));
+      setStep('confirm');
+    }
+  };
+  const attr = kind === 'emails' ? 'data-sender-email' : 'data-sender-ip';
+  return (
+    <div {...{ [attr]: value }}>
+      <p>{children}</p>
+      {step === 'done' ? (
+        <p className="mt-1 font-semibold" data-sender-blocked="">
+          Blocked
+        </p>
+      ) : step === 'idle' ? (
+        <Button
+          variant="outline"
+          className={`mt-2 ${WRAPPING_BUTTON}`}
+          onClick={() => setStep('confirm')}
+        >
+          Block
+        </Button>
+      ) : (
+        <div className="mt-2" role="group" aria-label={`Block ${value}`}>
+          <p ref={confirmRef} tabIndex={-1} className="mb-2 outline-none">
+            Block <span className="font-mono">{value}</span>? It stays until an
+            Admin removes it.
+          </p>
+          {error && (
+            <p role="alert" className="mb-2 text-destructive">
+              {error}
+            </p>
+          )}
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button
+              className={`${WRAPPING_BUTTON} ${RED_BUTTON}`}
+              disabled={step === 'busy'}
+              onClick={() => void block()}
+            >
+              Block
+            </Button>
+            <Button
+              variant="outline"
+              className={WRAPPING_BUTTON}
+              disabled={step === 'busy'}
+              onClick={() => {
+                setError(null);
+                setStep('idle');
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -720,7 +843,21 @@ function History({
                     ? 'Sent back automatically: the recording couldn’t be processed'
                     : (STEP_LABEL[e.action] ?? e.action)}
               </span>
-              {e.action !== 'fileUnusable' && <> {ACTOR_LABEL[e.actor]}</>}
+              {e.action !== 'fileUnusable' &&
+                (e.actor === 'moderator' && e.staffEmail ? (
+                  <>
+                    {' '}
+                    by{' '}
+                    <span
+                      className="[overflow-wrap:anywhere]"
+                      data-staff-email={e.staffEmail}
+                    >
+                      {e.staffEmail}
+                    </span>
+                  </>
+                ) : (
+                  <> {ACTOR_LABEL[e.actor]}</>
+                ))}
             </p>
             <p className="text-sm text-secondary-text">
               <time dateTime={e.at}>{sentAt(e.at)}</time>

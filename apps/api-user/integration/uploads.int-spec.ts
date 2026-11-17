@@ -1147,7 +1147,7 @@ describe('video and audio uploads', () => {
       // Back for changes and sent again: checked again, still fine.
       await run(
         admin,
-        `CREATE storyStatusLog CONTENT { story: type::record('story', $id), action: 'changesRequested', by: user:upadmin, comment: 'A little more' };`,
+        `CREATE storyStatusLog CONTENT { story: type::record('story', $id), action: 'changesRequested', by: user:upadmin, staffEmail: 'upadmin@heisreal.today', comment: 'A little more' };`,
         { id },
       );
       const back = await call('GET', `/v1/account/stories/${id}`, who);

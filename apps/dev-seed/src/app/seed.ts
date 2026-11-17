@@ -134,6 +134,11 @@ FOR $s IN $stories {
     CREATE storyStatusLog CONTENT {
       story: $story, action: $step.action, actor: $step.actor, at: $step.at,
       by: IF $step.actor = 'moderator' { type::record('user', $moderator) },
+      -- EM-1: the moderator's made-up email; the person's "sent" entries what they were sent with
+      -- (block list: made up, example.com and 192.0.2.0/24 only).
+      staffEmail: IF $step.actor = 'moderator' { $staffEmail },
+      senderEmail: IF $step.action = 'sent' AND $step.actor = 'person' { $s.sender.email },
+      senderIp: IF $step.action = 'sent' AND $step.actor = 'person' { $s.sender.ip },
       comment: $step.comment,
       publishedAt: IF $step.action = 'approved' { $s.publishedAt }
     } RETURN NONE;

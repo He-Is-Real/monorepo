@@ -112,7 +112,7 @@ const LINKED: Record<string, LinkedCase> = {
     write: (c, db) =>
       run(
         db(c),
-        `CREATE storyStatusLog CONTENT { story: story:${c.p}_s, action: 'hiddenByModerator', comment: 'Checking', by: user:moderator }`,
+        `CREATE storyStatusLog CONTENT { story: story:${c.p}_s, action: 'hiddenByModerator', comment: 'Checking', by: user:moderator, staffEmail: 'moderator@heisreal.today' }`,
       ),
     landed: (c) =>
       `SELECT VALUE id FROM storyStatusLog WHERE story = story:${c.p}_s AND status = 'hidden'`,
@@ -195,7 +195,7 @@ const LINKED: Record<string, LinkedCase> = {
     write: (c, db) =>
       run(
         db(c),
-        `CREATE storyStatusLog CONTENT { story: story:${c.p}_sr, action: 'approved', by: user:moderator }`,
+        `CREATE storyStatusLog CONTENT { story: story:${c.p}_sr, action: 'approved', by: user:moderator, staffEmail: 'moderator@heisreal.today' }`,
       ),
     landed: (c) => `SELECT VALUE id FROM storySearch:${c.p}_sr`,
   },
@@ -368,7 +368,7 @@ describe('person-linked tables (round 3 sweep)', () => {
       await outcome(
         admin,
         `CREATE storyStatusLog CONTENT { story: story:never_existed, action: 'rejected', comment: 'A note',
-           by: user:moderator }`,
+           by: user:moderator, staffEmail: 'moderator@heisreal.today' }`,
       ),
     ).toEqual({
       ok: false,

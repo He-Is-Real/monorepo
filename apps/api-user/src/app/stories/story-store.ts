@@ -497,7 +497,8 @@ export class StoryStore {
    * Idempotency-Key, so the two commit together or neither does, and a replay records nothing
    * again. It must still be the latest (409 `agreement_version_changed`, nothing submitted).
    * Without it the story's choice is left as it is: it can't be taken back. `senderIp`: the IP
-   * address it was sent from, kept on the sent entry (block list, G21 D); not part of the
+   * address it was sent from, kept on the sent entry (block list, G21 D); `senderEmail`: the
+   * sign-in's verified email it was sent with, kept there too (EM-1 B); neither is part of the
    * request's hash, so a retry from another address replays. Answers the story's version after
    * both writes.
    */
@@ -513,6 +514,7 @@ export class StoryStore {
     checkMedia?: () => Promise<void>,
     shareVersion?: number,
     senderIp?: string,
+    senderEmail?: string,
   ): Promise<CommandResult> {
     try {
       const { response } = await runIdempotent(
@@ -586,7 +588,7 @@ export class StoryStore {
               }
               LET $e = (CREATE ONLY storyStatusLog CONTENT {
                 story: type::record('story', $id), action: 'sent',
-                senderIp: $senderIp } RETURN id);
+                senderIp: $senderIp, senderEmail: $senderEmail } RETURN id);
               IF $e = NONE { THROW 'story_cmd:not_written' };
               LET $u = (SELECT id, version FROM ONLY type::record('story', $id));
               LET $result = { id: $u.id, version: $u.version };`,
@@ -595,6 +597,7 @@ export class StoryStore {
               version: ifMatch,
               ...(shareVersion === undefined ? {} : { shareVersion }),
               ...(senderIp === undefined ? {} : { senderIp }),
+              ...(senderEmail === undefined ? {} : { senderEmail }),
             },
           };
         },

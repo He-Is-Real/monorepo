@@ -372,8 +372,25 @@ describe('moderation, the decisions (api-admin)', () => {
     ).toEqual([]);
     const hidden = await open(id);
     expect(hidden.story.status).toBe('hidden');
-    expect((await decide(id, 'show', hidden.tag)).status).toBe(200);
+    expect((await decide(id, 'show', hidden.tag, {}, ADMIN)).status).toBe(200);
     expect(await statusOf(migrator, id)).toBe('approved');
+    // EM-1 (Joel 2026-11-17): the history names the staff member who took each action, by
+    // email, to Moderators and Admins alike; the person's own entries name nobody.
+    for (const who of [MOD, ADMIN]) {
+      expect(
+        (await open(id, who)).story.statusLog.map(
+          (e: { action: string; staffEmail: string | null }) => [
+            e.action,
+            e.staffEmail,
+          ],
+        ),
+      ).toEqual([
+        ['sent', null],
+        ['approved', 'mod@heisreal.today'],
+        ['hiddenByModerator', 'mod@heisreal.today'],
+        ['shownByModerator', 'boss@heisreal.today'],
+      ]);
+    }
   });
 
   it('approve anyway is for Admins, skips only the processing, never the upload-link hour (G11 B, G24)', async () => {

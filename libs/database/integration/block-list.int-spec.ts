@@ -1,6 +1,14 @@
 import type { Surreal } from 'surrealdb';
-import { outcome, rows, run, TestDatabase } from './support/harness';
-import { buildWorld, draft, ERASE, submit } from './support/world';
+import {
+  agreeAll,
+  createPeople,
+  outcome,
+  rows,
+  run,
+  TestDatabase,
+  trustSubmitters,
+} from './support/harness';
+import { buildWorld, draft, ERASE, step, submit } from './support/world';
 
 /**
  * The block list (G21 D, Joel 2026-11-11; m3-plan-and-m2-extras.html, "Block list"): blocked
@@ -8,7 +16,9 @@ import { buildWorld, draft, ERASE, submit } from './support/world';
  * kept until an Admin removes them; and the IP address each story is sent from
  * (`storyStatusLog.senderIp`), readable by api-admin and the person who sent it, and cleared by the nightly housekeeping
  * after 30 days. api-user may ask about one email or address at a time ($blockCheck), never
- * list them.
+ * list them. Also the email each story is sent with (`storyStatusLog.senderEmail`, EM-1 B, Joel
+ * 2026-11-17), kept as long as the entry, and the email of the Moderator or Admin who made each of
+ * their entries (`storyStatusLog.staffEmail`), which only api-admin reads.
  */
 describe('block list', () => {
   let t: TestDatabase;
@@ -242,7 +252,7 @@ describe('block list', () => {
       // A moderator's entry can't carry one.
       await run(
         admin,
-        `CREATE storyStatusLog CONTENT { story: story:ann_ip2, action: 'changesRequested', comment: 'x', by: user:moderator, senderIp: '198.51.100.1' }`,
+        `CREATE storyStatusLog CONTENT { story: story:ann_ip2, action: 'changesRequested', comment: 'x', by: user:moderator, staffEmail: 'moderator@heisreal.today', senderIp: '198.51.100.1' }`,
       );
       expect(await ipsOf('ann_ip2')).toEqual([]);
     });
@@ -352,6 +362,181 @@ describe('block list', () => {
         ).toMatchObject({ ok: true });
         expect(await ipsOf('ann_old4')).toEqual([]);
       });
+    });
+  });
+  describe("the email a story is sent with (senderEmail) and the staff member's email (staffEmail)", () => {
+    const sentWith = (
+      db: Surreal,
+      id: string,
+      extra: Record<string, unknown>,
+    ) =>
+      outcome(
+        db,
+        `CREATE storyStatusLog CONTENT object::extend({ story: type::record('story', $id), action: 'sent' }, $extra)`,
+        { id, extra },
+      );
+    const fieldOf = (db: Surreal, field: string, id: string) =>
+      rows(
+        db,
+        `SELECT VALUE ${field} FROM storyStatusLog WHERE story = type::record('story', $id) AND ${field} != NONE`,
+        { id },
+      );
+
+    it("keeps the sender's email on the person's own sent entry; only api-admin and that person read it", async () => {
+      await draft(ann, 'ann_em');
+      for (const bad of ['Ann@Example.com', 'not-an-email']) {
+        expect(
+          await sentWith(ann, 'ann_em', { senderEmail: bad }),
+          bad,
+        ).toMatchObject({ ok: false });
+      }
+      expect(
+        await sentWith(ann, 'ann_em', { senderEmail: 'ann@example.com' }),
+      ).toMatchObject({ ok: true });
+      expect(await fieldOf(migrator, 'senderEmail', 'ann_em')).toEqual([
+        'ann@example.com',
+      ]);
+      expect(await fieldOf(admin, 'senderEmail', 'ann_em')).toEqual([
+        'ann@example.com',
+      ]);
+      expect(await fieldOf(ann, 'senderEmail', 'ann_em')).toEqual([
+        'ann@example.com',
+      ]);
+      for (const [name, db] of [
+        ['someone else', await t.person('user_bob')],
+        ['api_user', apiUser],
+        ['workflow', await t.service('workflow')],
+        ['housekeeping', await t.service('housekeeping')],
+      ] as const) {
+        const read = await rows<Record<string, unknown>>(
+          db,
+          `SELECT * FROM storyStatusLog WHERE story = story:ann_em`,
+        );
+        expect(
+          read.some((r) => r['senderEmail'] !== undefined),
+          name,
+        ).toBe(false);
+      }
+      // Nobody changes or clears it: it stays as long as the entry.
+      for (const db of [admin, ann, await t.service('housekeeping')]) {
+        await outcome(
+          db,
+          `UPDATE storyStatusLog SET senderEmail = NONE WHERE story = story:ann_em`,
+        );
+      }
+      expect(await fieldOf(migrator, 'senderEmail', 'ann_em')).toEqual([
+        'ann@example.com',
+      ]);
+    });
+
+    it("is dropped on any other entry: a person's Edit and a moderator's decision", async () => {
+      await draft(ann, 'ann_em2');
+      await submit(ann, 'ann_em2');
+      await step(admin, 'ann_em2', 'changesRequested', {
+        senderEmail: 'mod@example.com',
+      });
+      await draft(ann, 'ann_em3');
+      await submit(ann, 'ann_em3');
+      await step(ann, 'ann_em3', 'editStarted', {
+        senderEmail: 'ann@example.com',
+      });
+      expect(await fieldOf(migrator, 'senderEmail', 'ann_em2')).toEqual([]);
+      expect(await fieldOf(migrator, 'senderEmail', 'ann_em3')).toEqual([]);
+    });
+
+    it('is not cleared by the nightly housekeeping, which still clears the IP address', async () => {
+      await draft(ann, 'ann_em_old');
+      await run(
+        migrator,
+        `CREATE storyStatusLog CONTENT { story: story:ann_em_old, action: 'sent', actor: 'person',
+           at: time::now() - 31d, senderIp: '203.0.113.40', senderEmail: 'ann@example.com' }`,
+      );
+      const housekeeping = await t.service('housekeeping');
+      expect(
+        await outcome(
+          housekeeping,
+          `UPDATE storyStatusLog SET senderIp = NONE
+             WHERE at < fn::story::sender_ips_expire_before() RETURN NONE`,
+        ),
+      ).toMatchObject({ ok: true });
+      expect(await fieldOf(migrator, 'senderIp', 'ann_em_old')).toEqual([]);
+      expect(await fieldOf(migrator, 'senderEmail', 'ann_em_old')).toEqual([
+        'ann@example.com',
+      ]);
+    });
+
+    it('goes with the story when it is deleted, and with the account when it is erased', async () => {
+      await createPeople(t, { cara: 'user_cara' });
+      await trustSubmitters(t, 'cara');
+      const cara = await t.person('user_cara');
+      await agreeAll(cara);
+      for (const id of ['cara_a', 'cara_b']) {
+        await draft(cara, id);
+        await sentWith(cara, id, { senderEmail: 'cara@example.com' });
+      }
+      const caraEmails = () =>
+        rows(
+          migrator,
+          `SELECT VALUE senderEmail FROM storyStatusLog WHERE senderEmail = 'cara@example.com'`,
+        );
+      expect(await caraEmails()).toHaveLength(2);
+      await run(cara, `DELETE story:cara_a`);
+      expect(await caraEmails()).toHaveLength(1);
+      await run(apiUser, ERASE, {
+        clerkUserId: 'user_cara',
+        reason: 'account_deleted',
+      });
+      expect(await caraEmails()).toEqual([]);
+    });
+
+    it("names the staff member on every entry api-admin writes, and never shows it to the story's owner", async () => {
+      await draft(ann, 'ann_staff');
+      await submit(ann, 'ann_staff');
+      // api-admin's entry without the staff member's email is refused.
+      expect(
+        await outcome(
+          admin,
+          `CREATE storyStatusLog CONTENT { story: story:ann_staff, action: 'changesRequested',
+             comment: 'x', by: user:moderator }`,
+        ),
+      ).toMatchObject({ ok: false });
+      for (const bad of ['Mod@HeIsReal.today', 'not-an-email']) {
+        expect(
+          await outcome(
+            admin,
+            `CREATE storyStatusLog CONTENT { story: story:ann_staff, action: 'changesRequested',
+               comment: 'x', by: user:moderator, staffEmail: $bad }`,
+            { bad },
+          ),
+          bad,
+        ).toMatchObject({ ok: false });
+      }
+      await step(admin, 'ann_staff', 'changesRequested');
+      expect(await fieldOf(admin, 'staffEmail', 'ann_staff')).toEqual([
+        'moderator@heisreal.today',
+      ]);
+      // The person's own entries never carry one.
+      await sentWith(ann, 'ann_staff', { staffEmail: 'ann@example.com' });
+      expect(await fieldOf(migrator, 'staffEmail', 'ann_staff')).toEqual([
+        'moderator@heisreal.today',
+      ]);
+      // Only api-admin reads it: not the owner, nor any other service.
+      for (const [name, db] of [
+        ['owner', ann],
+        ['api_user', apiUser],
+        ['workflow', await t.service('workflow')],
+        ['housekeeping', await t.service('housekeeping')],
+        ['api_public_read', await t.service('api_public_read')],
+      ] as const) {
+        const read = await rows<Record<string, unknown>>(
+          db,
+          `SELECT * FROM storyStatusLog WHERE story = story:ann_staff`,
+        );
+        expect(
+          read.some((r) => r['staffEmail'] !== undefined),
+          name,
+        ).toBe(false);
+      }
     });
   });
 });

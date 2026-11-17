@@ -311,7 +311,7 @@ describe('housekeeping: media jobs', () => {
     await run(
       admin,
       `CREATE storyStatusLog CONTENT { story: type::record('story', $story),
-         action: 'hiddenByModerator', comment: 'Taken down for now', by: user:moderator }`,
+         action: 'hiddenByModerator', comment: 'Taken down for now', by: user:moderator, staffEmail: 'moderator@heisreal.today' }`,
       { story: byModerator.story },
     );
     // A draft's file whose re-encode was asked for 40 days ago (the result writer's marker).
@@ -482,7 +482,7 @@ describe('housekeeping: media jobs', () => {
     await run(
       admin,
       `CREATE storyStatusLog CONTENT { story: type::record('story', $story),
-         action: 'hiddenByModerator', comment: 'Taken down for now', by: user:moderator }`,
+         action: 'hiddenByModerator', comment: 'Taken down for now', by: user:moderator, staffEmail: 'moderator@heisreal.today' }`,
       { story: byModerator.story },
     );
     expect(await statusOf(byModerator.story)).toBe('hidden');
