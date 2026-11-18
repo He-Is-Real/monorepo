@@ -83,8 +83,6 @@ export interface WriterBunny {
    * `gone` (no such video).
    */
   videoStatus(videoId: string): Promise<BunnyVideoStatus>;
-  /** Asks Bunny to encode the video again from its original (Part 1a's one automatic re-encode). */
-  reencode(videoId: string): Promise<void>;
   /** The worker's upload pass for that one video, for an hour from now. */
   uploadPass(videoId: string, now?: number): Promise<UploadPass>;
   /** A 10-minute link to a story's picture, or null if the path isn't one. */
@@ -216,12 +214,6 @@ export class BunnyLibrary implements WriterBunny {
       throw new BunnyCallFailed('bunny_bad_reply');
     if (FAILED.has(status)) return 'failed';
     return status === FINISHED ? 'ready' : 'encoding';
-  }
-
-  async reencode(videoId: string): Promise<void> {
-    if (!VIDEO_ID.test(videoId)) throw new BunnyCallFailed('bunny_error');
-    const res = await this.call('POST', `/${videoId}/reencode`);
-    if (!res.ok) BunnyLibrary.fail(res);
   }
 
   async uploadPass(videoId: string, now = Date.now()): Promise<UploadPass> {

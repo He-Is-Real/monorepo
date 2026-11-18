@@ -278,9 +278,8 @@ describe('housekeeping: media jobs', () => {
   });
 
   // P1-9 (Joel, 2026-11-14): a story the site took off itself keeps its checks too, so its 3
-  // nightly retries never start again; one a moderator took down doesn't. P1-10 A: the check that
-  // recorded a file's one re-encode stays until the file itself goes.
-  it('the 30-day tidy-up keeps the jobs of a story the site took off, and a file’s re-encode record', async () => {
+  // nightly retries never start again; one a moderator took down doesn't.
+  it('the 30-day tidy-up keeps the jobs of a story the site took off', async () => {
     const admin = await t.service('api_admin');
     const published = async () => {
       const j = await openJob();
@@ -314,27 +313,15 @@ describe('housekeeping: media jobs', () => {
          action: 'hiddenByModerator', comment: 'Taken down for now', by: user:moderator, staffEmail: 'moderator@heisreal.today' }`,
       { story: byModerator.story },
     );
-    // A draft's file whose re-encode was asked for 40 days ago (the result writer's marker).
-    const reencoded = await openJob();
-    await run(
-      migrator,
-      `UPDATE type::record('mediaJob', $job) SET outcome = 'applied',
-         lastError = 'bunny_encode_failed', doneAt = time::now() - 40d`,
-      { job: reencoded.job },
-    );
 
     expect(await sweep(RUNS.nightly)).toBe(0);
     expect(await job(bySite.job)).toBeDefined();
     expect(await job(byModerator.job)).toBeUndefined();
-    expect(await job(reencoded.job)).toBeDefined();
     // The database refuses it too, whatever housekeeping asks.
-    await run(
-      housekeeping,
-      `DELETE type::record('mediaJob', $a); DELETE type::record('mediaJob', $b)`,
-      { a: bySite.job, b: reencoded.job },
-    ).catch(() => undefined);
+    await run(housekeeping, `DELETE type::record('mediaJob', $a)`, {
+      a: bySite.job,
+    }).catch(() => undefined);
     expect(await job(bySite.job)).toBeDefined();
-    expect(await job(reencoded.job)).toBeDefined();
   });
 
   it('housekeeping may open only a check with its own reason (resent)', async () => {
@@ -423,7 +410,7 @@ describe('housekeeping: media jobs', () => {
   });
 
   // P1-5 (Joel, 2026-11-14): the same nightly retry for a published story the site took off itself
-  // while Bunny re-encodes its file; never for one a moderator hid. After 3 nights it stays off.
+  // while its file isn't ready; never for one a moderator hid. After 3 nights it stays off.
   it('the nightly run also re-checks a story the site took off itself, for 3 nights, never one a moderator hid', async () => {
     const admin = await t.service('api_admin');
     const openCheck = async (video: string) =>
@@ -467,8 +454,7 @@ describe('housekeeping: media jobs', () => {
       return (lastLog('media-retry')?.['ids'] as string[]) ?? [];
     };
 
-    // Taken off by the site: Bunny is re-encoding its file (processing again), and the check
-    // waiting for the re-encode gave up.
+    // Taken off by the site: its file is processing again, and the check gave up on our side.
     const bySite = await published();
     await run(
       migrator,

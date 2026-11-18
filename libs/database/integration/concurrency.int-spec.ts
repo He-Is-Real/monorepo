@@ -168,7 +168,7 @@ describe('concurrent transactions are fenced per person', () => {
         `CREATE storyStatusLog CONTENT { story: story:vic_story, action: 'approved', by: user:moderator, staffEmail: 'moderator@heisreal.today' }`,
       )
       .collect();
-    // The video breaks meanwhile (Bunny re-encodes it; commits first).
+    // The video stops being ready meanwhile (commits first).
     await run(
       workflow,
       `UPDATE storyFile:vidvic SET processing = 'processing'`,

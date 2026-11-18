@@ -638,8 +638,9 @@ DEFINE FUNCTION OVERWRITE fn::story::restorable($s: any) {
     AND $s.submitter.testimonyConsent != NONE;
 };
 -- Part 1a (Joel, 2026-11-10; G2, 2026-11-11): whether the story's video or audio file can't be
--- used: it is `failed`, which only the result writer sets, and only from Bunny's final "failed to
--- process" after one automatic re-encode (mediaJob.errorType file_unusable). The person sees it
+-- used: it is `failed`, which only the result writer sets, and only from Bunny's "failed to
+-- process", confirmed by the writer (mediaJob.errorType file_unusable; RE-1 A, Joel, 2026-11-17:
+-- no automatic re-encode). The person sees it
 -- as the owner's `mediaProblem` (api-user). With the caller's permissions (the owner's session
 -- reads its own files); elevated in events.
 DEFINE FUNCTION OVERWRITE fn::story::file_unusable($s: any) {
@@ -1658,7 +1659,7 @@ DEFINE TABLE OVERWRITE mediaJob SCHEMAFULL PERMISSIONS          -- id = mediaJob
   FOR update WHERE $auth IN [service:api_user, service:workflow, service:housekeeping],
   -- The 30-day tidy-up (J2) skips the jobs fn::media::job_kept keeps (Part 1a).
   FOR delete WHERE $auth = service:housekeeping AND doneAt != NONE AND doneAt <= time::now() - 30d
-    AND !fn::media::job_kept(file, lastError);
+    AND !fn::media::job_kept(file);
 DEFINE FIELD OVERWRITE file       ON mediaJob TYPE record<storyFile> READONLY;
 DEFINE FIELD OVERWRITE kind       ON mediaJob TYPE string READONLY
   ASSERT $value IN ['check', 'render'];
@@ -1691,9 +1692,9 @@ DEFINE FIELD OVERWRITE outcome    ON mediaJob TYPE option<string>
 -- Part 1a (Joel, 2026-11-10: "have a error type string"; P1a-4 A, 2026-11-11: a fixed list): why
 -- the job gave up. Set once, with outcome gave_up, and only then (mediaJob_rules); NONE while it
 -- succeeds or is still trying. Only the result writer writes it:
--- - file_unusable: Bunny's final "failed to process", after one automatic Bunny re-encode, as the
---   writer itself asked Bunny (the worker can never set it). Only this reaches the person: the
---   file becomes failed and its story goes back to them (fn::story::check_files);
+-- - file_unusable: Bunny's "failed to process", as the writer itself asked Bunny (the worker can
+--   never set it; no automatic re-encode: RE-1 A, Joel, 2026-11-17). Only this reaches the
+--   person: the file becomes failed and its story goes back to them (fn::story::check_files);
 -- - bunny_unavailable: Bunny didn't answer, or had an outage, on every try;
 -- - worker_error: our worker failed (a bug, a missing tool, a crash);
 -- - other: anything not recognised.
@@ -1773,12 +1774,10 @@ DEFINE FUNCTION OVERWRITE fn::story::keeps_media_jobs($s: any) {
     AND $s.currentStatus.hiddenReason != NONE);
 };
 -- Part 1a: the media jobs the 30-day tidy-up (J2) keeps, until the file itself goes
--- (storyFile_jobs): every job of a story fn::story::keeps_media_jobs keeps (P1-3, P1-9), and the
--- check that recorded its file's one re-encode (P1-10 A, Joel, 2026-11-14: the result writer's
--- marker, lastError bunny_encode_failed on a check ended applied), so Bunny is never asked for a
--- second one. `$file`, `$lastError`: the job's.
-DEFINE FUNCTION OVERWRITE fn::media::job_kept($file: record<storyFile>, $lastError: option<string>) {
-  RETURN $lastError = 'bunny_encode_failed' OR fn::story::keeps_media_jobs($file.story);
+-- (storyFile_jobs): every job of a story fn::story::keeps_media_jobs keeps (P1-3, P1-9). `$file`:
+-- the job's.
+DEFINE FUNCTION OVERWRITE fn::media::job_kept($file: record<storyFile>) {
+  RETURN fn::story::keeps_media_jobs($file.story);
 };
 -- Part 1a (Joel, 2026-11-10): how many nights the housekeeping opens a new check of a waiting
 -- story's file after our own give-up (bunny_unavailable, worker_error, other).
@@ -1790,8 +1789,8 @@ DEFINE FUNCTION OVERWRITE fn::media::nightly_retries() {
 -- gave up and none is open: `retry` while it has given up at most fn::media::nightly_retries()
 -- times since it was uploaded (the housekeeping opens a new check that night), then `ours` (the
 -- moderators' list shows "Can't be reviewed yet: a problem on our side"; the person keeps seeing
--- "Waiting for review"). The same for a published story the site took off itself while Bunny
--- re-encodes its file (P1-5, Joel, 2026-11-14): it stays off the site, and its owner keeps seeing
+-- "Waiting for review"). The same for a published story the site took off itself while its file
+-- isn't ready (P1-5, Joel, 2026-11-14): it stays off the site, and its owner keeps seeing
 -- "We're fixing your video", and the moderators' list shows "a problem on our side". A story's
 -- jobs stay while it waits for review or is off the site (fn::media::job_kept), so the count holds
 -- and the retries never start again. With the caller's permissions: housekeeping and api-admin

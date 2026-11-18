@@ -777,7 +777,7 @@ describe('approval waits for media processing (A2, R12)', () => {
       ]);
     });
 
-    it('off the site while Bunny re-encodes, then failed for good: sent back', async () => {
+    it('off the site while its file isn’t ready, then failed: sent back', async () => {
       const id = await live(video);
       await setFile(id, `processing = 'processing'`);
       expect(await statusOf(id)).toBe('hidden');

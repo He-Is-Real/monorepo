@@ -99,7 +99,8 @@ Kept basic for now. Joel will decide later how stories are shared out between mo
 - ✅ Admins block a story's sender from its review page; the history shows which staff member did what
 - ✅ Share flow tidy: drag and drop, file names, "attached" ticks, clearer preview button
 - ✅ A deleted story's pictures go straight away
-- ✅ A video that can't be used is sent back to its owner to replace
+- ✅ A video that can't be used is sent back to its owner straight away to replace
+- ✅ Bunny keeps each video's original upload, for later social media use
 - ✅ Logs in one standard format
 - ✅ A video's picture is added when the story is sent, with no background picture jobs
 - ✅ "Attached" confirmation when coming back from another tab or device kept as it is

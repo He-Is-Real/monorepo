@@ -66,8 +66,8 @@ export class MediaJobsController {
    * video's picture is left alone: api-user set it at Bunny when the story was sent (Joel,
    * 2026-11-17, P1-13 A).
    * Part 1a: a "failed" answer is believed only once Bunny tells the writer the same
-   * ({@link answerFailed}); the writer then asks Bunny for its one re-encode, or records the file
-   * as unusable. 503 with Bunny off: the worker tries again later.
+   * ({@link answerFailed}); the writer then records the file as unusable at once (RE-1 A: no
+   * automatic re-encode). 503 with Bunny off: the worker tries again later.
    */
   @Post(':job/answer')
   @HttpCode(HttpStatus.OK)

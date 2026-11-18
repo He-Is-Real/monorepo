@@ -186,8 +186,7 @@ export const ourGiveUpsTask: Task = {
 /**
  * The longest-ended jobs' ids, at most `limit`, skipping those fn::media::job_kept keeps (Part 1a:
  * a story's jobs while it waits for review or is off the site because the site took it off, P1-3
- * and P1-9, and the check that recorded its file's one re-encode, P1-10; the table's delete
- * permission says the same).
+ * and P1-9; the table's delete permission says the same).
  */
 async function endedJobs(
   ctx: Pick<TaskContext, 'db'>,
@@ -197,7 +196,7 @@ async function endedJobs(
     ctx.db,
     `SELECT VALUE record::id(id) FROM mediaJob
        WHERE doneAt != NONE AND doneAt <= time::now() - ${KEEP_ENDED}
-         AND !fn::media::job_kept(file, lastError)
+         AND !fn::media::job_kept(file)
        ORDER BY doneAt ASC LIMIT $limit`,
     { limit },
   )) as [string[]];
@@ -224,7 +223,7 @@ export const oldMediaJobsTask: Task = {
           ctx.db,
           `DELETE $ids.map(|$id| type::record('mediaJob', $id))
              WHERE doneAt != NONE AND doneAt <= time::now() - ${KEEP_ENDED}
-               AND !fn::media::job_kept(file, lastError) RETURN BEFORE`,
+               AND !fn::media::job_kept(file) RETURN BEFORE`,
           { ids: batch },
         );
         result.deleted.push(

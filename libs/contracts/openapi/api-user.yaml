@@ -333,8 +333,9 @@ paths:
           (`mp4Url`; C1, Joel 2026-11-06: the library makes MP4 copies from then on, so files finished
           earlier have none, and api-user asks Bunny's API which copies each video has, one call per
           video). Each picture has a signed link. Every link works for 7 days (B, Joel 2026-11-06;
-          `about.linksExpireAt`; `null` links while media signing is off). Nobody keeps the original
-          upload (Bunny's settings), so the MP4 copy is re-encoded, not the file as uploaded.
+          `about.linksExpireAt`; `null` links while media signing is off). The MP4 copy is
+          re-encoded, not the file as uploaded (Bunny keeps that original for later use, RE-1 A, but
+          it isn't in the download).
 
         No `ETag`: every copy is new, with fresh links. `Content-Disposition` names the file. Needs no
         agreement: access to your own data is always possible (Art 15). `503` `export_unavailable` when
