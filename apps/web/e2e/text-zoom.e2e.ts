@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import {
+  chooseOption,
   enlargeText as enlarge,
   expectFocusedAndUncovered,
   expectNoHorizontalOverflow,
@@ -114,9 +115,9 @@ test('200% text: /admin/limits with its save bar and confirmation fits on the sm
   await expectFocusedAndUncovered(longest);
   // SL-1 C: one group at a time, from the "Group" drop-down on a phone.
   const group = page.getByLabel('Group', { exact: true });
-  await group.selectOption({ label: 'Video and audio' });
+  await chooseOption(group, 'Video and audio');
   await page.getByLabel('Largest video file').fill('10240');
-  await group.selectOption({ label: 'How often' });
+  await chooseOption(group, 'How often');
   const uploads = page.getByLabel('Upload attempts one person can start');
   await uploads.fill('10000');
   await expect(bar).toContainText('3 changes not saved yet');

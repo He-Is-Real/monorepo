@@ -6,7 +6,7 @@ import {
   problemText,
   WRAPPING_BUTTON,
 } from '@/components/admin/admin-access';
-import { Button } from '@/components/ui/button';
+import { Button } from '@heisreal/web-ui';
 import type { ApiUser } from '@/lib/api-user';
 
 /** The contract's `BlockedEmail` and `BlockedIp`. */

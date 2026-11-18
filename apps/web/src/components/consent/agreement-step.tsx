@@ -6,7 +6,7 @@ import { confirmAgreement } from '@/components/auth/account-bootstrap';
 import { LegalHtml } from '@/components/legal/legal-html';
 import { PrivacyNoticeLink } from '@/components/legal/privacy-notice-link';
 import { Redline } from '@/components/legal/redline';
-import { Button } from '@/components/ui/button';
+import { Button } from '@heisreal/web-ui';
 import {
   type Agreement,
   type AgreementState,

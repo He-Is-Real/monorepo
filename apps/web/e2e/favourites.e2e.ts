@@ -9,6 +9,7 @@ import {
 } from '@playwright/test';
 import { BEHAVIOUR_DEVICES, SCREENSHOT_DEVICES } from './devices';
 import {
+  chooseOption,
   countFetches,
   expectAllTargets,
   expectNoHorizontalOverflow,
@@ -807,12 +808,12 @@ async function filtersOverFavourites(page: Page, base: string) {
   await expect(cards).toHaveText(titlesOf(1, 2, 3, 4, 5, 6, 7, 8));
 
   const search = page.getByRole('search', { name: 'Stories' });
-  await search.getByLabel('Sort').selectOption('oldest');
+  await chooseOption(search.getByLabel('Sort'), 'Oldest first');
   await expect(page).toHaveURL(/[?&]sort=oldest(&|$)/);
   await expect(page).toHaveURL(/[?&]favourites=1(&|$)/);
   await expect(cards).toHaveText(titlesOf(8, 7, 6, 5, 4, 3, 2, 1));
 
-  await search.getByLabel('Format').selectOption('video');
+  await chooseOption(search.getByLabel('Format'), 'Video');
   await expect(cards).toHaveText(titlesOf(8, 6, 3, 1));
 
   // Search: every word, in the title, description or theme names, case ignored.

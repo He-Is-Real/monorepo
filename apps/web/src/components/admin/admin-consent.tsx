@@ -19,7 +19,7 @@ import {
 } from '@/components/admin/admin-access';
 import { LegalMarkdown } from '@/components/legal/legal-markdown';
 import { Redline } from '@/components/legal/redline';
-import { Button } from '@/components/ui/button';
+import { Button } from '@heisreal/web-ui';
 import { type ApiUser, ApiUserProblem } from '@/lib/api-user';
 import {
   DOCUMENT_NAMES,

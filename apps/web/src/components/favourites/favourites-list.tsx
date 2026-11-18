@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { deviceHeartCards } from '@/app/stories/actions';
 import { StoryMasonry } from '@/components/stories/story-masonry';
-import { Button } from '@/components/ui/button';
+import { Button } from '@heisreal/web-ui';
 import { type ApiSummary, MAX_IDS, type StorySummary } from '@/lib/browse';
 import { type BrowseFilters, browseHref } from '@/lib/browse-query';
 import { deviceHeartIds } from '@/lib/device-hearts';

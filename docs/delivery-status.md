@@ -104,6 +104,7 @@ Kept basic for now. Joel will decide later how stories are shared out between mo
 - ✅ Logs in one standard format
 - ✅ A video's picture is added when the story is sent, with no background picture jobs
 - ✅ "Attached" confirmation when coming back from another tab or device kept as it is
+- ✅ Every drop-down on the site uses the same styled list, in every browser
 - ⚪ Final docs and a demo walk-through on dev
 - ⚪ Two-step sign-in for staff: deferred until we're happy to pay for it
 

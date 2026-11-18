@@ -25,8 +25,7 @@ import {
   problemText,
   WRAPPING_BUTTON,
 } from '@/components/admin/admin-access';
-import { Button } from '@/components/ui/button';
-import { NativeSelect } from '@/components/ui/native-select';
+import { Button, Select } from '@heisreal/web-ui';
 import { type ApiUser, StaleVersion } from '@/lib/api-user';
 import {
   type AdminThemes as Loaded,
@@ -844,18 +843,13 @@ function ThemePanel({
           <label htmlFor={`${id}-category`} className="mb-1 block font-medium">
             Category
           </label>
-          <NativeSelect
+          <Select
             id={`${id}-category`}
             wrapperClassName="w-full"
             value={where}
-            onChange={(e) => setWhere(e.target.value)}
-          >
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </NativeSelect>
+            options={categories.map((c) => ({ value: c.id, label: c.name }))}
+            onValueChange={setWhere}
+          />
         </div>
         <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3 font-medium">
           ★ Highlighted

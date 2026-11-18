@@ -7,7 +7,9 @@ import {
 } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import {
+  chooseOption,
   expectAllTargets,
+  expectChosen,
   expectNoHorizontalOverflow,
   expectTarget,
   nearEndSettled,
@@ -501,11 +503,11 @@ test.describe('behaviour', () => {
   }) => {
     await page.goto('/stories?format=audio');
     await page.getByLabel('Search stories').fill('placeholder');
-    await page.getByLabel('Format').selectOption('video');
+    await chooseOption(page.getByLabel('Format'), 'Video');
     await expect(page).toHaveURL(/format=video/);
     await page.goBack();
     await expect(page).toHaveURL(/\/stories\?format=audio$/);
-    await expect(page.getByLabel('Format')).toHaveValue('audio');
+    await expectChosen(page.getByLabel('Format'), 'Audio');
     await expect(page.getByLabel('Search stories')).toHaveValue('');
   });
 

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { expect, type Page, test } from '@playwright/test';
 import { BEHAVIOUR_DEVICES } from './devices';
 import {
+  chooseOption,
   expectAllTargets,
   expectFocusedAndUncovered,
   expectNoHorizontalOverflow,
@@ -30,8 +31,7 @@ async function showGroup(page: Page, name: string) {
   const select = page.getByLabel('Group', { exact: true });
   if (await select.isVisible()) {
     // A group with an error reads "<name> (needs fixing)".
-    const option = select.locator('option', { hasText: name });
-    await select.selectOption((await option.getAttribute('value')) ?? '');
+    await chooseOption(select, new RegExp(`^${name}`));
   } else {
     await page
       .getByRole('group', { name: 'Limit groups' })
@@ -80,6 +80,66 @@ test('/admin/limits fits with 44 px targets, and its save bar and confirmation f
     'Stories one person can send for review: 1 per 7 days → 2 per 7 days',
   );
   await expectNoHorizontalOverflow(page);
+});
+
+// Joel, 2026-11-17: the "Group" drop-down was the browser's plain list in Firefox. On a computer
+// (a mouse or trackpad) it's the site's themed list in every browser; here in a window narrow
+// enough for the drop-down (under 768 px).
+test.describe('the Group drop-down on a computer', () => {
+  test.use({ viewport: { width: 700, height: 900 } });
+  // eslint-disable-next-line no-empty-pattern
+  test.beforeEach(({}, info) => {
+    test.skip(info.project.name !== 'desktop-1280', 'a computer');
+  });
+
+  test('opens the themed list and switches the group, by mouse and by keyboard', async ({
+    page,
+  }) => {
+    await useSession(page, `admin-${randomUUID().slice(0, 8)}`);
+    await page.goto(`${WEB_SIGNED_IN_URL}/admin/limits`);
+    await expect(page.getByLabel('Longest story')).toBeVisible();
+    const group = page.getByLabel('Group', { exact: true });
+    await expect(group).toHaveAttribute('data-slot', 'select-trigger');
+
+    await group.click();
+    const list = page.getByRole('listbox');
+    const surface = await list.evaluate((el) => {
+      const probe = document.createElement('div');
+      probe.style.color = 'var(--popover)';
+      document.body.append(probe);
+      const popover = getComputedStyle(probe).color;
+      probe.remove();
+      return { popover, background: getComputedStyle(el).backgroundColor };
+    });
+    expect(surface.background).toBe(surface.popover);
+    for (const option of await list.getByRole('option').all())
+      expect((await option.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(
+        43.99,
+      );
+    // By mouse.
+    await list.getByRole('option', { name: 'Video and audio' }).click();
+    await expect(list).toHaveCount(0);
+    await expect(page.getByLabel('Largest video file')).toBeVisible();
+    await expect(page.getByLabel('Longest story')).toHaveCount(0);
+
+    // By keyboard: the list opens on the chosen group; the next one down is the last.
+    await expect(group).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(
+      list.getByRole('option', { name: 'Video and audio' }),
+    ).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    // The highlight moves a moment after the key (Radix); Enter picks what is highlighted.
+    await expect(
+      list.getByRole('option', { name: 'Deleting old stories' }),
+    ).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(list).toHaveCount(0);
+    await expect(
+      page.getByLabel('Keep a story we didn’t accept for'),
+    ).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+  });
 });
 
 test.describe('/admin/limits', () => {

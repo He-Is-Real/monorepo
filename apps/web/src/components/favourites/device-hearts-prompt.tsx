@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { deviceHeartCards } from '@/app/stories/actions';
 import { useAccountState } from '@/components/auth/account-bootstrap';
-import { Button } from '@/components/ui/button';
+import { Button } from '@heisreal/web-ui';
 import { MAX_IDS } from '@/lib/browse';
 import {
   deviceHeartIdsToOffer,

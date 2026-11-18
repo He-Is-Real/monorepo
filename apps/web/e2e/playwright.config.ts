@@ -26,6 +26,9 @@ import {
 // signed-in visitor (servers.ts). Nothing
 // is loaded over the internet: the real Clerk is checked on dev (apps/dev-seed/behavioural).
 const root = `${resolve(__dirname, '../../..')}/`;
+// Chromium in CI. Locally, E2E_BROWSER=firefox runs the same suite in Firefox (no WebKit: Joel,
+// no Safari testing). Firefox can't emulate a phone's browser (isMobile), only its screen and touch.
+const firefox = process.env['E2E_BROWSER'] === 'firefox';
 
 export default defineConfig({
   testDir: '.',
@@ -55,14 +58,14 @@ export default defineConfig({
   ],
   use: {
     baseURL: `http://localhost:${WEB_PORT}`,
-    browserName: 'chromium',
+    browserName: firefox ? 'firefox' : 'chromium',
     trace: 'retain-on-failure',
   },
   projects: DEVICES.map((d) => ({
     name: d.name,
     use: {
       viewport: { width: d.width, height: d.height },
-      isMobile: d.mobile,
+      ...(firefox ? {} : { isMobile: d.mobile }),
       hasTouch: d.mobile,
       deviceScaleFactor: d.scale,
     },

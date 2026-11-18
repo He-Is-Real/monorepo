@@ -12,8 +12,8 @@
   },
   "aliases": {
     "components": "@/components",
-    "utils": "@/lib/utils",
-    "ui": "@/components/ui",
+    "utils": "@heisreal/web-ui",
+    "ui": "@heisreal/web-ui",
     "lib": "@/lib",
     "hooks": "@/hooks"
   },

@@ -67,6 +67,9 @@ importers:
       '@nx/next':
         specifier: 23.2.1
         version: 23.2.1(4d262eecead5d6ed82140a257f2ced86)
+      '@nx/react':
+        specifier: 23.2.1
+        version: 23.2.1(df0797c358fa08a488b08feb4a186746)
       '@nx/vitest':
         specifier: 23.2.1
         version: 23.2.1(@babel/traverse@7.29.8)(@nx/eslint@23.2.1(a22ff107a132d3bbecb379c72a34f989))(@swc-node/register@1.12.1(@swc/core@1.15.8(@swc/helpers@0.5.23))(@swc/types@0.1.28)(typescript@6.0.3))(@swc/core@1.15.8(@swc/helpers@0.5.23))(nx@23.2.1(@swc-node/register@1.12.1(@swc/core@1.15.8(@swc/helpers@0.5.23))(@swc/types@0.1.28)(typescript@6.0.3))(@swc/core@1.15.8(@swc/helpers@0.5.23)))(typescript@6.0.3)(vite@8.3.3(@types/node@24.19.0)(jiti@2.7.0)(less@4.8.1)(sass-embedded@1.105.0)(sass@1.105.0)(terser@5.51.2)(yaml@2.9.0))(vitest@4.1.12(@opentelemetry/api@1.9.1)(@types/node@24.19.0)(jsdom@26.1.0)(vite@8.3.3(@types/node@24.19.0)(jiti@2.7.0)(less@4.8.1)(sass-embedded@1.105.0)(sass@1.105.0)(terser@5.51.2)(yaml@2.9.0)))
@@ -474,12 +477,9 @@ importers:
       '@heisreal/logging':
         specifier: workspace:*
         version: link:../../libs/logging
-      class-variance-authority:
-        specifier: ^0.7.1
-        version: 0.7.1
-      clsx:
-        specifier: ^2.1.1
-        version: 2.1.1
+      '@heisreal/web-ui':
+        specifier: workspace:*
+        version: link:../../libs/web-ui
       diff:
         specifier: ^9.0.0
         version: 9.0.0
@@ -498,9 +498,6 @@ importers:
       react-dom:
         specifier: ^19.0.0
         version: 19.3.0(react@19.3.0)
-      tailwind-merge:
-        specifier: ^3.7.0
-        version: 3.7.0
       tus-js-client:
         specifier: ^4.3.1
         version: 4.3.1
@@ -693,6 +690,28 @@ importers:
       '@heisreal/contracts':
         specifier: workspace:*
         version: link:../contracts
+
+  libs/web-ui:
+    dependencies:
+      class-variance-authority:
+        specifier: ^0.7.1
+        version: 0.7.1
+      clsx:
+        specifier: ^2.1.1
+        version: 2.1.1
+      react:
+        specifier: ^19.0.0
+        version: 19.3.0
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.3.0(react@19.3.0)
+      tailwind-merge:
+        specifier: ^3.7.0
+        version: 3.7.0
+    devDependencies:
+      radix-ui:
+        specifier: ^1.8.1
+        version: 1.8.1(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
 
   libs/worker-identity: {}
 
@@ -6688,6 +6707,7 @@ packages:
 
   node-abort-controller@3.1.1:
     resolution: {integrity: sha512-AGK2yQKIjRuqnc6VkX2Xj5d+QW8xZ87pa1UK6yA6ouUyuxfHuMP6umE5QK7UmTeOAymo+Zx1Fxiuw9rVx8taHQ==}
+    deprecated: This package is no longer needed on supported Node.js versions. Node.js 16+ includes AbortController and AbortSignal as built-in globals. All Node.js versions requiring this polyfill are end-of-life. Use the built-in globals instead.
 
   node-addon-api@7.1.1:
     resolution: {integrity: sha512-5m3bsyrjFWE1xf7nz7YXdN4udnVtXK6/Yfgn5qnahL6bCkf2yKt4k3nuTKAtT4r3IG8JNR2ncsIMdZuAzJjHQQ==}
@@ -14023,7 +14043,7 @@ snapshots:
 
   glob@13.0.6:
     dependencies:
-      minimatch: 10.2.5
+      minimatch: 10.2.6
       minipass: 7.1.3
       path-scurry: 2.0.2
 
@@ -17111,7 +17131,7 @@ snapshots:
     dependencies:
       '@istanbuljs/schema': 0.1.6
       glob: 10.5.0
-      minimatch: 10.2.5
+      minimatch: 10.2.6
 
   tinybench@2.9.0: {}
 

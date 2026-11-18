@@ -13,8 +13,7 @@ import {
   problemText,
   WRAPPING_BUTTON,
 } from '@/components/admin/admin-access';
-import { Button } from '@/components/ui/button';
-import { NativeSelect } from '@/components/ui/native-select';
+import { Button, Select } from '@heisreal/web-ui';
 import { type ApiUser, StaleVersion } from '@/lib/api-user';
 
 /** The contract's `SubmissionSettingsValues`: every limit, in bytes and seconds. */
@@ -441,20 +440,17 @@ function LimitsForm({
             >
               Group
             </label>
-            <NativeSelect
+            <Select
               id={`${id}-group`}
-              value={group}
-              onChange={(e) => setGroup(Number(e.target.value))}
+              value={String(group)}
+              options={GROUPS.map((g, i) => ({
+                value: String(i),
+                label: `${g.title}${groupHasError(i) ? ' (needs fixing)' : ''}`,
+              }))}
+              onValueChange={(v) => setGroup(Number(v))}
               wrapperClassName="w-full"
               className="text-base"
-            >
-              {GROUPS.map((g, i) => (
-                <option key={g.title} value={i}>
-                  {g.title}
-                  {groupHasError(i) ? ' (needs fixing)' : ''}
-                </option>
-              ))}
-            </NativeSelect>
+            />
           </div>
 
           <div className="@container min-w-0 rounded-2xl border border-border bg-card p-4 sm:p-6">

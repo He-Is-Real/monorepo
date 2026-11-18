@@ -6,7 +6,7 @@ import { useEffect, useMemo } from 'react';
 import { useAccountState } from '@/components/auth/account-bootstrap';
 import { AgreementStep } from '@/components/consent/agreement-step';
 import { dismissTestimonyBanner } from '@/components/consent/consent-prompts';
-import { Button } from '@/components/ui/button';
+import { Button } from '@heisreal/web-ui';
 import type { AgreementName } from '@/lib/legal-text';
 import { personalApiUser, usePersonalSession } from '@/lib/personal-session';
 import { signInHref } from '@/lib/return-path';

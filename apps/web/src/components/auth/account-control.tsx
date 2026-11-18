@@ -4,7 +4,7 @@ import { SignOutButton, useAuth, useUser } from '@clerk/react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { Popover } from 'radix-ui';
 import { cloneElement, type ReactElement, useEffect, useState } from 'react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@heisreal/web-ui';
 import { useAccountBootstrap } from '@/components/auth/account-bootstrap';
 import { usePublishPersonalSession } from '@/lib/personal-session';
 import { signInHref } from '@/lib/return-path';

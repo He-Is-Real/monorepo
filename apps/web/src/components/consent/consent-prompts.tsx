@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useSyncExternalStore } from 'react';
 import { useAccountState } from '@/components/auth/account-bootstrap';
-import { Button } from '@/components/ui/button';
+import { Button } from '@heisreal/web-ui';
 import { SIGN_IN_PATH, stepReturnPath } from '@/lib/return-path';
 
 /** The terms of use on the person's account: at sign-up, and after the terms change (plan 4e). */
