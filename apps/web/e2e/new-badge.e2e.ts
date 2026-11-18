@@ -46,10 +46,41 @@ async function expectInside(inner: Locator, outer: Locator, what: string) {
   ).toEqual({ left: true, right: true });
 }
 
+/**
+ * The boxes of card `c` and of its parts, read in one go from one layout (null for a part the
+ * card doesn't have). Boxes read one call apart can come from two layouts: browse's "Favourites
+ * only" switch appears once the page's JavaScript knows who is visiting (browse-view.tsx) and
+ * moves every card down 56 px, more than the gap between a card's media and its badge, so a
+ * badge read before it and media read after it seemed to overlap.
+ */
+async function cardBoxes<K extends string>(
+  c: Locator,
+  parts: Record<K, string>,
+): Promise<{ card: Box } & Record<K, Box | null>> {
+  return c.evaluate(
+    (el, sel) => {
+      const box = (e: Element | null) => {
+        if (!e) return null;
+        const { x, y, width, height } = e.getBoundingClientRect();
+        return { x, y, width, height };
+      };
+      return {
+        card: box(el),
+        ...Object.fromEntries(
+          Object.entries(sel).map(([k, s]) => [k, box(el.querySelector(s))]),
+        ),
+      };
+    },
+    parts as Record<string, string>,
+  ) as never;
+}
+
 /** The card's label (badge included) is clear of the card's heart (top right, heart-button.tsx). */
 async function expectClearOfHeart(c: Locator, what: string) {
-  const label = await c.locator('[data-card-label]').boundingBox();
-  const heart = await c.locator('[data-heart]').boundingBox();
+  const { label, heart } = await cardBoxes(c, {
+    label: '[data-card-label]',
+    heart: '[data-heart]',
+  });
   expect(label && heart, what).toBeTruthy();
   if (!label || !heart) return;
   expect(overlaps(label, heart), `${what}: label covers the heart`).toBe(false);
@@ -57,17 +88,29 @@ async function expectClearOfHeart(c: Locator, what: string) {
 
 /** The badge sits inside its card, clear of the heart and the media area (play button, player). */
 async function expectBadgePlaced(c: Locator) {
-  const badge = await badgeIn(c).boundingBox();
-  const article = await c.boundingBox();
-  expect(badge && article).toBeTruthy();
-  if (!badge || !article) return;
+  const {
+    card: article,
+    badge,
+    label,
+    heart,
+    media,
+  } = await cardBoxes(c, {
+    badge: BADGE,
+    label: '[data-card-label]',
+    heart: '[data-heart]',
+    media: '[data-card-media]',
+  });
+  expect(badge).toBeTruthy();
+  if (!badge) return;
   expect(badge.x).toBeGreaterThanOrEqual(article.x);
   expect(badge.x + badge.width).toBeLessThanOrEqual(article.x + article.width);
-  await expectClearOfHeart(c, 'badge');
-  const media = c.locator('[data-card-media]');
-  if ((await media.count()) === 0) return; // a written story without a picture
-  const box = await media.boundingBox();
-  expect(box && overlaps(badge, box), 'badge covers the media').toBe(false);
+  // The card's label, the badge included, is clear of the heart.
+  expect(label && heart, 'badge').toBeTruthy();
+  if (label && heart)
+    expect(overlaps(label, heart), 'badge: label covers the heart').toBe(false);
+  // A written story without a picture has no media.
+  if (media)
+    expect(overlaps(badge, media), 'badge covers the media').toBe(false);
 }
 
 for (const scheme of ['light', 'dark'] as const) {
