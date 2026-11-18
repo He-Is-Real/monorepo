@@ -3,6 +3,7 @@
 import {
   type AriaAttributes,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
@@ -92,6 +93,9 @@ export function Select({
   const [own, setOwn] = useState(defaultValue ?? options[0]?.value ?? '');
   const current = value ?? own;
   const wrapper = useRef<HTMLSpanElement>(null);
+  const native = useRef<HTMLSelectElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const focusTrigger = useRef(false);
   const submitPending = useRef(false);
   // Inside a modal <dialog> (the top layer), the list opens inside it too, or it would be under it.
   const [container, setContainer] = useState<HTMLElement | null>(null);
@@ -103,6 +107,28 @@ export function Select({
     submitPending.current = false;
     wrapper.current?.closest('form')?.requestSubmit();
   }, [current]);
+
+  // Hydration: the person may have used the native select while the page's JavaScript loaded.
+  // Keep their choice (React leaves the DOM's value alone and doesn't replay the change), and
+  // if it had focus, give focus to the themed list's button when it replaces the select.
+  useLayoutEffect(() => {
+    const el = native.current;
+    if (!el) return;
+    focusTrigger.current =
+      document.activeElement === el && !matchMedia(TOUCH).matches;
+    if (el.value !== current && options.some((o) => o.value === el.value)) {
+      if (value === undefined) setOwn(el.value);
+      onValueChange?.(el.value);
+    }
+    // Once, on hydration only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!themed || !focusTrigger.current) return;
+    focusTrigger.current = false;
+    trigger.current?.focus();
+  }, [themed]);
 
   const choose = (next: string) => {
     if (next === current) return;
@@ -131,6 +157,7 @@ export function Select({
             required={required}
           >
             <SelectPrimitive.Trigger
+              ref={trigger}
               id={id}
               data-slot="select-trigger"
               className={cn(
@@ -198,11 +225,17 @@ export function Select({
             </SelectPrimitive.Portal>
           </SelectPrimitive.Root>
           {name !== undefined && (
-            <input type="hidden" name={name} value={current} />
+            <input
+              type="hidden"
+              name={name}
+              value={current}
+              disabled={disabled}
+            />
           )}
         </>
       ) : (
         <select
+          ref={native}
           id={id}
           data-slot="select-native"
           name={name}

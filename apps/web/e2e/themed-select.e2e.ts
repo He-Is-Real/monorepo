@@ -308,6 +308,32 @@ test.describe('behaviour', () => {
     // The oldest story now comes first.
     await expect(titles.first()).not.toHaveText(latestFirst[0]);
   });
+  test('a choice made before the page’s JavaScript runs is kept, with focus', async ({
+    page,
+  }, info) => {
+    // Hold the page's JavaScript back until the native drop-down has been used.
+    let release = () => undefined as void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    await page.route('**/_next/static/**/*.js', async (route) => {
+      await held;
+      await route.continue();
+    });
+    await page.goto('/stories', { waitUntil: 'commit' });
+    const format = page.getByLabel('Format', { exact: true });
+    await expect(format).toHaveAttribute('data-slot', 'select-native');
+    await format.selectOption('video');
+    await format.focus();
+    release();
+    // The themed list's button takes over with the choice and the focus.
+    await hydrated(format, info);
+    await expectChosen(format, 'Video');
+    await expect(format).toBeFocused();
+    // Nothing applied it yet (no change after the JavaScript ran): Search posts it.
+    await expect(page).not.toHaveURL(/format=/);
+    await page.getByRole('button', { name: 'Search' }).click();
+    await expect(page).toHaveURL(/\/stories\?.*format=video/);
+    await expect(page.getByText('Video stories')).toBeVisible();
+  });
 });
 
 test.describe('with reduced motion', () => {
