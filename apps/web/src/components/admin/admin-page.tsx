@@ -10,9 +10,13 @@ const NARROW = 'max-w-[calc(var(--container-narrow)-5rem)]';
  * it had): `narrow` the standard 800 px column; `site` the site's full content width (1200 px);
  * `double` the standard column on phones and tablets, and twice it from 1280 px (consent's edit
  * box and preview side by side, Joel 2026-11-14), centred on the page there; `story` 800 px,
- * as the story page's article, which sets its own widths inside it (a story under review).
+ * as the story page's article, which sets its own widths inside it (a story under review);
+ * `wide` the site's width on phones and tablets, and up to 1600 px from 1280 px, centred like
+ * `double` (the moderation list, OQ-3 A and MQ-1 E: Joel 2026-11-17; no column in it over 1200 px).
  */
-export type AdminPageWidth = 'narrow' | 'site' | 'double' | 'story';
+export type AdminPageWidth = 'narrow' | 'site' | 'double' | 'story' | 'wide';
+/** `double` and `wide` from 1280 px: twice the standard column (1600 px), centred. */
+const WIDE = `${SITE} xl:max-w-[calc(var(--container-narrow)*2)]`;
 
 /**
  * The shell every admin and moderation page shares (Joel, 2026-11-17): the admin pages' links,
@@ -71,8 +75,10 @@ export function AdminPage({
             {content}
           </div>
         </div>
+      ) : width === 'wide' ? (
+        <div className={WIDE}>{content}</div>
       ) : (
-        <div className={`${SITE} xl:max-w-[calc(var(--container-narrow)*2)]`}>
+        <div className={WIDE}>
           <div className={`${NARROW} xl:max-w-none`}>{content}</div>
         </div>
       )}

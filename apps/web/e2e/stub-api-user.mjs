@@ -62,8 +62,9 @@
 //   save of the whole picture is checked like the real one (Other kept, names tidied, no
 //   duplicates ignoring case, 428 without If-Match, 412 unless it's the version read).
 // - api-admin's moderation read side (MD-3, MD-4): `GET /v1/moderation/stories` (the moderators'
-//   list: `state`, default pending, and `theme`; pages of 20, or `limit`, oldest first; a cursor
-//   it gave out; drafts Admins only) and `GET /v1/moderation/stories/{id}` (any state; a draft
+//   list: `state`, default pending; a title search `q`, `format`s (any) and `theme`s (all);
+//   `sort` oldest, newest or changed; pages of 20, or `limit`; a cursor it gave out for that
+//   sort; the counts per state and format, MQ-1 E; drafts Admins only) and `GET /v1/moderation/stories/{id}` (any state; a draft
 //   Admins only), the same fixed stories for every session as its decisions left them,
 //   Moderators and up only (sessions starting `moderator` are Moderators, `admin` Admins;
 //   everyone else 403 `role_required`). Its player and picture
@@ -1102,27 +1103,59 @@ function deleteModerated(res, token, id) {
 const LIST_STATES = ['pending', 'editing', 'hidden', 'rejected', 'draft'];
 const DRAFT_STARTED = modHour(-60);
 
-/** `GET /v1/moderation/stories` (listModerationStories): one state, oldest first, pages. */
+/**
+ * When a waiting story last changed, where it isn't when it was sent: the "Recently changed" sort
+ * (MQ-1 E).
+ */
+const CHANGED = { mod_long_title: modHour(60), mod_written: modHour(59) };
+const FORMATS = ['video', 'audio', 'written'];
+const SORTS = ['oldest', 'newest', 'changed'];
+
+/**
+ * `GET /v1/moderation/stories` (listModerationStories): one state, narrowed by a title search,
+ * formats (any) and themes (all), sorted, in pages, with the counts (MQ-1 E, OQ-2).
+ */
 function sendList(req, res, url, token) {
-  const state = url.searchParams.get('state') ?? 'pending';
-  if (!LIST_STATES.includes(state))
+  const sp = url.searchParams;
+  const states = sp.getAll('state');
+  const state = states[0] ?? 'pending';
+  if (states.length > 1 || !LIST_STATES.includes(state))
     return invalid(res, '/state', 'validation_failed');
-  const theme = url.searchParams.get('theme');
-  if (theme !== null && !/^[0-9A-Za-z_]{1,40}$/.test(theme))
+  const themes = [...new Set(sp.getAll('theme'))].filter((t) => t !== '');
+  if (
+    themes.length > 20 ||
+    !themes.every((t) => /^[0-9A-Za-z_]{1,40}$/.test(t))
+  )
     return invalid(res, '/theme', 'validation_failed');
-  const limit = url.searchParams.get('limit') ?? '20';
+  const formats = sp.getAll('format');
+  if (!formats.every((f) => FORMATS.includes(f)))
+    return invalid(res, '/format', 'validation_failed');
+  const sorts = sp.getAll('sort');
+  const sort = sorts[0] ?? 'oldest';
+  if (sorts.length > 1 || !SORTS.includes(sort))
+    return invalid(res, '/sort', 'validation_failed');
+  const qs = sp.getAll('q');
+  const q = qs[0]?.trim();
+  if (qs.length > 1 || (q !== undefined && (q === '' || [...q].length > 100)))
+    return invalid(res, '/q', 'validation_failed');
+  const limit = sp.get('limit') ?? '20';
   const take = Number(limit);
   if (!Number.isInteger(take) || take < 1 || take > 50)
     return invalid(res, '/limit', 'validation_failed', 'limit is 1–50');
-  if (state === 'draft' && roleOf(token) !== 'Admin')
+  const admin = roleOf(token) === 'Admin';
+  if (state === 'draft' && !admin)
     return problem(res, 403, 'Forbidden', 'role_required');
-  const rows = [...moderationFor(token).values()]
-    .filter((s) =>
-      state === 'draft'
-        ? s.statusLog.length === 0
-        : s.statusLog.length > 0 && s.status === state,
-    )
-    .filter((s) => !theme || s.themes.some((t) => t.id === theme))
+  const stories = [...moderationFor(token).values()];
+  const inState = (s, st) =>
+    st === 'draft'
+      ? s.statusLog.length === 0
+      : s.statusLog.length > 0 && s.status === st;
+  const searched = stories
+    .filter((s) => inState(s, state))
+    .filter((s) => themes.every((t) => s.themes.some((x) => x.id === t)))
+    .filter((s) => !q || s.title.toLowerCase().includes(q.toLowerCase()));
+  const rows = searched
+    .filter((s) => !formats.length || formats.includes(s.primaryFormat))
     .map((s) => {
       const moved = s.statusLog.at(-1);
       const sent = s.statusLog.filter((e) => e.action === 'sent').at(-1);
@@ -1136,26 +1169,53 @@ function sendList(req, res, url, token) {
         themes: s.themes,
         since,
         sentAt: sent?.at ?? null,
-        updatedAt: since,
+        updatedAt: CHANGED[s.id] ?? since,
         mediaProblem: LIST_PROBLEM.has(s.id) ? 'ours' : null,
       };
     })
-    .sort((a, b) => a.since.localeCompare(b.since) || a.id.localeCompare(b.id));
-  const cursor = url.searchParams.get('cursor');
+    .sort((a, b) => {
+      const key = sort === 'changed' ? 'updatedAt' : 'since';
+      const order = a[key].localeCompare(b[key]) || a.id.localeCompare(b.id);
+      return sort === 'oldest' ? order : -order;
+    });
+  const cursor = sp.get('cursor');
   let from = 0;
   if (cursor !== null) {
-    const n = Number(Buffer.from(cursor, 'base64url').toString('utf8'));
-    if (!Number.isInteger(n) || n < 1 || n >= rows.length)
+    const [given, n] = Buffer.from(cursor, 'base64url')
+      .toString('utf8')
+      .split(':');
+    from = Number(n);
+    if (
+      given !== sort ||
+      !Number.isInteger(from) ||
+      from < 1 ||
+      from >= rows.length
+    )
       return invalid(res, '/cursor', 'validation_failed');
-    from = n;
   }
   const next = from + take;
+  const count = (st) => stories.filter((s) => inState(s, st)).length;
   return cached(req, res, {
     data: rows.slice(from, next),
     nextCursor:
       next < rows.length
-        ? Buffer.from(String(next)).toString('base64url')
+        ? Buffer.from(`${sort}:${next}`).toString('base64url')
         : null,
+    counts: {
+      states: {
+        pending: count('pending'),
+        editing: count('editing'),
+        hidden: count('hidden'),
+        rejected: count('rejected'),
+        ...(admin ? { draft: count('draft') } : {}),
+      },
+      formats: Object.fromEntries(
+        FORMATS.map((f) => [
+          f,
+          searched.filter((s) => s.primaryFormat === f).length,
+        ]),
+      ),
+    },
   });
 }
 

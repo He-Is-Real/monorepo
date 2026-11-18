@@ -1,19 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page, test } from '@playwright/test';
 import { Contract } from '@heisreal/contracts/testing';
 import { BEHAVIOUR_DEVICES } from './devices';
-import {
-  chooseOption,
-  expectAllTargets,
-  expectChosen,
-  expectNoHorizontalOverflow,
-  optionLabels,
-} from './helpers';
+import { expectAllTargets, expectNoHorizontalOverflow } from './helpers';
 import { fixtureToken, STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 
-// The moderators' pages (M3 plan PRs 1 and 6; MD-1 to MD-4): /moderation lists every story that
-// isn't public, one state at a time (opening on waiting for review, oldest sent first; drafts
-// never sent for Admins only), optionally one theme, and /moderation/{id} shows one as the public would see it (the story page's
+// The moderators' pages (M3 plan PRs 1 and 6; MD-1 to MD-4; MQ-1 E and OQ-2): /moderation lists
+// every story that isn't public, one state at a time as tabs with counts (opening on waiting for
+// review, oldest sent first; drafts never sent for Admins only), narrowed by a title search,
+// formats and themes in a side panel (folded into "Filters and sort" on phones) and sorted, all
+// in the address; and /moderation/{id} shows one as the public would see it (the story page's
 // own parts, with the player's speed menu), what the moderator can do with it, and its history
 // with moderators' notes. Approve, Send back and Reject a waiting story (a note for the last two),
 // Take down a published one and Show it again (G5); refusals in plain words; the first decision
@@ -36,7 +32,27 @@ async function useSession(page: Page, session: string) {
 const fresh = (prefix: string) => `${prefix}-${randomUUID()}`;
 
 const listItems = (page: Page) => page.locator('[data-list-item]');
-const states = (page: Page) => page.locator('[data-list-state]');
+const titles = (page: Page) => page.locator('[data-list-title]');
+const tabs = (page: Page) =>
+  page.getByRole('navigation', { name: 'Story states' }).getByRole('link');
+const tab = (page: Page, name: string) =>
+  page
+    .getByRole('navigation', { name: 'Story states' })
+    .getByRole('link', { name: new RegExp(`^${name}`) });
+/** A box or radio in the side panel, by its line (the input hides behind its drawn mark). */
+const option = (panel: Locator, name: string) =>
+  panel.locator('label').filter({ hasText: name });
+/** The side panel; on phones it opens from "Filters and sort (N)" first. */
+async function filters(page: Page) {
+  await expect(page.locator('[data-filters]')).toBeAttached();
+  const toggle = page.locator('[data-filters-toggle]');
+  if (
+    (await toggle.isVisible()) &&
+    (await toggle.getAttribute('aria-expanded')) === 'false'
+  )
+    await toggle.click();
+  return page.getByRole('region', { name: 'Filters and sort' });
+}
 
 test('/moderation and a story under review fit, with 44 px targets', async ({
   page,
@@ -46,8 +62,19 @@ test('/moderation and a story under review fit, with 44 px targets', async ({
   await expect(listItems(page)).toHaveCount(20);
   await expectNoHorizontalOverflow(page);
   await expectAllTargets(page);
+  // The side panel open, with every theme shown, and an Admin's five tabs.
+  const panel = await filters(page);
+  await panel.getByRole('button', { name: /^\+ \d+ more$/ }).click();
+  await expect(panel.getByRole('checkbox', { name: 'Doubt' })).toBeAttached();
+  await expectNoHorizontalOverflow(page);
+  await expectAllTargets(page);
   await page.goto(`${WEB_SIGNED_IN_URL}/moderation?state=hidden`);
   await expect(listItems(page)).toHaveCount(2);
+  await expectNoHorizontalOverflow(page);
+  await expectAllTargets(page);
+  // Nothing matches: the message offers Clear filters.
+  await page.goto(`${WEB_SIGNED_IN_URL}/moderation?q=nothing+like+it`);
+  await expect(page.locator('[data-list-empty]')).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectAllTargets(page);
   for (const id of [
@@ -66,8 +93,15 @@ test('/moderation and a story under review fit, with 44 px targets', async ({
   await page.getByRole('button', { name: 'Send back' }).click();
   await expect(page.getByLabel('Your note to the person')).toBeVisible();
   await expectNoHorizontalOverflow(page);
-  await expectAllTargets(page); // An Admin's view: the sender's email and address, with a Block confirm open (EM-2).
+  await expectAllTargets(page);
+  // An Admin's list (five tabs), and their view of a story: the sender's email and address, with
+  // a Block confirm open (EM-2).
   await useSession(page, fresh('admin-fit'));
+  await page.goto(`${WEB_SIGNED_IN_URL}/moderation`);
+  await expect(tabs(page)).toHaveCount(5);
+  await expect(listItems(page)).toHaveCount(20);
+  await expectNoHorizontalOverflow(page);
+  await expectAllTargets(page);
   await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_video`);
   await page
     .locator('[data-sender-email]')
@@ -101,16 +135,17 @@ test.describe('moderation', () => {
     const menu = page.getByRole('navigation', { name: 'Admin pages' });
     await expect(menu.getByRole('link')).toHaveText(['Moderation']);
 
-    await expectChosen(page.getByLabel('Show'), 'Waiting for review');
+    await expect(tab(page, 'Waiting for review')).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
     await expect(listItems(page)).toHaveCount(20);
     const first = listItems(page).first();
-    await expect(first).toContainText('The night I stopped running');
-    await expect(first).toContainText('Video');
-    await expect(first).toContainText('Waiting for review');
-    await expect(first).toContainText('Healing');
-    await expect(first.locator('[data-list-dates]')).toHaveText(
-      'Sent 1 November 2026 at 09:05',
+    await expect(first.locator('[data-list-title]')).toHaveText(
+      'The night I stopped running',
     );
+    await expect(first).toContainText('Video:');
+    await expect(first.locator('[data-list-themes]')).toHaveText('Healing');
     await page.getByRole('button', { name: 'Show more' }).click();
     await expect(listItems(page)).toHaveCount(26);
     await expect(listItems(page).last()).toContainText('Just uploaded');
@@ -395,62 +430,203 @@ test.describe('moderation', () => {
     );
   });
 
-  // MD-3 and MD-4: every story that isn't public, by state and theme; drafts for Admins only.
-  test('a moderator lists each state that isn’t public, and one theme', async ({
+  // MD-3 and MD-4: every story that isn't public, by state; drafts for Admins only. MQ-1 E: the
+  // states are tabs with counts, links in the address (Back works).
+  test('a moderator moves between the states’ tabs, each with its count', async ({
     page,
   }) => {
     await useSession(page, 'moderator-states');
     await page.goto(`${WEB_SIGNED_IN_URL}/moderation`);
-    const show = page.getByLabel('Show');
-    expect(await optionLabels(show)).toEqual([
-      'Waiting for review',
-      'Being edited',
-      'Taken down',
-      'Rejected',
+    // Counts whatever the filters; no drafts for a moderator.
+    await expect(tabs(page)).toHaveText([
+      'Waiting for review(26)',
+      'Being edited(2)',
+      'Taken down(2)',
+      'Rejected(1)',
     ]);
-    await chooseOption(show, 'Being edited');
+    await tab(page, 'Being edited').click();
     await expect(page).toHaveURL(/\/moderation\?state=editing$/);
-    await expect(states(page)).toHaveText([
-      'State: Sent back by a moderator',
-      'State: Being edited by the person',
+    await expect(tab(page, 'Being edited')).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    await expect(titles(page)).toHaveText([
+      'Waiting for a word',
+      'Changing a line',
     ]);
-    await chooseOption(show, 'Taken down');
-    await expect(states(page)).toHaveText([
-      // Part 1a: its check gave up on our side for good (mediaProblem ours).
-      'State: Hidden by the site while its video or audio can’t playA problem on our side',
-      'State: Taken down by a moderator',
+    // Off the Waiting for review tab the time column is "In this state".
+    await expect(page.getByRole('main')).not.toContainText('Waiting:');
+    await tab(page, 'Taken down').click();
+    await expect(titles(page)).toHaveText([
+      'A video that stopped playing',
+      'The letter I never sent',
     ]);
-    await expect(
-      listItems(page).last().locator('[data-list-dates]'),
-    ).toContainText('Taken down');
-    await chooseOption(show, 'Rejected');
-    await expect(states(page)).toHaveText(['State: Rejected']);
+    await page.goBack();
+    await expect(page).toHaveURL(/state=editing$/);
+    await expect(titles(page)).toHaveText([
+      'Waiting for a word',
+      'Changing a line',
+    ]);
+    await tab(page, 'Rejected').click();
+    await expect(titles(page)).toHaveText(['Not for this site']);
     // A rejected story opens read only, with its history.
     await listItems(page).first().getByRole('link').click();
     await expect(page.locator('[data-review-status]')).toHaveText('Rejected');
     await expect(page.locator('[data-decisions]')).toHaveCount(0);
     await expect(page.locator('[data-history-entry]')).toHaveCount(2);
 
-    // One theme: only waiting stories about Healing; pressed again, all of them.
-    await page.goto(`${WEB_SIGNED_IN_URL}/moderation`);
-    const themes = page.getByRole('navigation', { name: 'Themes' });
-    await themes.getByRole('link', { name: 'Healing' }).click();
-    await expect(page).toHaveURL(/\/moderation\?theme=healing$/);
-    await expect(listItems(page)).toHaveCount(1);
-    await expect(listItems(page)).toContainText('The night I stopped running');
-    await chooseOption(show, 'Being edited');
-    await expect(page).toHaveURL(/state=editing&theme=healing$/);
-    await expect(page.locator('[data-list-empty]')).toHaveText(
-      'No stories here.',
-    );
-    await themes.getByRole('link', { name: 'Healing' }).click();
-    await expect(listItems(page)).toHaveCount(2);
-
     // Drafts never sent aren't a moderator's, even by address.
     await page.goto(`${WEB_SIGNED_IN_URL}/moderation?state=draft`);
-    await expectChosen(show, 'Waiting for review');
+    await expect(tab(page, 'Waiting for review')).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
     await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_draft`);
     await expect(page.locator('[data-review-gone]')).toBeVisible();
+  });
+
+  // MQ-1 E and OQ-2 (Joel, 2026-11-17): search, sort, formats (any) and themes (all) in the side
+  // panel, every one of them in the address.
+  test('a moderator searches, sorts and filters by format and theme, and clears the filters', async ({
+    page,
+  }) => {
+    await useSession(page, 'moderator-filters');
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation`);
+    let panel = await filters(page);
+    // Formats: counts within the tab; ticking two shows either.
+    await expect(panel.getByRole('group', { name: 'Format' })).toContainText(
+      'Video (2)',
+    );
+    await option(panel, 'Audio').click();
+    await expect(page).toHaveURL(/\/moderation\?format=audio$/);
+    await expect(titles(page)).toHaveText(['Singing again']);
+    panel = await filters(page);
+    await option(panel, 'Video').click();
+    await expect(page).toHaveURL(/format=audio&format=video$/);
+    await expect(titles(page)).toHaveText([
+      'The night I stopped running',
+      'Singing again',
+      'Just uploaded',
+    ]);
+    // Clear filters: the whole list again.
+    panel = await filters(page);
+    await panel.getByRole('link', { name: 'Clear filters' }).click();
+    await expect(page).toHaveURL(/\/moderation$/);
+    await expect(listItems(page)).toHaveCount(20);
+
+    // Themes: every ticked one (AND). The folded ones open in place.
+    panel = await filters(page);
+    await panel.getByRole('button', { name: /^\+ \d+ more$/ }).click();
+    await option(panel, 'Doubt').click();
+    await expect(page).toHaveURL(/\?theme=doubt$/);
+    await expect(titles(page)).toHaveText(['A habit that became a faith']);
+    panel = await filters(page);
+    await option(panel, 'Healing').click();
+    await expect(page).toHaveURL(/theme=doubt&theme=healing$/);
+    await expect(page.locator('[data-list-empty]')).toContainText(
+      'No stories match these filters.',
+    );
+    await page
+      .locator('[data-list-empty]')
+      .getByRole('link', { name: 'Clear filters' })
+      .click();
+    await expect(listItems(page)).toHaveCount(20);
+
+    // A title search, ignoring capitals; with the sort, all in the address.
+    panel = await filters(page);
+    await panel.getByLabel('Search titles').fill('WAITING STORY 1');
+    await panel.getByRole('button', { name: 'Search' }).click();
+    await expect(page).toHaveURL(/\?q=WAITING\+STORY\+1$/);
+    await expect(titles(page)).toHaveText(
+      Array.from({ length: 10 }, (_, i) => `Waiting story ${i + 10}`),
+    );
+    panel = await filters(page);
+    await option(panel, 'Newest first').click();
+    await expect(page).toHaveURL(/q=WAITING\+STORY\+1&sort=newest$/);
+    await expect(titles(page).first()).toHaveText('Waiting story 19');
+    // The address alone opens the same list (a shared link, a reload).
+    await page.reload();
+    panel = await filters(page);
+    await expect(panel.getByLabel('Search titles')).toHaveValue(
+      'WAITING STORY 1',
+    );
+    await expect(
+      panel.getByRole('radio', { name: 'Newest first' }),
+    ).toBeChecked();
+    await expect(titles(page).first()).toHaveText('Waiting story 19');
+    // Recently changed: the stories changed since they were sent come first.
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation?sort=changed`);
+    await expect(titles(page).nth(0)).toHaveText(
+      'Averyveryverylongwordthatkeepsgoingwithoutanyspacesatalltoseethatitwraps',
+    );
+    await expect(titles(page).nth(1)).toHaveText('A habit that became a faith');
+    // Filters stay as the tab changes.
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation?theme=doubt`);
+    await tab(page, 'Being edited').click();
+    await expect(page).toHaveURL(/state=editing&theme=doubt$/);
+    await expect(titles(page)).toHaveText(['Waiting for a word']);
+  });
+
+  // OQ-2: on Waiting for review, the time turns orange after 2 days and red after 7.
+  test('the Waiting column shows how long each story has waited, orange after 2 days and red after 7', async ({
+    page,
+  }) => {
+    await page.clock.setFixedTime(new Date('2026-11-08T10:00:00.000Z'));
+    await useSession(page, 'moderator-waiting');
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation`);
+    const waiting = (id: string) =>
+      page.locator(`[data-list-item="${id}"] [data-list-waiting]`);
+    // Sent 1 November 09:05: 7 days and 55 minutes.
+    await expect(waiting('mod_video')).toHaveText(/7 days$/);
+    await expect(waiting('mod_video')).toHaveAttribute(
+      'data-list-waiting',
+      'overdue',
+    );
+    // Sent 2 November 04:05: 6 days.
+    await expect(waiting('mod_wait_20')).toHaveText(/6 days$/);
+    await expect(waiting('mod_wait_20')).toHaveAttribute(
+      'data-list-waiting',
+      'late',
+    );
+    await page.clock.setFixedTime(new Date('2026-11-01T11:19:00.000Z'));
+    await page.reload();
+    await expect(waiting('mod_video')).toHaveText(/2 h 14 min$/);
+    await expect(waiting('mod_video')).toHaveAttribute('data-list-waiting', '');
+    // Other tabs: the same time, "In this state", never coloured.
+    await page.clock.setFixedTime(new Date('2026-11-30T10:00:00.000Z'));
+    await tab(page, 'Being edited').click();
+    await expect(
+      listItems(page).first().locator('[data-list-waiting]'),
+    ).toHaveAttribute('data-list-waiting', '');
+  });
+
+  // Phones: the tabs scroll sideways; the panel folds into "Filters and sort (N)".
+  test('on a phone the filters fold into “Filters and sort”, counting those on', async ({
+    page,
+  }, info) => {
+    test.skip(info.project.name !== 'phone-320', 'phones only');
+    await useSession(page, 'moderator-phone');
+    await page.goto(
+      `${WEB_SIGNED_IN_URL}/moderation?format=video&theme=healing`,
+    );
+    const toggle = page.getByRole('button', { name: 'Filters and sort (2)' });
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(
+      page.getByRole('region', { name: 'Filters and sort' }),
+    ).toBeHidden();
+    await expect(titles(page)).toHaveText(['The night I stopped running']);
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    const panel = page.getByRole('region', { name: 'Filters and sort' });
+    await expect(panel.getByRole('checkbox', { name: /^Video/ })).toBeChecked();
+    await toggle.click();
+    await expect(panel).toBeHidden();
+    // The tabs scroll sideways inside themselves; the page doesn't.
+    const strip = page.locator('[data-state-tabs]');
+    expect(await strip.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(
+      true,
+    );
+    await expectNoHorizontalOverflow(page);
   });
 
   test('an Admin also lists drafts never sent, and opens one', async ({
@@ -458,9 +634,15 @@ test.describe('moderation', () => {
   }) => {
     await useSession(page, 'admin-drafts');
     await page.goto(`${WEB_SIGNED_IN_URL}/moderation`);
-    await chooseOption(page.getByLabel('Show'), 'Drafts never sent');
-    await expect(listItems(page)).toHaveCount(1);
-    await expect(states(page)).toHaveText(['State: Draft, never sent']);
+    await expect(tab(page, 'Drafts never sent')).toHaveText(
+      'Drafts never sent(1)',
+    );
+    await tab(page, 'Drafts never sent').click();
+    await expect(page).toHaveURL(/\?state=draft$/);
+    await expect(titles(page)).toHaveText(['Half written']);
+    await expect(
+      listItems(page).first().locator('[data-list-sent]'),
+    ).toHaveText('Never sent');
     await listItems(page).first().getByRole('link').click();
     await expect(page.locator('[data-review-status]')).toHaveText(
       'Draft, never sent',
@@ -751,7 +933,31 @@ test('the stub api-admin’s moderation answers fit the contract', async ({
     (await check('/v1/moderation/stories/mod_draft', fresh('admin-contract')))
       .status,
   ).toBe(200);
-  expect((await check('/v1/moderation/stories?limit=0')).status).toBe(400);
+  // MQ-1 E: filtered, sorted and paged; the counts (an Admin's with drafts).
+  for (const sort of ['oldest', 'newest', 'changed']) {
+    const filtered = await check(
+      `/v1/moderation/stories?q=story&format=written&format=video&theme=doubt&sort=${sort}`,
+    );
+    expect(filtered.status).toBe(200);
+    const paged = await check(`/v1/moderation/stories?sort=${sort}`);
+    expect(
+      (
+        await check(
+          `/v1/moderation/stories?sort=${sort}&cursor=${paged.body.nextCursor}`,
+        )
+      ).status,
+    ).toBe(200);
+  }
+  expect(first.body.counts.states).not.toHaveProperty('draft');
+  expect(
+    (await check('/v1/moderation/stories', fresh('admin-contract'))).body.counts
+      .states,
+  ).toHaveProperty('draft', 1);
+  for (const bad of ['q=', 'format=film', 'sort=random', 'limit=0']) {
+    expect((await check(`/v1/moderation/stories?${bad}`)).status, bad).toBe(
+      400,
+    );
+  }
   expect((await check('/v1/moderation/stories?state=draft')).status).toBe(403);
   // The decisions' answers too: applied, a missing note, a stale tag, a refusal.
   const post = async (path: string, body: unknown, ifMatch?: string) => {

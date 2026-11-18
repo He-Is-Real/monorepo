@@ -65,6 +65,19 @@ type ListState = (typeof LIST_STATES)[number];
 
 /** A theme id, as browse takes it (api-public-read's `?theme=`). */
 const THEME_ID = /^[0-9A-Za-z_]{1,40}$/;
+/** MQ-1 E (Joel, 2026-11-17): at most this many `theme`s; a story must have all of them. */
+const MAX_THEMES = 20;
+/** MQ-1 E: a title search is 1–100 characters once trimmed. */
+const MAX_SEARCH = 100;
+const FORMATS = ['video', 'audio', 'written'] as const;
+type Format = (typeof FORMATS)[number];
+/**
+ * MQ-1 E: the list's orders. `oldest` (the default, the old queue's) and `newest` by when the
+ * story entered its state; `changed` by when the story last changed, newest first. Each breaks
+ * ties by the row's id, the same way round, so paging never repeats or skips a row.
+ */
+const SORTS = ['oldest', 'newest', 'changed'] as const;
+type Sort = (typeof SORTS)[number];
 
 /** What each row shows of the story: no words beyond the title, no files, no submitter. */
 const LIST_FIELDS = (
@@ -74,15 +87,42 @@ const LIST_FIELDS = (
     ${s}.themeRefs.map(|$t| { id: record::id($t), name: $t.name }) AS themes`;
 
 /**
- * A logged state: the status entries the story points at (its current state), oldest first, on
- * the status log's (status, at) index (storyStatusLog_queue): for `pending` the same order as the
- * old queue. An old entry of a story that has moved on is skipped. Bind `$state`, `$theme` (or
- * NONE), `$after` = [at, entry id] or NONE, `$take`.
+ * The filters a row of state `$state` must pass (MQ-1 E, OQ-2): every theme in `$themes` (AND),
+ * any format in `$formats` (OR; none = all), and the title containing `$q`, ignoring capitals.
+ * `s` names the story; `formats` false leaves the format filter out (the format counts).
+ */
+const FILTERS = (s: string, formats = true) => `
+    AND ($themes = [] OR ${s}themeIds CONTAINSALL $themes)
+    ${formats ? `AND ($formats = [] OR ${s}primaryFormat IN $formats)` : ''}
+    AND ($q = NONE OR string::lowercase(${s}title) CONTAINS string::lowercase($q))`;
+
+/** A logged state's rows: the status entries the stories point at (their current state). */
+const LOGGED_WHERE = `status = $state AND story.currentStatus = id`;
+
+/**
+ * Where the page starts after the cursor, and the order, by sort: `t` is the sort's time, `id`
+ * the row's own id (the tiebreak).
+ */
+function paging(sort: Sort, t: string) {
+  const [cmp, dir] = sort === 'oldest' ? ['>', 'ASC'] : ['<', 'DESC'];
+  return {
+    after: `AND ($c = NONE OR ${t} ${cmp} $c OR (${t} = $c AND id ${cmp} $cid))`,
+    order: `ORDER BY ${sort === 'changed' ? 'updatedAt' : 'since'} ${dir}, key ${dir}`,
+  };
+}
+
+/**
+ * A logged state: the status entries the story points at (its current state), on the status
+ * log's (status, at) index (storyStatusLog_queue): `oldest` is the old queue's order. An old
+ * entry of a story that has moved on is skipped. Bind `$state`, the filters, `$after` = [time,
+ * entry id] or NONE, `$take`.
  * `ours` (Part 1a, P1-5, P1-9): a story waiting for review or taken off the site by the system
  * whose file's check gave up on our side and the nightly retries are used up
  * (fn::media::our_problem): "a problem on our side".
  */
-const LIST_LOGGED_SQL = `
+function listLoggedSql(sort: Sort): string {
+  const p = paging(sort, sort === 'changed' ? 'story.updatedAt' : 'at');
+  return `
   LET $c = IF $after != NONE { <datetime> $after[0] };
   LET $cid = IF $after != NONE { type::record('storyStatusLog', $after[1]) };
   SELECT record::id(id) AS key, record::id(story) AS id, action, at AS since,
@@ -93,21 +133,51 @@ const LIST_LOGGED_SQL = `
       fn::media::our_problem(story.mediaFile).ours
     } AS ours
   FROM storyStatusLog WITH INDEX storyStatusLog_queue
-  WHERE status = $state AND story.currentStatus = id
-    AND ($theme = NONE OR $theme IN story.themeIds)
-    AND ($c = NONE OR at > $c OR (at = $c AND id > $cid))
-  ORDER BY since ASC, key ASC LIMIT $take;`;
+  WHERE ${LOGGED_WHERE} ${FILTERS('story.')}
+    ${p.after}
+  ${p.order} LIMIT $take;`;
+}
 
-/** Drafts never sent (Admins only): no status entry; oldest started first. */
-const LIST_DRAFTS_SQL = `
+/** Drafts never sent (Admins only): no status entry; by when they were started. */
+function listDraftsSql(sort: Sort): string {
+  const p = paging(sort, sort === 'changed' ? 'updatedAt' : 'createdAt');
+  return `
   LET $c = IF $after != NONE { <datetime> $after[0] };
   LET $cid = IF $after != NONE { type::record('story', $after[1]) };
   SELECT record::id(id) AS key, record::id(id) AS id, createdAt AS since, ${LIST_FIELDS('$this')}
   FROM story
-  WHERE currentStatus = NONE
-    AND ($theme = NONE OR $theme IN themeIds)
-    AND ($c = NONE OR createdAt > $c OR (createdAt = $c AND id > $cid))
-  ORDER BY since ASC, key ASC LIMIT $take;`;
+  WHERE currentStatus = NONE ${FILTERS('')}
+    ${p.after}
+  ${p.order} LIMIT $take;`;
+}
+
+/**
+ * MQ-1 E: how many stories each state holds, whatever the filters (drafts only when `$drafts`,
+ * for an Admin), and how many of the asked state's stories are in each format, with the search
+ * and themes applied but not the format filter.
+ */
+const STATE_COUNTS_SQL = `
+  RETURN {
+    pending: array::len(SELECT VALUE id FROM storyStatusLog WITH INDEX storyStatusLog_queue
+      WHERE status = 'pending' AND story.currentStatus = id),
+    editing: array::len(SELECT VALUE id FROM storyStatusLog WITH INDEX storyStatusLog_queue
+      WHERE status = 'editing' AND story.currentStatus = id),
+    hidden: array::len(SELECT VALUE id FROM storyStatusLog WITH INDEX storyStatusLog_queue
+      WHERE status = 'hidden' AND story.currentStatus = id),
+    rejected: array::len(SELECT VALUE id FROM storyStatusLog WITH INDEX storyStatusLog_queue
+      WHERE status = 'rejected' AND story.currentStatus = id),
+    draft: IF $drafts { array::len(SELECT VALUE id FROM story WHERE currentStatus = NONE) }
+  };`;
+
+/** MQ-1 E: the asked state's stories by format, filtered but for the format. */
+function formatCountsSql(state: ListState): string {
+  return state === 'draft'
+    ? `SELECT primaryFormat AS format, count() AS n FROM story
+         WHERE currentStatus = NONE ${FILTERS('', false)} GROUP BY format;`
+    : `SELECT story.primaryFormat AS format, count() AS n
+         FROM storyStatusLog WITH INDEX storyStatusLog_queue
+         WHERE ${LOGGED_WHERE} ${FILTERS('story.', false)} GROUP BY format;`;
+}
 
 /**
  * One story under review (task 3.2): what the public would see, its files' processing state, and
@@ -222,20 +292,29 @@ function parseLimit(raw: string | undefined): number {
   return n;
 }
 
-/** The entry's time as the database gave it (to the nanosecond), so no row repeats or is skipped. */
-function encodeCursor(row: ListRow): string {
-  return Buffer.from(JSON.stringify([row.since, recordKey(row.key)])).toString(
+/**
+ * The cursor (MQ-1 E): the sort it pages, and the last row's sort time as the database gave it
+ * (to the nanosecond) and its own id, so no row repeats or is skipped.
+ */
+function encodeCursor(sort: Sort, row: ListRow): string {
+  const at = sort === 'changed' ? row.updatedAt : row.since;
+  return Buffer.from(JSON.stringify([sort, at, recordKey(row.key)])).toString(
     'base64url',
   );
 }
 
-function decodeCursor(raw: string | undefined): [string, string] | undefined {
+/** A cursor this service gave out for this sort, as [time, id]; anything else is a `400`. */
+function decodeCursor(
+  raw: string | undefined,
+  sort: Sort,
+): [string, string] | undefined {
   if (raw === undefined) return undefined;
   try {
-    const [at, entry] = JSON.parse(
+    const [given, at, entry] = JSON.parse(
       Buffer.from(raw, 'base64url').toString('utf8'),
     ) as unknown[];
     if (
+      given === sort &&
       typeof at === 'string' &&
       isCursorTime(at) &&
       typeof entry === 'string' &&
@@ -247,6 +326,51 @@ function decodeCursor(raw: string | undefined): [string, string] | undefined {
     // fall through
   }
   throw invalid('/cursor', 'The cursor isn’t one this service gave out');
+}
+
+/** A query parameter's values: none, one, or repeated (Express's simple parser). */
+function many(raw: unknown, pointer: string): string[] {
+  if (raw === undefined) return [];
+  if (typeof raw === 'string') return [raw];
+  if (Array.isArray(raw) && raw.every((v) => typeof v === 'string'))
+    return raw as string[];
+  throw invalid(pointer, 'Give it as one value, or repeat the parameter');
+}
+
+/** MQ-1 E's filters and sort, checked: anything else is a `400`. */
+function parseFilters(query: {
+  q?: unknown;
+  format?: unknown;
+  theme?: unknown;
+  sort?: unknown;
+}) {
+  const themes = [...new Set(many(query.theme, '/theme'))].filter(
+    (t) => t !== '',
+  );
+  if (themes.length > MAX_THEMES) {
+    throw invalid('/theme', `At most ${MAX_THEMES} themes`);
+  }
+  if (!themes.every((t) => THEME_ID.test(t))) {
+    throw invalid('/theme', 'A theme id: letters, digits and underscores.');
+  }
+  const formats = [...new Set(many(query.format, '/format'))];
+  if (!formats.every((f) => (FORMATS as readonly string[]).includes(f))) {
+    throw invalid('/format', `format is one of ${FORMATS.join(', ')}`);
+  }
+  const sorts = many(query.sort, '/sort');
+  const sort = (sorts[0] ?? 'oldest') as Sort;
+  if (sorts.length > 1 || !SORTS.includes(sort)) {
+    throw invalid('/sort', `sort is one of ${SORTS.join(', ')}`);
+  }
+  const qs = many(query.q, '/q');
+  const q = qs[0]?.trim();
+  if (
+    qs.length > 1 ||
+    (q !== undefined && (q === '' || [...q].length > MAX_SEARCH))
+  ) {
+    throw invalid('/q', `A title search is 1–${MAX_SEARCH} characters`);
+  }
+  return { themes, formats: formats as Format[], sort, q };
 }
 
 /** MD-3: drafts never sent are for Admins only. */
@@ -466,8 +590,7 @@ export class ModerationController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
     @Headers('if-none-match') ifNoneMatch?: string,
-    @Query('state') stateRaw?: string,
-    @Query('theme') themeRaw?: string,
+    @Query('state') stateRaw?: unknown,
     @Query('limit') limit?: string,
     @Query('cursor') cursor?: string,
   ) {
@@ -475,26 +598,34 @@ export class ModerationController {
     if (!LIST_STATES.includes(state)) {
       throw invalid('/state', `state is one of ${LIST_STATES.join(', ')}`);
     }
-    const theme =
-      themeRaw === undefined || themeRaw === '' ? undefined : themeRaw;
-    if (theme !== undefined && !THEME_ID.test(theme)) {
-      throw invalid('/theme', 'A theme id: letters, digits and underscores.');
-    }
+    const { themes, formats, sort, q } = parseFilters(req.query);
     const take = parseLimit(limit);
-    const after = decodeCursor(cursor);
-    if (state === 'draft') {
-      // MD-3: drafts never sent are for Admins only.
-      const { role } = await this.people.authenticate(req);
-      requireAdmin(role);
-    }
-    const results = await runQuery(
-      this.db,
-      state === 'draft' ? LIST_DRAFTS_SQL : LIST_LOGGED_SQL,
-      { state, theme, after, take: take + 1 },
-    );
-    const rows = (results.at(-1) ?? []) as ListRow[];
+    const after = decodeCursor(cursor, sort);
+    // MD-3: drafts never sent, and how many there are, are for Admins only.
+    const { role } = await this.people.authenticate(req);
+    if (state === 'draft') requireAdmin(role);
+    const drafts = role === 'Admin';
+    const sql =
+      (state === 'draft' ? listDraftsSql(sort) : listLoggedSql(sort)) +
+      STATE_COUNTS_SQL +
+      formatCountsSql(state);
+    const results = await runQuery(this.db, sql, {
+      state,
+      themes,
+      formats,
+      q,
+      after,
+      take: take + 1,
+      drafts,
+    });
+    const [rows, states, inFormats] = results.slice(-3) as [
+      ListRow[],
+      Record<ListState, number | null>,
+      { format: string; n: number }[],
+    ];
     const page = rows.slice(0, take);
     const last = page.at(-1);
+    const { draft, ...logged } = states;
     return conditional(
       res,
       {
@@ -513,7 +644,18 @@ export class ModerationController {
           // Part 1a: "a problem on our side".
           mediaProblem: r.ours ? 'ours' : null,
         })),
-        nextCursor: rows.length > take && last ? encodeCursor(last) : null,
+        nextCursor:
+          rows.length > take && last ? encodeCursor(sort, last) : null,
+        // MQ-1 E: a Moderator never sees how many drafts there are.
+        counts: {
+          states: drafts ? { ...logged, draft: draft ?? 0 } : logged,
+          formats: Object.fromEntries(
+            FORMATS.map((f) => [
+              f,
+              inFormats.find((x) => x.format === f)?.n ?? 0,
+            ]),
+          ),
+        },
       },
       ifNoneMatch,
     );

@@ -40,6 +40,8 @@ describe('moderation, the read side (api-admin)', () => {
   let app: NestExpressApplication;
   let url: string;
   let ann: Awaited<ReturnType<typeof buildWorld>>['ann'];
+  let bob: Awaited<ReturnType<typeof buildWorld>>['bob'];
+  let admin: Awaited<ReturnType<typeof buildWorld>>['admin'];
   let migrator: Awaited<ReturnType<TestDatabase['migrator']>>;
 
   async function get(
@@ -86,8 +88,7 @@ describe('moderation, the read side (api-admin)', () => {
     });
     // Ann's and Bob's waiting stories (sent in that order), Bob's published one, two drafts.
     const world = await buildWorld(t);
-    const { admin, bob } = world;
-    ann = world.ann;
+    ({ admin, bob, ann } = world);
     migrator = await t.migrator();
     const workflow = await t.service('workflow');
 
@@ -206,9 +207,9 @@ describe('moderation, the read side (api-admin)', () => {
     }
     // Times Date.parse takes but the database won't cast: a 400, never a 500 (Codex #210).
     for (const at of ['0', '2026-02-31T00:00:00Z', '2026-01-01T24:00:00Z']) {
-      const cursor = Buffer.from(JSON.stringify([at, 'entry'])).toString(
-        'base64url',
-      );
+      const cursor = Buffer.from(
+        JSON.stringify(['oldest', at, 'entry']),
+      ).toString('base64url');
       expect(
         (await get(`/v1/moderation/stories?cursor=${cursor}`)).status,
         at,
@@ -270,6 +271,213 @@ describe('moderation, the read side (api-admin)', () => {
       opened.body.status,
       opened.body.submittedAt,
     ]).toEqual([200, 'editing', null]);
+  });
+
+  // MQ-1 E and OQ-2 (Joel, 2026-11-17): search, formats (any), themes (all), three sorts, and
+  // the counts on the tabs and format boxes.
+  describe('filters, sorts and counts (MQ-1 E)', () => {
+    const ids = async (query: string, role = 'Moderator') =>
+      (await get(`/v1/moderation/stories?${query}`, { role })).body.data.map(
+        (s: { id: string }) => s.id,
+      );
+
+    beforeAll(async () => {
+      // Waiting: Ann's about Doubt and the common theme, with capitals in its title.
+      await draft(ann, 'ann_both', {
+        title: 'Hope in the HOSPITAL',
+        themeRefs: [
+          new StringRecordId('theme:doubt'),
+          new StringRecordId('theme:common'),
+        ],
+      });
+      await submit(ann, 'ann_both');
+      // When each waiting story last changed (only the migrator can set it): two at once.
+      await run(
+        migrator,
+        `UPDATE story:ann_pending SET updatedAt = d'2030-01-05T00:00:00Z';
+         UPDATE story:ann_video SET updatedAt = d'2030-01-01T00:00:00Z';
+         UPDATE story:bob_pending SET updatedAt = d'2030-01-03T00:00:00Z';
+         UPDATE story:ann_doubt SET updatedAt = d'2030-01-03T00:00:00Z';
+         UPDATE story:ann_both SET updatedAt = d'2030-01-02T00:00:00Z';`,
+      );
+    });
+
+    it('a title search ignores capitals and spaces around it', async () => {
+      expect(await ids('q=hospital')).toEqual(['ann_both']);
+      expect(await ids('q=%20%20Hospital%20')).toEqual(['ann_both']);
+      expect(await ids('q=STORY%20ANN')).toEqual([
+        'ann_pending',
+        'ann_video',
+        'ann_doubt',
+      ]);
+      expect(await ids('q=nothing%20like%20it')).toEqual([]);
+    });
+
+    it('formats match any of them; themes all of them; together, each must pass', async () => {
+      expect(await ids('format=video')).toEqual(['ann_video']);
+      expect(await ids('format=video&format=written')).toEqual([
+        'ann_pending',
+        'ann_video',
+        'bob_pending',
+        'ann_doubt',
+        'ann_both',
+      ]);
+      expect(await ids('format=audio')).toEqual([]);
+      expect(await ids('theme=doubt')).toEqual(['ann_doubt', 'ann_both']);
+      expect(await ids('theme=doubt&theme=common')).toEqual(['ann_both']);
+      expect(await ids('theme=common&format=video')).toEqual(['ann_video']);
+      expect(await ids('theme=doubt&q=story')).toEqual(['ann_doubt']);
+      expect(await ids('theme=doubt&format=video')).toEqual([]);
+    });
+
+    it('sorts oldest (the default) or newest by when it entered its state, or by when it last changed', async () => {
+      const oldest = [
+        'ann_pending',
+        'ann_video',
+        'bob_pending',
+        'ann_doubt',
+        'ann_both',
+      ];
+      expect(await ids('sort=oldest')).toEqual(oldest);
+      expect(await ids('sort=newest')).toEqual([...oldest].reverse());
+      const changed = await ids('sort=changed');
+      expect(changed[0]).toBe('ann_pending');
+      expect(new Set(changed.slice(1, 3))).toEqual(
+        new Set(['bob_pending', 'ann_doubt']),
+      );
+      expect(changed.slice(3)).toEqual(['ann_both', 'ann_video']);
+      // Each page carries its sort's time: the rows come newest changed first.
+      const page = (await get('/v1/moderation/stories?sort=changed')).body;
+      const times = page.data.map((s: { updatedAt: string }) => s.updatedAt);
+      expect([...times].sort().reverse()).toEqual(times);
+    });
+
+    it('pages through every sort, filtered or not, one row at a time with no repeats or gaps', async () => {
+      for (const sort of ['oldest', 'newest', 'changed']) {
+        for (const query of [
+          `sort=${sort}`,
+          `sort=${sort}&format=written`,
+          `sort=${sort}&theme=common`,
+        ]) {
+          expect(await list(query, 1), query).toEqual(await list(query));
+        }
+        const drafts = `state=draft&sort=${sort}`;
+        expect(await list(drafts, 1, 'Admin'), drafts).toEqual(
+          await list(drafts, 50, 'Admin'),
+        );
+      }
+      // A cursor pages only the sort it came from.
+      const first = await get('/v1/moderation/stories?sort=newest&limit=1');
+      const elsewhere = await get(
+        `/v1/moderation/stories?sort=changed&cursor=${first.body.nextCursor}`,
+      );
+      expect(elsewhere.status).toBe(400);
+    });
+
+    it('counts each state whatever the filters, and this state’s formats with the search and themes but not the format', async () => {
+      const counted = async (query: string, role = 'Moderator') =>
+        (await get(`/v1/moderation/stories?${query}`, { role })).body.counts;
+      const everyState = {
+        pending: (await list('state=pending')).length,
+        editing: (await list('state=editing')).length,
+        hidden: (await list('state=hidden')).length,
+        rejected: (await list('state=rejected')).length,
+      };
+      expect(everyState.pending).toBe(5);
+      // A Moderator never gets the drafts' count; an Admin does.
+      expect(await counted('')).toEqual({
+        states: everyState,
+        formats: { video: 1, audio: 0, written: 4 },
+      });
+      expect(
+        (await counted('q=hospital&format=video&theme=doubt')).states,
+      ).toEqual(everyState);
+      expect((await counted('', 'Admin')).states).toEqual({
+        ...everyState,
+        draft: (await list('state=draft', 50, 'Admin')).length,
+      });
+      // Formats: the search and themes narrow them; the format filter doesn't.
+      expect((await counted('format=video')).formats).toEqual({
+        video: 1,
+        audio: 0,
+        written: 4,
+      });
+      expect((await counted('theme=doubt&format=video')).formats).toEqual({
+        video: 0,
+        audio: 0,
+        written: 2,
+      });
+      expect((await counted('q=story%20ann')).formats).toEqual({
+        video: 1,
+        audio: 0,
+        written: 2,
+      });
+      expect((await counted('state=rejected')).formats).toEqual({
+        video: 0,
+        audio: 0,
+        written: 1,
+      });
+    });
+
+    it('a changed count changes the ETag, even when the page’s rows don’t', async () => {
+      const before = await get('/v1/moderation/stories?state=rejected');
+      expect(
+        (
+          await get('/v1/moderation/stories?state=rejected', {
+            headers: { 'if-none-match': before.etag ?? '' },
+          })
+        ).status,
+      ).toBe(304);
+      await draft(bob, 'bob_counted');
+      await submit(bob, 'bob_counted');
+      const after = await get('/v1/moderation/stories?state=rejected', {
+        headers: { 'if-none-match': before.etag ?? '' },
+      });
+      expect(after.status).toBe(200);
+      expect(after.body.data).toEqual(before.body.data);
+      expect(after.body.counts.states.pending).toBe(
+        before.body.counts.states.pending + 1,
+      );
+      // Back as it was for the tests after this one.
+      await step(admin, 'bob_counted', 'rejected', { comment: NOTE });
+    });
+
+    it('refuses values it doesn’t take: 400', async () => {
+      for (const bad of [
+        'q=',
+        'q=%20%20',
+        `q=${'a'.repeat(101)}`,
+        'q=a&q=b',
+        'format=film',
+        'format=video&format=Video',
+        'theme=no%20spaces',
+        Array.from({ length: 21 }, (_, i) => `theme=t${i}`).join('&'),
+        'sort=random',
+        'sort=oldest&sort=newest',
+        'state=pending&state=editing',
+      ]) {
+        const refused = await get(`/v1/moderation/stories?${bad}`);
+        expect([refused.status, refused.body.code], bad).toEqual([
+          400,
+          'validation_failed',
+        ]);
+      }
+      // 100 characters and 20 themes are fine.
+      expect(
+        (await get(`/v1/moderation/stories?q=${'a'.repeat(100)}`)).status,
+      ).toBe(200);
+      expect(
+        (
+          await get(
+            `/v1/moderation/stories?${Array.from({ length: 20 }, (_, i) => `theme=t${i}`).join('&')}`,
+          )
+        ).status,
+      ).toBe(200);
+      // Drafts stay an Admin's, filtered or not.
+      expect(
+        (await get('/v1/moderation/stories?state=draft&sort=newest')).status,
+      ).toBe(403);
+    });
   });
 
   it('a story under review: its words, picture and a one-hour player link, and its history with moderators’ notes', async () => {

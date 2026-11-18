@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { connection } from 'next/server';
 import { AdminPage } from '@/components/admin/admin-page';
+import { listFilters } from '@/components/moderation/moderation-api';
 import { ModerationList } from '@/components/moderation/moderation-list';
 import { listThemes, type ThemeCategory } from '@/lib/browse';
 import { apiAdminUrl } from '@/lib/config';
@@ -23,9 +24,6 @@ export function generateMetadata(): Metadata {
   };
 }
 
-const one = (v: string | string[] | undefined) =>
-  typeof v === 'string' && v !== '' ? v : undefined;
-
 /** The themes to filter by, as browse lists them; none if api-public-read can't answer. */
 async function themes(): Promise<ThemeCategory[]> {
   try {
@@ -37,9 +35,10 @@ async function themes(): Promise<ThemeCategory[]> {
 }
 
 /**
- * /moderation (MD-3, MD-4: Joel 2026-11-14; it replaces the queue): every story that isn't on the
- * site, one state at a time (`?state=`), optionally one theme (`?theme=`), for Moderators and
- * Admins (Admins also see drafts never sent). The page asks api-admin from the browser with the
+ * /moderation (MD-3, MD-4: Joel 2026-11-14; it replaces the queue; MQ-1 E, Joel 2026-11-17): every
+ * story that isn't on the site, one state at a time (`?state=`), narrowed by a title search
+ * (`?q=`), formats (`?format=`) and themes (`?theme=`) and sorted (`?sort=`), for Moderators and
+ * Admins (Admins also see drafts never sent). Wider than the site on big screens (OQ-3 A). The page asks api-admin from the browser with the
  * person's own token (D31), and api-admin refuses anyone else; web's server renders the same shell
  * for everyone (D32) and only hands over api-admin's address and the public themes.
  */
@@ -48,12 +47,13 @@ export default async function ModerationPage({ searchParams }: Props) {
   const sp = await searchParams;
   return (
     <AdminPage
+      width="wide"
       title="Moderation"
       description={
         <>
           <p>
-            Every story that isn’t on the site, oldest first. Open one to read,
-            watch or listen to it as the public would, with its history.
+            Every story that isn’t on the site. Open one to read, watch or
+            listen to it as the public would, with its history.
           </p>
         </>
       }
@@ -61,8 +61,7 @@ export default async function ModerationPage({ searchParams }: Props) {
       <ModerationList
         apiAdminUrl={apiAdminUrl()}
         categories={await themes()}
-        state={one(sp['state'])}
-        theme={one(sp['theme'])}
+        filters={listFilters(sp)}
       />
     </AdminPage>
   );

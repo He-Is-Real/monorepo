@@ -1,6 +1,6 @@
 # Delivery status
 
-Where the build is, in plain words. **Last updated:** 2026-11-17
+Where the build is, in plain words. **Last updated:** 2026-11-18
 
 Everything here runs on the **dev** test site only, with made-up stories. Nothing reaches the
 public until the "Go live" milestone. The old prototype and the Squarespace site keep running until
@@ -88,7 +88,7 @@ Kept basic for now. Joel will decide later how stories are shared out between mo
 - ✅ Plain error messages ("Something went wrong. Please try again later.")
 - ✅ Staff roles: User, Moderator and Admin, with a Staff page for Admins
 - ✅ Staff links in the site's menu
-- ✅ Moderators' list of every story that isn't public, with filters
+- ✅ Moderators' list of every story that isn't public: tabs with counts, search, sort and filters, long waits in orange and red
 - ✅ Review page showing a story as the public will see it, with its history
 - ✅ Approve, send back with a note, reject, take down and put back
 - ✅ Take-down button on a published story's own page

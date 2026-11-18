@@ -701,12 +701,33 @@ Built (M3 plan, pull requests 1 and 6; Joel, 2026-11-09 and 2026-11-11):
   time: waiting for review, being edited (sent back by a moderator, or its owner pressed Edit),
   taken down (by a moderator, or by the site while its video or audio can't play) and rejected.
   Admins also see drafts never sent ("visibility of users who might be preparing spam or other
-  malicious activities"); Moderators never do, on the list or by a story's address. It opens on
-  "Waiting for review", oldest first (the one sent longest ago; a story sent again after changes
-  goes to the back), and each state lists oldest first by when the story entered it. One theme
-  narrows it (the same theme picker as browse). It is a table, not story cards: title and kind,
-  state (with what put it there), themes, and the dates (sent, when it entered its state, when it
-  last changed), 20 at a time with "Show more". Each title opens the review page.
+  malicious activities"); Moderators never do, on the list or by a story's address.
+  Its layout (MQ-1 E, OQ-2 and OQ-3 A, Joel 2026-11-17):
+  - **Tabs:** the states are tabs across the top, in this order: Waiting for review, Being edited,
+    Taken down, Rejected, and (Admins only) Drafts never sent. Each tab shows how many stories
+    that state holds, whatever the filters; a Moderator is never told how many drafts there are.
+    It opens on "Waiting for review". Each tab is a link in the address (`?state=`).
+  - **Side panel:** a title search (ignoring capitals), the sort, the formats (Video, Audio,
+    Written) with how many of this tab's stories are in each (search and themes applied, the
+    format boxes not), and the themes grouped by category as browse groups them (the
+    highlighted ones and any ticked one show; "+ N more" shows the rest in place). Ticking
+    several themes shows only stories with all of them; ticking several formats shows stories in
+    any of them; the search, formats and themes together narrow the list. "Clear filters" takes
+    off the search, formats and themes (the tab and the sort stay). Every filter and the sort are
+    in the address, so a link or Back shows the same list.
+  - **Sorts:** Oldest first (the default: by when the story entered its state, so on "Waiting
+    for review" the one sent longest ago, and a story sent again after changes goes to the back),
+    Newest first, and Recently changed (when the story last changed, newest first).
+  - **The list:** one line per story: its title with a format icon (opening the review page),
+    its state (with what put it there), its themes, the time it has been in this state, when it
+    was sent and when it last changed; 20 at a time with "Show more". The time column is called
+    "Waiting" on "Waiting for review" and "In this state" on the other tabs. On "Waiting for
+    review" only, it turns orange after 2 days and red after 7 days. The counts and times are as
+    of when the list loaded (opening the page, a tab or a filter): nothing updates live.
+  - **Width:** on screens 1280 px and wider the page's content may be up to 1600 px wide, centred
+    like Consent & legal; no column in it is wider than 1200 px. Below 1280 px the tabs scroll
+    sideways, the side panel folds into a "Filters and sort (N)" button (N = the filters on), and
+    each story is a small card: its title with the format icon, its themes and the time.
 - **Take down from the story's page (MD-1, Joel 2026-11-14):** a signed-in Moderator or Admin sees
   "Take down" under a published story on the public site. It opens the review page's own
   take-down form (a reason is required) and takes the story off the site the same way. Nobody else
