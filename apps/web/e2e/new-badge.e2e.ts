@@ -48,7 +48,7 @@ async function expectInside(inner: Locator, outer: Locator, what: string) {
 
 /**
  * The boxes of card `c` and of its parts, read in one go from one layout (null for a part the
- * card doesn't have). Boxes read one call apart can come from two layouts: browse's "Favourites
+ * card doesn't have or doesn't show; `found` says which parts are in the card at all). Boxes read one call apart can come from two layouts: browse's "Favourites
  * only" switch appears once the page's JavaScript knows who is visiting (browse-view.tsx) and
  * moves every card down 56 px, more than the gap between a card's media and its badge, so a
  * badge read before it and media read after it seemed to overlap.
@@ -56,7 +56,7 @@ async function expectInside(inner: Locator, outer: Locator, what: string) {
 async function cardBoxes<K extends string>(
   c: Locator,
   parts: Record<K, string>,
-): Promise<{ card: Box } & Record<K, Box | null>> {
+): Promise<{ card: Box; found: Record<K, boolean> } & Record<K, Box | null>> {
   return c.evaluate(
     (el, sel) => {
       // Like Playwright's boundingBox(): null for an element that isn't rendered visibly.
@@ -72,11 +72,11 @@ async function cardBoxes<K extends string>(
           throw new Error(`${all.length} elements match ${s} in one card`);
         return all[0] ?? null;
       };
+      const els = Object.entries(sel).map(([k, s]) => [k, one(s)] as const);
       return {
         card: box(el),
-        ...Object.fromEntries(
-          Object.entries(sel).map(([k, s]) => [k, box(one(s))]),
-        ),
+        found: Object.fromEntries(els.map(([k, e]) => [k, e !== null])),
+        ...Object.fromEntries(els.map(([k, e]) => [k, box(e)])),
       };
     },
     parts as Record<string, string>,
@@ -98,6 +98,7 @@ async function expectClearOfHeart(c: Locator, what: string) {
 async function expectBadgePlaced(c: Locator) {
   const {
     card: article,
+    found,
     badge,
     label,
     heart,
@@ -116,7 +117,9 @@ async function expectBadgePlaced(c: Locator) {
   expect(label && heart, 'badge').toBeTruthy();
   if (label && heart)
     expect(overlaps(label, heart), 'badge: label covers the heart').toBe(false);
-  // A written story without a picture has no media.
+  // A written story without a picture has no media; media that is there must show.
+  if (!found.media) return;
+  expect(media, 'media shows').toBeTruthy();
   if (media)
     expect(overlaps(badge, media), 'badge covers the media').toBe(false);
 }
