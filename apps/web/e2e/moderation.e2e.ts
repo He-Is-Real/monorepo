@@ -650,6 +650,31 @@ test.describe('moderation', () => {
     await expect(
       back.getByRole('link', { name: 'Healing', exact: true }),
     ).not.toHaveAttribute('aria-current', 'true');
+
+    // Codex round 2: Clear filters, pressed before a choice has reached the address, drops it
+    // too, even though it leads back to the address the page is already on.
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation`);
+    await expect(listItems(page)).toHaveCount(20);
+    held.length = 0;
+    await page.route(navigation, (route) => {
+      held.push(() => route.continue().catch(() => undefined));
+    });
+    const again = await filters(page);
+    const healing2 = again.getByRole('link', { name: 'Healing', exact: true });
+    await healing2.click();
+    await expect(healing2).toHaveAttribute('aria-current', 'true');
+    await again.getByRole('link', { name: 'Clear filters' }).click();
+    await expect(healing2).not.toHaveAttribute('aria-current', 'true');
+    await expect.poll(() => held.length).toBeGreaterThan(0);
+    await page.unroute(navigation);
+    await Promise.all(held.map((go) => go()));
+    await expect(page).toHaveURL(/\/moderation$/);
+    await expect(listItems(page)).toHaveCount(20);
+    await expect(healing2).not.toHaveAttribute('aria-current', 'true');
+    // A later choice builds on the cleared filters, not the dropped one.
+    await option(again, 'Newest first').click();
+    await expect(page).toHaveURL(/\/moderation\?sort=newest$/);
+    await expect(titles(page).first()).toHaveText('Just uploaded');
   });
 
   // OQ-2: on Waiting for review, the time turns orange after 2 days and red after 7.

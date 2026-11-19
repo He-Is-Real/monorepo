@@ -95,7 +95,7 @@ function Filtered({
   // The choices made but not yet in the address: two quick choices both count, each navigation
   // building on the one before rather than on the address it hasn't reached yet (Codex round 1).
   // `path` is the address they started from and each one pushed since: once the address reaches
-  // the last, or turns into one not on the path (Back, Forward, a tab or Clear filters link), the
+  // the last, or turns into one not on the path (Back, Forward, a tab), the
   // address wins again.
   const router = useRouter();
   const [pending, setPending] = useState<{
@@ -115,6 +115,17 @@ function Filtered({
     const href = moderationHref(f);
     setPending({ filters: f, path: [...(pending?.path ?? [here]), href] });
     router.push(href, { scroll: false });
+  };
+  // A Clear filters link replaces every pending choice (Codex round 2): when it leads back to
+  // the address the choices started from, that address is already on the path, so without this
+  // the choices would outlive it.
+  const clear = (f: ListFilters) => {
+    const href = moderationHref(f);
+    setPending(
+      href === here
+        ? null
+        : { filters: f, path: [...(pending?.path ?? [here]), href] },
+    );
   };
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' });
   // The counts stay as last read until the next answer (OQ-2: they change when the list reloads).
@@ -189,9 +200,10 @@ function Filtered({
           categories={categories}
           counts={counts}
           go={go}
+          clear={clear}
         />
         <div className="min-w-0" data-list-column="">
-          <List filters={filters} loaded={loaded} more={more} />
+          <List filters={filters} loaded={loaded} more={more} clear={clear} />
         </div>
       </div>
     </div>
@@ -264,11 +276,13 @@ function SidePanel({
   categories,
   counts,
   go,
+  clear,
 }: {
   filters: ListFilters;
   categories: ThemeCategory[];
   counts: ListCounts | null;
   go: (next: Partial<ListFilters>) => void;
+  clear: (to: ListFilters) => void;
 }) {
   const id = useId();
   const [open, setOpen] = useState(false);
@@ -356,6 +370,7 @@ function SidePanel({
         {n > 0 && (
           <Link
             href={moderationHref(cleared(filters))}
+            onClick={() => clear(cleared(filters))}
             scroll={false}
             className="inline-flex min-h-11 items-center font-medium text-link hover:text-link-hover"
           >
@@ -457,10 +472,12 @@ function List({
   filters,
   loaded,
   more,
+  clear,
 }: {
   filters: ListFilters;
   loaded: Loaded;
   more: () => void;
+  clear: (to: ListFilters) => void;
 }) {
   if (loaded.status === 'loading') {
     return <p className="text-secondary-text">Loading the stories…</p>;
@@ -493,6 +510,7 @@ function List({
         {filtered && (
           <Link
             href={moderationHref(cleared(filters))}
+            onClick={() => clear(cleared(filters))}
             scroll={false}
             className="mt-2 inline-flex min-h-11 items-center font-medium text-link hover:text-link-hover"
           >
