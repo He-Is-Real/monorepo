@@ -46,10 +46,49 @@ async function expectInside(inner: Locator, outer: Locator, what: string) {
   ).toEqual({ left: true, right: true });
 }
 
+/**
+ * The boxes of card `c` and of its parts, read in one go from one layout (null for a part the
+ * card doesn't have or doesn't show; `found` says which parts are in the card at all). Boxes read one call apart can come from two layouts: browse's "Favourites
+ * only" switch appears once the page's JavaScript knows who is visiting (browse-view.tsx) and
+ * moves every card down 56 px, more than the gap between a card's media and its badge, so a
+ * badge read before it and media read after it seemed to overlap.
+ */
+async function cardBoxes<K extends string>(
+  c: Locator,
+  parts: Record<K, string>,
+): Promise<{ card: Box; found: Record<K, boolean> } & Record<K, Box | null>> {
+  return c.evaluate(
+    (el, sel) => {
+      // Like Playwright's boundingBox(): null for an element that isn't rendered visibly.
+      const box = (e: Element | null) => {
+        if (!e || !e.checkVisibility({ visibilityProperty: true })) return null;
+        const { x, y, width, height } = e.getBoundingClientRect();
+        return width > 0 && height > 0 ? { x, y, width, height } : null;
+      };
+      // Like a strict locator: more than one match for a part is an error, not the first one.
+      const one = (s: string) => {
+        const all = el.querySelectorAll(s);
+        if (all.length > 1)
+          throw new Error(`${all.length} elements match ${s} in one card`);
+        return all[0] ?? null;
+      };
+      const els = Object.entries(sel).map(([k, s]) => [k, one(s)] as const);
+      return {
+        card: box(el),
+        found: Object.fromEntries(els.map(([k, e]) => [k, e !== null])),
+        ...Object.fromEntries(els.map(([k, e]) => [k, box(e)])),
+      };
+    },
+    parts as Record<string, string>,
+  ) as never;
+}
+
 /** The card's label (badge included) is clear of the card's heart (top right, heart-button.tsx). */
 async function expectClearOfHeart(c: Locator, what: string) {
-  const label = await c.locator('[data-card-label]').boundingBox();
-  const heart = await c.locator('[data-heart]').boundingBox();
+  const { label, heart } = await cardBoxes(c, {
+    label: '[data-card-label]',
+    heart: '[data-heart]',
+  });
   expect(label && heart, what).toBeTruthy();
   if (!label || !heart) return;
   expect(overlaps(label, heart), `${what}: label covers the heart`).toBe(false);
@@ -57,17 +96,32 @@ async function expectClearOfHeart(c: Locator, what: string) {
 
 /** The badge sits inside its card, clear of the heart and the media area (play button, player). */
 async function expectBadgePlaced(c: Locator) {
-  const badge = await badgeIn(c).boundingBox();
-  const article = await c.boundingBox();
-  expect(badge && article).toBeTruthy();
-  if (!badge || !article) return;
+  const {
+    card: article,
+    found,
+    badge,
+    label,
+    heart,
+    media,
+  } = await cardBoxes(c, {
+    badge: BADGE,
+    label: '[data-card-label]',
+    heart: '[data-heart]',
+    media: '[data-card-media]',
+  });
+  expect(badge).toBeTruthy();
+  if (!badge) return;
   expect(badge.x).toBeGreaterThanOrEqual(article.x);
   expect(badge.x + badge.width).toBeLessThanOrEqual(article.x + article.width);
-  await expectClearOfHeart(c, 'badge');
-  const media = c.locator('[data-card-media]');
-  if ((await media.count()) === 0) return; // a written story without a picture
-  const box = await media.boundingBox();
-  expect(box && overlaps(badge, box), 'badge covers the media').toBe(false);
+  // The card's label, the badge included, is clear of the heart.
+  expect(label && heart, 'badge').toBeTruthy();
+  if (label && heart)
+    expect(overlaps(label, heart), 'badge: label covers the heart').toBe(false);
+  // A written story without a picture has no media; media that is there must show.
+  if (!found.media) return;
+  expect(media, 'media shows').toBeTruthy();
+  if (media)
+    expect(overlaps(badge, media), 'badge covers the media').toBe(false);
 }
 
 for (const scheme of ['light', 'dark'] as const) {
