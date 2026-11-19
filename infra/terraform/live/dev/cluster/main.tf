@@ -129,7 +129,9 @@ module "cluster" {
   # sender-staff-emails: version 0 of the privacy notice edited in place for the email each story
   # is sent with, and the status log keeps the sender's and staff members' emails (EM-1 B, EM-2,
   # Joel 2026-11-17); data/0009 changed, so wiped again, no migration.
-  dev_database_reset = "sender-staff-emails"
+  # privacy-originals: version 0 of the privacy notice edited in place: Bunny keeps each video's
+  # original upload (PV-1 A, Joel 2026-11-19); data/0009 changed, so wiped again, no migration.
+  dev_database_reset = "privacy-originals"
   # D42: the automatic cluster plan's identity (modules/bootstrap), dry-run RBAC in `database`.
   cluster_planner_email = "tf-cluster-planner@heisreal-dev.iam.gserviceaccount.com"
 
