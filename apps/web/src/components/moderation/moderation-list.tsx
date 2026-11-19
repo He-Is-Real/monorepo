@@ -2,7 +2,14 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import {
+  type MouseEvent,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from 'react';
 import {
   AdminAccess,
   useRole,
@@ -95,7 +102,7 @@ function Filtered({
   // The choices made but not yet in the address: two quick choices both count, each navigation
   // building on the one before rather than on the address it hasn't reached yet (Codex round 1).
   // `path` is the address they started from and each one pushed since: once the address reaches
-  // the last, or turns into one not on the path (Back, Forward, a tab), the
+  // the last, or turns into one not on the path (Back, Forward), the
   // address wins again.
   const router = useRouter();
   const [pending, setPending] = useState<{
@@ -116,10 +123,14 @@ function Filtered({
     setPending({ filters: f, path: [...(pending?.path ?? [here]), href] });
     router.push(href, { scroll: false });
   };
-  // A Clear filters link replaces every pending choice (Codex round 2): when it leads back to
-  // the address the choices started from, that address is already on the path, so without this
-  // the choices would outlive it.
-  const clear = (f: ListFilters) => {
+  // A state tab or Clear filters link is a choice too, its link doing the navigating: it becomes
+  // the pending choice, so a filter or sort chosen before its page loads builds on it (Codex
+  // round 2). When it leads back to the address the choices started from, that address is
+  // already on the path, so the pending choices are dropped instead of outliving it. A click
+  // that opens a new browser tab changes nothing here.
+  const follow = (f: ListFilters, e: MouseEvent<HTMLAnchorElement>) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)
+      return;
     const href = moderationHref(f);
     setPending(
       href === here
@@ -193,17 +204,22 @@ function Filtered({
   // panel and list together stop at 15 rem + 2.5 rem + 1200 px, centred (OQ-4 D).
   return (
     <div className="mx-auto 2xl:max-w-[calc(17.5rem+1200px)]" data-list-page="">
-      <StateTabs filters={view} states={states} counts={counts} />
+      <StateTabs
+        filters={view}
+        states={states}
+        counts={counts}
+        follow={follow}
+      />
       <div className="mt-6 xl:grid xl:grid-cols-[13rem_minmax(0,1fr)] xl:gap-8 2xl:grid-cols-[15rem_minmax(0,1fr)] 2xl:gap-10">
         <SidePanel
           filters={view}
           categories={categories}
           counts={counts}
           go={go}
-          clear={clear}
+          follow={follow}
         />
         <div className="min-w-0" data-list-column="">
-          <List filters={filters} loaded={loaded} more={more} clear={clear} />
+          <List filters={filters} loaded={loaded} more={more} follow={follow} />
         </div>
       </div>
     </div>
@@ -215,10 +231,12 @@ function StateTabs({
   filters,
   states,
   counts,
+  follow,
 }: {
   filters: ListFilters;
   states: readonly (typeof LIST_STATES)[number][];
   counts: ListCounts | null;
+  follow: (to: ListFilters, e: MouseEvent<HTMLAnchorElement>) => void;
 }) {
   return (
     <nav aria-label="Story states" className="border-b border-border">
@@ -234,6 +252,7 @@ function StateTabs({
             <li key={s.state} className="shrink-0">
               <Link
                 href={moderationHref({ ...filters, state: s.state })}
+                onClick={(e) => follow({ ...filters, state: s.state }, e)}
                 aria-current={on ? 'page' : undefined}
                 scroll={false}
                 data-state-tab={s.state}
@@ -276,13 +295,13 @@ function SidePanel({
   categories,
   counts,
   go,
-  clear,
+  follow,
 }: {
   filters: ListFilters;
   categories: ThemeCategory[];
   counts: ListCounts | null;
   go: (next: Partial<ListFilters>) => void;
-  clear: (to: ListFilters) => void;
+  follow: (to: ListFilters, e: MouseEvent<HTMLAnchorElement>) => void;
 }) {
   const id = useId();
   const [open, setOpen] = useState(false);
@@ -370,7 +389,7 @@ function SidePanel({
         {n > 0 && (
           <Link
             href={moderationHref(cleared(filters))}
-            onClick={() => clear(cleared(filters))}
+            onClick={(e) => follow(cleared(filters), e)}
             scroll={false}
             className="inline-flex min-h-11 items-center font-medium text-link hover:text-link-hover"
           >
@@ -472,12 +491,12 @@ function List({
   filters,
   loaded,
   more,
-  clear,
+  follow,
 }: {
   filters: ListFilters;
   loaded: Loaded;
   more: () => void;
-  clear: (to: ListFilters) => void;
+  follow: (to: ListFilters, e: MouseEvent<HTMLAnchorElement>) => void;
 }) {
   if (loaded.status === 'loading') {
     return <p className="text-secondary-text">Loading the stories…</p>;
@@ -510,7 +529,7 @@ function List({
         {filtered && (
           <Link
             href={moderationHref(cleared(filters))}
-            onClick={() => clear(cleared(filters))}
+            onClick={(e) => follow(cleared(filters), e)}
             scroll={false}
             className="mt-2 inline-flex min-h-11 items-center font-medium text-link hover:text-link-hover"
           >

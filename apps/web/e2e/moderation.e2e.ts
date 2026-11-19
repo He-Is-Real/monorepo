@@ -675,6 +675,41 @@ test.describe('moderation', () => {
     await option(again, 'Newest first').click();
     await expect(page).toHaveURL(/\/moderation\?sort=newest$/);
     await expect(titles(page).first()).toHaveText('Just uploaded');
+
+    // A format chosen after a state tab, before the tab's page has loaded, keeps the new state.
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation`);
+    await expect(listItems(page)).toHaveCount(20);
+    held.length = 0;
+    await page.route(navigation, (route) => {
+      held.push(() => route.continue().catch(() => undefined));
+    });
+    await tab(page, 'Being edited').click();
+    await expect(tab(page, 'Being edited')).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    const third = await filters(page);
+    const thirdFormat = third.getByLabel('Format', { exact: true });
+    await chooseOption(thirdFormat, 'Video (2)');
+    await expectChosen(thirdFormat, 'Video (2)');
+    await expect(tab(page, 'Being edited')).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    await expect.poll(() => held.length).toBeGreaterThan(0);
+    await page.unroute(navigation);
+    await Promise.all(held.map((go) => go()));
+    await expect(page).toHaveURL(/\/moderation\?state=editing&format=video$/);
+    await expect(page.locator('[data-list-empty]')).toContainText(
+      'No stories match these filters.',
+    );
+    // Back: the tabs and filters follow the address again.
+    await page.goBack();
+    await expect(page).not.toHaveURL(/format=video/);
+    await expectChosen(
+      (await filters(page)).getByLabel('Format', { exact: true }),
+      'All formats',
+    );
   });
 
   // OQ-2: on Waiting for review, the time turns orange after 2 days and red after 7.
