@@ -197,7 +197,9 @@ use it for advertising.
   on Google Kubernetes Engine), our message queue, nightly backups and logs.
 - **Bunny.net:** story pictures in London; videos and audio in Frankfurt, Germany, because Bunny
   can’t store them in the UK. Bunny’s network delivers published media from servers around the
-  world, through links that expire.
+  world, through links that expire. Bunny also keeps the original file of each video you upload,
+  exactly as you sent it, so we can prepare it for other uses later (such as social media, only
+  where you agreed to sharing). It is never shown on the site, and it is deleted with the video.
 - **Clerk, United States:** sign-in, with your email address and name.
 - **Cloudflare:** protects sign-in from bots, for Clerk.
 - **Stripe:** payments on our donate page, on Stripe’s own pages.
