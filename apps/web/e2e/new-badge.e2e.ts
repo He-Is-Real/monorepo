@@ -59,15 +59,23 @@ async function cardBoxes<K extends string>(
 ): Promise<{ card: Box } & Record<K, Box | null>> {
   return c.evaluate(
     (el, sel) => {
+      // Like Playwright's boundingBox(): null for an element that isn't rendered visibly.
       const box = (e: Element | null) => {
-        if (!e) return null;
+        if (!e || !e.checkVisibility({ visibilityProperty: true })) return null;
         const { x, y, width, height } = e.getBoundingClientRect();
-        return { x, y, width, height };
+        return width > 0 && height > 0 ? { x, y, width, height } : null;
+      };
+      // Like a strict locator: more than one match for a part is an error, not the first one.
+      const one = (s: string) => {
+        const all = el.querySelectorAll(s);
+        if (all.length > 1)
+          throw new Error(`${all.length} elements match ${s} in one card`);
+        return all[0] ?? null;
       };
       return {
         card: box(el),
         ...Object.fromEntries(
-          Object.entries(sel).map(([k, s]) => [k, box(el.querySelector(s))]),
+          Object.entries(sel).map(([k, s]) => [k, box(one(s))]),
         ),
       };
     },
