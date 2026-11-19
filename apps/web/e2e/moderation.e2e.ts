@@ -2,7 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { expect, type Locator, type Page, test } from '@playwright/test';
 import { Contract } from '@heisreal/contracts/testing';
 import { BEHAVIOUR_DEVICES } from './devices';
-import { expectAllTargets, expectNoHorizontalOverflow } from './helpers';
+import {
+  chooseOption,
+  expectAllTargets,
+  expectChosen,
+  expectNoHorizontalOverflow,
+  optionLabels,
+} from './helpers';
 import { fixtureToken, STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 
 // The moderators' pages (M3 plan PRs 1 and 6; MD-1 to MD-4; MQ-1 E and OQ-2): /moderation lists
@@ -62,10 +68,37 @@ test('/moderation and a story under review fit, with 44 px targets', async ({
   await expect(listItems(page)).toHaveCount(20);
   await expectNoHorizontalOverflow(page);
   await expectAllTargets(page);
+  // A long theme wraps inside its own cell, clear of the waiting time beside it.
+  const long = page.locator('[data-list-item="mod_long_title"]');
+  const chip = long.locator('[data-list-themes] li');
+  await expect(chip).toHaveText('Recovery from addiction and alcoholism');
+  const [c, cell, time] = await Promise.all(
+    [
+      chip,
+      long.locator('[data-list-themes]'),
+      long.locator('[data-list-waiting]'),
+    ].map(async (l) => {
+      const b = await l.boundingBox();
+      if (!b) throw new Error('not rendered');
+      return b;
+    }),
+  );
+  expect(c.x + c.width).toBeLessThanOrEqual(cell.x + cell.width + 0.5);
+  const apart =
+    c.x + c.width <= time.x + 0.5 ||
+    time.x + time.width <= c.x + 0.5 ||
+    c.y + c.height <= time.y + 0.5 ||
+    time.y + time.height <= c.y + 0.5;
+  expect(apart, 'the theme overlaps the waiting time').toBe(true);
+  // No column wider than 1200 px, on the widest screens too (Joel, 2026-11-17).
+  const column = await page.locator('[data-list-column]').boundingBox();
+  expect(column?.width ?? 0).toBeLessThanOrEqual(1200);
   // The side panel open, with every theme shown, and an Admin's five tabs.
   const panel = await filters(page);
-  await panel.getByRole('button', { name: /^\+ \d+ more$/ }).click();
-  await expect(panel.getByRole('checkbox', { name: 'Doubt' })).toBeAttached();
+  await panel.getByRole('button', { name: 'More themes' }).click();
+  await expect(
+    panel.getByRole('link', { name: 'Doubt', exact: true }),
+  ).toBeAttached();
   await expectNoHorizontalOverflow(page);
   await expectAllTargets(page);
   await page.goto(`${WEB_SIGNED_IN_URL}/moderation?state=hidden`);
@@ -493,19 +526,22 @@ test.describe('moderation', () => {
     await useSession(page, 'moderator-filters');
     await page.goto(`${WEB_SIGNED_IN_URL}/moderation`);
     let panel = await filters(page);
-    // Formats: counts within the tab; ticking two shows either.
-    await expect(panel.getByRole('group', { name: 'Format' })).toContainText(
+    // One format at a time, as browse, with each one's count within the tab.
+    const format = (p: Locator) => p.getByLabel('Format', { exact: true });
+    expect(await optionLabels(format(panel))).toEqual([
+      'All formats',
       'Video (2)',
-    );
-    await option(panel, 'Audio').click();
+      'Audio (1)',
+      'Written (23)',
+    ]);
+    await chooseOption(format(panel), 'Audio (1)');
     await expect(page).toHaveURL(/\/moderation\?format=audio$/);
     await expect(titles(page)).toHaveText(['Singing again']);
     panel = await filters(page);
-    await option(panel, 'Video').click();
-    await expect(page).toHaveURL(/format=audio&format=video$/);
+    await chooseOption(format(panel), 'Video (2)');
+    await expect(page).toHaveURL(/\/moderation\?format=video$/);
     await expect(titles(page)).toHaveText([
       'The night I stopped running',
-      'Singing again',
       'Just uploaded',
     ]);
     // Clear filters: the whole list again.
@@ -514,15 +550,28 @@ test.describe('moderation', () => {
     await expect(page).toHaveURL(/\/moderation$/);
     await expect(listItems(page)).toHaveCount(20);
 
-    // Themes: every ticked one (AND). The folded ones open in place.
+    // One theme at a time, with browse's own picker: the folded ones open in place, another
+    // replaces the chosen one, and the chosen one pressed again clears it.
+    const theme = (p: Locator, name: string) =>
+      p.getByRole('link', { name, exact: true });
     panel = await filters(page);
-    await panel.getByRole('button', { name: /^\+ \d+ more$/ }).click();
-    await option(panel, 'Doubt').click();
+    await panel.getByRole('button', { name: 'More themes' }).click();
+    await theme(panel, 'Doubt').click();
     await expect(page).toHaveURL(/\?theme=doubt$/);
     await expect(titles(page)).toHaveText(['A habit that became a faith']);
     panel = await filters(page);
-    await option(panel, 'Healing').click();
-    await expect(page).toHaveURL(/theme=doubt&theme=healing$/);
+    await theme(panel, 'Healing').click();
+    await expect(page).toHaveURL(/\?theme=healing$/);
+    await expect(theme(panel, 'Healing')).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+    await expect(titles(page)).toContainText(['The night I stopped running']);
+    await theme(panel, 'Healing').click();
+    await expect(page).toHaveURL(/\/moderation$/);
+    await expect(listItems(page)).toHaveCount(20);
+    // The format and theme together: both must match.
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation?format=audio&theme=doubt`);
     await expect(page.locator('[data-list-empty]')).toContainText(
       'No stories match these filters.',
     );
@@ -565,6 +614,42 @@ test.describe('moderation', () => {
     await tab(page, 'Being edited').click();
     await expect(page).toHaveURL(/state=editing&theme=doubt$/);
     await expect(titles(page)).toHaveText(['Waiting for a word']);
+  });
+
+  // Codex round 1: two quick choices both count, even before the first has reached the address.
+  test('a format and a theme chosen quickly, before the page has caught up, both count', async ({
+    page,
+  }) => {
+    await useSession(page, 'moderator-quick');
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation`);
+    await expect(listItems(page)).toHaveCount(20);
+    // Hold the page's own navigations (Next's RSC requests) until both are chosen.
+    const held: (() => Promise<void>)[] = [];
+    const navigation = (url: URL) =>
+      url.pathname === '/moderation' && url.searchParams.has('_rsc');
+    await page.route(navigation, (route) => {
+      held.push(() => route.continue().catch(() => undefined));
+    });
+    const panel = await filters(page);
+    const format = panel.getByLabel('Format', { exact: true });
+    const healing = panel.getByRole('link', { name: 'Healing', exact: true });
+    await chooseOption(format, 'Video (2)');
+    await expectChosen(format, 'Video (2)');
+    await healing.click();
+    await expect(healing).toHaveAttribute('aria-current', 'true');
+    await expectChosen(format, 'Video (2)');
+    await expect.poll(() => held.length).toBeGreaterThan(0);
+    await page.unroute(navigation);
+    await Promise.all(held.map((go) => go()));
+    await expect(page).toHaveURL(/\/moderation\?format=video&theme=healing$/);
+    await expect(titles(page)).toHaveText(['The night I stopped running']);
+    // Back: the choices follow the address again.
+    await page.goBack();
+    await expect(page).not.toHaveURL(/theme=healing/);
+    const back = await filters(page);
+    await expect(
+      back.getByRole('link', { name: 'Healing', exact: true }),
+    ).not.toHaveAttribute('aria-current', 'true');
   });
 
   // OQ-2: on Waiting for review, the time turns orange after 2 days and red after 7.
@@ -618,7 +703,9 @@ test.describe('moderation', () => {
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
     const panel = page.getByRole('region', { name: 'Filters and sort' });
-    await expect(panel.getByRole('checkbox', { name: /^Video/ })).toBeChecked();
+    await expect(panel.getByLabel('Format', { exact: true })).toHaveValue(
+      'video',
+    );
     await toggle.click();
     await expect(panel).toBeHidden();
     // The tabs scroll sideways inside themselves; the page doesn't.
@@ -933,10 +1020,11 @@ test('the stub api-admin’s moderation answers fit the contract', async ({
     (await check('/v1/moderation/stories/mod_draft', fresh('admin-contract')))
       .status,
   ).toBe(200);
-  // MQ-1 E: filtered, sorted and paged; the counts (an Admin's with drafts).
+  // MQ-1 E: filtered (one format and one theme, as browse), sorted and paged; the counts (an
+  // Admin's with drafts). A repeated format or theme is refused, as browse refuses it.
   for (const sort of ['oldest', 'newest', 'changed']) {
     const filtered = await check(
-      `/v1/moderation/stories?q=story&format=written&format=video&theme=doubt&sort=${sort}`,
+      `/v1/moderation/stories?q=story&format=written&theme=doubt&sort=${sort}`,
     );
     expect(filtered.status).toBe(200);
     const paged = await check(`/v1/moderation/stories?sort=${sort}`);
@@ -953,7 +1041,14 @@ test('the stub api-admin’s moderation answers fit the contract', async ({
     (await check('/v1/moderation/stories', fresh('admin-contract'))).body.counts
       .states,
   ).toHaveProperty('draft', 1);
-  for (const bad of ['q=', 'format=film', 'sort=random', 'limit=0']) {
+  for (const bad of [
+    'q=',
+    'format=film',
+    'format=video&format=audio',
+    'theme=doubt&theme=healing',
+    'sort=random',
+    'limit=0',
+  ]) {
     expect((await check(`/v1/moderation/stories?${bad}`)).status, bad).toBe(
       400,
     );

@@ -741,7 +741,10 @@ const MODERATION = [
       'Averyveryverylongwordthatkeepsgoingwithoutanyspacesatalltoseethatitwraps',
     primaryFormat: 'written',
     bylineName: 'Alex',
-    themes: [],
+    // A long theme name wraps inside its cell, even on a 320 px phone.
+    themes: [
+      { id: 'recovery', name: 'Recovery from addiction and alcoholism' },
+    ],
     media: [],
     image: null,
   },
@@ -1113,7 +1116,7 @@ const SORTS = ['oldest', 'newest', 'changed'];
 
 /**
  * `GET /v1/moderation/stories` (listModerationStories): one state, narrowed by a title search,
- * formats (any) and themes (all), sorted, in pages, with the counts (MQ-1 E, OQ-2).
+ * one format and one theme (as browse; revised OQ-2), sorted, in pages, with the counts (MQ-1 E).
  */
 function sendList(req, res, url, token) {
   const sp = url.searchParams;
@@ -1121,14 +1124,16 @@ function sendList(req, res, url, token) {
   const state = states[0] ?? 'pending';
   if (states.length > 1 || !LIST_STATES.includes(state))
     return invalid(res, '/state', 'validation_failed');
-  const themes = [...new Set(sp.getAll('theme'))].filter((t) => t !== '');
+  const themes = sp.getAll('theme');
+  const theme = themes[0];
   if (
-    themes.length > 20 ||
-    !themes.every((t) => /^[0-9A-Za-z_]{1,40}$/.test(t))
+    themes.length > 1 ||
+    (theme !== undefined && !/^[0-9A-Za-z_]{1,40}$/.test(theme))
   )
     return invalid(res, '/theme', 'validation_failed');
   const formats = sp.getAll('format');
-  if (!formats.every((f) => FORMATS.includes(f)))
+  const format = formats[0];
+  if (formats.length > 1 || (format !== undefined && !FORMATS.includes(format)))
     return invalid(res, '/format', 'validation_failed');
   const sorts = sp.getAll('sort');
   const sort = sorts[0] ?? 'oldest';
@@ -1152,10 +1157,10 @@ function sendList(req, res, url, token) {
       : s.statusLog.length > 0 && s.status === st;
   const searched = stories
     .filter((s) => inState(s, state))
-    .filter((s) => themes.every((t) => s.themes.some((x) => x.id === t)))
+    .filter((s) => !theme || s.themes.some((x) => x.id === theme))
     .filter((s) => !q || s.title.toLowerCase().includes(q.toLowerCase()));
   const rows = searched
-    .filter((s) => !formats.length || formats.includes(s.primaryFormat))
+    .filter((s) => !format || s.primaryFormat === format)
     .map((s) => {
       const moved = s.statusLog.at(-1);
       const sent = s.statusLog.filter((e) => e.action === 'sent').at(-1);

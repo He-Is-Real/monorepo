@@ -1,9 +1,5 @@
-import {
-  type BrowseParams,
-  type BrowseSort,
-  type StoryFormat,
-  THEME_ID,
-} from './browse';
+import { sanitizeStoryFilters, toggleTheme } from '@heisreal/story-filters';
+import type { BrowseParams, BrowseSort, StoryFormat } from './browse';
 
 // The browse page's state lives in its URL (`/stories?q=&theme=&format=&sort=&pages=`), so links,
 // Back and reloads show the same stories (D55: "the position is kept in the URL"). Anything the
@@ -35,7 +31,6 @@ export const favouritesOn = (search: URLSearchParams | null): boolean =>
 export const MAX_PAGES = 10;
 
 const Q_MAX_CHARS = 200;
-const FORMATS: readonly StoryFormat[] = ['video', 'audio', 'written'];
 const SORTS: readonly BrowseSort[] = ['latest', 'oldest', 'relevance'];
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -51,13 +46,11 @@ export function sanitizeFilters(input: {
   sort?: unknown;
 }): BrowseFilters {
   const q = [...(one(input.q)?.trim() ?? '')].slice(0, Q_MAX_CHARS).join('');
-  const theme = one(input.theme);
-  const format = one(input.format) as StoryFormat | undefined;
   const sort = one(input.sort) as BrowseSort | undefined;
   return {
     q,
-    theme: theme && THEME_ID.test(theme) ? theme : null,
-    format: format && FORMATS.includes(format) ? format : null,
+    // The theme and format filter every story list shares (libs/story-filters).
+    ...sanitizeStoryFilters(input),
     sort:
       sort && SORTS.includes(sort) && (sort !== 'relevance' || q)
         ? sort
@@ -102,9 +95,7 @@ export function browseHref(
 }
 
 /** Choosing the theme that's chosen clears it; another replaces it. */
-export function toggleTheme(filters: BrowseFilters, id: string): BrowseFilters {
-  return { ...filters, theme: filters.theme === id ? null : id };
-}
+export { toggleTheme };
 
 /** The API call for these filters (`lib/browse.ts`). */
 export function toBrowseParams(

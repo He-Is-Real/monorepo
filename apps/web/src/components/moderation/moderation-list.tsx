@@ -8,14 +8,18 @@ import {
   useRole,
   WRAPPING_BUTTON,
 } from '@/components/admin/admin-access';
+import {
+  type StoryFormat as Format,
+  toggleTheme,
+} from '@heisreal/story-filters';
 import { Button } from '@heisreal/web-ui';
+import { ThemeLinks } from '@/components/browse/theme-filter';
+import { FormatSelect } from '@/components/story-filters/format-select';
 import type { ApiUser } from '@/lib/api-user';
-import type { Theme, ThemeCategory } from '@/lib/browse';
+import type { ThemeCategory } from '@/lib/browse';
 import {
   activeFilters,
   FORMAT_LABEL,
-  FORMATS,
-  type Format,
   LIST_STATES,
   type ListCounts,
   type ListFilters,
@@ -47,10 +51,11 @@ type Loaded =
  * /moderation (MD-3, MD-4: Joel 2026-11-14; MQ-1 E, OQ-2, OQ-3 A: Joel 2026-11-17): the
  * moderators' list of every story that isn't public, the same page for Moderators and Admins
  * (Admins also get drafts never sent). The states are tabs across the top, each with its count;
- * the search, sort, formats (with counts) and themes sit in a side panel; the list is one line
- * per story (from 1280 px; below that, one small card each, with the panel folded into "Filters
- * and sort"). Everything the list shows is in the address. "Show more" reads the next page.
- * api-admin checks the role on every call.
+ * the search, sort, format (with counts) and theme sit in a side panel, the format and theme
+ * filtering as browse does with browse's own controls (revised OQ-2, Joel 2026-11-19); the list
+ * is one line per story (from 1280 px; below that, one small card each, with the panel folded
+ * into "Filters and sort"). Everything the list shows is in the address. "Show more" reads the
+ * next page. api-admin checks the role on every call.
  */
 export function ModerationList({
   apiAdminUrl,
@@ -86,6 +91,31 @@ function Filtered({
     ? asked
     : { ...asked, state: 'pending' };
   const query = listQuery(filters).toString();
+
+  // The choices made but not yet in the address: two quick choices both count, each navigation
+  // building on the one before rather than on the address it hasn't reached yet (Codex round 1).
+  // `path` is the address they started from and each one pushed since: once the address reaches
+  // the last, or turns into one not on the path (Back, Forward, a tab or Clear filters link), the
+  // address wins again.
+  const router = useRouter();
+  const [pending, setPending] = useState<{
+    filters: ListFilters;
+    path: string[];
+  } | null>(null);
+  const here = moderationHref(filters);
+  if (
+    pending &&
+    (!pending.path.includes(here) ||
+      pending.path[pending.path.length - 1] === here)
+  )
+    setPending(null);
+  const view = pending?.filters ?? filters;
+  const go = (next: Partial<ListFilters>) => {
+    const f = { ...view, ...next };
+    const href = moderationHref(f);
+    setPending({ filters: f, path: [...(pending?.path ?? [here]), href] });
+    router.push(href, { scroll: false });
+  };
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' });
   // The counts stay as last read until the next answer (OQ-2: they change when the list reloads).
   const [counts, setCounts] = useState<ListCounts | null>(null);
@@ -148,16 +178,23 @@ function Filtered({
     );
   };
 
+  // The list column is never wider than 1200 px (Joel, 2026-11-17): on the widest screens the
+  // panel and list together stop at 15 rem + 2.5 rem + 1200 px, centred (OQ-4 D).
   return (
-    <>
-      <StateTabs filters={filters} states={states} counts={counts} />
+    <div className="mx-auto 2xl:max-w-[calc(17.5rem+1200px)]" data-list-page="">
+      <StateTabs filters={view} states={states} counts={counts} />
       <div className="mt-6 xl:grid xl:grid-cols-[13rem_minmax(0,1fr)] xl:gap-8 2xl:grid-cols-[15rem_minmax(0,1fr)] 2xl:gap-10">
-        <SidePanel filters={filters} categories={categories} counts={counts} />
-        <div className="min-w-0">
+        <SidePanel
+          filters={view}
+          categories={categories}
+          counts={counts}
+          go={go}
+        />
+        <div className="min-w-0" data-list-column="">
           <List filters={filters} loaded={loaded} more={more} />
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -215,57 +252,27 @@ function StateTabs({
 }
 
 const SECTION_HEADING =
-  'mb-2 text-xs font-semibold tracking-wide text-secondary-text uppercase';
-// A box's whole line is its 44 px target; the input itself is hidden behind its drawn mark (as
-// the consent boxes do), so the keyboard and screen readers still use the real input.
-const CHECK =
-  'relative flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-1 hover:bg-surface';
-const INPUT = 'peer sr-only';
-
-/** The drawn tick box or radio dot beside a hidden input (`peer`), in the theme's colours. */
-function Mark({ round = false }: { round?: boolean }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={`flex size-5 shrink-0 items-center justify-center border-2 border-input bg-input-background text-primary-foreground peer-checked:border-primary peer-checked:bg-primary peer-focus-visible:ring-[3px] peer-focus-visible:ring-ring/50 [&>*]:invisible peer-checked:[&>*]:visible ${round ? 'rounded-full' : 'rounded-md'}`}
-    >
-      {round ? (
-        <span className="size-2 rounded-full bg-primary-foreground" />
-      ) : (
-        <svg
-          viewBox="0 0 24 24"
-          className="size-3.5 fill-none stroke-current"
-          strokeWidth="3"
-        >
-          <path d="M5 12l5 5 9-10" />
-        </svg>
-      )}
-    </span>
-  );
-}
+  'mb-2 block text-xs font-semibold tracking-wide text-secondary-text uppercase';
 
 /**
- * The search, sort, formats and themes (MQ-1 E): beside the list from 1280 px; below that,
- * folded into a "Filters and sort (N)" button. Each change goes to the address.
+ * The search, sort, format and theme (MQ-1 E; the format and theme are browse's own controls and
+ * filter, revised OQ-2, Joel 2026-11-19): beside the list from 1280 px; below that, folded into a
+ * "Filters and sort" button. Each change goes to the address.
  */
 function SidePanel({
   filters,
   categories,
   counts,
+  go,
 }: {
   filters: ListFilters;
   categories: ThemeCategory[];
   counts: ListCounts | null;
+  go: (next: Partial<ListFilters>) => void;
 }) {
   const id = useId();
-  const router = useRouter();
   const [open, setOpen] = useState(false);
-  const go = (next: Partial<ListFilters>) =>
-    router.push(moderationHref({ ...filters, ...next }), { scroll: false });
   const n = activeFilters(filters);
-
-  const toggle = <T extends string>(list: readonly T[], value: T) =>
-    list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
 
   return (
     <div className="mb-6 xl:mb-0">
@@ -298,53 +305,53 @@ function SidePanel({
         <fieldset>
           <legend className={SECTION_HEADING}>Sort</legend>
           {SORTS.map((s) => (
-            <label key={s.sort} className={CHECK}>
+            <label
+              key={s.sort}
+              className="relative flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-1 hover:bg-surface"
+            >
               <input
                 type="radio"
                 name={`${id}-sort`}
                 value={s.sort}
                 checked={filters.sort === s.sort}
                 onChange={() => go({ sort: s.sort })}
-                className={INPUT}
+                className="peer sr-only"
               />
-              <Mark round />
+              {/* The drawn dot beside the hidden input, in the theme's colours. */}
+              <span
+                aria-hidden="true"
+                className="flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-input bg-input-background peer-checked:border-primary peer-checked:bg-primary peer-focus-visible:ring-[3px] peer-focus-visible:ring-ring/50 [&>*]:invisible peer-checked:[&>*]:visible"
+              >
+                <span className="size-2 rounded-full bg-primary-foreground" />
+              </span>
               {s.label}
             </label>
           ))}
         </fieldset>
 
-        <fieldset>
-          <legend className={SECTION_HEADING}>Format</legend>
-          {FORMATS.map((f) => (
-            <label key={f} className={CHECK}>
-              <input
-                type="checkbox"
-                checked={filters.formats.includes(f)}
-                onChange={() =>
-                  go({ formats: toggle<Format>(filters.formats, f) })
-                }
-                className={INPUT}
-              />
-              <Mark />
-              <FormatIcon format={f} />
-              <span>
-                {FORMAT_LABEL[f]}
-                {counts && (
-                  <span className="text-secondary-text" data-format-count="">
-                    {' '}
-                    ({counts.formats[f]})
-                  </span>
-                )}
-              </span>
-            </label>
-          ))}
-        </fieldset>
+        <div>
+          <FormatSelect
+            id={`${id}-format`}
+            labelClassName={SECTION_HEADING}
+            value={filters.format ?? ''}
+            onValueChange={(v) => go({ format: (v || null) as Format | null })}
+            counts={counts?.formats}
+            wrapperClassName="w-full"
+            className="w-full"
+          />
+        </div>
 
-        <ThemeBoxes
-          categories={categories}
-          chosen={filters.themes}
-          onToggle={(t) => go({ themes: toggle(filters.themes, t) })}
-        />
+        {categories.length > 0 && (
+          <div>
+            <h2 className={SECTION_HEADING}>Theme</h2>
+            <ThemeLinks
+              categories={categories}
+              chosen={filters.theme}
+              hrefOf={(t) => moderationHref(toggleTheme(filters, t))}
+              onChoose={(t) => go(toggleTheme(filters, t))}
+            />
+          </div>
+        )}
 
         {n > 0 && (
           <Link
@@ -360,12 +367,12 @@ function SidePanel({
   );
 }
 
-/** The same state and sort, with no search, formats or themes. */
+/** The same state and sort, with no search, format or theme. */
 const cleared = (f: ListFilters): ListFilters => ({
   ...f,
   q: null,
-  formats: [],
-  themes: [],
+  format: null,
+  theme: null,
 });
 
 /** A title search: sent with Enter or the button; an empty one clears it. */
@@ -405,74 +412,6 @@ function Search({
         Search
       </Button>
     </form>
-  );
-}
-
-/**
- * The themes as boxes, grouped by category as browse groups them (MQ-1 E: "Feelings and Topics
- * like today"). Folded, each category shows its highlighted themes and any ticked one; "+ N more"
- * shows the rest in place.
- */
-function ThemeBoxes({
-  categories,
-  chosen,
-  onToggle,
-}: {
-  categories: ThemeCategory[];
-  chosen: string[];
-  onToggle: (themeId: string) => void;
-}) {
-  const id = useId();
-  const [open, setOpen] = useState(false);
-  if (categories.length === 0) return null;
-  const shown = (t: Theme) => open || t.highlighted || chosen.includes(t.id);
-  const hidden = categories.reduce(
-    (n, c) => n + c.themes.filter((t) => !shown(t)).length,
-    0,
-  );
-  return (
-    <fieldset>
-      <legend className={SECTION_HEADING}>Themes</legend>
-      <div id={`${id}-themes`}>
-        {categories.map((c) => {
-          const themes = c.themes.filter(shown);
-          if (themes.length === 0) return null;
-          return (
-            <div key={c.id} role="group" aria-labelledby={`${id}-${c.id}`}>
-              <h3
-                id={`${id}-${c.id}`}
-                className="mt-2 mb-1 px-1 text-sm text-muted-foreground"
-              >
-                {c.name}
-              </h3>
-              {themes.map((t) => (
-                <label key={t.id} className={CHECK}>
-                  <input
-                    type="checkbox"
-                    checked={chosen.includes(t.id)}
-                    onChange={() => onToggle(t.id)}
-                    className={INPUT}
-                  />
-                  <Mark />
-                  {t.name}
-                </label>
-              ))}
-            </div>
-          );
-        })}
-      </div>
-      {(hidden > 0 || open) && (
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-controls={`${id}-themes`}
-          onClick={() => setOpen(!open)}
-          className="mt-1 inline-flex min-h-11 items-center px-1 text-sm font-medium text-link hover:text-link-hover"
-        >
-          {open ? 'Fewer themes' : `+ ${hidden} more`}
-        </button>
-      )}
-    </fieldset>
   );
 }
 
@@ -651,7 +590,7 @@ function List({
                       {s.themes.map((t) => (
                         <li
                           key={t.id}
-                          className="rounded-full border border-border px-2 py-0.5 text-sm whitespace-nowrap text-secondary-text"
+                          className="max-w-full rounded-full border border-border px-2 py-0.5 text-sm [overflow-wrap:anywhere] text-secondary-text"
                         >
                           {t.name}
                         </li>

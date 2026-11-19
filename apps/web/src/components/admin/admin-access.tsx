@@ -100,23 +100,33 @@ export const problemText = (err: unknown) => {
 };
 
 /**
- * Links to the staff pages the person's role may use (none until their role is known). The row
- * keeps its height meanwhile, so the page doesn't jump when the links appear.
+ * Links to the staff pages the person's role may use (none until their role is known), centred
+ * (OQ-4 D). The row keeps its height meanwhile, so the page doesn't jump when the links appear.
  */
 export function AdminNav() {
   const here = usePathname();
   const role = useRole();
   return (
     <nav aria-label="Admin pages" className="mb-8 min-h-11">
-      <ul className="flex flex-wrap gap-x-6 gap-y-1">
+      <ul className="flex flex-wrap justify-center gap-x-6 gap-y-1">
         {ADMIN_PAGES.filter((p) => atLeast(role, p.min)).map((p) => (
           <li key={p.href}>
             <Link
               href={p.href}
               aria-current={here === p.href ? 'page' : undefined}
-              className="inline-flex min-h-11 min-w-11 items-center text-foreground underline-offset-4 hover:underline aria-[current=page]:font-semibold"
+              className="group inline-flex min-h-11 min-w-11 items-center text-foreground underline-offset-4 hover:underline"
             >
-              {p.label}
+              {/* Each link is as wide as its bold self (an unseen bold copy after it, with no
+                  text for screen readers), so the centred row keeps its width whichever page is
+                  current (bold), and nothing moves sideways (OQ-4 D). */}
+              <span
+                data-label={p.label}
+                className="grid after:invisible after:col-start-1 after:row-start-1 after:font-semibold after:content-[attr(data-label)_/_'']"
+              >
+                <span className="col-start-1 row-start-1 group-aria-[current=page]:font-semibold">
+                  {p.label}
+                </span>
+              </span>
             </Link>
           </li>
         ))}

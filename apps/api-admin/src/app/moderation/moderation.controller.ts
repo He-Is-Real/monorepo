@@ -28,6 +28,12 @@ import {
 } from '@heisreal/http';
 import { RequiresRole } from '@heisreal/roles';
 import { MediaUrls } from '@heisreal/story-cards';
+import {
+  checkStoryFilters,
+  STORY_FILTERS_LET,
+  STORY_FORMATS,
+  storyFiltersWhere,
+} from '@heisreal/story-filters';
 import type { Request, Response } from 'express';
 import type { Surreal } from 'surrealdb';
 import { isCursorTime } from '../cursor-time';
@@ -63,14 +69,8 @@ const LIST_STATES = [
 ] as const;
 type ListState = (typeof LIST_STATES)[number];
 
-/** A theme id, as browse takes it (api-public-read's `?theme=`). */
-const THEME_ID = /^[0-9A-Za-z_]{1,40}$/;
-/** MQ-1 E (Joel, 2026-11-17): at most this many `theme`s; a story must have all of them. */
-const MAX_THEMES = 20;
 /** MQ-1 E: a title search is 1–100 characters once trimmed. */
 const MAX_SEARCH = 100;
-const FORMATS = ['video', 'audio', 'written'] as const;
-type Format = (typeof FORMATS)[number];
 /**
  * MQ-1 E: the list's orders. `oldest` (the default, the old queue's) and `newest` by when the
  * story entered its state; `changed` by when the story last changed, newest first. Each breaks
@@ -87,13 +87,13 @@ const LIST_FIELDS = (
     ${s}.themeRefs.map(|$t| { id: record::id($t), name: $t.name }) AS themes`;
 
 /**
- * The filters a row of state `$state` must pass (MQ-1 E, OQ-2): every theme in `$themes` (AND),
- * any format in `$formats` (OR; none = all), and the title containing `$q`, ignoring capitals.
- * `s` names the story; `formats` false leaves the format filter out (the format counts).
+ * The filters a row of state `$state` must pass (revised OQ-2, Joel 2026-11-19): browse's own
+ * theme and format filter (libs/story-filters: one of each, `$theme` and `$format`, after
+ * `STORY_FILTERS_LET`), and the title containing `$q`, ignoring capitals. `s` names the story;
+ * `format` false leaves the format filter out (the format counts).
  */
-const FILTERS = (s: string, formats = true) => `
-    AND ($themes = [] OR ${s}themeIds CONTAINSALL $themes)
-    ${formats ? `AND ($formats = [] OR ${s}primaryFormat IN $formats)` : ''}
+const FILTERS = (s: string, format = true) => `
+    AND ${storyFiltersWhere(s, { format })}
     AND ($q = NONE OR string::lowercase(${s}title) CONTAINS string::lowercase($q))`;
 
 /** A logged state's rows: the status entries the stories point at (their current state). */
@@ -123,6 +123,7 @@ function paging(sort: Sort, t: string) {
 function listLoggedSql(sort: Sort): string {
   const p = paging(sort, sort === 'changed' ? 'story.updatedAt' : 'at');
   return `
+  ${STORY_FILTERS_LET}
   LET $c = IF $after != NONE { <datetime> $after[0] };
   LET $cid = IF $after != NONE { type::record('storyStatusLog', $after[1]) };
   SELECT record::id(id) AS key, record::id(story) AS id, action, at AS since,
@@ -142,6 +143,7 @@ function listLoggedSql(sort: Sort): string {
 function listDraftsSql(sort: Sort): string {
   const p = paging(sort, sort === 'changed' ? 'updatedAt' : 'createdAt');
   return `
+  ${STORY_FILTERS_LET}
   LET $c = IF $after != NONE { <datetime> $after[0] };
   LET $cid = IF $after != NONE { type::record('story', $after[1]) };
   SELECT record::id(id) AS key, record::id(id) AS id, createdAt AS since, ${LIST_FIELDS('$this')}
@@ -154,7 +156,7 @@ function listDraftsSql(sort: Sort): string {
 /**
  * MQ-1 E: how many stories each state holds, whatever the filters (drafts only when `$drafts`,
  * for an Admin), and how many of the asked state's stories are in each format, with the search
- * and themes applied but not the format filter.
+ * and theme applied but not the format filter.
  */
 const STATE_COUNTS_SQL = `
   RETURN {
@@ -337,26 +339,26 @@ function many(raw: unknown, pointer: string): string[] {
   throw invalid(pointer, 'Give it as one value, or repeat the parameter');
 }
 
-/** MQ-1 E's filters and sort, checked: anything else is a `400`. */
+/**
+ * The search, browse's theme and format filter (libs/story-filters; revised OQ-2) and the sort,
+ * checked: anything else is a `400`.
+ */
 function parseFilters(query: {
   q?: unknown;
   format?: unknown;
   theme?: unknown;
   sort?: unknown;
 }) {
-  const themes = [...new Set(many(query.theme, '/theme'))].filter(
-    (t) => t !== '',
-  );
-  if (themes.length > MAX_THEMES) {
-    throw invalid('/theme', `At most ${MAX_THEMES} themes`);
-  }
-  if (!themes.every((t) => THEME_ID.test(t))) {
-    throw invalid('/theme', 'A theme id: letters, digits and underscores.');
-  }
-  const formats = [...new Set(many(query.format, '/format'))];
-  if (!formats.every((f) => (FORMATS as readonly string[]).includes(f))) {
-    throw invalid('/format', `format is one of ${FORMATS.join(', ')}`);
-  }
+  const once = (raw: unknown, pointer: string) => {
+    const values = many(raw, pointer);
+    if (values.length > 1) throw invalid(pointer, 'Give this parameter once');
+    return values[0];
+  };
+  const { filters, errors } = checkStoryFilters({
+    theme: once(query.theme, '/theme'),
+    format: once(query.format, '/format'),
+  });
+  if (errors[0]) throw invalid(errors[0].pointer, errors[0].message);
   const sorts = many(query.sort, '/sort');
   const sort = (sorts[0] ?? 'oldest') as Sort;
   if (sorts.length > 1 || !SORTS.includes(sort)) {
@@ -370,7 +372,7 @@ function parseFilters(query: {
   ) {
     throw invalid('/q', `A title search is 1–${MAX_SEARCH} characters`);
   }
-  return { themes, formats: formats as Format[], sort, q };
+  return { ...filters, sort, q };
 }
 
 /** MD-3: drafts never sent are for Admins only. */
@@ -598,7 +600,7 @@ export class ModerationController {
     if (!LIST_STATES.includes(state)) {
       throw invalid('/state', `state is one of ${LIST_STATES.join(', ')}`);
     }
-    const { themes, formats, sort, q } = parseFilters(req.query);
+    const { theme, format, sort, q } = parseFilters(req.query);
     const take = parseLimit(limit);
     const after = decodeCursor(cursor, sort);
     // MD-3: drafts never sent, and how many there are, are for Admins only.
@@ -611,8 +613,8 @@ export class ModerationController {
       formatCountsSql(state);
     const results = await runQuery(this.db, sql, {
       state,
-      themes,
-      formats,
+      theme: theme ?? undefined,
+      format: format ?? undefined,
       q,
       after,
       take: take + 1,
@@ -650,7 +652,7 @@ export class ModerationController {
         counts: {
           states: drafts ? { ...logged, draft: draft ?? 0 } : logged,
           formats: Object.fromEntries(
-            FORMATS.map((f) => [
+            STORY_FORMATS.map((f) => [
               f,
               inFormats.find((x) => x.format === f)?.n ?? 0,
             ]),

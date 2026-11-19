@@ -89,15 +89,16 @@ paths:
         - `draft`: never sent. Admin only (MD-3, "visibility of users who might be preparing spam
           or other malicious activities"); a Moderator gets `403` `role_required`.
 
-        MQ-1 E and OQ-2 (Joel, 2026-11-17): the list narrows by a title search (`q`), formats
-        (`format`, any of them) and themes (`theme`, all of them); the three together narrow it
+        MQ-1 E (Joel, 2026-11-17) and the revised OQ-2 (Joel, 2026-11-19): the list narrows by a
+        title search (`q`) and by one format (`format`) and one theme (`theme`), taken and applied
+        exactly as the public browse list takes them (`browseStories`); together they narrow it
         further (a story must pass each). `sort` orders it: `oldest` (the default) by when the
         story entered its state, oldest first (for `pending`: when it was sent, the old queue's
         order); `newest` the same, newest first; `changed` by when the story last changed, newest
         first. Each breaks ties by the row's id, and a cursor pages only the sort it came from.
         Every page carries `counts`: how many stories each state holds whatever the filters (a
         Moderator never gets the drafts' count), and how many of this state's stories are in each
-        format with the search and themes applied but not the format filter. The `ETag` covers
+        format with the search and theme applied but not the format filter. The `ETag` covers
         the counts, so a changed count is never a `304`.
 
         Moderator and above (D1: the role is checked here; the database knows moderators only as
@@ -121,30 +122,8 @@ paths:
             type: string
             minLength: 1
             maxLength: 100
-        - name: format
-          in: query
-          description: |
-            MQ-1 E, OQ-2: only stories in one of these formats (any of them). Repeat it for more
-            than one (`format=video&format=audio`).
-          style: form
-          explode: true
-          schema:
-            type: array
-            items:
-              $ref: './components.yaml#/components/schemas/Format'
-        - name: theme
-          in: query
-          description: |
-            Only stories with this theme (a theme id, as browse takes it). MQ-1 E, OQ-2: repeat it
-            (up to 20) for stories that have every one of them.
-          style: form
-          explode: true
-          schema:
-            type: array
-            maxItems: 20
-            items:
-              type: string
-              pattern: '^[0-9A-Za-z_]{1,40}$'
+        - $ref: './components.yaml#/components/parameters/storyFilterFormat'
+        - $ref: './components.yaml#/components/parameters/storyFilterTheme'
         - name: sort
           in: query
           description: |

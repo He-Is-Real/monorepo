@@ -28,6 +28,24 @@ components:
       description: Opaque cursor from a previous response's `nextCursor`.
       schema:
         type: string
+    # The theme and format filter every story list shares (revised OQ-2, Joel 2026-11-19): the
+    # public browse list and the moderators' list take them the same way (libs/story-filters).
+    storyFilterTheme:
+      name: theme
+      in: query
+      description: |
+        A theme's id: only stories that carry it. One at a time. An id that isn't a theme (deleted,
+        or never was) is ignored, so the link shows every story (themes plan v3, A8).
+      schema:
+        type: string
+        maxLength: 40
+        pattern: '^[0-9A-Za-z_]+$'
+    storyFilterFormat:
+      name: format
+      in: query
+      description: Only stories of this format. One at a time.
+      schema:
+        $ref: '#/components/schemas/Format'
     storyId:
       name: id
       in: path
@@ -919,13 +937,13 @@ components:
       type: object
       description: |
         MQ-1 E and OQ-2 (Joel, 2026-11-17): what the moderators' list shows on its state tabs and
-        format boxes, counted when the page is read (no live updates).
+        format choices, counted when the page is read (no live updates).
       required: [states, formats]
       properties:
         states:
           type: object
           description: |
-            How many stories each state holds, whatever the search, formats and themes. `draft`
+            How many stories each state holds, whatever the search, format and theme. `draft`
             only for an Admin: a Moderator's answer never has it.
           required: [pending, editing, hidden, rejected]
           additionalProperties: false
@@ -938,7 +956,7 @@ components:
         formats:
           type: object
           description: |
-            How many of the asked state's stories are in each format, with the search and themes
+            How many of the asked state's stories are in each format, with the search and theme
             applied but not the format filter.
           required: [video, audio, written]
           additionalProperties: false

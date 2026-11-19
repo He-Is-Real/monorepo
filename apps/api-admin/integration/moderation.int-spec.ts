@@ -273,8 +273,8 @@ describe('moderation, the read side (api-admin)', () => {
     ]).toEqual([200, 'editing', null]);
   });
 
-  // MQ-1 E and OQ-2 (Joel, 2026-11-17): search, formats (any), themes (all), three sorts, and
-  // the counts on the tabs and format boxes.
+  // MQ-1 E (Joel, 2026-11-17): search, three sorts, and the counts on the tabs and formats; the
+  // revised OQ-2 (Joel, 2026-11-19): one format and one theme, filtered as browse filters them.
   describe('filters, sorts and counts (MQ-1 E)', () => {
     const ids = async (query: string, role = 'Moderator') =>
       (await get(`/v1/moderation/stories?${query}`, { role })).body.data.map(
@@ -313,18 +313,18 @@ describe('moderation, the read side (api-admin)', () => {
       expect(await ids('q=nothing%20like%20it')).toEqual([]);
     });
 
-    it('formats match any of them; themes all of them; together, each must pass', async () => {
+    it('one format and one theme, as browse: with the search, each must pass', async () => {
       expect(await ids('format=video')).toEqual(['ann_video']);
-      expect(await ids('format=video&format=written')).toEqual([
+      expect(await ids('format=written')).toEqual([
         'ann_pending',
-        'ann_video',
         'bob_pending',
         'ann_doubt',
         'ann_both',
       ]);
       expect(await ids('format=audio')).toEqual([]);
       expect(await ids('theme=doubt')).toEqual(['ann_doubt', 'ann_both']);
-      expect(await ids('theme=doubt&theme=common')).toEqual(['ann_both']);
+      // As browse (themes plan v3, A8): an id that isn't a theme filters nothing.
+      expect(await ids('theme=no_such_theme')).toEqual(await ids(''));
       expect(await ids('theme=common&format=video')).toEqual(['ann_video']);
       expect(await ids('theme=doubt&q=story')).toEqual(['ann_doubt']);
       expect(await ids('theme=doubt&format=video')).toEqual([]);
@@ -374,7 +374,7 @@ describe('moderation, the read side (api-admin)', () => {
       expect(elsewhere.status).toBe(400);
     });
 
-    it('counts each state whatever the filters, and this state’s formats with the search and themes but not the format', async () => {
+    it('counts each state whatever the filters, and this state’s formats with the search and theme but not the format', async () => {
       const counted = async (query: string, role = 'Moderator') =>
         (await get(`/v1/moderation/stories?${query}`, { role })).body.counts;
       const everyState = {
@@ -396,7 +396,7 @@ describe('moderation, the read side (api-admin)', () => {
         ...everyState,
         draft: (await list('state=draft', 50, 'Admin')).length,
       });
-      // Formats: the search and themes narrow them; the format filter doesn't.
+      // Formats: the search and theme narrow them; the format filter doesn't.
       expect((await counted('format=video')).formats).toEqual({
         video: 1,
         audio: 0,
@@ -449,9 +449,11 @@ describe('moderation, the read side (api-admin)', () => {
         `q=${'a'.repeat(101)}`,
         'q=a&q=b',
         'format=film',
-        'format=video&format=Video',
+        // One format and one theme at a time, as browse.
+        'format=video&format=audio',
+        'theme=doubt&theme=common',
         'theme=no%20spaces',
-        Array.from({ length: 21 }, (_, i) => `theme=t${i}`).join('&'),
+        `theme=${'t'.repeat(41)}`,
         'sort=random',
         'sort=oldest&sort=newest',
         'state=pending&state=editing',
@@ -462,16 +464,12 @@ describe('moderation, the read side (api-admin)', () => {
           'validation_failed',
         ]);
       }
-      // 100 characters and 20 themes are fine.
+      // 100 characters, and a 40-character theme id, are fine.
       expect(
         (await get(`/v1/moderation/stories?q=${'a'.repeat(100)}`)).status,
       ).toBe(200);
       expect(
-        (
-          await get(
-            `/v1/moderation/stories?${Array.from({ length: 20 }, (_, i) => `theme=t${i}`).join('&')}`,
-          )
-        ).status,
+        (await get(`/v1/moderation/stories?theme=${'t'.repeat(40)}`)).status,
       ).toBe(200);
       // Drafts stay an Admin's, filtered or not.
       expect(

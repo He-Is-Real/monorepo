@@ -1,3 +1,8 @@
+import {
+  sanitizeStoryFilters,
+  type StoryFilters,
+  type StoryFormat,
+} from '@heisreal/story-filters';
 import { ApiUserProblem, NotSignedIn, StaleVersion } from '@/lib/api-user';
 import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 import type { MediaPlayback, StoryImage } from '@/lib/public-stories';
@@ -25,7 +30,7 @@ export interface ListItem {
   /** What put it in this state (its current status entry); null for a draft. */
   action: string | null;
   title: string;
-  primaryFormat: 'video' | 'audio' | 'written';
+  primaryFormat: StoryFormat;
   themes: { id: string; name: string }[];
   /** When it entered this state (a draft: when it was started); the list's order. */
   since: string;
@@ -40,11 +45,11 @@ export interface ListItem {
 
 /**
  * api-admin's `ModerationListCounts` (MQ-1 E): each state's stories whatever the filters (drafts
- * only for an Admin), and this state's by format with the search and themes but not the format.
+ * only for an Admin), and this state's by format with the search and theme but not the format.
  */
 export interface ListCounts {
   states: Partial<Record<ListState, number>>;
-  formats: Record<Format, number>;
+  formats: Record<StoryFormat, number>;
 }
 
 export interface ListPage {
@@ -52,9 +57,6 @@ export interface ListPage {
   nextCursor: string | null;
   counts: ListCounts;
 }
-
-export const FORMATS = ['video', 'audio', 'written'] as const;
-export type Format = (typeof FORMATS)[number];
 
 /** MQ-1 E: the list's orders; `oldest` (the old queue's) is the default. */
 export const SORTS = [
@@ -64,19 +66,19 @@ export const SORTS = [
 ] as const;
 export type Sort = (typeof SORTS)[number]['sort'];
 
-/** What the list shows (MQ-1 E): every filter and the sort live in the address. */
-export interface ListFilters {
+/**
+ * What the list shows (MQ-1 E): every filter and the sort live in the address. The theme and
+ * format are browse's own filter (libs/story-filters; revised OQ-2, Joel 2026-11-19): one of
+ * each at a time.
+ */
+export interface ListFilters extends StoryFilters {
   state: ListState;
   q: string | null;
-  formats: Format[];
-  themes: string[];
   sort: Sort;
 }
 
-/** api-admin's limits on a filter: a longer search or more themes would be a 400. */
+/** api-admin's limit on the search: a longer one would be a 400. */
 const MAX_SEARCH = 100;
-const MAX_THEMES = 20;
-const THEME_ID = /^[0-9A-Za-z_]{1,40}$/;
 
 const all = (v: string | string[] | undefined) =>
   v === undefined ? [] : typeof v === 'string' ? [v] : v;
@@ -94,10 +96,8 @@ export function listFilters(
   return {
     state: isListState(state) ? state : 'pending',
     q: q === '' ? null : [...q].slice(0, MAX_SEARCH).join(''),
-    formats: FORMATS.filter((f) => all(sp['format']).includes(f)),
-    themes: [...new Set(all(sp['theme']))]
-      .filter((t) => THEME_ID.test(t))
-      .slice(0, MAX_THEMES),
+    // As browse reads its address: a repeated or unknown one is left out.
+    ...sanitizeStoryFilters({ theme: sp['theme'], format: sp['format'] }),
     sort: SORTS.some((s) => s.sort === sort) ? (sort as Sort) : 'oldest',
   };
 }
@@ -107,8 +107,8 @@ export function listQuery(f: ListFilters): URLSearchParams {
   const sp = new URLSearchParams();
   if (f.state !== 'pending') sp.set('state', f.state);
   if (f.q) sp.set('q', f.q);
-  for (const format of f.formats) sp.append('format', format);
-  for (const theme of f.themes) sp.append('theme', theme);
+  if (f.format) sp.set('format', f.format);
+  if (f.theme) sp.set('theme', f.theme);
   if (f.sort !== 'oldest') sp.set('sort', f.sort);
   return sp;
 }
@@ -121,7 +121,7 @@ export function moderationHref(f: ListFilters): string {
 
 /** How many filters are on (the phone's "Filters and sort (N)"): the sort isn't one. */
 export const activeFilters = (f: ListFilters) =>
-  (f.q ? 1 : 0) + f.formats.length + f.themes.length;
+  (f.q ? 1 : 0) + (f.format ? 1 : 0) + (f.theme ? 1 : 0);
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -375,8 +375,5 @@ export const listTime = (iso: string) => {
   return `${shortDay.format(d)}, ${timeOnly.format(d)}`;
 };
 
-export const FORMAT_LABEL = {
-  video: 'Video',
-  audio: 'Audio',
-  written: 'Written',
-} as const;
+/** What each format is called: the shared filter's names (libs/story-filters). */
+export { FORMAT_LABELS as FORMAT_LABEL } from '@heisreal/story-filters';

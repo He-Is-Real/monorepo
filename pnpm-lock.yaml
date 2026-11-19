@@ -202,6 +202,9 @@ importers:
       '@heisreal/story-cards':
         specifier: workspace:*
         version: link:../../libs/story-cards
+      '@heisreal/story-filters':
+        specifier: workspace:*
+        version: link:../../libs/story-filters
       '@nestjs/common':
         specifier: ^12.3.2
         version: 12.3.2(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -251,6 +254,9 @@ importers:
       '@heisreal/story-cards':
         specifier: workspace:*
         version: link:../../libs/story-cards
+      '@heisreal/story-filters':
+        specifier: workspace:*
+        version: link:../../libs/story-filters
       '@nestjs/common':
         specifier: ^12.3.2
         version: 12.3.2(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -477,6 +483,9 @@ importers:
       '@heisreal/logging':
         specifier: workspace:*
         version: link:../../libs/logging
+      '@heisreal/story-filters':
+        specifier: workspace:*
+        version: link:../../libs/story-filters
       '@heisreal/web-ui':
         specifier: workspace:*
         version: link:../../libs/web-ui
@@ -690,6 +699,8 @@ importers:
       '@heisreal/contracts':
         specifier: workspace:*
         version: link:../contracts
+
+  libs/story-filters: {}
 
   libs/web-ui:
     dependencies:

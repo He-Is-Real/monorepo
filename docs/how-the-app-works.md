@@ -521,7 +521,9 @@ recording | picture` (worked out from the status history: set while the story's 
   there is no personalised home or "New for you". (D72) On a written card without a picture too
   narrow for the badge beside the heart (narrow columns with large text), the card's top line
   moves below the heart and the card grows a little (Joel, 2026-11-08).
-- **Browse** has search, sort, format and theme filters. Cards are laid out in balanced columns
+- **Browse** has search, sort, format and theme filters (one format and one theme at a time). The
+  moderators' list filters by format and theme the same way, through the same shared definition,
+  so changing one changes both (revised OQ-2, Joel 2026-11-19). Cards are laid out in balanced columns
   at each picture's own shape (limited between tall 9:16 and wide 2:1) and never move once shown.
   More stories load on their own as the reader nears the end, to the end of the list, with an end
   message. Without JavaScript there is a link to the next page. (D55)
@@ -702,19 +704,22 @@ Built (M3 plan, pull requests 1 and 6; Joel, 2026-11-09 and 2026-11-11):
   taken down (by a moderator, or by the site while its video or audio can't play) and rejected.
   Admins also see drafts never sent ("visibility of users who might be preparing spam or other
   malicious activities"); Moderators never do, on the list or by a story's address.
-  Its layout (MQ-1 E, OQ-2 and OQ-3 A, Joel 2026-11-17):
+  Its layout (MQ-1 E, OQ-2 and OQ-3 A, Joel 2026-11-17; filters revised OQ-2 and centring OQ-4 D,
+  Joel 2026-11-19):
   - **Tabs:** the states are tabs across the top, in this order: Waiting for review, Being edited,
     Taken down, Rejected, and (Admins only) Drafts never sent. Each tab shows how many stories
     that state holds, whatever the filters; a Moderator is never told how many drafts there are.
     It opens on "Waiting for review". Each tab is a link in the address (`?state=`).
-  - **Side panel:** a title search (ignoring capitals), the sort, the formats (Video, Audio,
-    Written) with how many of this tab's stories are in each (search and themes applied, the
-    format boxes not), and the themes grouped by category as browse groups them (the
-    highlighted ones and any ticked one show; "+ N more" shows the rest in place). Ticking
-    several themes shows only stories with all of them; ticking several formats shows stories in
-    any of them; the search, formats and themes together narrow the list. "Clear filters" takes
-    off the search, formats and themes (the tab and the sort stay). Every filter and the sort are
-    in the address, so a link or Back shows the same list.
+  - **Side panel:** a title search (ignoring capitals), the sort, the format and the theme.
+    **The format and theme filter exactly as browse's do, with browse's own controls (revised
+    OQ-2, Joel 2026-11-19):** one format at a time (All formats, Video, Audio or Written; here
+    each shows how many of this tab's stories it holds, with the search and theme applied) and
+    one theme at a time from browse's theme picker (the chosen one, pressed again, clears it; a
+    theme that no longer exists filters nothing). They and the search together narrow the list.
+    Browse and the moderation list share one definition of these filters, so a change to how
+    browse filters changes the moderation list too. "Clear filters" takes off the search, format
+    and theme (the tab and the sort stay). Every filter and the sort are in the address, so a
+    link or Back shows the same list, and choices made quickly one after another all count.
   - **Sorts:** Oldest first (the default: by when the story entered its state, so on "Waiting
     for review" the one sent longest ago, and a story sent again after changes goes to the back),
     Newest first, and Recently changed (when the story last changed, newest first).
@@ -724,8 +729,9 @@ Built (M3 plan, pull requests 1 and 6; Joel, 2026-11-09 and 2026-11-11):
     "Waiting" on "Waiting for review" and "In this state" on the other tabs. On "Waiting for
     review" only, it turns orange after 2 days and red after 7 days. The counts and times are as
     of when the list loaded (opening the page, a tab or a filter): nothing updates live.
-  - **Width:** on screens 1280 px and wider the page's content may be up to 1600 px wide, centred
-    like Consent & legal; no column in it is wider than 1200 px. Below 1280 px the tabs scroll
+  - **Width:** on screens 1280 px and wider the page's content may be up to 1480 px wide (the
+    side panel and a list column of at most 1200 px), centred like Consent & legal; no column in
+    it is wider than 1200 px. Theme names wrap inside their cell. Below 1280 px the tabs scroll
     sideways, the side panel folds into a "Filters and sort (N)" button (N = the filters on), and
     each story is a small card: its title with the format icon, its themes and the time.
 - **Take down from the story's page (MD-1, Joel 2026-11-14):** a signed-in Moderator or Admin sees
@@ -809,16 +815,17 @@ Planned (M3):
 
 ## Admin pages
 
-- **One steady header** (Joel, 2026-11-17): on every admin and moderation page, the staff menu,
-  the page's title and its description sit in the site's standard 1200-pixel container (the same
-  as the site's header and footer), so they stay in exactly the same place when switching pages,
-  on every screen size. The content below keeps its own width (the standard 800-pixel column on
-  most pages; the full 1200 pixels for Limits; twice the standard column for Consent texts on
-  desktop), starting at the header's left edge when it fits inside the container and centred on
-  the page when it is wider. The page always keeps room for the scrollbar, so a page that
-  scrolls doesn't shift sideways from one that doesn't. A story's review page has the staff menu
-  in the same place but no page title or description of its own: its heading is the story's own
-  title, inside the story exactly as the public will see it (Joel, 2026-11-17, OQ-3 A).
+- **One steady header, centred** (Joel, 2026-11-17; centred, OQ-4 D, Joel 2026-11-19): on every
+  admin and moderation page, the staff menu, the page's title and its description are centred in
+  the site's standard 1200-pixel container (the same as the site's header and footer), so they
+  stay in exactly the same place when switching pages, on every screen size. The content below
+  keeps its own width, centred under them: the standard 800-pixel column for Staff, Themes, Block
+  list and a story under review; the full 1200 pixels for Limits; wider on big screens for
+  Consent texts and the moderation list, with no single column over 1200 pixels. Text inside
+  cards and tables stays left-aligned. The page always keeps room for the scrollbar, so a page
+  that scrolls doesn't shift sideways from one that doesn't. A story's review page has the staff
+  menu in the same place but no page title or description of its own: its heading is the story's
+  own title, inside the story exactly as the public will see it (Joel, 2026-11-17, OQ-3 A).
 - **Staff links in the site's navigation** (Joel, 2026-11-14): after the public links, set apart
   by a thin line (desktop and tablet; where the row is full, both move together onto the next
   line) or a gap and line (phone menu). Moderators and Admins see
