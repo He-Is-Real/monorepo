@@ -107,6 +107,19 @@ const isLookup = (r: Request) =>
 const isCommand = (method: 'PUT' | 'DELETE', id: string) => (r: Request) =>
   r.method() === method && r.url() === `${STUB_USER_URL}${FAVOURITES}/${id}`;
 
+/**
+ * Opens a signed-in page with hearts and waits until api-user has said which are on. Before
+ * that a heart can read `off` for a moment: the cards' hearts can hydrate before the header
+ * says who is signed in, and until then they show this device's hearts (lib/favourites.ts). A
+ * press then is a device heart and nothing reaches api-user (CI, phone-320, 2026-11-20). Waiting
+ * for `off` alone can't tell the two apart; the account's answer can.
+ */
+async function openSignedIn(page: Page, path: string) {
+  const looked = page.waitForResponse((r) => isLookup(r.request()));
+  await page.goto(`${WEB_SIGNED_IN_URL}${path}`);
+  expect((await looked).status()).toBe(200);
+}
+
 const heartId = (project: string) => `heart_test_${project.replace('-', '_')}`;
 
 /** The hearts this browser keeps (local storage), newest first. */
@@ -244,9 +257,7 @@ test.describe('hearts', () => {
       if (isLookup(r)) lookups.push(r);
     });
 
-    const looked = page.waitForResponse((r) => isLookup(r.request()));
-    await page.goto(`${WEB_SIGNED_IN_URL}${HEART_PAGE}`);
-    expect((await looked).status()).toBe(200);
+    await openSignedIn(page, HEART_PAGE);
     const heart = cardHeart(page, title);
     await expect(heart).toHaveAttribute('data-heart-state', 'off');
     await expect(heart).toHaveAttribute('aria-pressed', 'false');
@@ -557,7 +568,7 @@ test.describe('hearts', () => {
       await useSession(page, session);
       const account = await holdAccountCheck(page);
       const save = await holdPut(page, id);
-      await page.goto(`${WEB_SIGNED_IN_URL}${HEART_PAGE}`);
+      await openSignedIn(page, HEART_PAGE);
       const heart = cardHeart(page, `Heart test story (${project})`);
       await expect(heart).toHaveAttribute('data-heart-state', 'off');
       if (accountCheck === 'before') {
@@ -623,7 +634,7 @@ test.describe('hearts', () => {
     const id = 'browse_06';
     await seedDeviceHearts(page, [{ id }]);
     const save = await holdPut(page, id, { fail: true });
-    await page.goto(`${WEB_SIGNED_IN_URL}/stories`);
+    await openSignedIn(page, '/stories');
     const heart = cardHeart(page, 'Browse test story 06');
     await expect(heart).toHaveAttribute('data-heart-state', 'off');
     await heart.click(); // the card's own save: held, then it fails
@@ -693,7 +704,7 @@ test.describe('hearts', () => {
     await seedDeviceHearts(page, [{ id }]);
     const save = await holdPut(page, id);
     const deletes = countRequests(page, isCommand('DELETE', id));
-    await page.goto(`${WEB_SIGNED_IN_URL}/stories`);
+    await openSignedIn(page, '/stories');
     const heart = cardHeart(page, title);
     await expect(heart).toHaveAttribute('data-heart-state', 'off');
     const prompt = page.locator('[data-device-hearts-prompt]');
@@ -737,7 +748,7 @@ test.describe('hearts', () => {
           })
         : route.fallback(),
     );
-    await page.goto(`${WEB_SIGNED_IN_URL}${HEART_PAGE}`);
+    await openSignedIn(page, HEART_PAGE);
     const heart = cardHeart(page, `Heart test story (${project})`);
     await expect(heart).toHaveAttribute('data-heart-state', 'off');
     await heart.click();
