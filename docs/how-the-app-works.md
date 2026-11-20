@@ -844,14 +844,19 @@ Planned (M3):
   that scrolls doesn't shift sideways from one that doesn't. A story's review page has the staff
   menu in the same place but no page title or description of its own: its heading is the story's
   own title, inside the story exactly as the public will see it (Joel, 2026-11-17, OQ-3 A).
-- **Staff links in the site's navigation** (Joel, 2026-11-14): after the public links, set apart
-  by a thin line (desktop and tablet; where the row is full, both move together onto the next
-  line) or a gap and line (phone menu). Moderators and Admins see
-  "Moderation"; Admins also see "Consent & legal" (the legal text editor). Signed-out people and
-  Users see neither, and nobody sees them until api-user has said their role (no flash of links).
-  The staff links reflect the role when the page was loaded; after a role change they update on
-  the next full page load or sign-in (the staff pages' servers check the role on every call).
-  The other staff pages are reached from the staff menu on these pages.
+- **One staff link in the site's navigation** (Joel, 2026-11-14; one "Admin" link, Joel
+  2026-11-20): after the public links, set apart by a thin line (desktop and tablet; where the row
+  is full, it moves onto the next line) or a gap and line (phone menu), Moderators and Admins see
+  one link, "Admin". It shows as the current page on the admin landing page and on every admin
+  and moderation page. Signed-out people and Users don't see it, and nobody sees it until api-user
+  has said their role (no flash of links). It reflects the role when the page was loaded; after a
+  role change it updates on the next full page load or sign-in (the staff pages' servers check
+  the role on every call).
+- **Admin landing page** (`/admin`, Joel 2026-11-20): where the "Admin" link leads. The shared
+  admin header with the staff menu for the person's role (a Moderator sees Moderation; an Admin
+  sees every staff page), no page in it chosen, the title "Admin" and a one-line description, and
+  nothing else. For Moderators and Admins; anyone else gets the same refusal as the moderation
+  pages. The other staff pages are reached from the staff menu.
 - **Limits** (Admins, on the site's full 1200-pixel content width): the submission limits in plain words with their units, and the two
   deletion times (rejected stories, stories left in editing; G3 B, Joel 2026-11-11). One group
   at a time, picked from a side list (a "Group" drop-down on phones); a changed box is outlined

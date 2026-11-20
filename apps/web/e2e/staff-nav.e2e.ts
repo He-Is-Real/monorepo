@@ -3,14 +3,15 @@ import { BEHAVIOUR_DEVICES, SCREENSHOT_DEVICES } from './devices';
 import { expectAllTargets, expectNoHorizontalOverflow } from './helpers';
 import { WEB_SIGNED_IN_URL } from './servers';
 
-// Staff links in the site's main navigation (Joel, 2026-11-14): after the public links, set apart
-// by a thin line, Moderation for Moderators and Admins and Consent & legal (the legal text editor)
-// for Admins only. Nobody else sees them: not signed-out people, not Users, and nobody until their
-// role is known. The navigation marks itself `data-role-known` once the links are final for the
-// page load (signed out, or api-user has answered), so "no staff links" is checked only then. The navigation with both links fits every device (the desktop's one row, the
-// tablet's second row, the phone's menu); the behaviour runs on one phone and one desktop. The
-// stub api-user (stub-api-user.mjs) makes sessions starting `admin` Admins and `moderator`
-// Moderators; everyone else is a User.
+// The staff link in the site's main navigation (Joel, 2026-11-14; one "Admin" link, Joel
+// 2026-11-20): after the public links, set apart by a thin line, one "Admin" link to the admin
+// landing page for Moderators and Admins, current on every admin and moderation page. Nobody else
+// sees it: not signed-out people, not Users, and nobody until their role is known. The navigation
+// marks itself `data-role-known` once the links are final for the page load (signed out, or
+// api-user has answered), so "no staff link" is checked only then. The navigation with the link
+// fits every device (the desktop's one row, the tablet's second row, the phone's menu); the
+// behaviour runs on one phone and one desktop. The stub api-user (stub-api-user.mjs) makes
+// sessions starting `admin` Admins and `moderator` Moderators; everyone else is a User.
 
 async function useSession(page: Page, session: string) {
   await page.addInitScript(
@@ -43,15 +44,13 @@ async function signedInHome(page: Page, session: string) {
   await expect(page.getByRole('button', { name: /^Account: / })).toBeVisible();
 }
 
-test('the navigation with both staff links fits, with 44 px targets', async ({
+test('the navigation with the Admin link fits, with 44 px targets', async ({
   page,
 }, info) => {
   await useSession(page, 'admin-nav-fit');
   await page.goto(`${WEB_SIGNED_IN_URL}/`);
   const nav = await openNav(page);
-  await expect(
-    nav.getByRole('link', { name: 'Consent & legal' }),
-  ).toBeVisible();
+  await expect(nav.getByRole('link', { name: 'Admin' })).toBeVisible();
   if (SCREENSHOT_DEVICES.includes(info.project.name))
     await page.screenshot({
       path: `test-output/e2e/screenshots/${info.project.name}/light-staff-nav.jpg`,
@@ -62,8 +61,7 @@ test('the navigation with both staff links fits, with 44 px targets', async ({
   await expectNoHorizontalOverflow(page);
   await expectAllTargets(page);
   if (!isPhone(page)) {
-    // No link's words break onto a second line, the public links keep their one row, and the
-    // two staff links stay together (on that row, or as a group under it where it's full).
+    // No link's words break onto a second line, and the public links keep their one row.
     const tops = async (l: Locator) =>
       l.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().top));
     const heights = await nav
@@ -71,14 +69,12 @@ test('the navigation with both staff links fits, with 44 px targets', async ({
       .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().height));
     for (const h of heights)
       expect(h, 'a link wraps onto two lines').toBeLessThanOrEqual(44.5);
-    for (const group of [
-      nav.locator('li:not([data-staff-links]) > a'),
-      nav.locator('[data-staff-link]'),
-    ]) {
-      const t = await tops(group);
-      for (const top of t)
-        expect(Math.abs(top - t[0]), 'a group splits').toBeLessThanOrEqual(1);
-    }
+    const t = await tops(nav.locator('li:not([data-staff-links]) > a'));
+    for (const top of t)
+      expect(
+        Math.abs(top - t[0]),
+        'the public links split',
+      ).toBeLessThanOrEqual(1);
     // On wide screens the links share the logo's line; they end before the actions.
     const n = await nav.boundingBox();
     const a = await page.locator('[data-header-actions]').boundingBox();
@@ -90,7 +86,7 @@ test('the navigation with both staff links fits, with 44 px targets', async ({
   }
 });
 
-test.describe('staff links', () => {
+test.describe('staff link', () => {
   // eslint-disable-next-line no-empty-pattern
   test.beforeEach(({}, info) => {
     test.skip(
@@ -99,7 +95,7 @@ test.describe('staff links', () => {
     );
   });
 
-  test('an admin sees Moderation and Consent & legal after the public links, and both open', async ({
+  test('an admin sees one Admin link after the public links; it opens the admin page and stays current on the staff pages', async ({
     page,
   }) => {
     await signedInHome(page, 'admin-nav');
@@ -111,41 +107,49 @@ test.describe('staff links', () => {
       'Greatest Story',
       'Contact',
       'Donate',
-      'Moderation',
-      'Consent & legal',
+      'Admin',
     ]);
-    await nav.getByRole('link', { name: 'Moderation' }).click();
-    await expect(page).toHaveURL(/\/moderation$/);
+    await expect(nav.getByRole('link', { name: 'Admin' })).not.toHaveAttribute(
+      'aria-current',
+    );
+    await nav.getByRole('link', { name: 'Admin' }).click();
+    await expect(page).toHaveURL(/\/admin$/);
     await expect(
-      page.getByRole('heading', { level: 1, name: 'Moderation' }),
+      page.getByRole('heading', { level: 1, name: 'Admin' }),
     ).toBeVisible();
 
-    nav = await openNav(page);
-    await expect(nav.getByRole('link', { name: 'Moderation' })).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
-    await nav.getByRole('link', { name: 'Consent & legal' }).click();
-    await expect(page).toHaveURL(/\/admin\/consent$/);
-    await expect(page.locator('[data-admin-refused]')).toHaveCount(0);
-    await expect(
-      page.getByRole('navigation', { name: 'Admin pages' }),
-    ).toBeVisible();
+    // Current on the landing page and every staff page, and still the only staff link there.
+    for (const [path, title] of [
+      ['/admin', 'Admin'],
+      ['/moderation', 'Moderation'],
+      ['/admin/consent', 'Consent & legal'],
+    ] as const) {
+      await page.goto(`${WEB_SIGNED_IN_URL}${path}`);
+      await expect(
+        page.getByRole('heading', { level: 1, name: title }),
+      ).toBeVisible();
+      nav = await openNav(page);
+      await expect(nav).toHaveAttribute('data-role-known', '');
+      await expect(nav.locator('[data-staff-link]'), path).toHaveText([
+        'Admin',
+      ]);
+      await expect(
+        nav.getByRole('link', { name: 'Admin' }),
+        path,
+      ).toHaveAttribute('aria-current', 'page');
+    }
   });
 
-  test('a moderator sees Moderation only', async ({ page }) => {
+  test('a moderator sees the Admin link too', async ({ page }) => {
     await signedInHome(page, 'moderator-nav');
     const nav = await openNav(page);
-    await expect(nav.getByRole('link', { name: 'Moderation' })).toBeVisible();
-    await expect(
-      nav.getByRole('link', { name: 'Consent & legal' }),
-    ).toHaveCount(0);
+    await expect(nav.locator('[data-staff-link]')).toHaveText(['Admin']);
   });
 
-  test('an admin sees no staff links while their role is unknown', async ({
+  test('an admin sees no staff link while their role is unknown', async ({
     page,
   }) => {
-    // api-user's answer is held: until it comes, no staff link shows (no flash), then both do.
+    // api-user's answer is held: until it comes, no staff link shows (no flash), then it does.
     let release!: () => void;
     const held = new Promise<void>((r) => {
       release = r;
@@ -169,10 +173,10 @@ test.describe('staff links', () => {
     await expect(nav.locator('[data-staff-link]')).toHaveCount(0);
     release();
     await expect(nav).toHaveAttribute('data-role-known', '');
-    await expect(nav.locator('[data-staff-link]')).toHaveCount(2);
+    await expect(nav.locator('[data-staff-link]')).toHaveCount(1);
   });
 
-  test('a signed-in user sees no staff links', async ({ page }) => {
+  test('a signed-in user sees no staff link', async ({ page }) => {
     await signedInHome(page, 'user-nav');
     const nav = await openNav(page);
     await expect(nav).toHaveAttribute('data-role-known', '');
@@ -180,7 +184,7 @@ test.describe('staff links', () => {
     await expect(nav.locator('[data-staff-link]')).toHaveCount(0);
   });
 
-  test('a signed-out visitor sees no staff links', async ({ page }) => {
+  test('a signed-out visitor sees no staff link', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
     const nav = await openNav(page);

@@ -87,7 +87,7 @@ Kept basic for now. Joel will decide later how stories are shared out between mo
 
 - ✅ Plain error messages ("Something went wrong. Please try again later.")
 - ✅ Staff roles: User, Moderator and Admin, with a Staff page for Admins
-- ✅ Staff links in the site's menu
+- ✅ One "Admin" link in the site's menu, opening an admin page to choose from
 - ✅ Moderators' list of every story that isn't public: tabs with counts, search, sort, the same format and theme filters as browse, long waits in orange and red
 - ✅ Admin and moderation pages centred
 - ✅ Review page showing a story as the public will see it, with its history
