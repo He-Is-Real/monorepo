@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { connection } from 'next/server';
 import {
+  BrowseChoices,
   BrowseSearch,
   BrowseSortFormat,
   FILTER_HEADING,
@@ -114,82 +115,84 @@ export default async function BrowsePage({ searchParams }: Props) {
         <p className="mt-3 text-lg text-secondary-text">{INTRO}</p>
       </header>
 
-      <BrowseView
-        query={filters}
-        themeIds={themes && themes.flatMap((c) => c.themes.map((t) => t.id))}
-        themeName={themeName ?? null}
-        search={<BrowseSearch filters={filters} />}
-        panel={
-          <>
-            <BrowseSortFormat filters={filters} />
-            {categories.length > 0 && (
-              <section aria-labelledby="browse-themes">
-                <h2 id="browse-themes" className={FILTER_HEADING}>
-                  Themes
-                </h2>
-                <ThemeFilter
-                  categories={categories}
-                  filters={filters}
-                  className="mt-0"
-                />
-              </section>
-            )}
-          </>
-        }
-        summary={
-          summary && (
-            <p className="mt-6 text-sm text-muted-foreground">
-              <strong className="font-semibold text-foreground">
-                {summary}
-              </strong>
-            </p>
-          )
-        }
-        results={
-          result instanceof StoriesUnavailableError &&
-          result.restartingSeconds !== undefined ? (
-            <RestartingMessage
-              seconds={result.restartingSeconds}
-              variant="inline"
-            />
-          ) : result instanceof StoriesUnavailableError ? (
-            <p
-              role="status"
-              className="mx-auto max-w-measure rounded-xl bg-raised px-4 py-6 text-center text-secondary-text"
-            >
-              {TRY_AGAIN_LATER}
-            </p>
-          ) : result.cards.length === 0 ? (
-            <div className="mx-auto max-w-measure rounded-xl bg-raised px-4 py-10 text-center">
-              <p className="text-lg">
-                {/* A highlighted theme no story uses yet says so plainly (A14). */}
-                {filters.q || filters.format
-                  ? 'No stories match these filters yet.'
-                  : 'No stories yet.'}
-              </p>
-              {filtered && (
-                <p className="mt-3">
-                  <Link
-                    href="/stories"
-                    className="inline-flex min-h-11 items-center font-medium"
-                  >
-                    Clear filters
-                  </Link>
-                </p>
+      <BrowseChoices filters={filters}>
+        <BrowseView
+          query={filters}
+          themeIds={themes && themes.flatMap((c) => c.themes.map((t) => t.id))}
+          themeName={themeName ?? null}
+          search={<BrowseSearch filters={filters} />}
+          panel={
+            <>
+              <BrowseSortFormat filters={filters} />
+              {categories.length > 0 && (
+                <section aria-labelledby="browse-themes">
+                  <h2 id="browse-themes" className={FILTER_HEADING}>
+                    Themes
+                  </h2>
+                  <ThemeFilter
+                    categories={categories}
+                    filters={filters}
+                    className="mt-0"
+                  />
+                </section>
               )}
-            </div>
-          ) : (
-            <BrowseResults
-              // New on every server render: the list restarts from these cards (BrowseResults).
-              snapshot={randomUUID()}
-              filters={filters}
-              cards={result.cards}
-              nextCursor={result.cursor}
-              pagesLoaded={result.loaded}
-            />
-          )
-        }
-      />
+            </>
+          }
+          summary={
+            summary && (
+              <p className="mt-6 text-sm text-muted-foreground">
+                <strong className="font-semibold text-foreground">
+                  {summary}
+                </strong>
+              </p>
+            )
+          }
+          results={
+            result instanceof StoriesUnavailableError &&
+            result.restartingSeconds !== undefined ? (
+              <RestartingMessage
+                seconds={result.restartingSeconds}
+                variant="inline"
+              />
+            ) : result instanceof StoriesUnavailableError ? (
+              <p
+                role="status"
+                className="mx-auto max-w-measure rounded-xl bg-raised px-4 py-6 text-center text-secondary-text"
+              >
+                {TRY_AGAIN_LATER}
+              </p>
+            ) : result.cards.length === 0 ? (
+              <div className="mx-auto max-w-measure rounded-xl bg-raised px-4 py-10 text-center">
+                <p className="text-lg">
+                  {/* A highlighted theme no story uses yet says so plainly (A14). */}
+                  {filters.q || filters.format
+                    ? 'No stories match these filters yet.'
+                    : 'No stories yet.'}
+                </p>
+                {filtered && (
+                  <p className="mt-3">
+                    <Link
+                      href="/stories"
+                      className="inline-flex min-h-11 items-center font-medium"
+                    >
+                      Clear filters
+                    </Link>
+                  </p>
+                )}
+              </div>
+            ) : (
+              <BrowseResults
+                // New on every server render: the list restarts from these cards (BrowseResults).
+                snapshot={randomUUID()}
+                filters={filters}
+                cards={result.cards}
+                nextCursor={result.cursor}
+                pagesLoaded={result.loaded}
+              />
+            )
+          }
+        />
+      </BrowseChoices>
     </main>
   );
 }

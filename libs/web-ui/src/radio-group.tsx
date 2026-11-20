@@ -13,13 +13,15 @@ export interface RadioGroupProps {
   legend: string;
   /** Posted with the surrounding form (GET or POST), with or without JavaScript. */
   name?: string;
+  /** The id of a form elsewhere on the page the buttons belong to (the HTML `form` attribute). */
+  form?: string;
   options: readonly RadioOption[];
   /** Controlled: the caller keeps the value and updates it from `onValueChange`. */
   value?: string;
   /** Uncontrolled: the first value; the browser keeps it from then on. */
   defaultValue?: string;
   onValueChange?: (value: string) => void;
-  /** Submits the surrounding form as soon as the choice changes (filters that apply at once). */
+  /** Submits its form (the surrounding one, or `form`) as soon as the choice changes (filters that apply at once). */
   submitOnChange?: boolean;
   /** Layout classes for the fieldset (margins, width). */
   className?: string;
@@ -34,6 +36,7 @@ export interface RadioGroupProps {
 export function RadioGroup({
   legend,
   name,
+  form,
   options,
   value,
   defaultValue,
@@ -48,11 +51,11 @@ export function RadioGroup({
   // Hydration: a choice made while the page's JavaScript loaded is applied now, as it would
   // have been with the JavaScript there (as `Select` does).
   useLayoutEffect(() => {
-    if (value !== undefined || !submitOnChange) return;
+    if (!submitOnChange) return;
     const checked = fieldset.current?.querySelector<HTMLInputElement>(
       'input[type=radio]:checked',
     );
-    if (checked && checked.value !== defaultValue) {
+    if (checked && checked.value !== (value ?? defaultValue)) {
       onValueChange?.(checked.value);
       checked.form?.requestSubmit();
     }
@@ -73,6 +76,7 @@ export function RadioGroup({
           <input
             type="radio"
             name={group}
+            form={form}
             value={o.value}
             {...(value === undefined
               ? { defaultChecked: defaultValue === o.value }

@@ -27,13 +27,15 @@ export interface SelectProps extends Pick<
   id?: string;
   /** Posted with the surrounding form (GET or POST), with or without JavaScript. */
   name?: string;
+  /** The id of a form elsewhere on the page the value belongs to (the HTML `form` attribute). */
+  form?: string;
   options: readonly SelectOption[];
   /** Controlled: the caller keeps the value and updates it from `onValueChange`. */
   value?: string;
   /** Uncontrolled: the first value; the control keeps it from then on. */
   defaultValue?: string;
   onValueChange?: (value: string) => void;
-  /** Submits the surrounding form once the new value is in it (filters that apply at once). */
+  /** Submits its form (the surrounding one, or `form`) once the new value is in it (filters that apply at once). */
   submitOnChange?: boolean;
   disabled?: boolean;
   required?: boolean;
@@ -80,6 +82,7 @@ const field = `${COMPACT_FIELD} cursor-pointer py-0 pr-10 pl-3`;
 export function Select({
   id: ownId,
   name,
+  form,
   options,
   value,
   defaultValue,
@@ -114,7 +117,12 @@ export function Select({
   useEffect(() => {
     if (!submitPending.current) return;
     submitPending.current = false;
-    wrapper.current?.closest('form')?.requestSubmit();
+    // The form the value is posted with: the native select's or the hidden field's (which follow
+    // `form`), else the surrounding one.
+    const field = wrapper.current?.querySelector<
+      HTMLSelectElement | HTMLInputElement
+    >('select, input[type=hidden]');
+    (field?.form ?? wrapper.current?.closest('form'))?.requestSubmit();
   }, [current]);
 
   // Hydration: the person may have used the native select while the page's JavaScript loaded.
@@ -240,6 +248,7 @@ export function Select({
             <input
               type="hidden"
               name={name}
+              form={form}
               value={current}
               disabled={disabled}
             />
@@ -251,6 +260,7 @@ export function Select({
           id={id}
           data-slot="select-native"
           name={name}
+          form={form}
           value={current}
           disabled={disabled}
           required={required}

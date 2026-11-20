@@ -2,6 +2,7 @@ import { expect, type Page, test } from '@playwright/test';
 import {
   browseFilters,
   chooseOption,
+  closeBrowseFilters,
   expectAllTargets,
   expectNoHorizontalOverflow,
   shots,
@@ -259,6 +260,71 @@ test.describe('computers: sort', () => {
       'Oldest first',
     ]);
     await expect(sort.getByRole('radio', { name: 'Best match' })).toBeChecked();
+  });
+});
+
+// The search box and the filters are one form (Codex, #254): pressing Search or changing a filter
+// sends the typed search, the sort and the format together, whichever was changed first.
+test.describe('search and filters send each other’s live values', () => {
+  // eslint-disable-next-line no-empty-pattern
+  test.beforeEach(({}, info) => {
+    test.skip(
+      !['phone-320', 'desktop-1280'].includes(info.project.name),
+      'one phone (the panel) and one computer (the column)',
+    );
+  });
+
+  test('a filter changed after typing a search keeps the typed search', async ({
+    page,
+  }) => {
+    await page.goto('/stories');
+    const box = page.getByLabel('Search stories');
+    await box.fill('test');
+    const filters = await browseFilters(page);
+    await filters.locator('label').filter({ hasText: 'Oldest first' }).click();
+    await expect(page).toHaveURL(/[?&]q=test(&|$)/);
+    await expect(page).toHaveURL(/[?&]sort=oldest(&|$)/);
+    await expect(page.getByText('Results for “test”')).toBeVisible();
+    await expect(box).toHaveValue('test');
+  });
+
+  test('a search sent while a sort change is still loading keeps the new sort', async ({
+    page,
+  }) => {
+    await page.goto('/stories');
+    // Hold the sort change's page load until the search has been sent.
+    let release = () => undefined as void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let seen = () => undefined as void;
+    const asked = new Promise<void>((resolve) => (seen = resolve));
+    await page.route(
+      (url) =>
+        url.pathname === '/stories' &&
+        url.searchParams.get('sort') === 'oldest' &&
+        !url.searchParams.get('q'),
+      async (route) => {
+        seen();
+        await held;
+        await route.continue().catch(() => undefined);
+      },
+    );
+    try {
+      const filters = await browseFilters(page);
+      await filters
+        .locator('label')
+        .filter({ hasText: 'Oldest first' })
+        .click();
+      await asked;
+      await closeBrowseFilters(page);
+      const box = page.getByLabel('Search stories');
+      await box.fill('test');
+      await box.press('Enter');
+      await expect(page).toHaveURL(/[?&]q=test(&|$)/);
+      await expect(page).toHaveURL(/[?&]sort=oldest(&|$)/);
+      await expect(page.getByText('Results for “test”')).toBeVisible();
+    } finally {
+      release();
+    }
   });
 });
 

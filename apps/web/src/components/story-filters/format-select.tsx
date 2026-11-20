@@ -26,6 +26,7 @@ export function FormatSelect({
 } & Pick<
   SelectProps,
   | 'name'
+  | 'form'
   | 'value'
   | 'defaultValue'
   | 'onValueChange'
