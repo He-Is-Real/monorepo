@@ -98,6 +98,18 @@ describe('no-raw-colour', () => {
       `export const P = () => <svg><path fill="red" /></svg>;`,
     ],
     [
+      'a named colour in a logical border',
+      `export const P = () => <p style={{ borderInlineStart: '1px solid red', borderBlockEnd: '2px solid navy' }}>x</p>;`,
+    ],
+    [
+      'a named colour in other colour style keys',
+      `export const P = () => <p style={{ textDecorationColor: 'red', caretColor: 'blue', accentColor: 'green', columnRuleColor: 'tan', outline: '1px solid red', boxShadow: '0 0 2px black', textShadow: '0 0 1px white' }}>x</p>;`,
+    ],
+    [
+      'a named colour in an SVG stroke',
+      `export const P = () => <svg><path stroke="black" /></svg>;`,
+    ],
+    [
       'a named colour in a gradient stop',
       `export const P = () => <svg><stop stopColor="gold" /></svg>;`,
     ],
@@ -128,6 +140,26 @@ describe('no-raw-colour', () => {
     [
       'a theme variable in style',
       `export const P = () => <p style={{ color: 'var(--danger)', background: 'linear-gradient(145deg, var(--art-1-from), var(--art-1-to))' }}>x</p>;`,
+    ],
+    [
+      'a colour word in brackets as text',
+      `export const P = () => <p>{'[red]'}</p>;`,
+    ],
+    [
+      'a colour word in generated content',
+      `export const P = () => <p className="before:content-['Red']">x</p>;`,
+    ],
+    [
+      'a colour word in an image url',
+      `export const P = () => <p className="bg-[url('/images/red.webp')]">x</p>;`,
+    ],
+    [
+      'colour words and hex-like ids in SVG url fills',
+      `export const P = () => <svg><path fill="url(#red)" /><path fill="url(#add)" /></svg>;`,
+    ],
+    [
+      'a colour word in a selector variant',
+      `export const P = () => <p className="[&_.red]:underline">x</p>;`,
     ],
     [
       'currentColor in an SVG fill',

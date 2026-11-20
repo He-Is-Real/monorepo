@@ -243,11 +243,19 @@ const NAMED_WORD = new RegExp(
   `(?<![a-z0-9-])(?:${CSS_NAMED})(?![a-z0-9-])`,
   'i',
 );
-/** A named colour inside a Tailwind arbitrary value: `text-[red]`, `[--logo:white]`, `[color:navy]` */
-const NAMED_IN_ARBITRARY = new RegExp(
-  `\\[[^\\]]*(?<![a-z0-9-])(?:${CSS_NAMED})(?![a-z0-9-])[^\\]]*\\]`,
+/**
+ * A Tailwind colour utility with an arbitrary value (`text-[red]`, `bg-[color:navy]`), or an
+ * arbitrary colour property (`[color:red]`, `[--logo:white]`): group 1 is the value. Not
+ * `content-['Red']` (text), not a selector variant (`[&_.red]:block`).
+ */
+const ARBITRARY_COLOUR_VALUE = new RegExp(
+  `(?:^|:)!?(?:(?:${UTILITY})-\\[([^\\]]*)\\]|\\[(?:--[\\w-]+|color|background(?:-color)?|border(?:-[a-z]+)*-color|outline-color|fill|stroke|caret-color|accent-color|text-decoration-color):([^\\]]*)\\])!?$`,
   'i',
 );
+/** A url(…) and quoted text aren't colours: `bg-[url('/images/red.webp')]`, `fill="url(#red)"`. */
+const withoutUrls = (text) => text.replace(/url\([^)]*\)/gi, 'url()');
+const withoutQuoted = (text) =>
+  withoutUrls(text).replace(/'[^']*'|"[^"]*"/g, "''");
 
 /**
  * Attributes and keys whose value is a link, a fragment or a name, never a colour: `#add` there
@@ -261,18 +269,31 @@ const NOT_A_COLOUR_KEY =
  * `stopColor`, `boxShadow`… (not `borderRadius` or `borderWidth`).
  */
 const COLOUR_KEY =
-  /colou?r$|^(?:background|backgroundImage|border(?:Top|Right|Bottom|Left|Block|Inline)?|outline|fill|stroke|boxShadow|textShadow|textDecoration|columnRule|mask|filter)$/i;
+  /colou?r$|^(?:background|backgroundImage|border(?:Top|Right|Bottom|Left|(?:Block|Inline)(?:Start|End)?)?|outline|fill|stroke|boxShadow|textShadow|textDecoration|columnRule|mask|filter)$/i;
 
-/** Why a string holds a raw colour, or null. `key` is its attribute or property name, if any. */
+/**
+ * Why a string holds a raw colour, or null. `key` is its attribute or property name, if any.
+ * Named colours (`red`) count only where a colour goes: a colour attribute or style key, or a
+ * Tailwind arbitrary colour value; never in ordinary text, quoted text or a url(…).
+ */
 export function rawColour(text, key) {
   const urlLike = key !== undefined && NOT_A_COLOUR_KEY.test(key);
-  if (!urlLike && HEX.test(text)) return 'a hex colour';
+  if (!urlLike && HEX.test(withoutUrls(text))) return 'a hex colour';
   if (COLOUR_FUNCTION.test(text)) return 'a colour function';
-  if (key !== undefined && COLOUR_KEY.test(key) && NAMED_WORD.test(text))
+  if (
+    key !== undefined &&
+    COLOUR_KEY.test(key) &&
+    NAMED_WORD.test(withoutQuoted(text))
+  )
     return 'a named colour';
   for (const word of text.split(/\s+/)) {
     if (PALETTE_CLASS.test(word)) return `the palette class \`${word}\``;
-    if (NAMED_IN_ARBITRARY.test(word)) return `a named colour in \`${word}\``;
+    const arbitrary = ARBITRARY_COLOUR_VALUE.exec(word);
+    if (
+      arbitrary &&
+      NAMED_WORD.test(withoutQuoted(arbitrary[1] ?? arbitrary[2]))
+    )
+      return `a named colour in \`${word}\``;
   }
   return null;
 }
