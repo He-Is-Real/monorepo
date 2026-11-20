@@ -2,16 +2,13 @@
 
 import Form from 'next/form';
 import { useSearchParams } from 'next/navigation';
-import { Button, Select } from '@heisreal/web-ui';
+import { Button, Input, Select } from '@heisreal/web-ui';
 import { FormatSelect } from '@/components/story-filters/format-select';
 import {
   type BrowseFilters as Filters,
   FAVOURITES_PARAM,
   favouritesOn,
 } from '@/lib/browse-query';
-
-const field =
-  'h-11 rounded-lg border border-input bg-input-background px-3 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30';
 
 /**
  * Search, sort and format (browse mockup's filter bar). A plain GET form to /stories, so it
@@ -40,14 +37,14 @@ export function BrowseFilters({ filters }: { filters: Filters }) {
         <label htmlFor="browse-q" className="sr-only">
           Search stories
         </label>
-        <input
+        <Input
           id="browse-q"
           type="search"
           name="q"
           defaultValue={filters.q}
           maxLength={200}
           placeholder="Search stories…"
-          className={`${field} w-full px-4 placeholder:text-faint`}
+          className="px-4"
         />
       </div>
       <label htmlFor="browse-sort" className="sr-only">

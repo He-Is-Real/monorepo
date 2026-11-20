@@ -65,6 +65,18 @@ const TOKEN_SELECTORS = [
   },
 ];
 
+// WL-1 (Joel, 2026-11-19): text boxes and text areas are the web library's `Input` and
+// `Textarea` (libs/web-ui). A class string with the field look (the input border and background
+// and a focus ring) in a page is a hand-made copy.
+const FIELD_SELECTORS = [
+  {
+    selector:
+      ':matches(Literal, TemplateElement[value.raw]):matches([value=/border-input .*bg-input-background.* focus-visible:ring/], [value.raw=/border-input .*bg-input-background.* focus-visible:ring/])',
+    message:
+      'Use Input or Textarea from @heisreal/web-ui instead of copying the field look.',
+  },
+];
+
 // The one reviewed carve-out (M2, apps/web/README.md): web's browser-only api-user client sends
 // the person's own Clerk token to api-user and reads api-user's response headers (ETag,
 // Location), so it builds request headers and reads `.headers`. It is 'use client' and refuses
@@ -115,6 +127,7 @@ export default [
         'error',
         ...MODULE_SELECTORS,
         ...TOKEN_SELECTORS,
+        ...FIELD_SELECTORS,
       ],
     },
   },
@@ -124,6 +137,7 @@ export default [
       'no-restricted-syntax': [
         'error',
         ...MODULE_SELECTORS,
+        ...FIELD_SELECTORS,
         {
           selector: 'MemberExpression[property.name=/^cookies?$/]',
           message: `${tokenBoundary}: no .cookies access.`,

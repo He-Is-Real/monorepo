@@ -1,4 +1,5 @@
 import Script from 'next/script';
+import { Card } from '@heisreal/web-ui';
 
 // Stripe's Buy Button (Joel, 2026-10-29): Stripe's own web component, as its Dashboard snippet
 // gives it. Stripe's script fills it with an iframe from js.stripe.com, and the click opens
@@ -45,7 +46,7 @@ export function StripeBuyButton({
 }) {
   return (
     <div className="-mx-4 flex justify-center sm:mx-0">
-      <div className="light rounded-2xl border border-border bg-card px-[12px] py-6 sm:px-4">
+      <Card className="light px-[12px] py-6 sm:px-4">
         <stripe-buy-button
           buy-button-id={buttonId}
           publishable-key={publishableKey}
@@ -53,7 +54,7 @@ export function StripeBuyButton({
         >
           Loading Stripe’s secure button…
         </stripe-buy-button>
-      </div>
+      </Card>
     </div>
   );
 }

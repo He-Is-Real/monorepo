@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
 import { previewHref } from '@/components/share/own-media';
-import { Button } from '@heisreal/web-ui';
+import { Button, Card } from '@heisreal/web-ui';
 import {
   type Agreement,
   type ApiUser,
@@ -332,210 +332,211 @@ function StoryRow({
   ].filter(Boolean);
 
   return (
-    <li
-      data-submission={label}
-      aria-labelledby={titleId}
-      className="rounded-2xl border border-border bg-card p-5 sm:p-6"
-    >
-      <div className="mb-2 flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-        <h3
-          id={titleId}
-          className="min-w-0 flex-1 text-lg font-semibold [overflow-wrap:anywhere]"
-        >
-          {story.title}
-        </h3>
-        <span
-          data-status=""
-          className={`max-w-full rounded-full border px-3 py-1 text-sm font-medium ${status.tone}`}
-        >
-          {status.label}
-        </span>
-      </div>
-      <p className="mb-3 text-sm text-secondary-text [overflow-wrap:anywhere]">
-        {meta.join(' · ')}
-      </p>
-      {story.rejectionFeedback && (
-        <div
-          data-feedback=""
-          className="mb-4 rounded-xl border-l-4 border-link bg-raised p-4 text-[0.9375rem]"
-        >
-          <p className="mb-1 font-semibold">What our team said</p>
-          <p className="whitespace-pre-line [overflow-wrap:anywhere]">
-            {story.rejectionFeedback}
-          </p>
+    <Card asChild className="p-5 sm:p-6">
+      <li data-submission={label} aria-labelledby={titleId}>
+        <div className="mb-2 flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <h3
+            id={titleId}
+            className="min-w-0 flex-1 text-lg font-semibold [overflow-wrap:anywhere]"
+          >
+            {story.title}
+          </h3>
+          <span
+            data-status=""
+            className={`max-w-full rounded-full border px-3 py-1 text-sm font-medium ${status.tone}`}
+          >
+            {status.label}
+          </span>
         </div>
-      )}
-      {label === 'draft' && story.deletesAt && (
-        <p data-draft-expiry="" className="mb-3 text-sm text-secondary-text">
-          If you don’t change this draft, we’ll delete it after{' '}
-          {LONG_DATE.format(new Date(story.deletesAt))}.
+        <p className="mb-3 text-sm text-secondary-text [overflow-wrap:anywhere]">
+          {meta.join(' · ')}
         </p>
-      )}
-      {(label === 'sent_back' ||
-        label === 'editing' ||
-        label === 'needs_file' ||
-        label === 'ready_again') &&
-        story.deletesAt && (
+        {story.rejectionFeedback && (
+          <div
+            data-feedback=""
+            className="mb-4 rounded-xl border-l-4 border-link bg-raised p-4 text-[0.9375rem]"
+          >
+            <p className="mb-1 font-semibold">What our team said</p>
+            <p className="whitespace-pre-line [overflow-wrap:anywhere]">
+              {story.rejectionFeedback}
+            </p>
+          </div>
+        )}
+        {label === 'draft' && story.deletesAt && (
           <p data-draft-expiry="" className="mb-3 text-sm text-secondary-text">
-            If you don’t change this story, we’ll delete it after{' '}
+            If you don’t change this draft, we’ll delete it after{' '}
             {LONG_DATE.format(new Date(story.deletesAt))}.
           </p>
         )}
-      {label === 'rejected' && story.deletesAt && (
-        <p data-draft-expiry="" className="mb-3 text-sm text-secondary-text">
-          We’ll delete this story after{' '}
-          {LONG_DATE.format(new Date(story.deletesAt))}. To keep our team’s
-          note, download your data before then.
-        </p>
-      )}
-      {label === 'editing' && (
-        <p className="mb-3 text-sm text-secondary-text">
-          It isn’t on the site or waiting for review. Send it again when you’re
-          ready, and our team will look at it.
-        </p>
-      )}
-      {label === 'needs_file' && (
-        <p data-media-problem="" className="mb-3 text-[0.9375rem]">
-          {unusable === 'picture'
-            ? // P1-6 A (Joel, 2026-11-14): the recording again, a picture if they like.
-              'We couldn’t use your picture. Please upload your recording again, and a picture if you like.'
-            : `We couldn’t use your ${unusable}. Please upload another file.`}
-        </p>
-      )}
-      {label === 'ready_again' && (
-        <p data-media-problem="replaced" className="mb-3 text-[0.9375rem]">
-          Thanks, your new file is in. Send it when you’re ready.
-        </p>
-      )}
-      {label === 'hidden' && (
-        <p className="mb-3 text-sm text-secondary-text">
-          {story.primaryFormat === 'written'
-            ? 'It isn’t on the site right now. You can edit it or delete it.'
-            : `We’re fixing your ${media}. It will be back by itself.`}
-        </p>
-      )}
-      {shared && (
-        <p
-          data-shared-on-social=""
-          className="mb-3 text-sm text-secondary-text"
-        >
-          You allowed us to share it on social media (on{' '}
-          {shortDate(shared.agreedAt)}).
-        </p>
-      )}
-
-      {confirm ? (
-        <div
-          data-confirm={confirm}
-          className="rounded-xl border border-border-hover p-4"
-        >
-          <p className="mb-3">
-            {confirm === 'delete'
-              ? `Delete this ${what} for good? Its text and any video or audio go too${onSite ? ', and it comes off the site' : ''}. This can’t be undone.`
-              : 'Edit this story? It comes off the site straight away, and goes back on once our team has approved it again.'}
+        {(label === 'sent_back' ||
+          label === 'editing' ||
+          label === 'needs_file' ||
+          label === 'ready_again') &&
+          story.deletesAt && (
+            <p
+              data-draft-expiry=""
+              className="mb-3 text-sm text-secondary-text"
+            >
+              If you don’t change this story, we’ll delete it after{' '}
+              {LONG_DATE.format(new Date(story.deletesAt))}.
+            </p>
+          )}
+        {label === 'rejected' && story.deletesAt && (
+          <p data-draft-expiry="" className="mb-3 text-sm text-secondary-text">
+            We’ll delete this story after{' '}
+            {LONG_DATE.format(new Date(story.deletesAt))}. To keep our team’s
+            note, download your data before then.
           </p>
-          <div className="flex flex-wrap gap-3">
-            <Button
-              autoFocus
-              variant={confirm === 'delete' ? 'destructive' : 'default'}
-              className="h-auto min-h-11 px-5 py-2 whitespace-normal"
-              disabled={busy}
-              onClick={() => go(confirm)}
-            >
-              {busy
-                ? confirm === 'delete'
-                  ? 'Deleting…'
-                  : 'Opening…'
-                : confirm === 'delete'
-                  ? `Delete ${what}`
-                  : 'Edit story'}
-            </Button>
-            <Button
-              variant="outline"
-              className="h-auto min-h-11 px-5 py-2 whitespace-normal"
-              disabled={busy}
-              onClick={() => setConfirm(null)}
-            >
-              Keep it
-            </Button>
+        )}
+        {label === 'editing' && (
+          <p className="mb-3 text-sm text-secondary-text">
+            It isn’t on the site or waiting for review. Send it again when
+            you’re ready, and our team will look at it.
+          </p>
+        )}
+        {label === 'needs_file' && (
+          <p data-media-problem="" className="mb-3 text-[0.9375rem]">
+            {unusable === 'picture'
+              ? // P1-6 A (Joel, 2026-11-14): the recording again, a picture if they like.
+                'We couldn’t use your picture. Please upload your recording again, and a picture if you like.'
+              : `We couldn’t use your ${unusable}. Please upload another file.`}
+          </p>
+        )}
+        {label === 'ready_again' && (
+          <p data-media-problem="replaced" className="mb-3 text-[0.9375rem]">
+            Thanks, your new file is in. Send it when you’re ready.
+          </p>
+        )}
+        {label === 'hidden' && (
+          <p className="mb-3 text-sm text-secondary-text">
+            {story.primaryFormat === 'written'
+              ? 'It isn’t on the site right now. You can edit it or delete it.'
+              : `We’re fixing your ${media}. It will be back by itself.`}
+          </p>
+        )}
+        {shared && (
+          <p
+            data-shared-on-social=""
+            className="mb-3 text-sm text-secondary-text"
+          >
+            You allowed us to share it on social media (on{' '}
+            {shortDate(shared.agreedAt)}).
+          </p>
+        )}
+
+        {confirm ? (
+          <div
+            data-confirm={confirm}
+            className="rounded-xl border border-border-hover p-4"
+          >
+            <p className="mb-3">
+              {confirm === 'delete'
+                ? `Delete this ${what} for good? Its text and any video or audio go too${onSite ? ', and it comes off the site' : ''}. This can’t be undone.`
+                : 'Edit this story? It comes off the site straight away, and goes back on once our team has approved it again.'}
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <Button
+                autoFocus
+                variant={confirm === 'delete' ? 'destructive' : 'default'}
+                className="h-auto min-h-11 px-5 py-2 whitespace-normal"
+                disabled={busy}
+                onClick={() => go(confirm)}
+              >
+                {busy
+                  ? confirm === 'delete'
+                    ? 'Deleting…'
+                    : 'Opening…'
+                  : confirm === 'delete'
+                    ? `Delete ${what}`
+                    : 'Edit story'}
+              </Button>
+              <Button
+                variant="outline"
+                className="h-auto min-h-11 px-5 py-2 whitespace-normal"
+                disabled={busy}
+                onClick={() => setConfirm(null)}
+              >
+                Keep it
+              </Button>
+            </div>
           </div>
-        </div>
-      ) : (
-        <div className="flex flex-wrap gap-3">
-          {story.status === 'editing' && (
-            <Button
-              asChild
-              className="h-auto min-h-11 max-w-full px-5 py-2 text-center whitespace-normal"
-            >
-              <Link
-                href={`/share?draft=${encodeURIComponent(story.id)}`}
-                aria-describedby={titleId}
+        ) : (
+          <div className="flex flex-wrap gap-3">
+            {story.status === 'editing' && (
+              <Button
+                asChild
+                className="h-auto min-h-11 max-w-full px-5 py-2 text-center whitespace-normal"
               >
-                {label === 'draft'
-                  ? 'Continue'
-                  : label === 'needs_file'
-                    ? unusable === 'picture'
-                      ? 'Upload your recording again'
-                      : 'Upload another file'
-                    : label === 'ready_again'
-                      ? 'Send again'
-                      : 'Continue editing'}
-              </Link>
-            </Button>
-          )}
-          {!onSite && (
-            <Button
-              asChild
-              variant="outline"
-              className="h-auto min-h-11 px-5 py-2 whitespace-normal"
-            >
-              <Link href={previewHref(story.id)} aria-describedby={titleId}>
-                Preview
-              </Link>
-            </Button>
-          )}
-          {onSite && (
-            <Button
-              asChild
-              variant="outline"
-              className="h-auto min-h-11 px-5 py-2 whitespace-normal"
-            >
-              <Link
-                href={`/stories/${encodeURIComponent(story.slug)}`}
-                aria-describedby={titleId}
+                <Link
+                  href={`/share?draft=${encodeURIComponent(story.id)}`}
+                  aria-describedby={titleId}
+                >
+                  {label === 'draft'
+                    ? 'Continue'
+                    : label === 'needs_file'
+                      ? unusable === 'picture'
+                        ? 'Upload your recording again'
+                        : 'Upload another file'
+                      : label === 'ready_again'
+                        ? 'Send again'
+                        : 'Continue editing'}
+                </Link>
+              </Button>
+            )}
+            {!onSite && (
+              <Button
+                asChild
+                variant="outline"
+                className="h-auto min-h-11 px-5 py-2 whitespace-normal"
               >
-                View
-              </Link>
-            </Button>
-          )}
-          {CAN_START_EDITING.includes(story.status) && (
+                <Link href={previewHref(story.id)} aria-describedby={titleId}>
+                  Preview
+                </Link>
+              </Button>
+            )}
+            {onSite && (
+              <Button
+                asChild
+                variant="outline"
+                className="h-auto min-h-11 px-5 py-2 whitespace-normal"
+              >
+                <Link
+                  href={`/stories/${encodeURIComponent(story.slug)}`}
+                  aria-describedby={titleId}
+                >
+                  View
+                </Link>
+              </Button>
+            )}
+            {CAN_START_EDITING.includes(story.status) && (
+              <Button
+                variant="outline"
+                className="h-auto min-h-11 px-5 py-2 whitespace-normal"
+                aria-describedby={titleId}
+                disabled={busy}
+                // ED-1: a published story leaves the site on pressing Edit, so it asks first; one
+                // waiting for review or already off the site opens straight away.
+                onClick={() => (onSite ? setConfirm('edit') : go('edit'))}
+              >
+                Edit
+              </Button>
+            )}
             <Button
               variant="outline"
               className="h-auto min-h-11 px-5 py-2 whitespace-normal"
               aria-describedby={titleId}
-              disabled={busy}
-              // ED-1: a published story leaves the site on pressing Edit, so it asks first; one
-              // waiting for review or already off the site opens straight away.
-              onClick={() => (onSite ? setConfirm('edit') : go('edit'))}
+              onClick={() => setConfirm('delete')}
             >
-              Edit
+              Delete
             </Button>
-          )}
-          <Button
-            variant="outline"
-            className="h-auto min-h-11 px-5 py-2 whitespace-normal"
-            aria-describedby={titleId}
-            onClick={() => setConfirm('delete')}
-          >
-            Delete
-          </Button>
-        </div>
-      )}
-      {error && (
-        <p role="alert" className="mt-3 text-sm text-destructive">
-          {error}
-        </p>
-      )}
-    </li>
+          </div>
+        )}
+        {error && (
+          <p role="alert" className="mt-3 text-sm text-destructive">
+            {error}
+          </p>
+        )}
+      </li>
+    </Card>
   );
 }

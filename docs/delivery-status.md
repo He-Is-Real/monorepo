@@ -1,6 +1,6 @@
 # Delivery status
 
-Where the build is, in plain words. **Last updated:** 2026-11-19
+Where the build is, in plain words. **Last updated:** 2026-11-20
 
 Everything here runs on the **dev** test site only, with made-up stories. Nothing reaches the
 public until the "Go live" milestone. The old prototype and the Squarespace site keep running until
@@ -106,6 +106,8 @@ Kept basic for now. Joel will decide later how stories are shared out between mo
 - ✅ A video's picture is added when the story is sent, with no background picture jobs
 - ✅ "Attached" confirmation when coming back from another tab or device kept as it is
 - ✅ Every drop-down on the site uses the same styled list, in every browser
+- ✅ Text boxes, panels, menus and buttons come from one shared set, so pages don't restyle them
+- ⏸ One look each for chips, notices, open/close sections, confirm boxes, check boxes, tabs and switches: waits for Joel's choice
 - ⚪ Final docs and a demo walk-through on dev
 - ⚪ Two-step sign-in for staff: deferred until we're happy to pay for it
 

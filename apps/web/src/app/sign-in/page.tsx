@@ -8,6 +8,7 @@ import { Logo } from '@/components/logo';
 import { clerkPublishableKey, e2eFixtures } from '@/lib/config';
 import { safeReturnPath } from '@/lib/return-path';
 import { pageMetadata } from '@/lib/seo';
+import { Card } from '@heisreal/web-ui';
 
 /** Per request: URLs come from SITE_URL (seo.ts). Never indexed: it's only a sign-in form. */
 export function generateMetadata(): Metadata {
@@ -50,10 +51,12 @@ export default async function SignInPage({
           New here? The same steps create your account.
         </p>
         <noscript>
-          <p className="mb-6 rounded-2xl border border-border bg-card p-6 text-center">
-            Signing in needs JavaScript. Please turn it on, or use a browser
-            that has it, to sign in.
-          </p>
+          <Card asChild className="mb-6 p-6 text-center">
+            <p>
+              Signing in needs JavaScript. Please turn it on, or use a browser
+              that has it, to sign in.
+            </p>
+          </Card>
         </noscript>
         {/* Clerk's own step titles are hidden (the page's only h1 is "Welcome"), so the
             region names the form. */}

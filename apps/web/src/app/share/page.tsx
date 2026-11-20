@@ -13,6 +13,7 @@ import {
 } from '@/lib/config';
 import { getShareLegal } from '@/lib/share-legal';
 import { pageMetadata } from '@/lib/seo';
+import { Card } from '@heisreal/web-ui';
 
 /** Per request: URLs come from SITE_URL (seo.ts). Never indexed: it's a personal form. */
 export function generateMetadata(): Metadata {
@@ -47,10 +48,12 @@ export default async function SharePage() {
           lead="Your testimony could be exactly what someone needs to hear today."
         />
         <noscript>
-          <p className="mb-6 rounded-2xl border border-border bg-card p-6 text-center">
-            Sharing needs JavaScript. Please turn it on, or use a browser that
-            has it, to share your story.
-          </p>
+          <Card asChild className="mb-6 p-6 text-center">
+            <p>
+              Sharing needs JavaScript. Please turn it on, or use a browser that
+              has it, to share your story.
+            </p>
+          </Card>
         </noscript>
         <div data-share-slot="" className="min-h-[24rem]">
           {e2eFixtures() && apiUser ? (

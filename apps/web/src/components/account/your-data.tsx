@@ -3,7 +3,7 @@
 import { useClerk } from '@clerk/react';
 import { useRouter } from 'next/navigation';
 import { useId, useRef, useState } from 'react';
-import { Button } from '@heisreal/web-ui';
+import { Button, Card } from '@heisreal/web-ui';
 import {
   type ApiUser,
   ApiUserProblem,
@@ -153,36 +153,35 @@ function DownloadMyData() {
   };
 
   return (
-    <li
-      data-download-data=""
-      className="rounded-2xl border border-border bg-card p-5 sm:p-6"
-    >
-      <h3 className="mb-1 text-lg font-semibold">Download my data</h3>
-      <p className="mb-4 text-secondary-text">
-        Get a copy of everything we hold about you, in one file (JSON) that
-        explains each part: your account and sign-in details, every story you’ve
-        started or shared, what you agreed to, favourites and limits. Your
-        videos, audio and pictures are in it as links that work for 7 days,
-        including a link to download each video or audio as an MP4 file.
-      </p>
-      <Button
-        variant="outline"
-        className="h-auto min-h-11 px-5 py-2 whitespace-normal"
-        disabled={busy || !owner}
-        aria-busy={busy}
-        onClick={() => void download()}
-      >
-        {busy ? 'Preparing your file…' : 'Download my data'}
-      </Button>
-      {notice && (
-        <p
-          role={notice.alert ? 'alert' : 'status'}
-          className={`mt-3 text-sm ${notice.alert ? 'text-destructive' : ''}`}
-        >
-          {notice.text}
+    <Card asChild className="p-5 sm:p-6">
+      <li data-download-data="">
+        <h3 className="mb-1 text-lg font-semibold">Download my data</h3>
+        <p className="mb-4 text-secondary-text">
+          Get a copy of everything we hold about you, in one file (JSON) that
+          explains each part: your account and sign-in details, every story
+          you’ve started or shared, what you agreed to, favourites and limits.
+          Your videos, audio and pictures are in it as links that work for 7
+          days, including a link to download each video or audio as an MP4 file.
         </p>
-      )}
-    </li>
+        <Button
+          variant="outline"
+          className="h-auto min-h-11 px-5 py-2 whitespace-normal"
+          disabled={busy || !owner}
+          aria-busy={busy}
+          onClick={() => void download()}
+        >
+          {busy ? 'Preparing your file…' : 'Download my data'}
+        </Button>
+        {notice && (
+          <p
+            role={notice.alert ? 'alert' : 'status'}
+            className={`mt-3 text-sm ${notice.alert ? 'text-destructive' : ''}`}
+          >
+            {notice.text}
+          </p>
+        )}
+      </li>
+    </Card>
   );
 }
 
@@ -241,96 +240,96 @@ function DeleteAccount({ afterDeletion }: { afterDeletion: AfterDeletion }) {
   };
 
   return (
-    <li
-      data-delete-account=""
-      className="rounded-2xl border border-border bg-card p-5 sm:p-6"
-    >
-      <h3 className="mb-1 text-lg font-semibold">Delete my account</h3>
-      <p className="mb-4 text-secondary-text">
-        This withdraws your consent and deletes your stories, your account and
-        everything else we hold about you. To take down just one story, use Edit
-        or Delete on it in My submissions.
-      </p>
-      {done ? (
-        <p role="status" data-deleted="">
-          Your account is deleted. Signing you out…
+    <Card asChild className="p-5 sm:p-6">
+      <li data-delete-account="">
+        <h3 className="mb-1 text-lg font-semibold">Delete my account</h3>
+        <p className="mb-4 text-secondary-text">
+          This withdraws your consent and deletes your stories, your account and
+          everything else we hold about you. To take down just one story, use
+          Edit or Delete on it in My submissions.
         </p>
-      ) : open ? (
-        <div className="rounded-xl border border-border-hover p-4">
-          <p className="mb-2 font-semibold">This deletes, for good:</p>
-          <ul className="mb-3 list-disc pl-5">
-            <li>your account and your sign-in;</li>
-            <li>
-              every story you’ve shared or started, with its video, audio and
-              pictures, wherever it is;
-            </li>
-            <li>your favourites.</li>
-          </ul>
-          <p className="mb-3">
-            It can’t be undone. It withdraws your consent: we stop keeping and
-            publishing your stories, and make no new use of any you let us share
-            on social media (copies already shared can’t be recalled). We keep a
-            fingerprint of your sign-in’s id, so the deleted sign-in can’t make
-            a new account here. It isn’t your name or email, but it isn’t
-            anonymous: it can be matched to that id.
+        {done ? (
+          <p role="status" data-deleted="">
+            Your account is deleted. Signing you out…
           </p>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void remove();
-            }}
+        ) : open ? (
+          <div className="rounded-xl border border-border-hover p-4">
+            <p className="mb-2 font-semibold">This deletes, for good:</p>
+            <ul className="mb-3 list-disc pl-5">
+              <li>your account and your sign-in;</li>
+              <li>
+                every story you’ve shared or started, with its video, audio and
+                pictures, wherever it is;
+              </li>
+              <li>your favourites.</li>
+            </ul>
+            <p className="mb-3">
+              It can’t be undone. It withdraws your consent: we stop keeping and
+              publishing your stories, and make no new use of any you let us
+              share on social media (copies already shared can’t be recalled).
+              We keep a fingerprint of your sign-in’s id, so the deleted sign-in
+              can’t make a new account here. It isn’t your name or email, but it
+              isn’t anonymous: it can be matched to that id.
+            </p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void remove();
+              }}
+            >
+              <label htmlFor={inputId} className="mb-1 block font-medium">
+                Type <span className="font-bold">{CONFIRM_WORD}</span> to
+                confirm
+              </label>
+              <input
+                id={inputId}
+                autoFocus
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+                className="mb-4 block min-h-11 w-full max-w-xs rounded-lg border border-border bg-background px-3 py-2"
+              />
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  type="submit"
+                  variant="destructive"
+                  className="h-auto min-h-11 px-5 py-2 whitespace-normal"
+                  disabled={!ready || busy}
+                >
+                  {busy ? 'Deleting…' : 'Delete my account for good'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-auto min-h-11 px-5 py-2 whitespace-normal"
+                  disabled={busy}
+                  onClick={() => {
+                    setOpen(false);
+                    setTyped('');
+                  }}
+                >
+                  Keep my account
+                </Button>
+              </div>
+            </form>
+          </div>
+        ) : (
+          <Button
+            variant="outline"
+            className="h-auto min-h-11 px-5 py-2 whitespace-normal"
+            onClick={() => setOpen(true)}
           >
-            <label htmlFor={inputId} className="mb-1 block font-medium">
-              Type <span className="font-bold">{CONFIRM_WORD}</span> to confirm
-            </label>
-            <input
-              id={inputId}
-              autoFocus
-              autoComplete="off"
-              autoCapitalize="none"
-              spellCheck={false}
-              value={typed}
-              onChange={(e) => setTyped(e.target.value)}
-              className="mb-4 block min-h-11 w-full max-w-xs rounded-lg border border-border bg-background px-3 py-2"
-            />
-            <div className="flex flex-wrap gap-3">
-              <Button
-                type="submit"
-                variant="destructive"
-                className="h-auto min-h-11 px-5 py-2 whitespace-normal"
-                disabled={!ready || busy}
-              >
-                {busy ? 'Deleting…' : 'Delete my account for good'}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-auto min-h-11 px-5 py-2 whitespace-normal"
-                disabled={busy}
-                onClick={() => {
-                  setOpen(false);
-                  setTyped('');
-                }}
-              >
-                Keep my account
-              </Button>
-            </div>
-          </form>
-        </div>
-      ) : (
-        <Button
-          variant="outline"
-          className="h-auto min-h-11 px-5 py-2 whitespace-normal"
-          onClick={() => setOpen(true)}
-        >
-          Delete my account
-        </Button>
-      )}
-      {error && (
-        <p role="alert" className="mt-3 text-sm text-destructive">
-          {error}
-        </p>
-      )}
-    </li>
+            Delete my account
+          </Button>
+        )}
+        {error && (
+          <p role="alert" className="mt-3 text-sm text-destructive">
+            {error}
+          </p>
+        )}
+      </li>
+    </Card>
   );
 }

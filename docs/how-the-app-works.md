@@ -1075,6 +1075,15 @@ For developers. Details are in the linked documents.
   `Select`:** the theme's field and chevron when closed; open on a computer (a mouse or trackpad),
   the site's themed list in every browser; on phones and tablets, and before the page's
   JavaScript runs or without it, a native drop-down (the phone's own picker; forms still work).
+  **WL-1 (Joel, 2026-11-19, A: "standardisation and reuse throughout the site wherever it is
+  sensible and then in the ui code just to reference a text box or a switch, without having to
+  style them much or at all in the frontend code"):** text boxes are its `Input`, text areas its
+  `Textarea`, labels, hints and errors under a field its `Field` parts, bordered panels its `Card`,
+  pop-up menu panels its `PopoverPanel`, and buttons whose words may wrap `Button wrap`. Pages add
+  layout classes only. These moved with their looks unchanged; where pages had slightly different
+  looks (three text box sizes, two label weights), the library keeps them as named sizes until
+  Joel picks one (WL-2, with chips, notices, open/close sections, confirm boxes, check boxes,
+  radio buttons, tabs and switches).
   The components use the site's theme colours, which stay in `apps/web/src/app/global.css`
   (`libs/web-ui/README.md`).
 - **Logs are JSON everywhere** (Joel, 2026-11-14: "yes add JSON formatting to all logs with

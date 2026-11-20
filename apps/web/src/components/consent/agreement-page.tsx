@@ -6,7 +6,7 @@ import { useEffect, useMemo } from 'react';
 import { useAccountState } from '@/components/auth/account-bootstrap';
 import { AgreementStep } from '@/components/consent/agreement-step';
 import { dismissTestimonyBanner } from '@/components/consent/consent-prompts';
-import { Button } from '@heisreal/web-ui';
+import { Button, Card } from '@heisreal/web-ui';
 import type { AgreementName } from '@/lib/legal-text';
 import { personalApiUser, usePersonalSession } from '@/lib/personal-session';
 import { signInHref } from '@/lib/return-path';
@@ -57,23 +57,22 @@ export function AgreementPage({
   if (session.status === 'signed-out') {
     const here = `${pathname}?redirect_url=${encodeURIComponent(returnTo)}`;
     return (
-      <p className="rounded-2xl border border-border bg-card p-6">
-        You’re signed out.{' '}
-        <a
-          href={signInHref(here)}
-          className="inline-flex min-h-11 items-center font-medium"
-        >
-          Sign in to continue
-        </a>
-      </p>
+      <Card asChild className="p-6">
+        <p>
+          You’re signed out.{' '}
+          <a
+            href={signInHref(here)}
+            className="inline-flex min-h-11 items-center font-medium"
+          >
+            Sign in to continue
+          </a>
+        </p>
+      </Card>
     );
   }
   if (account.status === 'failed') {
     return (
-      <div
-        role="alert"
-        className="rounded-2xl border border-border bg-card p-6"
-      >
+      <Card role="alert" className="p-6">
         <p className="mb-4 text-secondary-text">{TRY_AGAIN_LATER}</p>
         <Button
           variant="outline"
@@ -82,7 +81,7 @@ export function AgreementPage({
         >
           Try again
         </Button>
-      </div>
+      </Card>
     );
   }
   if (!state || !api || !userId || upToDate) {

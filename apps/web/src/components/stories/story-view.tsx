@@ -7,6 +7,7 @@ import { StoryHeart } from './heart-button';
 import { ShareMenu } from './share-menu';
 import { StoryMedia } from './story-media';
 import { StoryText } from './story-text';
+import { Card } from '@heisreal/web-ui';
 
 /** The reading column (Joel's R1): at most 80 characters a line, centred. */
 const COLUMN = 'mx-auto w-full max-w-measure min-w-0';
@@ -57,23 +58,22 @@ function KeepExploring({ related }: { related: StorySummary[] }) {
       aria-label="Keep exploring"
     >
       <RelatedStories stories={related} />
-      <section
-        aria-labelledby="resonate"
-        className="mx-auto max-w-measure rounded-2xl border border-border bg-card p-5"
-      >
-        <h2 id="resonate" className="mb-2 font-semibold">
-          Does this resonate?
-        </h2>
-        <p className="mb-4 text-sm text-muted-foreground">
-          If this story has touched you, there are ways to keep exploring.
-        </p>
-        <Link
-          href="/next-steps"
-          className="flex min-h-11 items-center justify-center rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
-        >
-          Next steps
-        </Link>
-      </section>
+      <Card asChild className="mx-auto max-w-measure p-5">
+        <section aria-labelledby="resonate">
+          <h2 id="resonate" className="mb-2 font-semibold">
+            Does this resonate?
+          </h2>
+          <p className="mb-4 text-sm text-muted-foreground">
+            If this story has touched you, there are ways to keep exploring.
+          </p>
+          <Link
+            href="/next-steps"
+            className="flex min-h-11 items-center justify-center rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
+          >
+            Next steps
+          </Link>
+        </section>
+      </Card>
     </aside>
   );
 }

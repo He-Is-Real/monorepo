@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { connection } from 'next/server';
 import { OwnStoryPreview } from '@/components/account/own-story-preview';
 import { pageMetadata } from '@/lib/seo';
+import { Card } from '@heisreal/web-ui';
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -30,10 +31,12 @@ export default async function OwnStoryPreviewPage({ params }: Props) {
     // As the story page: the article sets its own widths inside the page's padding.
     <main id="main" className="w-full flex-1 px-4 py-8 sm:px-10 sm:py-12">
       <noscript>
-        <p className="mx-auto mb-6 max-w-measure rounded-2xl border border-border bg-card p-6 text-center">
-          Your preview needs JavaScript. Please turn it on, or use a browser
-          that has it, to see it.
-        </p>
+        <Card asChild className="mx-auto mb-6 max-w-measure p-6 text-center">
+          <p>
+            Your preview needs JavaScript. Please turn it on, or use a browser
+            that has it, to see it.
+          </p>
+        </Card>
       </noscript>
       <OwnStoryPreview id={id} />
     </main>

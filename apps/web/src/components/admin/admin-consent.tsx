@@ -12,14 +12,10 @@ import {
   useRef,
   useState,
 } from 'react';
-import {
-  AdminAccess,
-  problemText,
-  WRAPPING_BUTTON,
-} from '@/components/admin/admin-access';
+import { AdminAccess, problemText } from '@/components/admin/admin-access';
 import { LegalMarkdown } from '@/components/legal/legal-markdown';
 import { Redline } from '@/components/legal/redline';
-import { Button } from '@heisreal/web-ui';
+import { Button, Card, Textarea } from '@heisreal/web-ui';
 import { type ApiUser, ApiUserProblem } from '@/lib/api-user';
 import {
   DOCUMENT_NAMES,
@@ -329,12 +325,9 @@ function ConsentTexts({ client }: { client: ApiUser }) {
           <p className="text-secondary-text">Loading the versions…</p>
         )}
         {loaded.status === 'failed' && (
-          <p
-            role="alert"
-            className="rounded-2xl border border-destructive bg-card p-6"
-          >
-            {loaded.message}
-          </p>
+          <Card asChild tone="destructive" className="p-6">
+            <p role="alert">{loaded.message}</p>
+          </Card>
         )}
         {loaded.status === 'ready' && loaded.list.document === document && (
           <EditVersion
@@ -523,7 +516,8 @@ function EditVersion({
               </dl>
               <p className="mt-2">Leave a blank line between paragraphs.</p>
             </details>
-            <textarea
+            <Textarea
+              size="form"
               ref={box}
               id={`${id}-text`}
               value={text}
@@ -533,7 +527,7 @@ function EditVersion({
                 setText(e.target.value);
                 if (status.kind !== 'busy') setStatus({ kind: 'idle' });
               }}
-              className="min-h-11 w-full rounded-lg border border-input bg-input-background px-3 py-2 font-mono text-sm text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+              className="font-mono text-sm"
             />
           </div>
           <div className="min-w-0 space-y-6">
@@ -578,7 +572,7 @@ function EditVersion({
           {status.kind !== 'confirm' && (
             <Button
               type="submit"
-              className={WRAPPING_BUTTON}
+              wrap
               disabled={status.kind === 'busy' || status.kind === 'stale'}
             >
               {status.kind === 'busy' ? 'Saving…' : `Save as version ${next}…`}
@@ -588,13 +582,14 @@ function EditVersion({
       </form>
 
       {status.kind === 'confirm' && (
-        <div
+        <Card
           ref={confirm}
           tabIndex={-1}
           role="alertdialog"
           aria-labelledby={`${id}-confirm`}
           aria-describedby={`${id}-confirm-more`}
-          className="space-y-4 rounded-2xl border border-primary bg-card p-4 outline-none sm:p-6"
+          tone="primary"
+          className="space-y-4 p-4 outline-none sm:p-6"
           data-confirm=""
         >
           <p className="text-foreground">
@@ -607,19 +602,19 @@ function EditVersion({
             </span>
           </p>
           <div className="flex flex-col gap-3 sm:flex-row">
-            <Button type="button" className={WRAPPING_BUTTON} onClick={doSave}>
+            <Button type="button" wrap onClick={doSave}>
               Save
             </Button>
             <Button
               type="button"
               variant="outline"
-              className={WRAPPING_BUTTON}
+              wrap
               onClick={() => setStatus({ kind: 'idle' })}
             >
               Cancel
             </Button>
           </div>
-        </div>
+        </Card>
       )}
 
       {status.kind === 'error' && (
@@ -646,7 +641,7 @@ function EditVersion({
             editing, so yours wasn’t saved. Reload to see theirs, then make your
             changes again. Copy your text first if you want to keep it.
           </p>
-          <Button type="button" className={WRAPPING_BUTTON} onClick={reload}>
+          <Button type="button" wrap onClick={reload}>
             Reload
           </Button>
         </div>

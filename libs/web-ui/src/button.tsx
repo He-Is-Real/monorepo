@@ -29,10 +29,19 @@ const buttonVariants = cva(
         'icon-sm': 'size-8',
         'icon-lg': 'size-10',
       },
+      /**
+       * Text that may wrap (admin and moderation pages): at least 44 px tall, full width on
+       * phones, its own width from 640 px.
+       */
+      wrap: {
+        true: 'h-auto min-h-11 w-full px-5 py-2 whitespace-normal sm:w-auto',
+        false: '',
+      },
     },
     defaultVariants: {
       variant: 'default',
       size: 'default',
+      wrap: false,
     },
   },
 );
@@ -41,6 +50,7 @@ function Button({
   className,
   variant = 'default',
   size = 'default',
+  wrap = false,
   asChild = false,
   ...props
 }: React.ComponentProps<'button'> &
@@ -54,7 +64,7 @@ function Button({
       data-slot="button"
       data-variant={variant}
       data-size={size}
-      className={cn(buttonVariants({ variant, size, className }))}
+      className={cn(buttonVariants({ variant, size, wrap, className }))}
       {...props}
     />
   );

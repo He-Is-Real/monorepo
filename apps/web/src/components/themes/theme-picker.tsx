@@ -1,6 +1,7 @@
 'use client';
 
 import { type ReactNode, useId, useState } from 'react';
+import { Input } from '@heisreal/web-ui';
 import type { Theme, ThemeCategory } from '@/lib/browse';
 
 /**
@@ -89,7 +90,7 @@ export function ThemePicker({
               <label htmlFor={`${id}-search`} className="sr-only">
                 Search themes
               </label>
-              <input
+              <Input
                 id={`${id}-search`}
                 type="search"
                 value={search}
@@ -97,7 +98,7 @@ export function ThemePicker({
                 aria-controls={`${id}-themes`}
                 placeholder="Search themes"
                 autoComplete="off"
-                className="h-11 w-full min-w-0 rounded-lg border border-input bg-input-background px-4 text-sm text-foreground outline-none placeholder:text-faint focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30 sm:max-w-sm sm:flex-1"
+                className="px-4 sm:max-w-sm sm:flex-1"
               />
             </>
           )}

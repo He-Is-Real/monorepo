@@ -1,4 +1,5 @@
 import { AdminNav } from '@/components/admin/admin-access';
+import { Card } from '@heisreal/web-ui';
 
 /** The site's default container, as the site header and footer use it. */
 const SITE = 'mx-auto w-full max-w-site px-4 sm:px-10';
@@ -45,9 +46,9 @@ export function AdminPage({
   const content = (
     <>
       <noscript>
-        <p className="mb-6 rounded-2xl border border-border bg-card p-6">
-          This page needs JavaScript.
-        </p>
+        <Card asChild className="mb-6 p-6">
+          <p>This page needs JavaScript.</p>
+        </Card>
       </noscript>
       {children}
     </>

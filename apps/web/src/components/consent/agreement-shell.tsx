@@ -2,6 +2,7 @@ import { AgreementPage } from '@/components/consent/agreement-page';
 import { consentReturnPath } from '@/lib/return-path';
 import { NarrowColumn } from '@/components/page/page-header';
 import type { AgreementName } from '@/lib/legal-text';
+import { Card } from '@heisreal/web-ui';
 
 /**
  * The frame of /consent/terms and /consent/testimony: the same for everyone (D32); the step itself
@@ -19,10 +20,12 @@ export async function AgreementShell({
     <main id="main" className="flex-1 py-10 sm:py-16">
       <NarrowColumn>
         <noscript>
-          <p className="mb-6 rounded-2xl border border-border bg-card p-6">
-            This step needs JavaScript. Please turn it on, or use a browser that
-            has it, to continue.
-          </p>
+          <Card asChild className="mb-6 p-6">
+            <p>
+              This step needs JavaScript. Please turn it on, or use a browser
+              that has it, to continue.
+            </p>
+          </Card>
         </noscript>
         <AgreementPage document={document} returnTo={returnTo} />
       </NarrowColumn>

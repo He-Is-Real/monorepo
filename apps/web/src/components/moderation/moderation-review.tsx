@@ -9,13 +9,16 @@ import {
   useRef,
   useState,
 } from 'react';
-import {
-  AdminAccess,
-  useRole,
-  WRAPPING_BUTTON,
-} from '@/components/admin/admin-access';
+import { AdminAccess, useRole } from '@/components/admin/admin-access';
 import { StoryArticle } from '@/components/stories/story-view';
-import { Button } from '@heisreal/web-ui';
+import {
+  Button,
+  Card,
+  Field,
+  FieldHint,
+  FieldLabel,
+  Textarea,
+} from '@heisreal/web-ui';
 import { type ApiUser, ApiUserProblem } from '@/lib/api-user';
 import {
   decisionRefusal,
@@ -205,15 +208,21 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
   );
 
   const noticeLine = notice && (
-    <p
-      ref={noticeRef}
-      tabIndex={-1}
-      role="status"
-      className="mx-auto mb-6 max-w-measure rounded-2xl border border-link bg-card p-4 font-semibold outline-none"
-      data-review-notice={notice.tone}
+    <Card
+      asChild
+      tone="link"
+      className="mx-auto mb-6 max-w-measure p-4 font-semibold outline-none"
     >
-      {notice.text}
-    </p>
+      <p
+        ref={noticeRef}
+        tabIndex={-1}
+        role="status"
+
+        data-review-notice={notice.tone}
+      >
+        {notice.text}
+      </p>
+    </Card>
   );
 
   if (loaded.status === 'loading') {
@@ -228,13 +237,12 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
     return (
       <>
         {noticeLine}
-        <p
-          className="rounded-2xl border border-border bg-card p-6"
-          data-review-gone=""
-        >
-          This story isn’t here any more. It may have been deleted.{' '}
-          <Link href="/moderation">Back to the list</Link>
-        </p>
+        <Card asChild className="p-6">
+          <p data-review-gone="">
+            This story isn’t here any more. It may have been deleted.{' '}
+            <Link href="/moderation">Back to the list</Link>
+          </p>
+        </Card>
       </>
     );
   }
@@ -242,13 +250,15 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
     return (
       <>
         {noticeLine}
-        <p
-          role="alert"
-          className="rounded-2xl border border-destructive bg-card p-6"
-          data-moderation-error=""
-        >
-          {loaded.message}
-        </p>
+        <Card asChild tone="destructive" className="p-6">
+          <p
+            role="alert"
+
+            data-moderation-error=""
+          >
+            {loaded.message}
+          </p>
+        </Card>
       </>
     );
   }
@@ -257,9 +267,10 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
     <>
       {noticeLine}
       {stale && (
-        <div
+        <Card
           role="status"
-          className="mx-auto mb-6 max-w-measure rounded-2xl border border-link bg-card p-4"
+          tone="link"
+          className="mx-auto mb-6 max-w-measure p-4"
           data-review-stale=""
         >
           <p className="mb-3 font-semibold">
@@ -267,7 +278,7 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
           </p>
           <Button
             variant="outline"
-            className={WRAPPING_BUTTON}
+            wrap
             onClick={() => {
               setStale(false);
               setNotice(null);
@@ -276,7 +287,7 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
           >
             Reload to see it
           </Button>
-        </div>
+        </Card>
       )}
       <p
         className="mx-auto mb-8 max-w-measure text-sm font-semibold text-link"
@@ -337,8 +348,8 @@ function Sender({
 }) {
   if (!story.senderEmail && !story.senderIp) return null;
   return (
-    <div
-      className="mx-auto mb-6 max-w-measure space-y-3 rounded-2xl border border-border bg-card p-4 [overflow-wrap:anywhere]"
+    <Card
+      className="mx-auto mb-6 max-w-measure space-y-3 p-4 [overflow-wrap:anywhere]"
       data-sender=""
     >
       {story.senderEmail && (
@@ -364,7 +375,7 @@ function Sender({
           this, for 30 days.
         </SenderLine>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -415,7 +426,8 @@ function SenderLine({
       ) : step === 'idle' ? (
         <Button
           variant="outline"
-          className={`mt-2 ${WRAPPING_BUTTON}`}
+          wrap
+          className="mt-2"
           onClick={() => setStep('confirm')}
         >
           Block
@@ -433,7 +445,8 @@ function SenderLine({
           )}
           <div className="flex flex-col gap-2 sm:flex-row">
             <Button
-              className={`${WRAPPING_BUTTON} ${RED_BUTTON}`}
+              wrap
+              className={RED_BUTTON}
               disabled={step === 'busy'}
               onClick={() => void block()}
             >
@@ -441,7 +454,7 @@ function SenderLine({
             </Button>
             <Button
               variant="outline"
-              className={WRAPPING_BUTTON}
+              wrap
               disabled={step === 'busy'}
               onClick={() => {
                 setError(null);
@@ -536,22 +549,18 @@ export function NoteForm({
         onSubmit({ [noted.field]: note.trim() });
       }}
     >
-      <label htmlFor={noteId} className="mb-1.5 block font-semibold">
-        {noted.label}
-      </label>
-      <p id={`${noteId}-hint`} className="mb-2 text-sm text-secondary-text">
-        {noted.hint}
-      </p>
-      <textarea
-        ref={noteRef}
-        id={noteId}
-        className="min-h-40 w-full rounded-md border border-input bg-input-background px-3 py-2.5 text-base text-foreground outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-        maxLength={NOTE_MAX}
-        value={note}
-        required
-        aria-describedby={`${noteId}-hint ${noteId}-count`}
-        onChange={(e) => setNote(e.target.value)}
-      />
+      <Field id={noteId} hint describedBy={`${noteId}-count`}>
+        <FieldLabel size="writing">{noted.label}</FieldLabel>
+        <FieldHint className="mb-2">{noted.hint}</FieldHint>
+        <Textarea
+          ref={noteRef}
+          className="min-h-40"
+          maxLength={NOTE_MAX}
+          value={note}
+          required
+          onChange={(e) => setNote(e.target.value)}
+        />
+      </Field>
       <p id={`${noteId}-count`} className="mt-1 text-sm text-secondary-text">
         {noteLength.toLocaleString('en-GB')} /{' '}
         {NOTE_MAX.toLocaleString('en-GB')} characters
@@ -559,7 +568,8 @@ export function NoteForm({
       <div className="mt-4 flex flex-wrap gap-3">
         <Button
           type="submit"
-          className={`${WRAPPING_BUTTON} ${noted.confirmColour}`}
+          wrap
+          className={noted.confirmColour}
           disabled={busy || noteLength === 0}
         >
           {noted.confirm}
@@ -567,7 +577,7 @@ export function NoteForm({
         <Button
           type="button"
           variant="outline"
-          className={WRAPPING_BUTTON}
+          wrap
           disabled={busy}
           onClick={onCancel}
         >
@@ -652,145 +662,154 @@ function Decisions({
     story.status === 'hidden' && currentAction(story) === 'hiddenBySystem';
 
   return (
-    <section
-      aria-labelledby="decide-heading"
-      className="mx-auto mt-12 w-full max-w-measure min-w-0 rounded-2xl border border-border bg-card p-4 sm:p-6"
-      data-decisions={story.status}
+    <Card
+      asChild
+      className="mx-auto mt-12 w-full max-w-measure min-w-0 p-4 sm:p-6"
     >
-      <h2 id="decide-heading" className="mb-4 text-xl font-semibold">
-        {story.status === 'pending'
-          ? 'Your decision'
-          : decidable
-            ? 'On the site'
-            : 'Admin'}
-      </h2>
-      {confirmDelete && (
-        <div
-          data-confirm-delete=""
-          className="rounded-xl border border-border-hover p-4"
-        >
-          <p className="mb-3">
-            Delete this story for good? Its text and any video or audio go too
-            {story.status === 'approved' ? ', and it comes off the site' : ''}.
-            The person isn’t told, beyond it leaving their submissions. This
-            can’t be undone.
-          </p>
-          <div className="flex flex-wrap gap-3">
-            <Button
-              autoFocus
-              className={`${WRAPPING_BUTTON} ${RED_BUTTON}`}
-              disabled={busy}
-              onClick={() => void remove()}
-            >
-              {sending ? 'Deleting…' : 'Delete story'}
-            </Button>
-            <Button
-              variant="outline"
-              className={WRAPPING_BUTTON}
-              disabled={busy}
-              onClick={() => {
-                setConfirmDelete(false);
-                setRefusal(null);
-              }}
-            >
-              Keep it
-            </Button>
+      <section
+        aria-labelledby="decide-heading"
+
+        data-decisions={story.status}
+      >
+        <h2 id="decide-heading" className="mb-4 text-xl font-semibold">
+          {story.status === 'pending'
+            ? 'Your decision'
+            : decidable
+              ? 'On the site'
+              : 'Admin'}
+        </h2>
+        {confirmDelete && (
+          <div
+            data-confirm-delete=""
+            className="rounded-xl border border-border-hover p-4"
+          >
+            <p className="mb-3">
+              Delete this story for good? Its text and any video or audio go too
+              {story.status === 'approved' ? ', and it comes off the site' : ''}
+              . The person isn’t told, beyond it leaving their submissions. This
+              can’t be undone.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <Button
+                autoFocus
+                wrap
+                className={RED_BUTTON}
+                disabled={busy}
+                onClick={() => void remove()}
+              >
+                {sending ? 'Deleting…' : 'Delete story'}
+              </Button>
+              <Button
+                variant="outline"
+                wrap
+                disabled={busy}
+                onClick={() => {
+                  setConfirmDelete(false);
+                  setRefusal(null);
+                }}
+              >
+                Keep it
+              </Button>
+            </div>
           </div>
-        </div>
-      )}
-      {!open && !confirmDelete && (
-        <div className="flex flex-wrap gap-3">
-          {story.status === 'pending' && (
-            <>
+        )}
+        {!open && !confirmDelete && (
+          <div className="flex flex-wrap gap-3">
+            {story.status === 'pending' && (
+              <>
+                <Button
+                  wrap
+                  disabled={busy}
+                  onClick={() => void decide('approve')}
+                >
+                  Approve
+                </Button>
+                <Button
+                  wrap
+                  className={SEND_BACK_BUTTON}
+                  disabled={busy}
+                  onClick={() => setOpen('request-changes')}
+                >
+                  Send back
+                </Button>
+                <Button
+                  wrap
+                  className={RED_BUTTON}
+                  disabled={busy}
+                  onClick={() => setOpen('reject')}
+                >
+                  Reject
+                </Button>
+              </>
+            )}
+            {story.status === 'approved' && (
               <Button
-                className={WRAPPING_BUTTON}
+                variant="outline"
+                wrap
                 disabled={busy}
-                onClick={() => void decide('approve')}
+                onClick={() => setOpen('hide')}
               >
-                Approve
+                Take down
               </Button>
-              <Button
-                className={`${WRAPPING_BUTTON} ${SEND_BACK_BUTTON}`}
-                disabled={busy}
-                onClick={() => setOpen('request-changes')}
-              >
-                Send back
+            )}
+            {story.status === 'hidden' && (
+              <Button wrap disabled={busy} onClick={() => void decide('show')}>
+                Show again
               </Button>
+            )}
+            {hiddenBySite && (
               <Button
-                className={`${WRAPPING_BUTTON} ${RED_BUTTON}`}
+                wrap
+                className={RED_BUTTON}
                 disabled={busy}
                 onClick={() => setOpen('reject')}
               >
                 Reject
               </Button>
-            </>
-          )}
-          {story.status === 'approved' && (
-            <Button
-              variant="outline"
-              className={WRAPPING_BUTTON}
-              disabled={busy}
-              onClick={() => setOpen('hide')}
-            >
-              Take down
-            </Button>
-          )}
-          {story.status === 'hidden' && (
-            <Button
-              className={WRAPPING_BUTTON}
-              disabled={busy}
-              onClick={() => void decide('show')}
-            >
-              Show again
-            </Button>
-          )}
-          {hiddenBySite && (
-            <Button
-              className={`${WRAPPING_BUTTON} ${RED_BUTTON}`}
-              disabled={busy}
-              onClick={() => setOpen('reject')}
-            >
-              Reject
-            </Button>
-          )}
-          {isAdmin && (
-            <Button
-              className={`${WRAPPING_BUTTON} ${RED_BUTTON}`}
-              disabled={busy}
-              onClick={() => setConfirmDelete(true)}
-            >
-              Delete
-            </Button>
-          )}
-        </div>
-      )}
-      {open && (
-        <NoteForm
-          kind={open}
-          busy={busy}
-          onSubmit={(body) => void decide(open, body)}
-          onCancel={() => {
-            setOpen(null);
-            setRefusal(null);
-          }}
-        />
-      )}
-      {refusal && (
-        <div role="alert" className="mt-4" data-decision-refused="">
-          <p>{refusal.message}</p>
-          {anywayRoute && isAdmin && (
-            <Button
-              variant="outline"
-              className={`${WRAPPING_BUTTON} mt-3`}
-              disabled={busy}
-              onClick={() => void decide(anywayRoute, { approveAnyway: true })}
-            >
-              {anywayRoute === 'show' ? 'Show anyway' : 'Approve anyway'}
-            </Button>
-          )}
-        </div>
-      )}
-    </section>
+            )}
+            {isAdmin && (
+              <Button
+                wrap
+                className={RED_BUTTON}
+                disabled={busy}
+                onClick={() => setConfirmDelete(true)}
+              >
+                Delete
+              </Button>
+            )}
+          </div>
+        )}
+        {open && (
+          <NoteForm
+            kind={open}
+            busy={busy}
+            onSubmit={(body) => void decide(open, body)}
+            onCancel={() => {
+              setOpen(null);
+              setRefusal(null);
+            }}
+          />
+        )}
+        {refusal && (
+          <div role="alert" className="mt-4" data-decision-refused="">
+            <p>{refusal.message}</p>
+            {anywayRoute && isAdmin && (
+              <Button
+                variant="outline"
+                wrap
+                className="mt-3"
+                disabled={busy}
+                onClick={() =>
+                  void decide(anywayRoute, { approveAnyway: true })
+                }
+              >
+                {anywayRoute === 'show' ? 'Show anyway' : 'Approve anyway'}
+              </Button>
+            )}
+          </div>
+        )}
+      </section>
+    </Card>
   );
 }
 
@@ -800,14 +819,13 @@ function MediaNote({ story }: { story: ModerationStory }) {
   if (!media || media.processing === 'ready') return null;
   const what = media.format === 'audio' ? 'audio file' : 'video';
   return (
-    <p
-      className="mx-auto mb-6 max-w-measure rounded-2xl border border-border bg-card p-4"
-      data-media-note={media.processing ?? 'processing'}
-    >
-      {media.processing === 'failed'
-        ? `This ${what} couldn’t be processed, so it can’t be played.`
-        : `This ${what} is still being processed. Reload the page in a few minutes to watch it.`}
-    </p>
+    <Card asChild className="mx-auto mb-6 max-w-measure p-4">
+      <p data-media-note={media.processing ?? 'processing'}>
+        {media.processing === 'failed'
+          ? `This ${what} couldn’t be processed, so it can’t be played.`
+          : `This ${what} is still being processed. Reload the page in a few minutes to watch it.`}
+      </p>
+    </Card>
   );
 }
 

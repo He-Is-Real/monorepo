@@ -1,5 +1,6 @@
 import { ButtonLink } from '@/components/page/button-link';
-import { Card, RaisedBand } from '@/components/page/card';
+import { Card } from '@heisreal/web-ui';
+import { RaisedBand } from '@/components/page/card';
 import { NarrowColumn } from '@/components/page/page-header';
 import {
   BrokenHeart,

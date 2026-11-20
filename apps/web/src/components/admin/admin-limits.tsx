@@ -8,12 +8,17 @@ import {
   useRef,
   useState,
 } from 'react';
+import { AdminAccess, problemText } from '@/components/admin/admin-access';
 import {
-  AdminAccess,
-  problemText,
-  WRAPPING_BUTTON,
-} from '@/components/admin/admin-access';
-import { Button, Select } from '@heisreal/web-ui';
+  Button,
+  Card,
+  Field,
+  FieldError,
+  FieldHint,
+  FieldLabel,
+  Input,
+  Select,
+} from '@heisreal/web-ui';
 import { type ApiUser, StaleVersion } from '@/lib/api-user';
 
 /** The contract's `SubmissionSettingsValues`: every limit, in bytes and seconds. */
@@ -213,12 +218,9 @@ function Limits({ client }: { client: ApiUser }) {
   }
   if (loaded.status === 'failed') {
     return (
-      <p
-        role="alert"
-        className="rounded-2xl border border-destructive bg-card p-6"
-      >
-        {loaded.message}
-      </p>
+      <Card asChild tone="destructive" className="p-6">
+        <p role="alert">{loaded.message}</p>
+      </Card>
     );
   }
   return (
@@ -453,7 +455,7 @@ function LimitsForm({
             />
           </div>
 
-          <div className="@container min-w-0 rounded-2xl border border-border bg-card p-4 sm:p-6">
+          <Card className="@container min-w-0 p-4 sm:p-6">
             <fieldset key={current.title} className="min-w-0">
               <legend className="text-lg font-semibold text-foreground">
                 {current.title}
@@ -469,70 +471,51 @@ function LimitsForm({
                   const error = errors[field];
                   const changed = text[field].trim() !== start[field];
                   return (
-                    <div
-                      key={field}
-                      className="min-w-0 py-4"
-                      data-limit={field}
-                    >
-                      <div className="flex flex-col gap-2 @lg:grid @lg:grid-cols-[minmax(0,1fr)_8rem_minmax(0,11rem)] @lg:items-center @lg:gap-x-3">
-                        <div className="min-w-0">
-                          <label
-                            htmlFor={`${id}-${field}`}
-                            className="block font-medium text-foreground"
-                          >
-                            {label}
-                          </label>
-                          <p
-                            id={`${id}-${field}-hint`}
-                            className="text-sm text-secondary-text"
-                          >
-                            Allowed {number(min)}–{number(max)}
-                          </p>
+                    <Field key={field} id={`${id}-${field}`} hint error={error}>
+                      <div className="min-w-0 py-4" data-limit={field}>
+                        <div className="flex flex-col gap-2 @lg:grid @lg:grid-cols-[minmax(0,1fr)_8rem_minmax(0,11rem)] @lg:items-center @lg:gap-x-3">
+                          <div className="min-w-0">
+                            <FieldLabel className="mb-0">{label}</FieldLabel>
+                            <FieldHint>
+                              Allowed {number(min)}–{number(max)}
+                            </FieldHint>
+                          </div>
+                          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 @lg:contents">
+                            <Input
+                              size="form"
+                              name={field}
+                              type="text"
+                              inputMode="numeric"
+                              autoComplete="off"
+                              value={text[field]}
+                              data-changed={changed ? '' : undefined}
+                              onChange={(e) => {
+                                setText({ ...text, [field]: e.target.value });
+                                if (
+                                  status.kind !== 'busy' &&
+                                  status.kind !== 'stale'
+                                )
+                                  setStatus({ kind: 'idle' });
+                              }}
+                              className={`w-32 max-w-full min-w-0 text-right tabular-nums @lg:w-full ${
+                                changed
+                                  ? 'outline-2 outline-offset-0 outline-primary outline-solid'
+                                  : ''
+                              }`}
+                            />
+                            <span className="min-w-0 text-foreground">
+                              {unit}
+                            </span>
+                          </div>
                         </div>
-                        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 @lg:contents">
-                          <input
-                            id={`${id}-${field}`}
-                            name={field}
-                            type="text"
-                            inputMode="numeric"
-                            autoComplete="off"
-                            value={text[field]}
-                            aria-invalid={error ? true : undefined}
-                            aria-describedby={`${id}-${field}-hint${error ? ` ${id}-${field}-error` : ''}`}
-                            data-changed={changed ? '' : undefined}
-                            onChange={(e) => {
-                              setText({ ...text, [field]: e.target.value });
-                              if (
-                                status.kind !== 'busy' &&
-                                status.kind !== 'stale'
-                              )
-                                setStatus({ kind: 'idle' });
-                            }}
-                            className={`min-h-11 w-32 max-w-full min-w-0 rounded-lg border border-input bg-input-background px-3 py-2 text-right text-foreground tabular-nums focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive @lg:w-full ${
-                              changed
-                                ? 'outline-2 outline-offset-0 outline-primary outline-solid'
-                                : 'focus-visible:outline-none'
-                            }`}
-                          />
-                          <span className="min-w-0 text-foreground">
-                            {unit}
-                          </span>
-                        </div>
+                        <FieldError className="mt-1 @lg:text-right" />
                       </div>
-                      {error && (
-                        <p
-                          id={`${id}-${field}-error`}
-                          className="mt-1 text-sm text-destructive @lg:text-right"
-                        >
-                          {error}
-                        </p>
-                      )}
-                    </div>
+                    </Field>
                   );
                 })}
               </div>
             </fieldset>
-          </div>
+          </Card>
         </div>
 
         {status.kind === 'error' && (
@@ -558,19 +541,20 @@ function LimitsForm({
               Someone else changed the limits while you were editing, so yours
               weren’t saved. Reload to see theirs, then make your changes again.
             </p>
-            <Button type="button" className={WRAPPING_BUTTON} onClick={reload}>
+            <Button type="button" wrap onClick={reload}>
               Reload
             </Button>
           </div>
         )}
 
         {status.kind === 'confirm' && (
-          <div
+          <Card
             ref={confirm}
             tabIndex={-1}
             role="alertdialog"
             aria-labelledby={`${id}-confirm`}
-            className="space-y-4 rounded-2xl border border-primary bg-card p-4 sm:p-6"
+            tone="primary"
+            className="space-y-4 p-4 sm:p-6"
             data-confirm=""
           >
             <p id={`${id}-confirm`} className="text-foreground">
@@ -586,23 +570,19 @@ function LimitsForm({
               ))}
             </ul>
             <div className="flex flex-col gap-3 sm:flex-row">
-              <Button
-                type="button"
-                className={WRAPPING_BUTTON}
-                onClick={() => doSave(status.values)}
-              >
+              <Button type="button" wrap onClick={() => doSave(status.values)}>
                 Yes, save
               </Button>
               <Button
                 type="button"
                 variant="outline"
-                className={WRAPPING_BUTTON}
+                wrap
                 onClick={() => setStatus({ kind: 'idle' })}
               >
                 Cancel
               </Button>
             </div>
-          </div>
+          </Card>
         )}
 
         {edited.length > 0 && status.kind !== 'confirm' && (
