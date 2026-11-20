@@ -85,19 +85,214 @@ const PALETTE_CLASS = new RegExp(
 // Not inside a word or a path; `_` is Tailwind's space in arbitrary values (`[0_1px_#000]`).
 const HEX =
   /(?<![a-z0-9&#/.-])#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3,4})(?![a-z0-9-])/i;
-const COLOUR_FUNCTION = /(?<![a-z0-9-])(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(/i;
-/** `white` or `black` inside an arbitrary value: `[--logo:white]`, `[color-mix(…,white_25%)]` */
-const NAMED_IN_ARBITRARY = /\[[^\]]*(?<![a-z0-9-])(?:white|black)(?![a-z0-9-])[^\]]*\]/i;
+const COLOUR_FUNCTION =
+  /(?<![a-z0-9-])(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(/i;
+/** CSS's named colours (CSS Color 4), as whole words. */
+const CSS_NAMED = [
+  'aliceblue',
+  'antiquewhite',
+  'aqua',
+  'aquamarine',
+  'azure',
+  'beige',
+  'bisque',
+  'black',
+  'blanchedalmond',
+  'blue',
+  'blueviolet',
+  'brown',
+  'burlywood',
+  'cadetblue',
+  'chartreuse',
+  'chocolate',
+  'coral',
+  'cornflowerblue',
+  'cornsilk',
+  'crimson',
+  'cyan',
+  'darkblue',
+  'darkcyan',
+  'darkgoldenrod',
+  'darkgray',
+  'darkgreen',
+  'darkgrey',
+  'darkkhaki',
+  'darkmagenta',
+  'darkolivegreen',
+  'darkorange',
+  'darkorchid',
+  'darkred',
+  'darksalmon',
+  'darkseagreen',
+  'darkslateblue',
+  'darkslategray',
+  'darkslategrey',
+  'darkturquoise',
+  'darkviolet',
+  'deeppink',
+  'deepskyblue',
+  'dimgray',
+  'dimgrey',
+  'dodgerblue',
+  'firebrick',
+  'floralwhite',
+  'forestgreen',
+  'fuchsia',
+  'gainsboro',
+  'ghostwhite',
+  'gold',
+  'goldenrod',
+  'gray',
+  'green',
+  'greenyellow',
+  'grey',
+  'honeydew',
+  'hotpink',
+  'indianred',
+  'indigo',
+  'ivory',
+  'khaki',
+  'lavender',
+  'lavenderblush',
+  'lawngreen',
+  'lemonchiffon',
+  'lightblue',
+  'lightcoral',
+  'lightcyan',
+  'lightgoldenrodyellow',
+  'lightgray',
+  'lightgreen',
+  'lightgrey',
+  'lightpink',
+  'lightsalmon',
+  'lightseagreen',
+  'lightskyblue',
+  'lightslategray',
+  'lightslategrey',
+  'lightsteelblue',
+  'lightyellow',
+  'lime',
+  'limegreen',
+  'linen',
+  'magenta',
+  'maroon',
+  'mediumaquamarine',
+  'mediumblue',
+  'mediumorchid',
+  'mediumpurple',
+  'mediumseagreen',
+  'mediumslateblue',
+  'mediumspringgreen',
+  'mediumturquoise',
+  'mediumvioletred',
+  'midnightblue',
+  'mintcream',
+  'mistyrose',
+  'moccasin',
+  'navajowhite',
+  'navy',
+  'oldlace',
+  'olive',
+  'olivedrab',
+  'orange',
+  'orangered',
+  'orchid',
+  'palegoldenrod',
+  'palegreen',
+  'paleturquoise',
+  'palevioletred',
+  'papayawhip',
+  'peachpuff',
+  'peru',
+  'pink',
+  'plum',
+  'powderblue',
+  'purple',
+  'rebeccapurple',
+  'red',
+  'rosybrown',
+  'royalblue',
+  'saddlebrown',
+  'salmon',
+  'sandybrown',
+  'seagreen',
+  'seashell',
+  'sienna',
+  'silver',
+  'skyblue',
+  'slateblue',
+  'slategray',
+  'slategrey',
+  'snow',
+  'springgreen',
+  'steelblue',
+  'tan',
+  'teal',
+  'thistle',
+  'tomato',
+  'turquoise',
+  'violet',
+  'wheat',
+  'white',
+  'whitesmoke',
+  'yellow',
+  'yellowgreen',
+].join('|');
+/** A named colour as a whole word (not part of a longer word or a `--variable`). */
+const NAMED_WORD = new RegExp(
+  `(?<![a-z0-9-])(?:${CSS_NAMED})(?![a-z0-9-])`,
+  'i',
+);
+/** A named colour inside a Tailwind arbitrary value: `text-[red]`, `[--logo:white]`, `[color:navy]` */
+const NAMED_IN_ARBITRARY = new RegExp(
+  `\\[[^\\]]*(?<![a-z0-9-])(?:${CSS_NAMED})(?![a-z0-9-])[^\\]]*\\]`,
+  'i',
+);
 
-/** Why a string holds a raw colour, or null. */
-export function rawColour(text) {
-  if (HEX.test(text)) return 'a hex colour';
+/**
+ * Attributes and keys whose value is a link, a fragment or a name, never a colour: `#add` there
+ * is a link to an id, not a hex colour.
+ */
+const NOT_A_COLOUR_KEY =
+  /^(?:href|to|src|srcSet|action|formAction|id|htmlFor|for|name|key|target|rel|hash|url|pathname|path|as|aria-[\w-]+|data-[\w-]+)$/i;
+/**
+ * Attributes and style keys that take a colour: in these, a plain colour word (`red`) is a raw
+ * colour too. `color`, `backgroundColor`, `borderTopColor`, `background`, `border`, `fill`,
+ * `stopColor`, `boxShadow`… (not `borderRadius` or `borderWidth`).
+ */
+const COLOUR_KEY =
+  /colou?r$|^(?:background|backgroundImage|border(?:Top|Right|Bottom|Left|Block|Inline)?|outline|fill|stroke|boxShadow|textShadow|textDecoration|columnRule|mask|filter)$/i;
+
+/** Why a string holds a raw colour, or null. `key` is its attribute or property name, if any. */
+export function rawColour(text, key) {
+  const urlLike = key !== undefined && NOT_A_COLOUR_KEY.test(key);
+  if (!urlLike && HEX.test(text)) return 'a hex colour';
   if (COLOUR_FUNCTION.test(text)) return 'a colour function';
+  if (key !== undefined && COLOUR_KEY.test(key) && NAMED_WORD.test(text))
+    return 'a named colour';
   for (const word of text.split(/\s+/)) {
     if (PALETTE_CLASS.test(word)) return `the palette class \`${word}\``;
     if (NAMED_IN_ARBITRARY.test(word)) return `a named colour in \`${word}\``;
   }
   return null;
+}
+
+/** The attribute or object key a string is the value of (`href="…"`, `{ color: '…' }`). */
+function keyOf(node) {
+  let n = node.type === 'TemplateElement' ? node.parent : node;
+  if (n.parent?.type === 'JSXExpressionContainer') n = n.parent;
+  const p = n.parent;
+  if (p?.type === 'JSXAttribute') {
+    const name = p.name;
+    return name.type === 'JSXNamespacedName'
+      ? `${name.namespace.name}:${name.name.name}`
+      : name.name;
+  }
+  if (p?.type === 'Property' && p.value === n && !p.computed) {
+    if (p.key.type === 'Identifier') return p.key.name;
+    if (p.key.type === 'Literal') return String(p.key.value);
+  }
+  return undefined;
 }
 
 /** Calls `check(text, node)` for every string and template literal part. */
@@ -151,7 +346,7 @@ const plugin = {
             node.parent?.type === 'ImportExpression'
           )
             return;
-          const what = rawColour(text);
+          const what = rawColour(text, keyOf(node));
           if (what) context.report({ node, messageId: 'raw', data: { what } });
         }),
     },
