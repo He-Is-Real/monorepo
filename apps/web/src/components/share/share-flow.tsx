@@ -203,7 +203,7 @@ const PROMPTS = [
 const button =
   'inline-flex min-h-11 items-center justify-center rounded-md px-5 text-sm font-semibold transition-colors disabled:opacity-60';
 const primary = `${button} bg-primary text-primary-foreground hover:bg-primary/90`;
-const secondary = `${button} border border-border-hover text-secondary-text hover:border-teal hover:bg-accent hover:text-foreground`;
+const secondary = `${button} border border-border-hover text-secondary-text hover:border-brand hover:bg-accent hover:text-foreground`;
 
 export function ShareFlow({
   auth,
@@ -683,7 +683,7 @@ function SignedInFlow({
                       onClick={() => void goTo(s)}
                       className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-md px-3 underline-offset-4 hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none disabled:no-underline ${
                         current
-                          ? 'font-semibold text-foreground underline decoration-2 decoration-teal'
+                          ? 'font-semibold text-foreground underline decoration-2 decoration-brand'
                           : done
                             ? 'text-link'
                             : 'text-secondary-text'
@@ -699,7 +699,7 @@ function SignedInFlow({
           </nav>
         )}
         {navProblem && (
-          <p role="alert" className="mb-6 text-center text-destructive">
+          <p role="alert" className="mb-6 text-center text-danger-text">
             {navProblem}
           </p>
         )}
@@ -915,7 +915,7 @@ function Checkbox({
       />
       <span
         aria-hidden="true"
-        className="mt-0.5 flex size-[20px] shrink-0 items-center justify-center rounded border-2 border-border-hover text-primary-foreground peer-checked:border-teal peer-checked:bg-teal [&>svg]:invisible peer-checked:[&>svg]:visible"
+        className="mt-0.5 flex size-[20px] shrink-0 items-center justify-center rounded border-2 border-border-hover text-primary-foreground peer-checked:border-brand peer-checked:bg-brand [&>svg]:invisible peer-checked:[&>svg]:visible"
       >
         <svg
           viewBox="0 0 24 24"
@@ -1004,7 +1004,7 @@ function ChooseStep({
               key={o.id}
               className={`flex min-h-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl p-4 text-center has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 ${
                 format === o.id
-                  ? 'border-2 border-teal bg-accent font-semibold'
+                  ? 'border-2 border-brand bg-accent font-semibold'
                   : 'border border-border text-secondary-text'
               }`}
             >
@@ -1146,7 +1146,7 @@ function PrepareStep({
         {PROMPTS.map((p) => (
           <li
             key={p.title}
-            className="rounded-xl border-l-[3px] border-teal bg-surface px-4 py-3"
+            className="rounded-xl border-l-[3px] border-brand bg-surface px-4 py-3"
           >
             <p className="font-semibold">{p.title}</p>
             <p className="text-sm text-secondary-text">{p.text}</p>
@@ -1261,7 +1261,7 @@ function SaveState({
         <p
           role="status"
           data-save-state={draft.status}
-          className={`text-sm ${draft.status === 'error' ? 'text-destructive' : 'text-secondary-text'}`}
+          className={`text-sm ${draft.status === 'error' ? 'text-danger-text' : 'text-secondary-text'}`}
         >
           {text[draft.status]}
         </p>
@@ -1270,7 +1270,7 @@ function SaveState({
         </div>
       </div>
       {exit.problem && (
-        <p role="alert" className="mt-2 text-sm text-destructive">
+        <p role="alert" className="mt-2 text-sm text-danger-text">
           {exit.problem}
         </p>
       )}
@@ -1286,7 +1286,7 @@ function SaveState({
       {draft.status === 'conflict' && (
         <div
           role="alert"
-          className="rounded-xl border border-destructive p-4 text-foreground"
+          className="rounded-xl border border-danger p-4 text-foreground"
         >
           <p className="mb-3">
             This story was changed in another tab or window. Your text here is
@@ -1506,7 +1506,7 @@ function WriteStep({
               least {limits.storyText.min.toLocaleString('en-GB')} to submit.
             </FieldHint>
             {fullLength > limits.storyText.max && (
-              <p role="alert" className="mt-1 text-sm text-destructive">
+              <p role="alert" className="mt-1 text-sm text-danger-text">
                 This is over the current limit of{' '}
                 {limits.storyText.max.toLocaleString('en-GB')} characters.
                 Shorten it before you submit; your shorter versions are saved as
@@ -1531,7 +1531,7 @@ function WriteStep({
             onState={picture.onState}
           />
           {picture.problem && (
-            <p role="alert" className="mt-2 text-destructive">
+            <p role="alert" className="mt-2 text-danger-text">
               {picture.problem}
             </p>
           )}
@@ -1715,7 +1715,7 @@ function MediaStep({
       </div>
       <SaveState draft={draft} picture={picture} />
       {(problem ?? picture.problem) && (
-        <p role="alert" className="mt-2 text-destructive">
+        <p role="alert" className="mt-2 text-danger-text">
           {problem ?? picture.problem}
         </p>
       )}
@@ -1840,7 +1840,7 @@ function DetailsStep({
                 <label
                   className={`inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center gap-2 rounded-full border px-4 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60 has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 ${
                     on
-                      ? 'border-teal bg-accent font-semibold text-foreground'
+                      ? 'border-brand bg-accent font-semibold text-foreground'
                       : 'border-border text-secondary-text'
                   }`}
                 >
@@ -1863,7 +1863,7 @@ function DetailsStep({
             }}
           />
           {problem && (
-            <p role="alert" className="mt-2 text-sm text-destructive">
+            <p role="alert" className="mt-2 text-sm text-danger-text">
               {problem}
             </p>
           )}
@@ -2425,7 +2425,7 @@ export function ReviewStep({
           target="_blank"
           rel="noopener"
           data-preview-button=""
-          className={`${button} mt-4 w-full gap-3 border border-border-hover py-2 text-foreground hover:border-teal hover:bg-accent sm:w-auto`}
+          className={`${button} mt-4 w-full gap-3 border border-border-hover py-2 text-foreground hover:border-brand hover:bg-accent sm:w-auto`}
         >
           <svg
             viewBox="0 0 24 24"
@@ -2507,7 +2507,7 @@ export function ReviewStep({
         </div>
       )}
       {problem && (
-        <p role="alert" className="mt-4 text-destructive">
+        <p role="alert" className="mt-4 text-danger-text">
           {problem}
         </p>
       )}
@@ -2555,7 +2555,7 @@ function Attached({ kind, name }: { kind: string; name: string | null }) {
       <svg
         viewBox="0 0 24 24"
         aria-hidden="true"
-        className="mt-0.5 size-5 shrink-0 fill-none stroke-teal stroke-[2.5] [stroke-linecap:round] [stroke-linejoin:round]"
+        className="mt-0.5 size-5 shrink-0 fill-none stroke-brand stroke-[2.5] [stroke-linecap:round] [stroke-linejoin:round]"
       >
         <circle cx="12" cy="12" r="10" />
         <path d="m7.5 12.5 3 3 6-6.5" />

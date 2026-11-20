@@ -84,7 +84,7 @@ export default function GetReadyPage() {
         <Card className="mb-14 flex flex-col items-start gap-5 p-6 sm:flex-row sm:items-center sm:gap-7 sm:p-8">
           <div
             aria-hidden="true"
-            className="flex aspect-video w-full shrink-0 items-center justify-center rounded-xl bg-black text-white/50 sm:w-48"
+            className="flex aspect-video w-full shrink-0 items-center justify-center rounded-xl bg-media text-on-media/50 sm:w-48"
           >
             <svg viewBox="0 0 24 24" className="size-9">
               <polygon points="8,5 19,12 8,19" fill="currentColor" />

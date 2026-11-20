@@ -173,14 +173,14 @@ export function CardPlayer({
         ref={box}
         data-card-media=""
         data-card-playing=""
-        className={`${boxClass} bg-black`}
+        className={`${boxClass} bg-media`}
         style={{ ...style, minHeight: PLAYER_MIN_HEIGHT, minWidth: 0 }}
       >
         <button
           type="button"
           onClick={stop}
           aria-label="Close player"
-          className="absolute top-2 right-2 z-10 flex size-11 items-center justify-center rounded-full border border-white/20 bg-black/60 text-white backdrop-blur-sm hover:bg-black/80"
+          className="absolute top-2 right-2 z-10 flex size-11 items-center justify-center rounded-full border border-on-media/20 bg-media/60 text-on-media backdrop-blur-sm hover:bg-media/80"
         >
           <svg
             viewBox="0 0 24 24"
@@ -226,7 +226,7 @@ export function CardPlayer({
         {/* A quiet scrim says “this plays” on hover and keyboard focus. */}
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 bg-black/0 transition-colors group-hover/play:bg-black/15 group-focus-visible/play:bg-black/15 motion-reduce:transition-none"
+          className="pointer-events-none absolute inset-0 bg-media/0 transition-colors group-hover/play:bg-media/15 group-focus-visible/play:bg-media/15 motion-reduce:transition-none"
         />
         <span
           aria-hidden="true"
@@ -235,7 +235,7 @@ export function CardPlayer({
         {state.status === 'loading' && (
           <span
             aria-hidden="true"
-            className="absolute right-3 bottom-3 size-11 animate-spin rounded-full border-2 border-white/25 border-t-white motion-reduce:animate-none"
+            className="absolute right-3 bottom-3 size-11 animate-spin rounded-full border-2 border-on-media/25 border-t-on-media motion-reduce:animate-none"
           />
         )}
       </button>
@@ -245,7 +245,7 @@ export function CardPlayer({
         role="status"
         className={
           error
-            ? 'pointer-events-none absolute inset-x-3 top-3 rounded-lg bg-black/75 px-3 py-2 text-sm leading-5 text-white backdrop-blur-sm'
+            ? 'pointer-events-none absolute inset-x-3 top-3 rounded-lg bg-media/75 px-3 py-2 text-sm leading-5 text-on-media backdrop-blur-sm'
             : 'sr-only'
         }
       >

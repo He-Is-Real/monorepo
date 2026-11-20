@@ -117,7 +117,7 @@ const RENEW_MS = 5 * 60_000;
 const button =
   'inline-flex min-h-11 items-center justify-center rounded-md px-5 text-sm font-semibold transition-colors disabled:opacity-60';
 const primary = `${button} bg-primary text-primary-foreground hover:bg-primary/90`;
-const secondary = `${button} border border-border-hover text-secondary-text hover:border-teal hover:bg-accent hover:text-foreground`;
+const secondary = `${button} border border-border-hover text-secondary-text hover:border-brand hover:bg-accent hover:text-foreground`;
 
 export function formatBytes(n: number): string {
   const units = ['bytes', 'KB', 'MB', 'GB'];
@@ -641,7 +641,7 @@ export function UploadPanel({
             className="h-3 overflow-hidden rounded-full bg-surface"
           >
             <div
-              className="h-full bg-teal transition-[width]"
+              className="h-full bg-brand transition-[width]"
               style={{ width: `${percent}%` }}
             />
           </div>
@@ -653,7 +653,7 @@ export function UploadPanel({
                 : ''}
           </p>
           {phase.at === 'failed' && (
-            <p role="alert" className="mt-2 text-destructive">
+            <p role="alert" className="mt-2 text-danger-text">
               The upload stopped. Your story is saved, and you can carry on from
               where it stopped.
             </p>
@@ -695,7 +695,7 @@ export function UploadPanel({
         </p>
       )}
       {problem && (
-        <p role="alert" className="mt-4 text-destructive">
+        <p role="alert" className="mt-4 text-danger-text">
           {problem}
         </p>
       )}

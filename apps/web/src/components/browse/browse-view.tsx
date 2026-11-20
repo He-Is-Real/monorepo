@@ -70,9 +70,9 @@ export function BrowseView({
           >
             <span
               aria-hidden="true"
-              className="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-border-hover bg-input-background transition-colors group-aria-checked:border-teal group-aria-checked:bg-teal motion-reduce:transition-none"
+              className="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-border-hover bg-input-background transition-colors group-aria-checked:border-brand group-aria-checked:bg-brand motion-reduce:transition-none"
             >
-              <span className="ml-0.5 size-5 rounded-full bg-secondary-text shadow transition-transform group-aria-checked:translate-x-5 group-aria-checked:bg-white motion-reduce:transition-none" />
+              <span className="ml-0.5 size-5 rounded-full bg-secondary-text shadow transition-transform group-aria-checked:translate-x-5 group-aria-checked:bg-on-media motion-reduce:transition-none" />
             </span>
             Favourites only
           </button>

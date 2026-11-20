@@ -109,7 +109,7 @@ function ThemesLoader({ client }: { client: ApiUser }) {
     return <p className="text-secondary-text">Loading the themes…</p>;
   if (loaded.status === 'failed')
     return (
-      <Card asChild tone="destructive" className="p-6">
+      <Card asChild tone="danger" className="p-6">
         <p role="alert">{loaded.message}</p>
       </Card>
     );
@@ -364,7 +364,7 @@ function Editor({
           ref={alert}
           tabIndex={-1}
           role="alert"
-          tone="destructive"
+          tone="danger"
           className="mt-6 space-y-3 p-4 [overflow-wrap:anywhere]"
           data-save-status={status.kind}
         >
@@ -510,7 +510,7 @@ function CategorySection({
                 </button>
                 <button
                   type="button"
-                  className={`${SMALL_BUTTON} text-destructive hover:text-destructive`}
+                  className={`${SMALL_BUTTON} text-danger-text hover:text-danger-text`}
                   onClick={onDeleteCategory}
                   aria-label={`Delete category ${category.name}`}
                 >
@@ -565,7 +565,7 @@ function Zone({
     <div
       ref={setNodeRef}
       data-zone={id}
-      className={`mt-2 rounded-xl border-2 p-2 ${isOver ? 'border-dashed border-teal bg-accent' : 'border-transparent'}`}
+      className={`mt-2 rounded-xl border-2 p-2 ${isOver ? 'border-dashed border-brand bg-accent' : 'border-transparent'}`}
     >
       <h3 id={labelId} className="mb-2 text-sm text-muted-foreground">
         {label}
@@ -676,7 +676,7 @@ function Pill({
       ) : (
         <button
           type="button"
-          className="inline-flex size-11 shrink-0 items-center justify-center rounded-r-full text-muted-foreground hover:text-destructive"
+          className="inline-flex size-11 shrink-0 items-center justify-center rounded-r-full text-muted-foreground hover:text-danger-text"
           aria-label={`Delete ${theme.name}`}
           onClick={onDelete}
         >
@@ -783,7 +783,7 @@ function Modal({
       ref={ref}
       aria-labelledby={titleId}
       onClose={onClose}
-      className="m-auto w-[min(100%-2rem,28rem)] max-w-full rounded-2xl border border-border bg-card p-0 text-foreground backdrop:bg-black/50"
+      className="m-auto w-[min(100%-2rem,28rem)] max-w-full rounded-2xl border border-border bg-card p-0 text-foreground backdrop:bg-media/50"
     >
       <div className="max-h-[85svh] space-y-4 overflow-y-auto p-5 [overflow-wrap:anywhere]">
         <h2 id={titleId} className="text-xl font-semibold">
@@ -859,7 +859,7 @@ function ThemePanel({
             role="switch"
             checked={highlighted}
             onChange={(e) => setHighlighted(e.target.checked)}
-            className="size-6 accent-teal"
+            className="size-6 accent-brand"
           />
         </label>
         <div className="flex flex-wrap gap-3">
@@ -869,7 +869,7 @@ function ThemePanel({
           <Button type="button" variant="outline" wrap onClick={onClose}>
             Cancel
           </Button>
-          <Button type="button" variant="destructive" wrap onClick={onDelete}>
+          <Button type="button" variant="danger" wrap onClick={onDelete}>
             Delete theme
           </Button>
         </div>
@@ -924,7 +924,7 @@ function DeleteTheme({
           />
         </div>
         <div className="flex flex-wrap gap-3">
-          <Button type="submit" variant="destructive" wrap disabled={!ok}>
+          <Button type="submit" variant="danger" wrap disabled={!ok}>
             Delete theme
           </Button>
           <Button type="button" variant="outline" wrap onClick={onClose}>

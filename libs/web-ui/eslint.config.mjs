@@ -1,5 +1,6 @@
 import nx from '@nx/eslint-plugin';
 import baseConfig from '../../eslint.config.mjs';
+import webUi from './eslint/index.mjs';
 
 export default [
   ...nx.configs['flat/react'],
@@ -12,4 +13,6 @@ export default [
   {
     ignores: ['**/out-tsc'],
   },
+  // Its own colours are the theme's too (eslint/index.mjs).
+  ...webUi.configs.library,
 ];

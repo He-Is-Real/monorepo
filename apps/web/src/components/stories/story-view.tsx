@@ -139,7 +139,7 @@ export function StoryArticle({
               {!story.image?.url && (
                 <span
                   aria-hidden="true"
-                  className="mx-auto mb-6 flex size-20 items-center justify-center rounded-full bg-teal-dark text-3xl font-bold text-white shadow-lg"
+                  className="mx-auto mb-6 flex size-20 items-center justify-center rounded-full bg-brand-strong text-3xl font-bold text-on-media shadow-lg"
                 >
                   {initial}
                 </span>
@@ -174,7 +174,7 @@ export function StoryArticle({
 
       <div data-story-text="" className={`${COLUMN} mt-10`}>
         {written ? (
-          <blockquote className="border-l-[3px] border-teal pl-6 text-[1.375rem] leading-relaxed text-foreground italic">
+          <blockquote className="border-l-[3px] border-brand pl-6 text-[1.375rem] leading-relaxed text-foreground italic">
             {story.description}
           </blockquote>
         ) : (

@@ -70,7 +70,7 @@ export default async function AboutPage() {
               midnight, or the colleague who is curious but would never walk
               through a church door.
             </p>
-            <blockquote className="my-10 border-l-[3px] border-teal pl-6 text-xl leading-relaxed text-foreground sm:text-[1.75rem]">
+            <blockquote className="my-10 border-l-[3px] border-brand pl-6 text-xl leading-relaxed text-foreground sm:text-[1.75rem]">
               Testimonies are one of the most powerful evangelistic tools
               available to the Church, yet for too long they have been locked
               inside four walls.

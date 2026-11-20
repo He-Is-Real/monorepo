@@ -437,7 +437,7 @@ function StoryRow({
             <div className="flex flex-wrap gap-3">
               <Button
                 autoFocus
-                variant={confirm === 'delete' ? 'destructive' : 'default'}
+                variant={confirm === 'delete' ? 'danger' : 'default'}
                 className="h-auto min-h-11 px-5 py-2 whitespace-normal"
                 disabled={busy}
                 onClick={() => go(confirm)}
@@ -532,7 +532,7 @@ function StoryRow({
           </div>
         )}
         {error && (
-          <p role="alert" className="mt-3 text-sm text-destructive">
+          <p role="alert" className="mt-3 text-sm text-danger-text">
             {error}
           </p>
         )}

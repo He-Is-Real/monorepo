@@ -24,13 +24,15 @@ const UNIFORM_ASPECT = 16 / 10;
 
 // Quiet placeholders from the mockups, for a card without a signed picture: home's written stories
 // without an image, or any card while signing is off. Audio cards show their thumbnail (U2).
-const PLACEHOLDERS = [
-  ['#1a3a3d', '#0d1f21', '#4e9ba0'],
-  ['#1e2e28', '#0f1a14', '#5a7a6a'],
-  ['#2a2a1e', '#1a1a10', '#8a8a4e'],
-  ['#1e1e30', '#101020', '#5a5a8a'],
-  ['#301e1e', '#201010', '#8a5a5a'],
-] as const;
+// The theme's five artworks (`--art-N-*`, libs/web-ui theme.css): from, to, and the initial's.
+const PLACEHOLDERS = [1, 2, 3, 4, 5].map(
+  (n) =>
+    [
+      `var(--art-${n}-from)`,
+      `var(--art-${n}-to)`,
+      `var(--art-${n}-accent)`,
+    ] as const,
+);
 
 function placeholderFor(id: string) {
   let hash = 0;
@@ -49,7 +51,7 @@ export function NewBadge() {
   return (
     <span
       data-new-badge=""
-      className="inline-flex h-(--card-badge-line) shrink-0 items-center rounded-full bg-teal/15 px-(--card-badge-pad) text-(length:--card-badge-font) leading-(--card-badge-line) font-semibold tracking-(--card-badge-tracking) text-link-hover dark:bg-teal/20"
+      className="inline-flex h-(--card-badge-line) shrink-0 items-center rounded-full bg-brand/15 px-(--card-badge-pad) text-(length:--card-badge-font) leading-(--card-badge-line) font-semibold tracking-(--card-badge-tracking) text-link-hover dark:bg-brand/20"
     >
       <CardMetrics />
       <span aria-hidden="true">NEW</span>
@@ -144,7 +146,7 @@ export function StoryCard({
           style={{ background: `linear-gradient(145deg, ${from}, ${to})` }}
         >
           <span
-            className="flex size-16 items-center justify-center rounded-full text-2xl font-bold text-white shadow-lg"
+            className="flex size-16 items-center justify-center rounded-full text-2xl font-bold text-on-media shadow-lg"
             style={{ background: accent }}
           >
             {initial}
@@ -154,7 +156,7 @@ export function StoryCard({
       {playable && (
         <span
           aria-hidden="true"
-          className="absolute right-3 bottom-3 flex size-11 items-center justify-center rounded-full border border-white/20 bg-black/55 text-white backdrop-blur-sm transition-transform group-hover/play:scale-105 motion-reduce:transition-none"
+          className="absolute right-3 bottom-3 flex size-11 items-center justify-center rounded-full border border-on-media/20 bg-media/55 text-on-media backdrop-blur-sm transition-transform group-hover/play:scale-105 motion-reduce:transition-none"
         >
           {format === 'video' ? (
             <svg viewBox="0 0 24 24" className="ml-0.5 size-4 fill-current">
@@ -234,7 +236,7 @@ export function StoryCard({
           </Link>
         </Heading>
         {quote ? (
-          <blockquote className="line-clamp-(--card-quote-lines) border-l-(length:--card-quote-border) border-teal pl-(--card-quote-pad) text-(length:--card-quote-font) leading-(--card-quote-line) text-secondary-text">
+          <blockquote className="line-clamp-(--card-quote-lines) border-l-(length:--card-quote-border) border-brand pl-(--card-quote-pad) text-(length:--card-quote-font) leading-(--card-quote-line) text-secondary-text">
             {story.excerpt}
           </blockquote>
         ) : (

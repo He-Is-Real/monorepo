@@ -43,7 +43,7 @@ const APPEARANCE = {
     colorNeutral: 'var(--foreground)',
     colorBorder: 'var(--input)',
     colorRing: 'var(--ring)',
-    colorDanger: 'var(--destructive)',
+    colorDanger: 'var(--danger)',
     fontFamily: 'var(--font-sans)',
     borderRadius: 'var(--radius)',
   },

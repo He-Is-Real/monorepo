@@ -142,7 +142,7 @@ function Blocks({
   }
   if (loaded.status === 'failed') {
     return (
-      <Card asChild tone="destructive" className="p-6">
+      <Card asChild tone="danger" className="p-6">
         <p role="alert">{loaded.message}</p>
       </Card>
     );
@@ -155,7 +155,7 @@ function Blocks({
           ref={noteRef}
           tabIndex={-1}
           role={note.kind === 'error' ? 'alert' : 'status'}
-          className={`rounded-xl border px-4 py-3 [overflow-wrap:anywhere] ${note.kind === 'error' ? 'border-destructive' : 'border-primary'}`}
+          className={`rounded-xl border px-4 py-3 [overflow-wrap:anywhere] ${note.kind === 'error' ? 'border-danger' : 'border-primary'}`}
           data-block-status={note.kind}
         >
           {note.text}

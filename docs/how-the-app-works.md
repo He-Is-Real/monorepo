@@ -1102,8 +1102,18 @@ For developers. Details are in the linked documents.
   looks (three text box sizes, two label weights), the library keeps them as named sizes until
   Joel picks one (WL-2, with chips, notices, open/close sections, confirm boxes, check boxes,
   radio buttons, tabs and switches).
-  The components use the site's theme colours, which stay in `apps/web/src/app/global.css`
-  (`libs/web-ui/README.md`).
+  **LB-1 (Joel, 20 November 2026, A: "the UI component library should be its own section within
+  the monorepo in case we build another frontend directory"):** the library at `libs/web-ui` also
+  holds the theme (colours light and dark, font, radii, widths, base styles and shared CSS, in
+  `libs/web-ui/src/styles/theme.css`) and the lint checks (`@heisreal/web-ui/eslint`), so another
+  website gets the whole look from one stylesheet import and one lint config. **OT-1 (Joel, 20
+  November 2026, A: "standardise all site colours in the library and have them referenced
+  generally eg the delete red references via \"danger\""):** every colour is named by its meaning
+  (`danger`, `warning`, `success`, `info`, `brand`, `media`…; `libs/web-ui/README.md`), and pages
+  use only those names; lint refuses a hex, rgb() or Tailwind palette colour in page code, except
+  a colour a third party sets (the share menu's network logos). There is one red, moderation's
+  checked one, light and dark: the library's `danger` button and every red word. Moderation's
+  Send back is the library's `caution` button (the warning amber).
 - **Logs are JSON everywhere** (Joel, 2026-11-14: "yes add JSON formatting to all logs with
   severity levels eg DEBUG INFO WARNING including the worker with timestamps. dont force surrealdb
   to do this if it does not support it out of the box"). Every service, job and the media worker

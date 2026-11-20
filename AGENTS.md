@@ -119,6 +119,9 @@ styled copies (`docs/how-the-app-works.md`, technical decisions; `libs/web-ui/RE
 its `Select`, every text box its `Input`, every text area its `Textarea` (with `Field`, `FieldLabel`, `FieldHint`
 and `FieldError` for the label, hint and error wiring), every bordered panel its `Card`, every pop-up menu panel
 its `PopoverPanel`, and buttons whose words may wrap are `Button wrap`. Pages pass layout classes only (width,
-margins, padding, grid placement); a copied field class string fails lint.
+margins, padding, grid placement); a copied field class string fails lint. The library also owns the theme
+(`libs/web-ui/src/styles/theme.css`: colours light and dark, font, radii, widths) and these lint checks
+(`@heisreal/web-ui/eslint`). Colours are named by meaning (`danger`, `warning`, `success`, `info`, `brand`,
+`media`…); a hex, rgb() or Tailwind palette colour (`red-600`, `bg-white`) in page code fails lint.
 
 Run tasks through Nx with the package manager prefix (`pnpm nx run-many -t lint test build typecheck`, `pnpm nx affected -t ...`). Check `pnpm nx <target> --help` rather than guessing flags. Scaffold with the Nx generators (`pnpm nx g ...`).

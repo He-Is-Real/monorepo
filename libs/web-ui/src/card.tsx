@@ -8,7 +8,7 @@ const cardVariants = cva('rounded-2xl border bg-card', {
     tone: {
       default: 'border-border',
       /** An error, or something that can't be undone. */
-      destructive: 'border-destructive',
+      danger: 'border-danger',
       /** The thing to do next (a chosen or highlighted panel). */
       primary: 'border-primary',
       /** A note that links on (the link colour). */

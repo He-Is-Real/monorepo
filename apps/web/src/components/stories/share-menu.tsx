@@ -9,6 +9,14 @@ import { shareLinks } from '@/lib/share';
 // links only (lib/share.ts). The address is the page's own, read in the browser without its
 // query string. Radix keeps focus inside while open; Escape and clicking outside close it.
 
+/* eslint-disable @heisreal/web-ui/no-raw-colour -- the networks' own logo colours (third party) */
+const NETWORK = {
+  whatsapp: 'fill-[#25D366]',
+  facebook: 'fill-[#1877F2]',
+  instagram: ['#FFDC80', '#F77737', '#E1306C', '#C13584', '#833AB4'],
+} as const;
+/* eslint-enable @heisreal/web-ui/no-raw-colour */
+
 const option =
   'flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm text-secondary-text transition-colors hover:bg-surface hover:text-foreground focus-visible:bg-surface';
 
@@ -44,7 +52,7 @@ export function ShareMenu({ title }: { title: string }) {
         setMessage('');
       }}
     >
-      <Popover.Trigger className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-border-hover px-4 text-sm font-semibold text-secondary-text transition-colors hover:border-teal hover:bg-accent hover:text-foreground data-[state=open]:border-teal">
+      <Popover.Trigger className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-border-hover px-4 text-sm font-semibold text-secondary-text transition-colors hover:border-brand hover:bg-accent hover:text-foreground data-[state=open]:border-brand">
         <svg
           viewBox="0 0 24 24"
           aria-hidden="true"
@@ -71,7 +79,10 @@ export function ShareMenu({ title }: { title: string }) {
           <li>
             <a href={links.whatsapp} className={option} {...external}>
               <Icon>
-                <svg viewBox="0 0 24 24" className="size-[18px] fill-[#25D366]">
+                <svg
+                  viewBox="0 0 24 24"
+                  className={`size-[18px] ${NETWORK.whatsapp}`}
+                >
                   <path d="M17.47 14.38c-.3-.15-1.76-.87-2.03-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.94 1.16-.17.2-.35.22-.64.07-.3-.15-1.26-.46-2.39-1.47-.88-.79-1.48-1.76-1.65-2.06-.17-.3-.02-.46.13-.6.13-.14.3-.35.45-.52.15-.18.2-.3.3-.5.1-.2.05-.37-.03-.52-.07-.15-.67-1.61-.92-2.2-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.79.37-.27.3-1.04 1.02-1.04 2.48s1.07 2.88 1.21 3.07c.15.2 2.1 3.2 5.08 4.49.71.31 1.26.49 1.7.63.71.22 1.36.19 1.87.12.57-.09 1.76-.72 2-1.41.25-.7.25-1.29.18-1.41-.08-.13-.28-.2-.57-.35M12.05 21.79h-.01a9.87 9.87 0 01-5.03-1.38l-.36-.21-3.74.98 1-3.65-.24-.37a9.86 9.86 0 01-1.51-5.26c0-5.45 4.44-9.88 9.89-9.88 2.64 0 5.12 1.03 6.99 2.9a9.83 9.83 0 012.89 6.99c0 5.45-4.44 9.88-9.88 9.88m8.41-18.3A11.82 11.82 0 0012.05 0C5.5 0 .16 5.34.16 11.89c0 2.1.55 4.14 1.59 5.95L.06 24l6.3-1.65a11.88 11.88 0 005.68 1.45h.01c6.55 0 11.89-5.34 11.89-11.89a11.82 11.82 0 00-3.48-8.41z" />
                 </svg>
               </Icon>
@@ -81,7 +92,10 @@ export function ShareMenu({ title }: { title: string }) {
           <li>
             <a href={links.facebook} className={option} {...external}>
               <Icon>
-                <svg viewBox="0 0 24 24" className="size-[18px] fill-[#1877F2]">
+                <svg
+                  viewBox="0 0 24 24"
+                  className={`size-[18px] ${NETWORK.facebook}`}
+                >
                   <path d="M24 12.07C24 5.45 18.63.07 12 .07S0 5.45 0 12.07c0 5.99 4.39 10.95 10.13 11.85v-8.38H7.08v-3.47h3.05V9.43c0-3.01 1.79-4.67 4.53-4.67 1.31 0 2.69.24 2.69.24v2.95h-1.51c-1.49 0-1.96.93-1.96 1.87v2.25h3.33l-.53 3.47h-2.8v8.38C19.61 23.03 24 18.06 24 12.07z" />
                 </svg>
               </Icon>
@@ -104,11 +118,11 @@ export function ShareMenu({ title }: { title: string }) {
                       x2="100%"
                       y2="0%"
                     >
-                      <stop offset="0%" stopColor="#FFDC80" />
-                      <stop offset="25%" stopColor="#F77737" />
-                      <stop offset="50%" stopColor="#E1306C" />
-                      <stop offset="75%" stopColor="#C13584" />
-                      <stop offset="100%" stopColor="#833AB4" />
+                      <stop offset="0%" stopColor={NETWORK.instagram[0]} />
+                      <stop offset="25%" stopColor={NETWORK.instagram[1]} />
+                      <stop offset="50%" stopColor={NETWORK.instagram[2]} />
+                      <stop offset="75%" stopColor={NETWORK.instagram[3]} />
+                      <stop offset="100%" stopColor={NETWORK.instagram[4]} />
                     </linearGradient>
                   </defs>
                   <path
