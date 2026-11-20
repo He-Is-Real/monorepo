@@ -1043,6 +1043,50 @@ describe('video and audio uploads', () => {
     expect((await submit('lia', id, 2)).status).toBe(200);
   });
 
+  it('a replayed picture request meets the largest picture file in force now: no fresh PUT for a picture over a lowered limit (Codex #253)', async () => {
+    await person('rey');
+    const created = await call('POST', '/v1/stories', 'rey', {
+      body: { title: 'Words', primaryFormat: 'written', body: 'x'.repeat(250) },
+      headers: { 'idempotency-key': key() },
+    });
+    const id = created.body.id as string;
+    const PICTURE = {
+      format: 'image',
+      contentType: 'image/webp',
+      fileSizeBytes: 300_000,
+      width: 1200,
+      height: 900,
+      expectedImage: null,
+    };
+    // Granted under the default; its PUT never finishes.
+    const k = key();
+    const first = await upload('rey', id, 1, PICTURE, k);
+    expect(first.status).toBe(200);
+    const path = first.body.path as string;
+    try {
+      await settings({ imageMaxBytes: 204_800 });
+      const replayed = await upload('rey', id, 1, PICTURE, k);
+      expect(replayed.status).toBe(400);
+      expect(replayed.body).toMatchObject({
+        code: 'validation_failed',
+        detail: 'The picture can’t be used',
+        errors: [
+          { pointer: '/fileSizeBytes', message: 'at most 204800 bytes' },
+        ],
+      });
+      expect(replayed.body.uploadUrl).toBeUndefined();
+      // Nothing new was granted: the one row, still the story's picture.
+      expect(await grants('rey')).toEqual([path]);
+    } finally {
+      await settings({ imageMaxBytes: 3_145_728 });
+    }
+    // Back under the limit, the same key replays the same path with a fresh link.
+    const again = await upload('rey', id, 1, PICTURE, k);
+    expect(again.status).toBe(200);
+    expect(again.body).toMatchObject({ path, version: 2 });
+    expect(again.body.uploadUrl).toEqual(expect.any(String));
+  });
+
   it('the picture check refuses a WebP whose chunks couldn’t be real: an odd RIFF size, a VP8X header not 10 bytes long, a VP8 or VP8L header too short to hold its size, a first chunk that runs past the end (Codex, #208 review)', async () => {
     const odd = await pictureStory('pod', 40_001);
     // 40,001 bytes as recorded and as stored, but a RIFF size (39,993) no RIFF file can have.

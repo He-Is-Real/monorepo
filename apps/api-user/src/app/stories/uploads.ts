@@ -403,7 +403,8 @@ export class Uploads {
    * retry after a lost answer replays the same path. The path is picked here, never by the browser (D80), and the row's event puts it on
    * the draft with its size and description. A replay signs the same path again only while it's
    * still the story's image and the story editable; the PUT is one use (`If-None-Match: *`), so
-   * a file already there can't be replaced.
+   * a file already there can't be replaced, and the picture still within the largest picture file
+   * in force then (imageMaxBytes).
    */
   private async requestImage(
     person: SurrealQueryable,
@@ -482,6 +483,9 @@ export class Uploads {
         });
       }
       await this.requireAgreements(user);
+      // A replay skips prepare's checks, so the picture meets the largest picture file in force
+      // now before its PUT is signed again (Codex #253): refused as a fresh request would be.
+      checkImage(input, await this.imageMaxBytes(person));
     }
     return {
       id,
