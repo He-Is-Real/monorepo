@@ -68,10 +68,15 @@ const TOKEN_SELECTORS = [
 // WL-1 (Joel, 2026-11-19): text boxes and text areas are the web library's `Input` and
 // `Textarea` (libs/web-ui). A class string with the field look (the input border and background
 // and a focus ring) in a page is a hand-made copy.
+// (Built from parts, so this file's own strings don't match it.)
+const FIELD_LOOK = [
+  'border-input ',
+  'bg-input-background',
+  ' focus-visible:ring',
+].join('.*');
 const FIELD_SELECTORS = [
   {
-    selector:
-      ':matches(Literal, TemplateElement[value.raw]):matches([value=/border-input .*bg-input-background.* focus-visible:ring/], [value.raw=/border-input .*bg-input-background.* focus-visible:ring/])',
+    selector: `:matches(Literal, TemplateElement[value.raw]):matches([value=/${FIELD_LOOK}/], [value.raw=/${FIELD_LOOK}/])`,
     message:
       'Use Input or Textarea from @heisreal/web-ui instead of copying the field look.',
   },
