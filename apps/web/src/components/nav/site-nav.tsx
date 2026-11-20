@@ -10,7 +10,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { useStaffNavLinks } from '@/components/admin/admin-access';
+import { isStaffPath, useStaffNavLinks } from '@/components/admin/admin-access';
 
 // The site's sections (mockups' nav). The static pages are M1 step 6b-2; Donate shows Stripe's
 // Buy Buttons where they're set (M4), otherwise a placeholder. "Impact" from the mockups waits
@@ -36,10 +36,10 @@ const MENU_LINK =
 /** The main navigation: one row on desktops, a second header row on tablets (plan 1.6). */
 export function NavLinks({ className = '' }: { className?: string }) {
   const pathname = usePathname() ?? '/';
-  // Staff tools (Moderation, Consent & legal) after the public links, set apart by a thin line:
-  // only for the roles they're for, once the role is known (Joel, 2026-11-14). They stay together
-  // and wrap as one group: where the row has no room for them (1280 px), they go under the
-  // public links rather than squeezing every link's words onto two lines.
+  // Staff see one "Admin" link after the public links, in the same row and style, once their
+  // role is known (Joel, 2026-11-14; one link in the bar, Joel 2026-11-20). Only where the row
+  // genuinely has no room for it (a 600 px tablet, large text) does it wrap under them, rather
+  // than squeezing every link's words onto two lines.
   const { links: staff, known } = useStaffNavLinks();
   return (
     <nav
@@ -61,24 +61,18 @@ export function NavLinks({ className = '' }: { className?: string }) {
             </Link>
           </li>
         ))}
-        {staff.length > 0 && (
-          <li
-            data-staff-links=""
-            className="flex items-center gap-x-5 whitespace-nowrap before:h-5 before:w-px before:bg-border lg:gap-x-7"
-          >
-            {staff.map((l) => (
-              <Link
-                key={l.href}
-                href={l.href}
-                data-staff-link=""
-                aria-current={isCurrent(pathname, l.href) ? 'page' : undefined}
-                className={DESKTOP_LINK}
-              >
-                {l.label}
-              </Link>
-            ))}
+        {staff.map((l) => (
+          <li key={l.href} className="whitespace-nowrap">
+            <Link
+              href={l.href}
+              data-staff-link=""
+              aria-current={isStaffPath(pathname) ? 'page' : undefined}
+              className={DESKTOP_LINK}
+            >
+              {l.label}
+            </Link>
           </li>
-        )}
+        ))}
       </ul>
     </nav>
   );
@@ -144,7 +138,7 @@ function MenuLinks({
               <Link
                 href={l.href}
                 onClick={onLink}
-                aria-current={isCurrent(pathname, l.href) ? 'page' : undefined}
+                aria-current={isStaffPath(pathname) ? 'page' : undefined}
                 className={MENU_LINK}
               >
                 {l.label}

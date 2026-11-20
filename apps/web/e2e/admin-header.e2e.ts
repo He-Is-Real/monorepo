@@ -12,6 +12,7 @@ import { WEB_SIGNED_IN_URL } from './servers';
 // sessions starting `admin` Admins.
 
 const PAGES = [
+  ['/admin', 'Admin'],
   ['/admin/limits', 'Submission limits'],
   ['/admin/consent', 'Consent & legal'],
   ['/admin/themes', 'Themes'],

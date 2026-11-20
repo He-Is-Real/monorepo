@@ -57,12 +57,17 @@ export function useRole(): Role | undefined {
 }
 
 /**
- * The staff pages the site's main navigation links to, for the person's role (none until it is
- * known, nor for signed-out people and Users): Moderation for Moderators and Admins, the legal
- * text editor for Admins (Joel, 2026-11-14). The staff pages link the rest. `known` turns true
- * once the links are final for this page load: signed out, or api-user has answered (or failed).
+ * The site's main navigation shows staff one "Admin" link, to the admin landing page (Joel,
+ * 2026-11-20): for Moderators and Admins once their role is known, never for signed-out people or
+ * Users. The landing page's staff menu links the rest. `known` turns true once the links are final
+ * for this page load: signed out, or api-user has answered (or failed).
  */
-const MAIN_NAV_STAFF_PAGES = new Set(['/moderation', '/admin/consent']);
+export const ADMIN_HOME = '/admin';
+/** The paths the "Admin" link counts as current on: the landing page and every staff page. */
+export const isStaffPath = (pathname: string) =>
+  [ADMIN_HOME, '/moderation'].some(
+    (p) => pathname === p || pathname.startsWith(`${p}/`),
+  );
 export function useStaffNavLinks(): {
   links: { href: string; label: string }[];
   known: boolean;
@@ -73,9 +78,9 @@ export function useStaffNavLinks(): {
   );
   const role = account.status === 'ready' ? account.account.role : undefined;
   return {
-    links: ADMIN_PAGES.filter(
-      (p) => MAIN_NAV_STAFF_PAGES.has(p.href) && atLeast(role, p.min),
-    ),
+    links: atLeast(role, 'Moderator')
+      ? [{ href: ADMIN_HOME, label: 'Admin' }]
+      : [],
     known:
       session.status === 'signed-out' ||
       account.status === 'ready' ||

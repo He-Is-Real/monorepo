@@ -62,7 +62,7 @@ export function SiteHeader() {
             <ThemeToggle />
             <div
               data-account-slot=""
-              className="flex w-32 max-w-full shrink-0 justify-end sm:w-44 lg:w-60"
+              className="flex w-32 max-w-full shrink-0 justify-end sm:w-44 lg:w-60 xl:w-48"
             >
               <Suspense fallback={ACCOUNT_PLACEHOLDER}>
                 <HeaderAccount />
@@ -85,7 +85,9 @@ export function SiteHeader() {
  * Clerk loads, and all a visitor without JavaScript gets; "Sign in"; or the signed-in control,
  * whose name truncates to fit), so Share and the theme toggle never move when it resolves:
  * 128 px on phones (Sign in, or the avatar alone), 176 px from 640 px (avatar, first name, ▾),
- * 240 px from 1024 px.
+ * 240 px from 1024 px (the links have their own row there), and 192 px from 1280 px, where the
+ * links share the row: that leaves them room for a staff member's "Admin" link after Donate
+ * (Joel, 2026-11-20), with or without a scrollbar.
  * Its width is in rem, so it grows with the text; on a screen narrower than that it takes the
  * screen's width instead.
  */
