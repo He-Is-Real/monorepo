@@ -8,7 +8,7 @@ import {
 } from './helpers';
 
 // The Stories page's filters (BS-1 C, Joel 2026-11-20: "for compact search implement option
-// C"). On a computer (1280 px and up) "Favourites only", sort, format and every theme are a
+// C"). On a computer (content 70rem wide or more) "Favourites only", sort, format and every theme are a
 // column beside the stories, and only the search box sits above them. On tablets and phones a
 // "Filters" button beside the search box opens them in a panel, and what's chosen shows under
 // the search box as removable chips, with a count on the button. Everything stays in the address.

@@ -16,8 +16,10 @@ import {
 } from '@/lib/browse-query';
 import { usePersonalSession } from '@/lib/personal-session';
 
-/** Tailwind's `xl`: from here the filters are a column beside the stories (BS-1 C). */
-const WIDE = '(min-width: 80rem)';
+// The filters are a column beside the stories (BS-1 C) while the page's content is at least 70rem
+// wide (the `@min-[70rem]:` classes below, a container query): from about 1200 px screens at the
+// usual text size. In rem, so larger text (a browser setting, or the page's root size at 200%)
+// gives the Filters button instead of three story columns squeezed beside a wider column.
 
 const SORT_LABELS = {
   latest: 'Latest first',
@@ -34,7 +36,7 @@ type Chosen = { key: string; label: string } & (
  * Browse's layout (BS-1 C, Joel 2026-11-20) and "Favourites only" (Joel, 2026-11-14; it replaces
  * the My favourites page).
  *
- * On a computer (1280 px and up) "Favourites only", sort, format and every theme are a column on
+ * On a computer (while the page's content is at least 70rem wide: about 1200 px screens) "Favourites only", sort, format and every theme are a column on
  * the left and only the search box sits above the stories. On tablets and phones a "Filters"
  * button beside the search box (with a count of what's on) opens the same filters in a modal
  * panel, and what's chosen shows under the search box as chips, each removable, with "Clear
@@ -94,17 +96,20 @@ export function BrowseView({
   const [open, setOpen] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
   const button = useRef<HTMLButtonElement>(null);
+  const page = useRef<HTMLDivElement>(null);
   const [body, setBody] = useState<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
     const el = dialog.current;
     if (el && !el.open) el.showModal();
-    // Wide enough for the column: the panel isn't needed any more.
-    const wide = matchMedia(WIDE);
-    const onWide = () => wide.matches && el?.close();
-    wide.addEventListener('change', onWide);
-    return () => wide.removeEventListener('change', onWide);
+    // Wide enough for the column (the button is gone): the panel isn't needed any more.
+    const watch = new ResizeObserver(() => {
+      if (button.current && getComputedStyle(button.current).display === 'none')
+        el?.close();
+    });
+    if (page.current) watch.observe(page.current);
+    return () => watch.disconnect();
   }, [open]);
 
   const defaultSort = query.q ? 'relevance' : 'latest';
@@ -183,105 +188,107 @@ export function BrowseView({
     <>
       {/* DOM order is search, filters, stories (the keyboard's order); on a computer the
           filters column sits to the left of both. */}
-      <div className="xl:grid xl:grid-cols-[15rem_minmax(0,1fr)] xl:grid-rows-[auto_1fr] xl:gap-x-10">
-        <div className="min-w-0 xl:col-start-2 xl:row-start-1">
-          <div className="flex items-start gap-3">
-            {search}
-            <Button
-              ref={button}
-              type="button"
-              variant="outline"
-              aria-haspopup="dialog"
-              aria-expanded={open}
-              aria-controls={`${id}-panel`}
-              onClick={() => setOpen(true)}
-              data-filters-button=""
-              className="h-11 px-4 xl:hidden noscript:hidden"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                aria-hidden="true"
-                className="fill-none stroke-current"
-                strokeWidth="2"
-                strokeLinecap="round"
+      <div ref={page} className="@container">
+        <div className="@min-[70rem]:grid @min-[70rem]:grid-cols-[15rem_minmax(0,1fr)] @min-[70rem]:grid-rows-[auto_1fr] @min-[70rem]:gap-x-10">
+          <div className="min-w-0 @min-[70rem]:col-start-2 @min-[70rem]:row-start-1">
+            <div className="flex items-start gap-3">
+              {search}
+              <Button
+                ref={button}
+                type="button"
+                variant="outline"
+                aria-haspopup="dialog"
+                aria-expanded={open}
+                aria-controls={`${id}-panel`}
+                onClick={() => setOpen(true)}
+                data-filters-button=""
+                className="h-11 px-4 @min-[70rem]:hidden noscript:hidden"
               >
-                <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
-                <circle cx="16" cy="7" r="2" />
-                <circle cx="10" cy="17" r="2" />
-              </svg>
-              Filters
-              {chosen.length > 0 && (
-                <>
-                  <span
-                    aria-hidden="true"
-                    className="inline-grid h-5 min-w-5 place-items-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground"
-                  >
-                    {chosen.length}
-                  </span>
-                  <span className="sr-only">({chosen.length} on)</span>
-                </>
-              )}
-            </Button>
-          </div>
-          {chosen.length > 0 && (
-            <ul
-              aria-label="Chosen filters"
-              className="mt-3 flex flex-wrap items-center gap-2 xl:hidden"
-              data-chosen-filters=""
-            >
-              {chosen.map((c) => (
-                <li key={c.key}>
-                  {'href' in c ? (
-                    <Link
-                      href={c.href}
-                      scroll={false}
-                      className={`${THEME_CHIP_ON} gap-2`}
-                    >
-                      <ChipText label={c.label} />
-                    </Link>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={c.onRemove}
-                      className={`${THEME_CHIP_ON} gap-2`}
-                    >
-                      <ChipText label={c.label} />
-                    </button>
-                  )}
-                </li>
-              ))}
-              <li>
-                <Link
-                  href={clearAll}
-                  scroll={false}
-                  className="inline-flex min-h-11 items-center px-2 text-sm font-medium"
+                <svg
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  className="fill-none stroke-current"
+                  strokeWidth="2"
+                  strokeLinecap="round"
                 >
-                  Clear all
-                </Link>
-              </li>
-            </ul>
-          )}
-        </div>
-
-        <aside
-          aria-label="Filters"
-          className="mt-6 hidden xl:col-start-1 xl:row-span-2 xl:row-start-1 xl:mt-0 xl:block noscript:block"
-          data-filters-column=""
-        >
-          {open && body ? createPortal(filters, body) : !open && filters}
-        </aside>
-
-        <div className="min-w-0 xl:col-start-2 xl:row-start-2">
-          {summary}
-          <div className="mt-8">
-            {on && (
-              <FavouritesList
-                filters={query}
-                themeIds={themeIds}
-                onShowAll={() => set(false)}
-              />
+                  <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
+                  <circle cx="16" cy="7" r="2" />
+                  <circle cx="10" cy="17" r="2" />
+                </svg>
+                Filters
+                {chosen.length > 0 && (
+                  <>
+                    <span
+                      aria-hidden="true"
+                      className="inline-grid h-5 min-w-5 place-items-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground"
+                    >
+                      {chosen.length}
+                    </span>
+                    <span className="sr-only">({chosen.length} on)</span>
+                  </>
+                )}
+              </Button>
+            </div>
+            {chosen.length > 0 && (
+              <ul
+                aria-label="Chosen filters"
+                className="mt-3 flex flex-wrap items-center gap-2 @min-[70rem]:hidden"
+                data-chosen-filters=""
+              >
+                {chosen.map((c) => (
+                  <li key={c.key}>
+                    {'href' in c ? (
+                      <Link
+                        href={c.href}
+                        scroll={false}
+                        className={`${THEME_CHIP_ON} gap-2`}
+                      >
+                        <ChipText label={c.label} />
+                      </Link>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={c.onRemove}
+                        className={`${THEME_CHIP_ON} gap-2`}
+                      >
+                        <ChipText label={c.label} />
+                      </button>
+                    )}
+                  </li>
+                ))}
+                <li>
+                  <Link
+                    href={clearAll}
+                    scroll={false}
+                    className="inline-flex min-h-11 items-center px-2 text-sm font-medium"
+                  >
+                    Clear all
+                  </Link>
+                </li>
+              </ul>
             )}
-            {!on && results}
+          </div>
+
+          <aside
+            aria-label="Filters"
+            className="mt-6 hidden @min-[70rem]:col-start-1 @min-[70rem]:row-span-2 @min-[70rem]:row-start-1 @min-[70rem]:mt-0 @min-[70rem]:block noscript:block"
+            data-filters-column=""
+          >
+            {open && body ? createPortal(filters, body) : !open && filters}
+          </aside>
+
+          <div className="min-w-0 @min-[70rem]:col-start-2 @min-[70rem]:row-start-2">
+            {summary}
+            <div className="mt-8">
+              {on && (
+                <FavouritesList
+                  filters={query}
+                  themeIds={themeIds}
+                  onShowAll={() => set(false)}
+                />
+              )}
+              {!on && results}
+            </div>
           </div>
         </div>
       </div>

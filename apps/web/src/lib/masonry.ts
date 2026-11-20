@@ -429,7 +429,9 @@ export function layoutStyle(layout: CardLayout): Record<string, number> {
  * below the card, its span's gap holds the ring.
  */
 export const MASONRY_CSS = [
-  `.masonry-box{container-type:inline-size}`,
+  // A named container, so the bands only ever query the list's box: never a container around the
+  // page (browse's filters column, BS-1 C), even when the list's own is off (no JavaScript).
+  `.masonry-box{container:masonry/inline-size}`,
   `.masonry{display:grid;grid-template-columns:minmax(0,1fr);gap:${rem(GAP)};max-width:30rem;margin-inline:auto}`,
   ...COLUMN_COUNTS.map((n) => {
     const rules = BANDS.flatMap((band, i) => {
@@ -442,7 +444,7 @@ export const MASONRY_CSS = [
         : '';
       const column = first ? `grid-column:var(--c${n});` : '';
       return [
-        `@container (min-width:${first ? 0 : rem(band.minWidth)}){${grid}.masonry>li{${column}grid-row-end:span var(--m,var(--s${i}))}}`,
+        `@container masonry (min-width:${first ? 0 : rem(band.minWidth)}){${grid}.masonry>li{${column}grid-row-end:span var(--m,var(--s${i}))}}`,
       ];
     });
     return `@media (min-width:${BREAKPOINTS[n]}px){${rules.join('')}}`;

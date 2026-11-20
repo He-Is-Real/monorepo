@@ -529,9 +529,10 @@ recording | picture` (worked out from the status history: set while the story's 
   More stories load on their own as the reader nears the end, to the end of the list, with an end
   message. Without JavaScript there is a link to the next page. (D55)
 - **Browse's filters take little room (BS-1 C, Joel 2026-11-20: "for compact search implement
-  option C").** On a computer (1280 px and up) "Favourites only", sort, format and every theme are
-  a column on the left, and only the search box sits above the stories (the three story columns
-  stay, a little narrower). On tablets and phones a "Filters" button beside the search box, with a
+  option C").** On a computer, "Favourites only", sort, format and every theme are a column on
+  the left, and only the search box sits above the stories (the three story columns stay, a little
+  narrower). The column shows while the page's content is at least 70rem wide: screens from about
+  1200 px at the usual text size; with larger text the Filters button below is used instead. On tablets and phones a "Filters" button beside the search box, with a
   count of what's on, opens the same filters in a panel (a sheet from the bottom on phones) with
   "Clear all" and "Show stories"; each choice applies at once, Escape closes it and the focus goes
   back to the button. What's chosen (theme, format, a sort other than the usual one, Favourites
