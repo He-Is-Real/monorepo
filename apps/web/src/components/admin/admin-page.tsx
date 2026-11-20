@@ -6,20 +6,25 @@ const SITE = 'mx-auto w-full max-w-site px-4 sm:px-10';
 const NARROW = 'max-w-[calc(var(--container-narrow)-5rem)]';
 
 /**
- * How wide an admin page's content is, below its header (Joel, 2026-11-17: each keeps the width
- * it had): `narrow` the standard 800 px column; `site` the site's full content width (1200 px);
+ * How wide an admin page's content is, below its header, always centred on the page (OQ-4 D,
+ * Joel 2026-11-19; the widths are each page's own, Joel 2026-11-17): `narrow` the standard 800 px column; `site` the site's full content width (1200 px);
  * `double` the standard column on phones and tablets, and twice it from 1280 px (consent's edit
  * box and preview side by side, Joel 2026-11-14), centred on the page there; `story` 800 px,
- * as the story page's article, which sets its own widths inside it (a story under review).
+ * as the story page's article, which sets its own widths inside it (a story under review);
+ * `wide` the site's width on phones and tablets, and up to 1600 px from 1280 px, centred like
+ * `double` (the moderation list, OQ-3 A and MQ-1 E: Joel 2026-11-17; no column in it over 1200 px).
  */
-export type AdminPageWidth = 'narrow' | 'site' | 'double' | 'story';
+export type AdminPageWidth = 'narrow' | 'site' | 'double' | 'story' | 'wide';
+/** `double` and `wide` from 1280 px: twice the standard column (1600 px), centred. */
+const WIDE = `${SITE} xl:max-w-[calc(var(--container-narrow)*2)]`;
 
 /**
- * The shell every admin and moderation page shares (Joel, 2026-11-17): the admin pages' links,
- * the h1 and the description always sit in the site's default container, so they stay in the
- * same place when switching pages; the content below keeps its own width, left-aligned with them
- * where it fits the container. `data-admin-page` reserves the scrollbar's gutter (global.css), so
- * a page that scrolls doesn't shift sideways from one that doesn't.
+ * The shell every admin and moderation page shares (Joel, 2026-11-17; centred, OQ-4 D, Joel
+ * 2026-11-19): the admin pages' links, the h1 and the description are centred in the site's
+ * default container, so they stay in the same place when switching pages; the content below keeps
+ * its own width, centred under them. Text inside the content stays left-aligned. `data-admin-page`
+ * reserves the scrollbar's gutter (global.css), so a page that scrolls doesn't shift sideways from
+ * one that doesn't.
  */
 export function AdminPage({
   title,
@@ -49,7 +54,7 @@ export function AdminPage({
   );
   return (
     <main id="main" data-admin-page="" className="flex-1 py-10 sm:py-16">
-      <div data-admin-header="" className={SITE}>
+      <div data-admin-header="" className={`${SITE} text-center`}>
         <AdminNav />
         {title && (
           <h1 className="mb-3 text-[2rem] leading-tight font-normal text-balance sm:text-[2.5rem]">
@@ -57,23 +62,37 @@ export function AdminPage({
           </h1>
         )}
         {description && (
-          <div className="mb-8 max-w-measure space-y-3 text-[1.0625rem] text-secondary-text">
+          <div className="mx-auto mb-8 max-w-measure space-y-3 text-[1.0625rem] text-secondary-text">
             {description}
           </div>
         )}
         {header}
       </div>
       {width === 'site' ? (
-        <div className={SITE}>{content}</div>
+        <div data-admin-content="" className={SITE}>
+          {content}
+        </div>
       ) : width === 'narrow' || width === 'story' ? (
         <div className={SITE}>
-          <div className={width === 'story' ? 'max-w-narrow' : NARROW}>
+          <div
+            data-admin-content=""
+            className={`mx-auto ${width === 'story' ? 'max-w-narrow' : NARROW}`}
+          >
             {content}
           </div>
         </div>
+      ) : width === 'wide' ? (
+        <div data-admin-content="" className={WIDE}>
+          {content}
+        </div>
       ) : (
-        <div className={`${SITE} xl:max-w-[calc(var(--container-narrow)*2)]`}>
-          <div className={`${NARROW} xl:max-w-none`}>{content}</div>
+        <div className={WIDE}>
+          <div
+            data-admin-content=""
+            className={`mx-auto ${NARROW} xl:max-w-none`}
+          >
+            {content}
+          </div>
         </div>
       )}
     </main>

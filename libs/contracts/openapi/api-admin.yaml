@@ -79,9 +79,7 @@ paths:
       description: |
         MD-3 and MD-4 (Joel, 2026-11-14): one list for Moderators and Admins, replacing the old
         queue, of every story that is not on the site, one state at a time (`state`, default
-        `pending`), optionally only stories with one theme (`theme`). Oldest first by when the
-        story entered its state (for `pending`: when it was sent, the old queue's order), then by
-        entry. Each row opens `GET /v1/moderation/stories/{id}`.
+        `pending`). Each row opens `GET /v1/moderation/stories/{id}`.
         - `pending`: waiting for review.
         - `editing`: being edited after it was sent (sent back by a moderator or by the system, or
           its owner pressed Edit; `action` says which).
@@ -90,6 +88,19 @@ paths:
         - `rejected`.
         - `draft`: never sent. Admin only (MD-3, "visibility of users who might be preparing spam
           or other malicious activities"); a Moderator gets `403` `role_required`.
+
+        MQ-1 E (Joel, 2026-11-17) and the revised OQ-2 (Joel, 2026-11-19): the list narrows by a
+        title search (`q`) and by one format (`format`) and one theme (`theme`), taken and applied
+        exactly as the public browse list takes them (`browseStories`); together they narrow it
+        further (a story must pass each). `sort` orders it: `oldest` (the default) by when the
+        story entered its state, oldest first (for `pending`: when it was sent, the old queue's
+        order); `newest` the same, newest first; `changed` by when the story last changed, newest
+        first. Each breaks ties by the row's id, and a cursor pages only the sort it came from.
+        Every page carries `counts`: how many stories each state holds whatever the filters (a
+        Moderator never gets the drafts' count), and how many of this state's stories are in each
+        format with the search and theme applied but not the format filter. The `ETag` covers
+        the counts, so a changed count is never a `304`.
+
         Moderator and above (D1: the role is checked here; the database knows moderators only as
         api-admin's login, M3 plan concern C2).
       x-required-role: Moderator
@@ -102,18 +113,32 @@ paths:
             type: string
             enum: [pending, editing, hidden, rejected, draft]
             default: pending
-        - name: theme
+        - name: q
           in: query
-          description: Only stories with this theme (a theme id, as browse takes it).
+          description: |
+            MQ-1 E: only stories whose title contains this, ignoring capitals. Trimmed, then 1–100
+            characters (an empty search is a `400`; leave the parameter out instead).
           schema:
             type: string
-            pattern: '^[0-9A-Za-z_]{1,40}$'
+            minLength: 1
+            maxLength: 100
+        - $ref: './components.yaml#/components/parameters/storyFilterFormat'
+        - $ref: './components.yaml#/components/parameters/storyFilterTheme'
+        - name: sort
+          in: query
+          description: |
+            MQ-1 E: `oldest` (default) or `newest` by when the story entered its state; `changed`
+            by when the story last changed, newest first.
+          schema:
+            type: string
+            enum: [oldest, newest, changed]
+            default: oldest
         - $ref: './components.yaml#/components/parameters/limit'
         - $ref: './components.yaml#/components/parameters/cursor'
         - $ref: './components.yaml#/components/parameters/ifNoneMatch'
       responses:
         '200':
-          description: A page of the list.
+          description: A page of the list, with the counts.
           headers:
             ETag:
               $ref: './components.yaml#/components/headers/CollectionETag'
@@ -130,6 +155,9 @@ paths:
                         type: array
                         items:
                           $ref: './components.yaml#/components/schemas/ModerationListItem'
+                      counts:
+                        $ref: './components.yaml#/components/schemas/ModerationListCounts'
+                    required: [counts]
         '304':
           $ref: './components.yaml#/components/responses/NotModified'
         '400':

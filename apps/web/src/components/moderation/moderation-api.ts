@@ -1,3 +1,8 @@
+import {
+  sanitizeStoryFilters,
+  type StoryFilters,
+  type StoryFormat,
+} from '@heisreal/story-filters';
 import { ApiUserProblem, NotSignedIn, StaleVersion } from '@/lib/api-user';
 import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 import type { MediaPlayback, StoryImage } from '@/lib/public-stories';
@@ -25,7 +30,7 @@ export interface ListItem {
   /** What put it in this state (its current status entry); null for a draft. */
   action: string | null;
   title: string;
-  primaryFormat: 'video' | 'audio' | 'written';
+  primaryFormat: StoryFormat;
   themes: { id: string; name: string }[];
   /** When it entered this state (a draft: when it was started); the list's order. */
   since: string;
@@ -38,9 +43,115 @@ export interface ListItem {
   mediaProblem?: 'ours' | null;
 }
 
+/**
+ * api-admin's `ModerationListCounts` (MQ-1 E): each state's stories whatever the filters (drafts
+ * only for an Admin), and this state's by format with the search and theme but not the format.
+ */
+export interface ListCounts {
+  states: Partial<Record<ListState, number>>;
+  formats: Record<StoryFormat, number>;
+}
+
 export interface ListPage {
   data: ListItem[];
   nextCursor: string | null;
+  counts: ListCounts;
+}
+
+/** MQ-1 E: the list's orders; `oldest` (the old queue's) is the default. */
+export const SORTS = [
+  { sort: 'oldest', label: 'Oldest first' },
+  { sort: 'newest', label: 'Newest first' },
+  { sort: 'changed', label: 'Recently changed' },
+] as const;
+export type Sort = (typeof SORTS)[number]['sort'];
+
+/**
+ * What the list shows (MQ-1 E): every filter and the sort live in the address. The theme and
+ * format are browse's own filter (libs/story-filters; revised OQ-2, Joel 2026-11-19): one of
+ * each at a time.
+ */
+export interface ListFilters extends StoryFilters {
+  state: ListState;
+  q: string | null;
+  sort: Sort;
+}
+
+/** api-admin's limit on the search: a longer one would be a 400. */
+const MAX_SEARCH = 100;
+
+const all = (v: string | string[] | undefined) =>
+  v === undefined ? [] : typeof v === 'string' ? [v] : v;
+
+/**
+ * The list's filters from its address, keeping only what api-admin takes (anything else is left
+ * out, as an unknown state opens on the default). Whether drafts are allowed is the caller's.
+ */
+export function listFilters(
+  sp: Record<string, string | string[] | undefined>,
+): ListFilters {
+  const [state] = all(sp['state']);
+  const [sort] = all(sp['sort']);
+  const q = all(sp['q'])[0]?.trim() ?? '';
+  return {
+    state: isListState(state) ? state : 'pending',
+    q: q === '' ? null : [...q].slice(0, MAX_SEARCH).join(''),
+    // As browse reads its address: a repeated or unknown one is left out.
+    ...sanitizeStoryFilters({ theme: sp['theme'], format: sp['format'] }),
+    sort: SORTS.some((s) => s.sort === sort) ? (sort as Sort) : 'oldest',
+  };
+}
+
+/** The filters as query parameters, defaults left out (the page's address and api-admin's). */
+export function listQuery(f: ListFilters): URLSearchParams {
+  const sp = new URLSearchParams();
+  if (f.state !== 'pending') sp.set('state', f.state);
+  if (f.q) sp.set('q', f.q);
+  if (f.format) sp.set('format', f.format);
+  if (f.theme) sp.set('theme', f.theme);
+  if (f.sort !== 'oldest') sp.set('sort', f.sort);
+  return sp;
+}
+
+/** The list's address for these filters. */
+export function moderationHref(f: ListFilters): string {
+  const sp = listQuery(f);
+  return sp.size ? `/moderation?${sp}` : '/moderation';
+}
+
+/** How many filters are on (the phone's "Filters and sort (N)"): the sort isn't one. */
+export const activeFilters = (f: ListFilters) =>
+  (f.q ? 1 : 0) + (f.format ? 1 : 0) + (f.theme ? 1 : 0);
+
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+/** OQ-2: how long a story has been in its state: "14 min", "2 h 14 min", "3 days". */
+export function waitingFor(since: string, now: number): string {
+  const ms = Math.max(0, now - Date.parse(since));
+  if (ms < HOUR) return `${Math.floor(ms / MINUTE)} min`;
+  if (ms < DAY) {
+    const h = Math.floor(ms / HOUR);
+    const min = Math.floor((ms % HOUR) / MINUTE);
+    return min ? `${h} h ${min} min` : `${h} h`;
+  }
+  const days = Math.floor(ms / DAY);
+  return days === 1 ? '1 day' : `${days} days`;
+}
+
+/**
+ * OQ-2 (Joel, 2026-11-17): on Waiting for review only, a story waiting over 2 days is `late`
+ * (orange), over 7 days `overdue` (red).
+ */
+export function waitingAlert(
+  state: ListState,
+  since: string,
+  now: number,
+): 'late' | 'overdue' | null {
+  if (state !== 'pending') return null;
+  const ms = now - Date.parse(since);
+  return ms > 7 * DAY ? 'overdue' : ms > 2 * DAY ? 'late' : null;
 }
 
 /** What a row (and the review page) says the story is, from its state and what put it there. */
@@ -67,15 +178,6 @@ export function stateLabel(state: string, action: string | null): string {
   }
   return state;
 }
-
-/** What the row's "since" date means, by state. */
-export const SINCE_LABEL: Record<ListState, string> = {
-  pending: 'Sent',
-  editing: 'Since',
-  hidden: 'Taken down',
-  rejected: 'Rejected',
-  draft: 'Started',
-};
 
 /** api-admin's `ModerationStatusEntry`. */
 export interface StatusEntry {
@@ -261,8 +363,17 @@ const when = new Intl.DateTimeFormat('en-GB', {
 /** A time as moderators read it, in UK time: "9 November 2026 at 14:05". */
 export const sentAt = (iso: string) => when.format(new Date(iso));
 
-export const FORMAT_LABEL = {
-  video: 'Video',
-  audio: 'Audio',
-  written: 'Written',
-} as const;
+const shortDay = new Intl.DateTimeFormat('en-GB', {
+  day: 'numeric',
+  month: 'short',
+  year: 'numeric',
+  timeZone: 'Europe/London',
+});
+/** A time in the list's columns, in UK time: "9 Nov 2026, 14:05". */
+export const listTime = (iso: string) => {
+  const d = new Date(iso);
+  return `${shortDay.format(d)}, ${timeOnly.format(d)}`;
+};
+
+/** What each format is called: the shared filter's names (libs/story-filters). */
+export { FORMAT_LABELS as FORMAT_LABEL } from '@heisreal/story-filters';

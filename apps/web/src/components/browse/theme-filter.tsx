@@ -37,17 +37,21 @@ export function ThemeFilter({
 
 /**
  * One theme to filter a list by, as links in the shared picker: browse's, and the moderators'
- * list's (MD-4: "allow filtering by tags"). `hrefOf` gives each theme's link (the chosen one's
- * clears it).
+ * list's, which filters exactly as browse does (revised OQ-2, Joel 2026-11-19). `hrefOf` gives
+ * each theme's link (the chosen one's clears it). `onChoose`, if given, takes a plain click
+ * instead of the link (the moderators' list keeps choices made before the page catches up); a
+ * click with a modifier key still opens the link.
  */
 export function ThemeLinks({
   categories,
   chosen,
   hrefOf,
+  onChoose,
 }: {
   categories: ThemeCategory[];
   chosen: string | null | undefined;
   hrefOf: (themeId: string) => string;
+  onChoose?: (themeId: string) => void;
 }) {
   if (categories.length === 0) return null;
   return (
@@ -65,6 +69,21 @@ export function ThemeLinks({
               className={on ? THEME_CHIP_ON : THEME_CHIP}
               aria-current={on ? 'true' : undefined}
               scroll={false}
+              onClick={
+                onChoose &&
+                ((e) => {
+                  if (
+                    e.button !== 0 ||
+                    e.metaKey ||
+                    e.ctrlKey ||
+                    e.shiftKey ||
+                    e.altKey
+                  )
+                    return;
+                  e.preventDefault();
+                  onChoose(t.id);
+                })
+              }
             >
               {on && (
                 <svg

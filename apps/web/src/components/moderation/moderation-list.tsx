@@ -1,27 +1,45 @@
 'use client';
 
-import Form from 'next/form';
 import Link from 'next/link';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import {
+  type MouseEvent,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from 'react';
 import {
   AdminAccess,
   useRole,
   WRAPPING_BUTTON,
 } from '@/components/admin/admin-access';
+import {
+  type StoryFormat as Format,
+  toggleTheme,
+} from '@heisreal/story-filters';
+import { Button } from '@heisreal/web-ui';
 import { ThemeLinks } from '@/components/browse/theme-filter';
-import { Button, Select } from '@heisreal/web-ui';
+import { FormatSelect } from '@/components/story-filters/format-select';
 import type { ApiUser } from '@/lib/api-user';
 import type { ThemeCategory } from '@/lib/browse';
 import {
+  activeFilters,
   FORMAT_LABEL,
   LIST_STATES,
+  type ListCounts,
+  type ListFilters,
   type ListItem,
   type ListPage,
-  type ListState,
+  listQuery,
+  listTime,
+  moderationHref,
   moderationProblem,
-  SINCE_LABEL,
-  sentAt,
+  SORTS,
   stateLabel,
+  waitingAlert,
+  waitingFor,
 } from './moderation-api';
 
 type Loaded =
@@ -31,44 +49,34 @@ type Loaded =
       status: 'ready';
       items: ListItem[];
       next: string | null;
+      /** When the page was read: the Waiting column counts from here (no live updates, OQ-2). */
+      now: number;
       more?: 'loading' | string;
     };
 
-/** The list's address for a state and theme (the defaults left out). */
-export function moderationHref(state: ListState, theme?: string | null) {
-  const sp = new URLSearchParams();
-  if (state !== 'pending') sp.set('state', state);
-  if (theme) sp.set('theme', theme);
-  return sp.size ? `/moderation?${sp}` : '/moderation';
-}
-
 /**
- * /moderation (MD-3, MD-4: Joel 2026-11-14): the moderators' list of every story that isn't
- * public, the same page for Moderators and Admins (Admins also get drafts never sent). One state
- * at a time, opening on "Waiting for review", oldest first; optionally one theme (the same theme
- * picker as browse). A table, not story cards: state, title, themes and dates; each title opens
- * its review page. "Show more" reads the next page. api-admin checks the role on every call.
+ * /moderation (MD-3, MD-4: Joel 2026-11-14; MQ-1 E, OQ-2, OQ-3 A: Joel 2026-11-17): the
+ * moderators' list of every story that isn't public, the same page for Moderators and Admins
+ * (Admins also get drafts never sent). The states are tabs across the top, each with its count;
+ * the search, sort, format (with counts) and theme sit in a side panel, the format and theme
+ * filtering as browse does with browse's own controls (revised OQ-2, Joel 2026-11-19); the list
+ * is one line per story (from 1280 px; below that, one small card each, with the panel folded
+ * into "Filters and sort"). Everything the list shows is in the address. "Show more" reads the
+ * next page. api-admin checks the role on every call.
  */
 export function ModerationList({
   apiAdminUrl,
   categories,
-  state,
-  theme,
+  filters,
 }: {
   apiAdminUrl?: string;
   categories: ThemeCategory[];
-  state?: string;
-  theme?: string;
+  filters: ListFilters;
 }) {
   return (
     <AdminAccess apiAdminUrl={apiAdminUrl} min="Moderator">
       {(client) => (
-        <Filtered
-          client={client}
-          categories={categories}
-          state={state}
-          theme={theme}
-        />
+        <Filtered client={client} categories={categories} asked={filters} />
       )}
     </AdminAccess>
   );
@@ -77,77 +85,67 @@ export function ModerationList({
 function Filtered({
   client,
   categories,
-  state: asked,
-  theme,
+  asked,
 }: {
   client: ApiUser;
   categories: ThemeCategory[];
-  state?: string;
-  theme?: string;
+  asked: ListFilters;
 }) {
   const isAdmin = useRole() === 'Admin';
   const states = LIST_STATES.filter((s) => isAdmin || !s.admin);
   // Anything else (or drafts, to a Moderator) opens on the default.
-  const state: ListState =
-    states.find((s) => s.state === asked)?.state ?? 'pending';
-  return (
-    <>
-      <div className="border-b border-border pb-6">
-        <Form
-          key={state}
-          action="/moderation"
-          aria-label="Which stories"
-          className="flex flex-wrap items-center gap-3"
-        >
-          <label htmlFor="moderation-state" className="font-semibold">
-            Show
-          </label>
-          <Select
-            id="moderation-state"
-            name="state"
-            defaultValue={state}
-            options={states.map((s) => ({ value: s.state, label: s.label }))}
-            wrapperClassName="min-w-0 max-w-full"
-            submitOnChange
-          />
-          {/* After the state, so the address reads ?state=…&theme=…, as the theme links' do. */}
-          {theme && <input type="hidden" name="theme" value={theme} />}
-          <Button type="submit" variant="outline" className="h-11 px-5">
-            Show
-          </Button>
-        </Form>
-        <ThemeLinks
-          categories={categories}
-          chosen={theme}
-          hrefOf={(id) => moderationHref(state, theme === id ? null : id)}
-        />
-      </div>
-      <Table
-        key={`${state}|${theme ?? ''}`}
-        client={client}
-        state={state}
-        theme={theme}
-      />
-    </>
-  );
-}
+  const filters: ListFilters = states.some((s) => s.state === asked.state)
+    ? asked
+    : { ...asked, state: 'pending' };
+  const query = listQuery(filters).toString();
 
-function Table({
-  client,
-  state,
-  theme,
-}: {
-  client: ApiUser;
-  state: ListState;
-  theme?: string;
-}) {
+  // The choices made but not yet in the address: two quick choices both count, each navigation
+  // building on the one before rather than on the address it hasn't reached yet (Codex round 1).
+  // `path` is the address they started from and each one pushed since: once the address reaches
+  // the last, or turns into one not on the path (Back, Forward), the
+  // address wins again.
+  const router = useRouter();
+  const [pending, setPending] = useState<{
+    filters: ListFilters;
+    path: string[];
+  } | null>(null);
+  const here = moderationHref(filters);
+  if (
+    pending &&
+    (!pending.path.includes(here) ||
+      pending.path[pending.path.length - 1] === here)
+  )
+    setPending(null);
+  const view = pending?.filters ?? filters;
+  const go = (next: Partial<ListFilters>) => {
+    const f = { ...view, ...next };
+    const href = moderationHref(f);
+    setPending({ filters: f, path: [...(pending?.path ?? [here]), href] });
+    router.push(href, { scroll: false });
+  };
+  // A state tab or Clear filters link is a choice too, its link doing the navigating: it becomes
+  // the pending choice, so a filter or sort chosen before its page loads builds on it (Codex
+  // round 2). When it leads back to the address the choices started from, that address is
+  // already on the path, so the pending choices are dropped instead of outliving it. A click
+  // that opens a new browser tab changes nothing here.
+  const follow = (f: ListFilters, e: MouseEvent<HTMLAnchorElement>) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)
+      return;
+    const href = moderationHref(f);
+    setPending(
+      href === here
+        ? null
+        : { filters: f, path: [...(pending?.path ?? [here]), href] },
+    );
+  };
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' });
+  // The counts stay as last read until the next answer (OQ-2: they change when the list reloads).
+  const [counts, setCounts] = useState<ListCounts | null>(null);
   const load = useRef(0);
 
   const page = useCallback(
     (cursor: string | null) => {
-      const sp = new URLSearchParams({ state });
-      if (theme) sp.set('theme', theme);
+      const sp = new URLSearchParams(query);
       if (cursor) sp.set('cursor', cursor);
       return client
         .get<ListPage>(`/v1/moderation/stories?${sp}`)
@@ -156,15 +154,22 @@ function Table({
           return data;
         });
     },
-    [client, state, theme],
+    [client, query],
   );
 
   useEffect(() => {
     const mine = ++load.current;
+    setLoaded({ status: 'loading' });
     page(null).then(
       (p) => {
-        if (load.current === mine)
-          setLoaded({ status: 'ready', items: p.data, next: p.nextCursor });
+        if (load.current !== mine) return;
+        setCounts(p.counts);
+        setLoaded({
+          status: 'ready',
+          items: p.data,
+          next: p.nextCursor,
+          now: Date.now(),
+        });
       },
       (err: unknown) => {
         if (load.current === mine)
@@ -173,14 +178,334 @@ function Table({
     );
   }, [page]);
 
+  const more = () => {
+    if (loaded.status !== 'ready' || !loaded.next) return;
+    const mine = load.current;
+    const before = loaded;
+    setLoaded({ ...before, more: 'loading' });
+    page(before.next).then(
+      (p) => {
+        if (load.current === mine)
+          setLoaded({
+            ...before,
+            items: [...before.items, ...p.data],
+            next: p.nextCursor,
+            more: undefined,
+          });
+      },
+      (err: unknown) => {
+        if (load.current === mine)
+          setLoaded({ ...before, more: moderationProblem(err) });
+      },
+    );
+  };
+
+  // The list column is never wider than 1200 px (Joel, 2026-11-17): on the widest screens the
+  // panel and list together stop at 15 rem + 2.5 rem + 1200 px, centred (OQ-4 D).
+  return (
+    <div className="mx-auto 2xl:max-w-[calc(17.5rem+1200px)]" data-list-page="">
+      <StateTabs
+        filters={view}
+        states={states}
+        counts={counts}
+        follow={follow}
+      />
+      <div className="mt-6 xl:grid xl:grid-cols-[13rem_minmax(0,1fr)] xl:gap-8 2xl:grid-cols-[15rem_minmax(0,1fr)] 2xl:gap-10">
+        <SidePanel
+          filters={view}
+          categories={categories}
+          counts={counts}
+          go={go}
+          follow={follow}
+        />
+        <div className="min-w-0" data-list-column="">
+          <List filters={filters} loaded={loaded} more={more} follow={follow} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** The states as tabs (links, so Back and a shared address work), each with its count. */
+function StateTabs({
+  filters,
+  states,
+  counts,
+  follow,
+}: {
+  filters: ListFilters;
+  states: readonly (typeof LIST_STATES)[number][];
+  counts: ListCounts | null;
+  follow: (to: ListFilters, e: MouseEvent<HTMLAnchorElement>) => void;
+}) {
+  return (
+    <nav aria-label="Story states" className="border-b border-border">
+      {/* Phones scroll the tabs sideways, never the page. */}
+      <ul
+        className="relative -mb-px flex gap-1 overflow-x-auto"
+        data-state-tabs=""
+      >
+        {states.map((s) => {
+          const on = s.state === filters.state;
+          const count = counts?.states[s.state];
+          return (
+            <li key={s.state} className="shrink-0">
+              <Link
+                href={moderationHref({ ...filters, state: s.state })}
+                onClick={(e) => follow({ ...filters, state: s.state }, e)}
+                aria-current={on ? 'page' : undefined}
+                scroll={false}
+                data-state-tab={s.state}
+                className={`inline-flex min-h-11 items-center gap-2 border-b-[3px] px-3 py-2 whitespace-nowrap transition-colors sm:px-4 ${
+                  on
+                    ? 'border-teal font-semibold text-foreground'
+                    : 'border-transparent text-secondary-text hover:text-foreground'
+                }`}
+              >
+                {s.label}
+                {count !== undefined && (
+                  <span
+                    data-state-count=""
+                    className="rounded-full bg-surface px-2 text-xs leading-5 font-semibold text-secondary-text"
+                  >
+                    <span className="sr-only">(</span>
+                    {count}
+                    <span className="sr-only">)</span>
+                  </span>
+                )}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
+  );
+}
+
+const SECTION_HEADING =
+  'mb-2 block text-xs font-semibold tracking-wide text-secondary-text uppercase';
+
+/**
+ * The search, sort, format and theme (MQ-1 E; the format and theme are browse's own controls and
+ * filter, revised OQ-2, Joel 2026-11-19): beside the list from 1280 px; below that, folded into a
+ * "Filters and sort" button. Each change goes to the address.
+ */
+function SidePanel({
+  filters,
+  categories,
+  counts,
+  go,
+  follow,
+}: {
+  filters: ListFilters;
+  categories: ThemeCategory[];
+  counts: ListCounts | null;
+  go: (next: Partial<ListFilters>) => void;
+  follow: (to: ListFilters, e: MouseEvent<HTMLAnchorElement>) => void;
+}) {
+  const id = useId();
+  const [open, setOpen] = useState(false);
+  const n = activeFilters(filters);
+
+  return (
+    <div className="mb-6 xl:mb-0">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={`${id}-panel`}
+        onClick={() => setOpen(!open)}
+        data-filters-toggle=""
+        className="inline-flex min-h-11 w-full items-center justify-between gap-2 rounded-lg border border-input bg-input-background px-4 text-left font-medium xl:hidden"
+      >
+        Filters and sort ({n})
+        <svg
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+          className={`size-4 fill-none stroke-current transition-transform motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
+          strokeWidth="2"
+        >
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+      <section
+        id={`${id}-panel`}
+        aria-label="Filters and sort"
+        data-filters=""
+        className={`${open ? 'block' : 'hidden'} mt-4 space-y-6 xl:mt-0 xl:block`}
+      >
+        <Search key={filters.q ?? ''} q={filters.q} go={go} />
+
+        <fieldset>
+          <legend className={SECTION_HEADING}>Sort</legend>
+          {SORTS.map((s) => (
+            <label
+              key={s.sort}
+              className="relative flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-1 hover:bg-surface"
+            >
+              <input
+                type="radio"
+                name={`${id}-sort`}
+                value={s.sort}
+                checked={filters.sort === s.sort}
+                onChange={() => go({ sort: s.sort })}
+                className="peer sr-only"
+              />
+              {/* The drawn dot beside the hidden input, in the theme's colours. */}
+              <span
+                aria-hidden="true"
+                className="flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-input bg-input-background peer-checked:border-primary peer-checked:bg-primary peer-focus-visible:ring-[3px] peer-focus-visible:ring-ring/50 [&>*]:invisible peer-checked:[&>*]:visible"
+              >
+                <span className="size-2 rounded-full bg-primary-foreground" />
+              </span>
+              {s.label}
+            </label>
+          ))}
+        </fieldset>
+
+        <div>
+          <FormatSelect
+            id={`${id}-format`}
+            labelClassName={SECTION_HEADING}
+            value={filters.format ?? ''}
+            onValueChange={(v) => go({ format: (v || null) as Format | null })}
+            counts={counts?.formats}
+            wrapperClassName="w-full"
+            className="w-full"
+          />
+        </div>
+
+        {categories.length > 0 && (
+          <div>
+            <h2 className={SECTION_HEADING}>Theme</h2>
+            <ThemeLinks
+              categories={categories}
+              chosen={filters.theme}
+              hrefOf={(t) => moderationHref(toggleTheme(filters, t))}
+              onChoose={(t) => go(toggleTheme(filters, t))}
+            />
+          </div>
+        )}
+
+        {n > 0 && (
+          <Link
+            href={moderationHref(cleared(filters))}
+            onClick={(e) => follow(cleared(filters), e)}
+            scroll={false}
+            className="inline-flex min-h-11 items-center font-medium text-link hover:text-link-hover"
+          >
+            Clear filters
+          </Link>
+        )}
+      </section>
+    </div>
+  );
+}
+
+/** The same state and sort, with no search, format or theme. */
+const cleared = (f: ListFilters): ListFilters => ({
+  ...f,
+  q: null,
+  format: null,
+  theme: null,
+});
+
+/** A title search: sent with Enter or the button; an empty one clears it. */
+function Search({
+  q,
+  go,
+}: {
+  q: string | null;
+  go: (next: Partial<ListFilters>) => void;
+}) {
+  const id = useId();
+  const [text, setText] = useState(q ?? '');
+  return (
+    <form
+      role="search"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const trimmed = text.trim();
+        go({ q: trimmed === '' ? null : trimmed });
+      }}
+      className="flex flex-wrap gap-2"
+    >
+      <label htmlFor={id} className="sr-only">
+        Search titles
+      </label>
+      <input
+        id={id}
+        type="search"
+        value={text}
+        maxLength={100}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="Search titles…"
+        autoComplete="off"
+        className="h-11 min-w-40 flex-1 rounded-lg border border-input bg-input-background px-3 text-sm text-foreground outline-none placeholder:text-faint focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30"
+      />
+      <Button type="submit" variant="outline" className="h-11 shrink-0 px-4">
+        Search
+      </Button>
+    </form>
+  );
+}
+
+function FormatIcon({ format }: { format: Format }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-flex size-6 shrink-0 items-center justify-center rounded-md bg-surface text-secondary-text"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        className="size-3.5 fill-none stroke-current"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        {format === 'video' ? (
+          <path d="M8 5v14l11-7z" className="fill-current" />
+        ) : format === 'audio' ? (
+          <>
+            <path d="M9 18V5l11-2v13" />
+            <circle cx="6" cy="18" r="3" />
+            <circle cx="17" cy="16" r="3" />
+          </>
+        ) : (
+          <path d="M5 6h14M5 10h14M5 14h14M5 18h9" />
+        )}
+      </svg>
+    </span>
+  );
+}
+
+/** OQ-2: orange after 2 days and red after 7, on Waiting for review only (AA as text, both themes). */
+const ALERT = {
+  late: 'font-semibold text-warning',
+  // The dark destructive is 4.5:1 on the background only: lightened 25% it is 4.8:1 or more on
+  // every surface a row sits on.
+  overdue:
+    'font-semibold text-destructive dark:text-[color-mix(in_srgb,var(--destructive),white_25%)]',
+} as const;
+
+function List({
+  filters,
+  loaded,
+  more,
+  follow,
+}: {
+  filters: ListFilters;
+  loaded: Loaded;
+  more: () => void;
+  follow: (to: ListFilters, e: MouseEvent<HTMLAnchorElement>) => void;
+}) {
   if (loaded.status === 'loading') {
-    return <p className="mt-6 text-secondary-text">Loading the stories…</p>;
+    return <p className="text-secondary-text">Loading the stories…</p>;
   }
   if (loaded.status === 'failed') {
     return (
       <p
         role="alert"
-        className="mt-6 rounded-2xl border border-destructive bg-card p-6"
+        className="rounded-2xl border border-destructive bg-card p-6"
         data-moderation-error=""
       >
         {loaded.message}
@@ -188,106 +513,160 @@ function Table({
     );
   }
 
-  const more = () => {
-    if (!loaded.next) return;
-    const mine = load.current;
-    setLoaded({ ...loaded, more: 'loading' });
-    page(loaded.next).then(
-      (p) => {
-        if (load.current === mine)
-          setLoaded({
-            status: 'ready',
-            items: [...loaded.items, ...p.data],
-            next: p.nextCursor,
-          });
-      },
-      (err: unknown) => {
-        if (load.current === mine)
-          setLoaded({ ...loaded, more: moderationProblem(err) });
-      },
-    );
-  };
-
-  const label = LIST_STATES.find((s) => s.state === state)?.label ?? state;
+  const label =
+    LIST_STATES.find((s) => s.state === filters.state)?.label ?? filters.state;
+  const sortLabel = SORTS.find((s) => s.sort === filters.sort)?.label ?? '';
   if (loaded.items.length === 0) {
+    const filtered = activeFilters(filters) > 0;
     return (
-      <p
-        className="mt-6 rounded-2xl border border-border bg-card p-6"
+      <div
+        className="rounded-2xl border border-border bg-card p-6"
         data-list-empty=""
       >
-        No stories here.
-      </p>
+        <p>
+          {filtered ? 'No stories match these filters.' : 'No stories here.'}
+        </p>
+        {filtered && (
+          <Link
+            href={moderationHref(cleared(filters))}
+            onClick={(e) => follow(cleared(filters), e)}
+            scroll={false}
+            className="mt-2 inline-flex min-h-11 items-center font-medium text-link hover:text-link-hover"
+          >
+            Clear filters
+          </Link>
+        )}
+      </div>
     );
   }
-  // Below 640 px each row is a card of label/value lines, so nothing scrolls sideways.
-  const cell = 'block py-1 sm:table-cell sm:px-3 sm:py-3 sm:align-top';
-  const heading = 'sm:hidden text-sm font-semibold text-secondary-text';
+  const waiting = filters.state === 'pending' ? 'Waiting' : 'In this state';
+  const head = 'px-2.5 py-2 text-xs font-semibold tracking-wide uppercase';
+  // From 1280 px a table, one line per story; below, each row is a small card (title, themes and
+  // the waiting time), so nothing scrolls sideways.
+  const cell = 'xl:table-cell xl:px-2.5 xl:py-3 xl:align-middle';
   return (
-    <section aria-labelledby="list-heading" className="mt-6">
+    <section aria-labelledby="list-heading">
       <h2 id="list-heading" className="sr-only">
-        {label}, oldest first
+        {label}, {sortLabel.toLowerCase()}
       </h2>
-      <table className="block w-full border-collapse text-left sm:table">
-        <thead className="sr-only sm:not-sr-only sm:table-header-group">
-          <tr className="border-b border-border text-sm text-secondary-text">
-            <th scope="col" className="sm:px-3 sm:py-2">
+      <table className="block w-full border-collapse text-left xl:table">
+        <thead className="sr-only xl:not-sr-only xl:table-header-group">
+          <tr className="border-b border-border bg-raised text-secondary-text">
+            <th scope="col" className={head}>
               Title
             </th>
-            <th scope="col" className="sm:px-3 sm:py-2">
+            <th scope="col" className={head}>
               State
             </th>
-            <th scope="col" className="sm:px-3 sm:py-2">
+            <th scope="col" className={head}>
               Themes
             </th>
-            <th scope="col" className="sm:px-3 sm:py-2">
-              Dates
+            <th scope="col" className={`${head} whitespace-nowrap`}>
+              {waiting}
+            </th>
+            <th scope="col" className={head}>
+              Sent
+            </th>
+            <th scope="col" className={`${head} whitespace-nowrap`}>
+              Last changed
             </th>
           </tr>
         </thead>
-        <tbody className="block sm:table-row-group" data-list="">
-          {loaded.items.map((s) => (
-            <tr
-              key={s.id}
-              className="block border-b border-border py-3 sm:table-row sm:py-0"
-              data-list-item={s.id}
-            >
-              <td className={`${cell} [overflow-wrap:anywhere]`}>
-                <Link
-                  href={`/moderation/${encodeURIComponent(s.id)}`}
-                  className="inline-flex min-h-11 items-center text-lg font-semibold"
+        <tbody
+          className="block space-y-3 xl:table-row-group xl:space-y-0"
+          data-list=""
+        >
+          {loaded.items.map((s) => {
+            const alert = waitingAlert(s.state, s.since, loaded.now);
+            return (
+              <tr
+                key={s.id}
+                className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2 rounded-xl border border-border bg-card p-3 xl:table-row xl:rounded-none xl:border-0 xl:border-b xl:bg-transparent xl:p-0 xl:hover:bg-raised"
+                data-list-item={s.id}
+              >
+                <td
+                  className={`col-span-2 ${cell} [overflow-wrap:anywhere] xl:min-w-48`}
                 >
-                  {s.title}
-                </Link>
-                <span className="block text-sm text-secondary-text">
-                  {FORMAT_LABEL[s.primaryFormat]}
-                </span>
-              </td>
-              <td className={cell} data-list-state="">
-                <span className={heading}>State: </span>
-                {stateLabel(s.state, s.action)}
-                {s.mediaProblem === 'ours' && (
-                  // Part 1a (P1-5, P1-9): our own give-ups, never the person's file.
-                  <span
-                    className="block text-sm font-semibold text-secondary-text"
-                    data-list-problem="ours"
-                  >
-                    {s.state === 'pending'
-                      ? 'Can’t be reviewed yet: a problem on our side'
-                      : 'A problem on our side'}
+                  <span className="flex items-center gap-2">
+                    <FormatIcon format={s.primaryFormat} />
+                    <span className="sr-only">
+                      {FORMAT_LABEL[s.primaryFormat]}:{' '}
+                    </span>
+                    <Link
+                      href={`/moderation/${encodeURIComponent(s.id)}`}
+                      className="inline-flex min-h-11 min-w-0 items-center font-semibold"
+                      data-list-title=""
+                    >
+                      {s.title}
+                    </Link>
                   </span>
-                )}
-              </td>
-              <td className={`${cell} [overflow-wrap:anywhere]`}>
-                <span className={heading}>Themes: </span>
-                {s.themes.length > 0
-                  ? s.themes.map((t) => t.name).join(', ')
-                  : 'None'}
-              </td>
-              <td className={`${cell} text-sm`} data-list-dates="">
-                <Dates item={s} />
-              </td>
-            </tr>
-          ))}
+                </td>
+                <td
+                  // On a card, only "a problem on our side" shows here (the tab names the state).
+                  className={`${s.mediaProblem === 'ours' ? '' : 'hidden'} col-span-2 ${cell} xl:w-44 2xl:w-52`}
+                  data-list-state=""
+                >
+                  <span className="hidden rounded-full border border-teal/40 bg-accent px-2.5 py-0.5 text-sm font-medium text-foreground xl:inline-block">
+                    {stateLabel(s.state, s.action)}
+                  </span>
+                  {s.mediaProblem === 'ours' && (
+                    // Part 1a (P1-5, P1-9): our own give-ups, never the person's file.
+                    <span
+                      className="block text-sm font-semibold text-secondary-text xl:mt-1"
+                      data-list-problem="ours"
+                    >
+                      {s.state === 'pending'
+                        ? 'Can’t be reviewed yet: a problem on our side'
+                        : 'A problem on our side'}
+                    </span>
+                  )}
+                </td>
+                <td className={`${cell} min-w-0`} data-list-themes="">
+                  {s.themes.length > 0 ? (
+                    <ul className="flex flex-wrap gap-1" aria-label="Themes">
+                      {s.themes.map((t) => (
+                        <li
+                          key={t.id}
+                          className="max-w-full rounded-full border border-border px-2 py-0.5 text-sm [overflow-wrap:anywhere] text-secondary-text"
+                        >
+                          {t.name}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">
+                      No themes
+                    </span>
+                  )}
+                </td>
+                <td
+                  className={`${cell} self-start text-right text-sm whitespace-nowrap xl:text-left`}
+                  data-list-waiting={alert ?? ''}
+                >
+                  <span className="sr-only xl:hidden">{waiting}: </span>
+                  <span className={alert ? ALERT[alert] : undefined}>
+                    {waitingFor(s.since, loaded.now)}
+                  </span>
+                </td>
+                <td
+                  className={`hidden ${cell} text-sm whitespace-nowrap`}
+                  data-list-sent=""
+                >
+                  {s.sentAt ? (
+                    <time dateTime={s.sentAt}>{listTime(s.sentAt)}</time>
+                  ) : (
+                    <span className="text-muted-foreground">Never sent</span>
+                  )}
+                </td>
+                <td
+                  className={`hidden ${cell} text-sm whitespace-nowrap text-secondary-text`}
+                  data-list-changed=""
+                >
+                  <time dateTime={s.updatedAt}>{listTime(s.updatedAt)}</time>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
       {loaded.next && (
@@ -309,23 +688,5 @@ function Table({
         </div>
       )}
     </section>
-  );
-}
-
-/** When it was sent, when it entered its state, and when it last changed. */
-function Dates({ item }: { item: ListItem }) {
-  const lines: [string, string][] = [];
-  if (item.state !== 'pending' && item.sentAt)
-    lines.push(['Sent', item.sentAt]);
-  lines.push([SINCE_LABEL[item.state], item.since]);
-  if (item.updatedAt !== item.since) lines.push(['Changed', item.updatedAt]);
-  return (
-    <ul>
-      {lines.map(([what, at]) => (
-        <li key={what}>
-          {what} <time dateTime={at}>{sentAt(at)}</time>
-        </li>
-      ))}
-    </ul>
   );
 }

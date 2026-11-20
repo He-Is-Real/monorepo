@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { HttpStatus } from '@nestjs/common';
 import { type FieldError, ProblemException } from '@heisreal/http';
+import { checkStoryFilters, type StoryFormat } from '@heisreal/story-filters';
 import { CborCodec } from 'surrealdb';
 
 // `GET /v1/stories` parameters (api-public-read.yaml, browseStories). Every one is bounded, and
@@ -8,7 +9,7 @@ import { CborCodec } from 'surrealdb';
 // echo what was sent. Values only ever reach SurrealQL as bound parameters.
 
 export type Sort = 'latest' | 'oldest' | 'relevance';
-export type StoryFormat = 'video' | 'audio' | 'written';
+export type { StoryFormat };
 
 /** The position after the last card of a page: its sort key, then its id (a total order). */
 export interface CursorKey {
@@ -43,9 +44,7 @@ export const CURSOR_MAX_CHARS = 300;
 /** At most this many ids in one `id` lookup. */
 export const IDS_MAX = 50;
 
-const THEME_ID = /^[0-9A-Za-z_]{1,40}$/;
 const SORTS: readonly Sort[] = ['latest', 'oldest', 'relevance'];
-const FORMATS: readonly StoryFormat[] = ['video', 'audio', 'written'];
 const KNOWN = new Set([
   'q',
   'theme',
@@ -127,13 +126,13 @@ export function parseBrowseQuery(query: Record<string, unknown>): BrowseQuery {
     q = null;
   }
 
-  const theme = single('theme') ?? null;
-  if (theme !== null && !THEME_ID.test(theme))
-    fail('theme', 'invalid', 'A theme id: letters, digits and underscores.');
-
-  const format = single('format') ?? null;
-  if (format !== null && !FORMATS.includes(format as StoryFormat))
-    fail('format', 'invalid', `One of ${FORMATS.join(', ')}.`);
+  // The theme and format: the filter every story list shares (libs/story-filters).
+  const { filters, errors: filterErrors } = checkStoryFilters({
+    theme: single('theme'),
+    format: single('format'),
+  });
+  errors.push(...filterErrors);
+  const { theme, format } = filters;
 
   const sort = single('sort') ?? (q ? 'relevance' : 'latest');
   if (!SORTS.includes(sort as Sort))
@@ -178,7 +177,7 @@ export function parseBrowseQuery(query: Record<string, unknown>): BrowseQuery {
   const parsed: BrowseQuery = {
     q,
     theme,
-    format: format as StoryFormat | null,
+    format,
     sort: sort as Sort,
     limit,
     after: null,

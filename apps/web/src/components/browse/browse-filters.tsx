@@ -3,6 +3,7 @@
 import Form from 'next/form';
 import { useSearchParams } from 'next/navigation';
 import { Button, Select } from '@heisreal/web-ui';
+import { FormatSelect } from '@/components/story-filters/format-select';
 import {
   type BrowseFilters as Filters,
   FAVOURITES_PARAM,
@@ -11,13 +12,6 @@ import {
 
 const field =
   'h-11 rounded-lg border border-input bg-input-background px-3 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30';
-
-const FORMATS = [
-  { value: '', label: 'All formats' },
-  { value: 'video', label: 'Video' },
-  { value: 'audio', label: 'Audio' },
-  { value: 'written', label: 'Written' },
-];
 
 /**
  * Search, sort and format (browse mockup's filter bar). A plain GET form to /stories, so it
@@ -70,14 +64,10 @@ export function BrowseFilters({ filters }: { filters: Filters }) {
         ]}
         submitOnChange
       />
-      <label htmlFor="browse-format" className="sr-only">
-        Format
-      </label>
-      <Select
+      <FormatSelect
         id="browse-format"
         name="format"
         defaultValue={filters.format ?? ''}
-        options={FORMATS}
         submitOnChange
       />
       <Button type="submit" className="h-11 px-5">

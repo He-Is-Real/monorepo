@@ -1,3 +1,4 @@
+import { type StoryFormat, THEME_ID } from '@heisreal/story-filters';
 import { apiPublicReadUrl, serverNow } from './config';
 import {
   type StoryImage,
@@ -11,7 +12,8 @@ import {
 // so a hidden, edited or erased story could stay on the site. Only themes are kept for a
 // minute: they hold no story data.
 
-export type StoryFormat = 'video' | 'audio' | 'written';
+// The theme and format filter every story list shares (libs/story-filters, revised OQ-2).
+export { type StoryFormat, THEME_ID };
 export type BrowseSort = 'latest' | 'oldest' | 'relevance';
 
 /** `ThemeRef` in libs/contracts/openapi/components.yaml: a story's theme. */
@@ -107,8 +109,6 @@ const REVALIDATE_SECONDS = 60;
 const TIMEOUT_MS = 10_000;
 const Q_MAX_CHARS = 200;
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-/** A theme's id, as api-public-read.yaml's `theme` parameter. */
-export const THEME_ID = /^[0-9A-Za-z_]{1,40}$/;
 
 /**
  * `GET /v1/stories`: a page of cards. `signal` lets a caller stop early (the sitemap's overall

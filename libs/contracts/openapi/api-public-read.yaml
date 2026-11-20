@@ -101,20 +101,8 @@ paths:
           schema:
             type: string
             maxLength: 200
-        - name: theme
-          in: query
-          description: |
-            A theme's id: only stories that carry it. An id that isn't a theme (deleted, or never was)
-            is ignored, so the link shows every story (themes plan v3, A8).
-          schema:
-            type: string
-            maxLength: 40
-            pattern: '^[0-9A-Za-z_]+$'
-        - name: format
-          in: query
-          description: Only stories of this format.
-          schema:
-            $ref: './components.yaml#/components/schemas/Format'
+        - $ref: './components.yaml#/components/parameters/storyFilterTheme'
+        - $ref: './components.yaml#/components/parameters/storyFilterFormat'
         - name: sort
           in: query
           description: Default `relevance` with `q`, otherwise `latest`. `relevance` needs `q`.

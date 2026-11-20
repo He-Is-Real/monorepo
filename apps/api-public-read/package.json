@@ -138,6 +138,7 @@
     "@heisreal/http": "workspace:*",
     "@heisreal/secrets": "workspace:*",
     "@heisreal/story-cards": "workspace:*",
+    "@heisreal/story-filters": "workspace:*",
     "@nestjs/common": "^12.3.2",
     "@nestjs/core": "^12.3.2",
     "@nestjs/platform-express": "^12.3.2",

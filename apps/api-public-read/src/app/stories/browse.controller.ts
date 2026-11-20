@@ -20,6 +20,7 @@ import {
   type SummaryRow,
   toSummary,
 } from '@heisreal/story-cards';
+import { STORY_FILTERS_LET, storyFiltersWhere } from '@heisreal/story-filters';
 import type { Response } from 'express';
 import type { Surreal } from 'surrealdb';
 import { collectionETag, publicCacheControl, withETag } from '../caching';
@@ -36,13 +37,15 @@ import { isSlug, notFound } from './slug';
 // PUBLISHED_ENTRY), so a rule change can't widen what it lists. The query text is fixed: one variant per sort, chosen here;
 // every value arrives as a bound parameter.
 
-/** Shared by every variant: the filters and the cursor's position, bound once. */
+/**
+ * Shared by every variant: the filters (the theme and format filter every story list shares,
+ * libs/story-filters) and the cursor's position, bound once.
+ */
 const PREAMBLE = `
-  LET $th = IF $theme != NONE AND record::exists(type::record('theme', $theme)) { $theme };
+  ${STORY_FILTERS_LET}
   LET $at = IF $after != NONE AND $sort != 'relevance' { <datetime> $after.key };
   LET $afterId = IF $after != NONE { type::record('story', $after.id) };`;
-// An unknown theme id ($th NONE) filters nothing (themes plan v3, A8). themeIds, not themeRefs:
-// 3.2.4's CONTAINS over an element index on record links finds nothing (docs/db-permissions.md, "SurrealDB 3.2.4 gotchas").
+// An unknown theme id ($th NONE) filters nothing (themes plan v3, A8).
 
 /**
  * Newest or oldest first by publish date; the story's id breaks ties, so the order is total,
@@ -56,8 +59,7 @@ const PREAMBLE = `
  * the story cards for that one page.
  */
 const LOG_FILTERS = `${PUBLISHED_ENTRY}
-    AND ($format = NONE OR story.primaryFormat = $format)
-    AND ($th = NONE OR story.themeIds CONTAINS $th)`;
+    AND ${storyFiltersWhere('story.')}`;
 const byDate = (direction: 'DESC' | 'ASC') => {
   const past = direction === 'DESC' ? '<' : '>';
   const edge =
@@ -86,7 +88,7 @@ const byDate = (direction: 'DESC' | 'ASC') => {
  * 2026-11-06), so search filters, scores, sorts and pages inside it, and builds story cards for
  * one page only.
  */
-const SEARCH_FILTERS = `searchText @1@ $q AND ($format = NONE OR primaryFormat = $format) AND ($th = NONE OR themeIds CONTAINS $th)`;
+const SEARCH_FILTERS = `searchText @1@ $q AND ${storyFiltersWhere()}`;
 const searchByDate = (direction: 'DESC' | 'ASC') => {
   const past = direction === 'DESC' ? '<' : '>';
   return `${PREAMBLE}

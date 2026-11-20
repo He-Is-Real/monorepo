@@ -62,6 +62,9 @@
     },
     {
       "path": "./libs/web-ui"
+    },
+    {
+      "path": "./libs/story-filters"
     }
   ],
   "compilerOptions": {}

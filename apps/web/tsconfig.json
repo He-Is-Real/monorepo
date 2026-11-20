@@ -54,6 +54,9 @@
       "path": "../../libs/web-ui"
     },
     {
+      "path": "../../libs/story-filters"
+    },
+    {
       "path": "../../libs/logging"
     },
     {
