@@ -241,7 +241,7 @@ export function MySubmissions() {
         </p>
         <Button
           variant="outline"
-          className="h-auto min-h-11 px-5 py-2 whitespace-normal"
+          wrap
           onClick={() => own.reload(state.owner, false)}
         >
           Try again
@@ -280,11 +280,7 @@ export function MySubmissions() {
         >
           My submissions
         </h2>
-        <Button
-          asChild
-          variant="outline"
-          className="h-auto min-h-11 px-4 py-2 whitespace-normal"
-        >
+        <Button asChild variant="outline" wrap>
           <Link href="/share">New story</Link>
         </Button>
       </div>
@@ -443,10 +439,7 @@ function StoryRow({
         ) : (
           <div className="flex flex-wrap gap-3">
             {story.status === 'editing' && (
-              <Button
-                asChild
-                className="h-auto min-h-11 max-w-full px-5 py-2 text-center whitespace-normal"
-              >
+              <Button asChild wrap>
                 <Link
                   href={`/share?draft=${encodeURIComponent(story.id)}`}
                   aria-describedby={titleId}
@@ -464,22 +457,14 @@ function StoryRow({
               </Button>
             )}
             {!onSite && (
-              <Button
-                asChild
-                variant="outline"
-                className="h-auto min-h-11 px-5 py-2 whitespace-normal"
-              >
+              <Button asChild variant="outline" wrap>
                 <Link href={previewHref(story.id)} aria-describedby={titleId}>
                   Preview
                 </Link>
               </Button>
             )}
             {onSite && (
-              <Button
-                asChild
-                variant="outline"
-                className="h-auto min-h-11 px-5 py-2 whitespace-normal"
-              >
+              <Button asChild variant="outline" wrap>
                 <Link
                   href={`/stories/${encodeURIComponent(story.slug)}`}
                   aria-describedby={titleId}
@@ -492,7 +477,7 @@ function StoryRow({
               <Button
                 ref={editButton}
                 variant="outline"
-                className="h-auto min-h-11 px-5 py-2 whitespace-normal"
+                wrap
                 aria-describedby={titleId}
                 disabled={busy}
                 // ED-1: a published story leaves the site on pressing Edit, so it asks first; one

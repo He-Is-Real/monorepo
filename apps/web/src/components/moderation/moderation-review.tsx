@@ -454,7 +454,6 @@ function SenderLine({
             <Button
               wrap
               variant="danger"
-              className={SITE_FOCUS}
               disabled={step === 'busy'}
               onClick={() => void block()}
             >
@@ -482,14 +481,6 @@ function SenderLine({
 type Open = 'request-changes' | 'reject' | 'hide' | null;
 export type Noted = Exclude<Open, null>;
 
-/**
- * Decision colours (Joel, 17 November 2026): Send back is orange, Reject and Delete are red,
- * filled like Approve, on the decision button and on the confirm button it leads to. They are
- * the library's `caution` and `danger` buttons (OT-1, Joel, 20 November 2026).
- * Their keyboard focus ring stays the site's usual one, as before OT-1 (the library's danger
- * button has a red ring; one focus look for all buttons is BT-1's, later).
- */
-const SITE_FOCUS = 'focus-visible:ring-ring/50 dark:focus-visible:ring-ring/50';
 const NOTED: Record<
   Noted,
   {
@@ -580,7 +571,6 @@ export function NoteForm({
           type="submit"
           wrap
           variant={noted.confirmVariant}
-          className={SITE_FOCUS}
           disabled={busy || noteLength === 0}
           disabledReason={!busy && noteLength === 0 ? noted.empty : undefined}
         >
@@ -719,7 +709,6 @@ function Decisions({
               <Button
                 wrap
                 variant="danger"
-                className={SITE_FOCUS}
                 disabled={busy}
                 onClick={() => setOpen('reject')}
               >

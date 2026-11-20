@@ -156,7 +156,7 @@ export function BrowseSortFormat({ filters }: { filters: Filters }) {
       </div>
       {/* Without JavaScript the drop-downs can't send themselves. */}
       <noscript>
-        <Button type="submit" form={BROWSE_FORM} className="h-11 px-5">
+        <Button type="submit" form={BROWSE_FORM}>
           Show stories
         </Button>
       </noscript>

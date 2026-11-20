@@ -132,19 +132,12 @@ export function ConsentPrompts() {
           </p>
         </div>
         <div className="flex min-w-0 max-w-full flex-wrap gap-2">
-          <Button
-            asChild
-            className="h-auto min-h-11 max-w-full shrink px-5 py-2 whitespace-normal"
-          >
+          <Button asChild wrap>
             <Link href={withReturn(TESTIMONY_CONSENT_PATH, here)}>
               Read what’s changed
             </Link>
           </Button>
-          <Button
-            variant="outline"
-            className="h-auto min-h-11 max-w-full shrink px-5 py-2 whitespace-normal"
-            onClick={dismissTestimonyBanner}
-          >
+          <Button variant="outline" wrap onClick={dismissTestimonyBanner}>
             Not now
           </Button>
         </div>

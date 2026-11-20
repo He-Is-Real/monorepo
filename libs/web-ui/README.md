@@ -109,9 +109,15 @@ means. Pages use only these names, as Tailwind classes (`bg-danger`, `text-dange
   `asChild` puts the look on its child (a `section`, `form`, `ul`).
 - `PopoverPanel`: the panel of a pop-up menu (Radix Popover content, in a portal). Inside a
   `Popover.Root`; pass padding only.
-- `Button` and `buttonVariants`: the site's buttons (shadcn/ui, cva). `variant`: `default`,
-  `danger` (can't be undone: delete, reject), `caution` (moderation's Send back), `outline`,
-  `secondary`, `ghost`, `link`. `wrap`: words may wrap, at least 44 px tall, full width on phones.
+- `Button` and `buttonVariants`: the site's buttons (BT-1 A, Joel, 20 November 2026): 44 px tall
+  by default, semibold words, 8 px corners and the site's keyboard focus (the 2 px outline with a
+  gap) on every kind. `variant`: `default`, `danger` (can't be undone: delete, reject), `caution`
+  (moderation's Send back), `outline` (the stronger edge, teal on hover), `secondary`, `ghost`,
+  `link`. `size`: `default` (44 px), `lg` (48 px, the home page's large calls to action), `icon`
+  (a square 44 px). `wrap`: words may wrap, at least 44 px tall, full width on phones. A link that
+  looks like a button is `Button asChild` round the link (`apps/web`'s `ButtonLink` does this for
+  internal and external links); `buttonVariants()` gives the same look (classes already merged, so
+  `wrap` wins over the base) to an element that can't take `asChild`. Pages don't set a button's height or padding.
   `disabledReason`: while it's disabled, a short line under it says why (OT-2 A: "Write a reason
   first."), read with it; only where the page has a reason.
 - `Chip` and `chipVariants`: a chip you press (CH-1 A): the browse chip everywhere (browse, a

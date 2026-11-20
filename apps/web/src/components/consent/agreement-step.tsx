@@ -120,7 +120,7 @@ export function AgreementStep({
           </p>
           <Button
             variant="outline"
-            className="h-auto min-h-11 px-5 py-2 whitespace-normal"
+            wrap
             onClick={() => void load(changedFrom ?? agreed?.version ?? null)}
           >
             Try again
@@ -280,11 +280,7 @@ export function AgreementStep({
           )}
         </div>
 
-        <Button
-          type="submit"
-          disabled={saving}
-          className="mt-6 h-auto min-h-11 w-full px-6 py-2 text-base whitespace-normal sm:w-auto"
-        >
+        <Button type="submit" disabled={saving} wrap className="mt-6 text-base">
           {saving ? 'Saving…' : 'Continue'}
         </Button>
         <PrivacyNoticeLink className="mt-4" />

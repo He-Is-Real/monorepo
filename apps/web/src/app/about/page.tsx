@@ -125,7 +125,7 @@ export default async function AboutPage() {
             <ButtonLink href="/get-ready" size="lg">
               Get ready to share
             </ButtonLink>
-            <ButtonLink href="/contact" variant="secondary" size="lg">
+            <ButtonLink href="/contact" variant="outline" size="lg">
               Get in touch
             </ButtonLink>
           </div>

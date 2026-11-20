@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { connection } from 'next/server';
 import { Suspense } from 'react';
+import { Button } from '@heisreal/web-ui';
 import {
   AccountControl,
   FixtureSignedInAccount,
@@ -29,15 +30,17 @@ import {
  * actions stay right-aligned, signed in or out, whatever the name. It's a row that wraps: with
  * large text (200%) the actions move under the logo, and onto more lines if they need to, rather
  * than off the screen. Phones get a menu button; from 640 px the links are a full-width last
- * row; from 1280 px it's a three-column grid, the links in the middle column of the first row.
+ * row; from 1280 px it's a three-column grid, the links in the middle column of the first row,
+ * while the header is at least 78 rem wide: rem grows with the reader's text size, so with large
+ * text (200%) the links keep their own row instead of running over the logo.
  * The header is wider than the page (up to 1440 px, like the mockup's full-width nav), so that
  * row has room.
  */
 export function SiteHeader() {
   return (
     <>
-      <header className="relative border-b border-border">
-        <div className="mx-auto flex max-w-[90rem] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2 sm:gap-y-0 sm:px-10 xl:grid xl:grid-cols-[max-content_minmax(0,1fr)_auto]">
+      <header className="@container relative border-b border-border">
+        <div className="mx-auto flex max-w-[90rem] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2 sm:gap-y-0 sm:px-10 xl:@min-[78rem]:grid xl:@min-[78rem]:grid-cols-[max-content_minmax(0,1fr)_auto]">
           <Link
             href="/"
             className="col-start-1 row-start-1 inline-flex min-h-11 min-w-11 items-center justify-center gap-2 justify-self-start rounded-md text-foreground hover:text-foreground"
@@ -48,21 +51,18 @@ export function SiteHeader() {
               He Is Real Today
             </span>
           </Link>
-          <NavLinks className="hidden sm:order-last sm:block sm:basis-full sm:border-t sm:border-border xl:order-none xl:col-span-1 xl:col-start-2 xl:row-start-1 xl:justify-self-end xl:border-0" />
+          <NavLinks className="hidden sm:order-last sm:block sm:basis-full sm:border-t sm:border-border xl:@min-[78rem]:order-none xl:@min-[78rem]:col-span-1 xl:@min-[78rem]:col-start-2 xl:@min-[78rem]:row-start-1 xl:@min-[78rem]:justify-self-end xl:@min-[78rem]:border-0" />
           <div
             data-header-actions=""
             className="col-start-3 row-start-1 ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1 sm:gap-2"
           >
-            <Link
-              href={SHARE_HREF}
-              className="hidden min-h-11 items-center rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground sm:inline-flex"
-            >
-              Share your story
-            </Link>
+            <Button asChild className="hidden px-4 sm:inline-flex">
+              <Link href={SHARE_HREF}>Share your story</Link>
+            </Button>
             <ThemeToggle />
             <div
               data-account-slot=""
-              className="flex w-32 max-w-full shrink-0 justify-end sm:w-44 lg:w-60 xl:w-48"
+              className="flex w-32 max-w-full shrink-0 justify-end sm:w-44 lg:w-60 xl:@min-[78rem]:w-48"
             >
               <Suspense fallback={ACCOUNT_PLACEHOLDER}>
                 <HeaderAccount />

@@ -617,6 +617,10 @@ recording | picture` (worked out from the status history: set while the story's 
   left, and long reading ("Read the full version 3") sits in a light panel with a fine edge. They
   are the browser's own open/close element: they work before the page's JavaScript loads, and the
   keyboard opens and closes them with Enter or Space.
+- **One button look (BT-1 A, Joel, 20 November 2026):** every button, and every link that looks
+  like one, is the library's: 44 px tall (48 px for the home page's large calls to action),
+  semibold words, the site's keyboard outline and 8 px corners. In the header at 1280 px and wider
+  with large text, the main links wrap onto more lines instead of running over the logo.
 - **A greyed-out button says why where the page knows (OT-2 A, Joel, 20 November 2026):** a
   short line under it, such as "Write a reason first." under Take down before a reason is typed
   ("Write a note first." for Send back and Reject).

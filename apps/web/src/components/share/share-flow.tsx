@@ -10,6 +10,7 @@ import {
   useState,
 } from 'react';
 import {
+  buttonVariants,
   Card,
   Checkbox,
   Chip,
@@ -205,10 +206,10 @@ const PROMPTS = [
   { title: 'What changed?', text: 'How is your life different now?' },
 ];
 
-const button =
-  'inline-flex min-h-11 items-center justify-center rounded-md px-5 text-sm font-semibold transition-colors disabled:opacity-60';
-const primary = `${button} bg-primary text-primary-foreground hover:bg-primary/90`;
-const secondary = `${button} border border-border-hover text-secondary-text hover:border-brand hover:bg-accent hover:text-foreground`;
+// The library's button looks (BT-1 A), on plain buttons and links; their words wrap at large
+// text sizes rather than widening the page.
+const primary = buttonVariants({ wrap: true });
+const secondary = buttonVariants({ variant: 'outline', wrap: true });
 
 export function ShareFlow({
   auth,
@@ -2357,7 +2358,7 @@ export function ReviewStep({
           target="_blank"
           rel="noopener"
           data-preview-button=""
-          className={`${button} mt-4 w-full gap-3 border border-border-hover py-2 text-foreground hover:border-brand hover:bg-accent sm:w-auto`}
+          className={`${buttonVariants({ variant: 'outline', wrap: true })} mt-4 gap-3`}
         >
           <svg
             viewBox="0 0 24 24"

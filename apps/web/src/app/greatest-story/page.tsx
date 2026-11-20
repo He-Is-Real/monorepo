@@ -230,10 +230,10 @@ export default function GreatestStoryPage() {
             <ButtonLink href="/next-steps" size="lg">
               Explore next steps
             </ButtonLink>
-            <ButtonLink href="/stories" variant="secondary" size="lg">
+            <ButtonLink href="/stories" variant="outline" size="lg">
               Read more stories
             </ButtonLink>
-            <ButtonLink href="/contact" variant="secondary" size="lg">
+            <ButtonLink href="/contact" variant="outline" size="lg">
               Talk to someone
             </ButtonLink>
           </div>

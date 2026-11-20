@@ -19,11 +19,7 @@ export function FixtureManageAccount() {
 
 function ManageAccountButton({ onOpen }: { onOpen: () => void }) {
   return (
-    <Button
-      variant="outline"
-      className="h-auto min-h-11 px-5 py-2 whitespace-normal"
-      onClick={onOpen}
-    >
+    <Button variant="outline" wrap onClick={onOpen}>
       Manage account
     </Button>
   );

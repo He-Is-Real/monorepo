@@ -24,6 +24,7 @@ import {
   useRuns,
   useUploadRequest,
 } from './upload-request';
+import { buttonVariants } from '@heisreal/web-ui';
 
 /**
  * A story's picture (M2 plan PR 10; D53, D65, D80): a written story's image, an audio story's
@@ -180,10 +181,10 @@ const NOUN: Record<StoryFormat, string> = {
   video: 'thumbnail',
 };
 
-const button =
-  'inline-flex min-h-11 items-center justify-center rounded-md px-5 text-sm font-semibold transition-colors disabled:opacity-60';
-const primary = `${button} bg-primary text-primary-foreground hover:bg-primary/90`;
-const secondary = `${button} border border-border-hover text-secondary-text hover:border-brand hover:bg-accent hover:text-foreground`;
+// The library's button looks (BT-1 A), on plain buttons and links; their words wrap at large
+// text sizes rather than widening the page.
+const primary = buttonVariants({ wrap: true });
+const secondary = buttonVariants({ variant: 'outline', wrap: true });
 
 /** Re-encodes the photo to WebP (no metadata), or answers a plain reason it can't be used. */
 async function prepare(

@@ -249,6 +249,16 @@ for (const [state, baseURL, resolved] of [
       );
       boxes.push([name, box]);
     }
+    // From 640 px the main links are in the header too: none may run over the logo or the
+    // actions (at 1280 px the links once ran over the logo).
+    if (width >= 640)
+      for (const link of await header
+        .getByRole('navigation', { name: 'Main navigation' })
+        .getByRole('link')
+        .all()) {
+        const box = await link.boundingBox();
+        if (box) boxes.push([`the ${await link.innerText()} link`, box]);
+      }
     // None covers another (they may wrap onto more rows).
     const overlap = (a: Box, b: Box) =>
       Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x) > 0.5 &&

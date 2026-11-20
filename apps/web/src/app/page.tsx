@@ -17,6 +17,7 @@ import { StoriesUnavailableError } from '@/lib/public-stories';
 import { RestartingMessage } from '@/components/restarting/restarting-message';
 import { pageMetadata } from '@/lib/seo';
 import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
+import { Button } from '@heisreal/web-ui';
 
 export async function generateMetadata(): Promise<Metadata> {
   return pageMetadata({
@@ -93,10 +94,6 @@ function ThemeTrack({ category }: { category: ThemeCategory }) {
   );
 }
 
-const button =
-  'inline-flex min-h-12 items-center justify-center rounded-lg px-7 font-semibold transition-colors';
-const primary = `${button} bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground`;
-
 /**
  * Home (plan 1.1), server-rendered from api-public-read (D32): the question, the newest stories,
  * ways in by theme, the invitation to share, and giving (/donate, M4: Stripe's Buy Buttons; Give
@@ -154,18 +151,25 @@ export default async function Page() {
             honesty.
           </p>
           <div className="mt-10 flex flex-wrap justify-center gap-4 animate-in fade-in delay-500 duration-700 fill-mode-both">
-            <Link
-              href="/stories"
-              className={`${button} bg-brand text-hero hover:bg-brand-bright hover:text-hero`}
+            {/* The library's large buttons (BT-1 A), in the hero's own colours: it is dark in
+                both themes. */}
+            <Button
+              asChild
+              size="lg"
+              wrap
+              className="bg-brand text-hero hover:bg-brand-bright hover:text-hero"
             >
-              Browse stories
-            </Link>
-            <Link
-              href={SHARE_HREF}
-              className={`${button} border border-on-media/30 text-on-media hover:border-brand-bright hover:bg-on-media/5 hover:text-on-media`}
+              <Link href="/stories">Browse stories</Link>
+            </Button>
+            <Button
+              asChild
+              size="lg"
+              wrap
+              variant="outline"
+              className="border-on-media/30 bg-transparent text-on-media hover:border-brand-bright hover:bg-on-media/5 hover:text-on-media dark:bg-transparent"
             >
-              Share your story
-            </Link>
+              <Link href={SHARE_HREF}>Share your story</Link>
+            </Button>
           </div>
         </div>
       </section>
@@ -243,9 +247,9 @@ export default async function Page() {
           how you discovered God is real.
         </p>
         <p className="mt-8">
-          <Link href={SHARE_HREF} className={primary}>
-            Get ready to share
-          </Link>
+          <Button asChild size="lg" wrap>
+            <Link href={SHARE_HREF}>Get ready to share</Link>
+          </Button>
         </p>
       </section>
 
@@ -271,15 +275,12 @@ export default async function Page() {
             people. UK taxpayers can add 25% through Gift Aid at no extra cost.
           </p>
           <div className="mt-7 flex flex-wrap justify-center gap-3">
-            <Link
-              href="/donate"
-              className={`${button} border-[1.5px] border-link text-link hover:bg-primary hover:text-primary-foreground`}
-            >
-              Give once
-            </Link>
-            <Link href="/donate?frequency=monthly" className={primary}>
-              Give monthly
-            </Link>
+            <Button asChild size="lg" wrap variant="outline">
+              <Link href="/donate">Give once</Link>
+            </Button>
+            <Button asChild size="lg" wrap>
+              <Link href="/donate?frequency=monthly">Give monthly</Link>
+            </Button>
           </div>
         </div>
       </section>

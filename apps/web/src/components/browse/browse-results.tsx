@@ -201,7 +201,7 @@ function BrowseList({ filters, cards, nextCursor, pagesLoaded }: ListProps) {
             </p>
             <Button
               variant="outline"
-              className="min-h-11 px-6"
+
               onClick={() => void load(true)}
             >
               Try again
@@ -212,7 +212,7 @@ function BrowseList({ filters, cards, nextCursor, pagesLoaded }: ListProps) {
           // Only where the browser can't tell when the end is near (no IntersectionObserver).
           <Button
             variant="outline"
-            className="min-h-11 px-6"
+
             onClick={() => void load(true)}
           >
             Show more stories

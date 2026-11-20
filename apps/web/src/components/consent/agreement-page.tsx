@@ -74,11 +74,7 @@ export function AgreementPage({
     return (
       <Card role="alert" className="p-6">
         <p className="mb-4 text-secondary-text">{TRY_AGAIN_LATER}</p>
-        <Button
-          variant="outline"
-          className="h-auto min-h-11 px-5 py-2 whitespace-normal"
-          onClick={() => window.location.reload()}
-        >
+        <Button variant="outline" wrap onClick={() => window.location.reload()}>
           Try again
         </Button>
       </Card>
@@ -113,11 +109,7 @@ export function AgreementPage({
                 ? 'Not now? Your published stories stay up. You just can’t start a new one until you agree.'
                 : 'Not now? You can read every story without agreeing. You just can’t start one until you do.'}
             </p>
-            <Button
-              asChild
-              variant="outline"
-              className="h-auto min-h-11 max-w-full shrink px-6 py-2 whitespace-normal"
-            >
+            <Button asChild variant="outline" wrap>
               <Link href={returnTo} onClick={dismissTestimonyBanner}>
                 Not now
               </Link>
