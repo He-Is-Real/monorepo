@@ -499,6 +499,13 @@ test.describe('layout', () => {
     await page.goto(`${WEB_SIGNED_IN_URL}/admin/consent`);
     const text = page.getByLabel('New text (version 3) · Markdown');
     await expect(text).toBeVisible();
+    // Setting up, the browser scrolls the caret into view (fill puts it at the end, far below
+    // the screen). With the site's smooth scrolling that is an animation of a second or more,
+    // which can still be running when the page is put in place below, and then carries the page
+    // on to the caret during the frames being checked (seen in CI under load). So the set-up
+    // scrolls instantly; the site's smooth scrolling is back before the key is pressed.
+    const html = page.locator('html');
+    await html.evaluate((el) => (el.style.scrollBehavior = 'auto'));
     await text.fill(`Top\n${'\n'.repeat(200)}Bottom`);
     // The preview and redline follow the text a moment later; wait for them to settle.
     await expect(page.locator('[data-preview]')).toHaveText(
@@ -512,6 +519,8 @@ test.describe('layout', () => {
         behavior: 'instant',
       });
     });
+    await html.evaluate((el) => (el.style.scrollBehavior = ''));
+    await expect(html).toHaveCSS('scroll-behavior', 'smooth');
     // Scrolling (and putting the caret at the end) can take a frame to land: wait until the
     // page holds still for a few frames.
     const before = await page.evaluate(
