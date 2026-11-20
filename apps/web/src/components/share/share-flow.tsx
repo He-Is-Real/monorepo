@@ -1529,6 +1529,7 @@ function WriteStep({
             current={draft.current}
             reload={draft.load}
             onState={picture.onState}
+            maxBytes={limits.uploads.imageMaxBytes}
           />
           {picture.problem && (
             <p role="alert" className="mt-2 text-danger-text">
@@ -1709,6 +1710,7 @@ function MediaStep({
               current={draft.current}
               reload={draft.load}
               onState={picture.onState}
+              maxBytes={limits.uploads.imageMaxBytes}
             />
           </div>
         )}

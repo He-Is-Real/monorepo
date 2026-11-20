@@ -122,7 +122,7 @@ test.describe('the Group drop-down on a computer', () => {
     await expect(page.getByLabel('Largest video file')).toBeVisible();
     await expect(page.getByLabel('Longest story')).toHaveCount(0);
 
-    // By keyboard: the list opens on the chosen group; the next one down is the last.
+    // By keyboard: the list opens on the chosen group; the next one down is Pictures.
     await expect(group).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(
@@ -130,14 +130,10 @@ test.describe('the Group drop-down on a computer', () => {
     ).toBeFocused();
     await page.keyboard.press('ArrowDown');
     // The highlight moves a moment after the key (Radix); Enter picks what is highlighted.
-    await expect(
-      list.getByRole('option', { name: 'Deleting old stories' }),
-    ).toBeFocused();
+    await expect(list.getByRole('option', { name: 'Pictures' })).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(list).toHaveCount(0);
-    await expect(
-      page.getByLabel('Keep a story we didn’t accept for'),
-    ).toBeVisible();
+    await expect(page.getByLabel('Largest picture file')).toBeVisible();
     await expectNoHorizontalOverflow(page);
   });
 });
@@ -252,6 +248,40 @@ test.describe('/admin/limits', () => {
     await expect(
       page.getByLabel('Keep a story we didn’t accept for'),
     ).toHaveValue('60');
+  });
+
+  // Joel, 2026-11-20: the largest picture file, in KB (1,024 bytes), 200 KB to 20 MB.
+  test('an admin changes the largest picture file, confirms, and it is saved', async ({
+    page,
+  }) => {
+    await useSession(page, `admin-${randomUUID().slice(0, 8)}`);
+    await page.goto(`${WEB_SIGNED_IN_URL}/admin/limits`);
+    await showGroup(page, 'Pictures');
+    const picture = page.getByLabel('Largest picture file');
+    await expect(picture).toHaveValue('3072');
+    await expect(page.locator('[data-limit="imageMaxBytes"]')).toContainText(
+      'Allowed 200–20,480',
+    );
+    await picture.fill('199');
+    await saveButton(page).click();
+    await expect(page.locator('[data-limit="imageMaxBytes"]')).toContainText(
+      'Enter a whole number from 200 to 20,480 (KB).',
+    );
+    await expect(page.getByRole('alertdialog')).toHaveCount(0);
+
+    await picture.fill('2048');
+    await saveButton(page).click();
+    const confirm = page.getByRole('alertdialog');
+    await expect(confirm).toContainText(
+      'Largest picture file: 3,072 KB → 2,048 KB',
+    );
+    await confirm.getByRole('button', { name: 'Yes, save' }).click();
+    await expect(page.locator('[data-save-status="done"]')).toHaveText(
+      'Saved. The new limits apply now.',
+    );
+    await page.reload();
+    await showGroup(page, 'Pictures');
+    await expect(page.getByLabel('Largest picture file')).toHaveValue('2048');
   });
 
   test('a stale save (another admin saved meanwhile) is refused and asks to reload', async ({

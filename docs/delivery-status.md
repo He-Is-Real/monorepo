@@ -67,7 +67,7 @@ Everything is built. Two small steps are left.
 - ✅ Agree to the terms, consent and privacy texts, and agree again when they change
 - ✅ Share a written, video or audio story, with a picture
 - ✅ Drafts save on their own, with "Save and exit"
-- ✅ Limits on how much and how often people can share (admins can change them)
+- ✅ Limits on how much and how often people can share, and how big a picture can be (admins can change them)
 - ✅ My submissions: see each story's status, edit or delete it
 - ✅ Delete my account, with all its stories and files
 - ✅ Download my data

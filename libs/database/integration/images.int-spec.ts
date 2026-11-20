@@ -2,6 +2,7 @@ import type { Surreal } from 'surrealdb';
 import {
   createPeople,
   agreeAll,
+  outcome,
   rows,
   run,
   TestDatabase,
@@ -189,7 +190,7 @@ describe('images: server-assigned, in the story’s own folder, only through a g
     await draft(dan, 'dan_w');
     const cases: [Partial<Parameters<typeof grantImage>[1]>, RegExp][] = [
       [{ contentType: 'image/jpeg' }, /an image is a WebP/],
-      [{ sizeBytes: 5_242_881 }, /limit_upload_size:/],
+      [{ sizeBytes: 3_145_729 }, /limit_upload_size:/], // over the default 3 MiB
       [{ width: 3700, height: 1200 }, /pixel size or shape/], // wider than 3:1
       [{ width: 150, height: 300 }, /pixel size or shape/],
       [{ width: 4097, height: 4000 }, /pixel size or shape/],
@@ -207,6 +208,71 @@ describe('images: server-assigned, in the story’s own folder, only through a g
       ).toMatch(refused);
     }
     expect((await image('dan_w')).image).toBeUndefined();
+  });
+
+  it('the largest picture file is the admin’s setting: 3 MiB to start, 200 KiB to 20 MiB, for everyone (Joel, 2026-11-20)', async () => {
+    await createPeople(t, { imgadmin: 'user_imgadmin' });
+    const admin = await t.service('api_admin');
+    const set = (imageMaxBytes: unknown, who: Surreal = admin) =>
+      outcome(
+        who,
+        `UPDATE submissionSettings:current SET imageMaxBytes = $imageMaxBytes,
+           changedBy = user:imgadmin`,
+        { imageMaxBytes },
+      );
+    const max = async () =>
+      (
+        await rows<number>(
+          migrator,
+          'RETURN fn::upload::image_limits().maxBytes',
+        )
+      )[0];
+    expect(await max()).toBe(3_145_728);
+
+    const pia = await person('pia');
+    await draft(pia, 'pia_w');
+    const grant = (version: number, sizeBytes: number, name: string) =>
+      grantImage(apiUser, {
+        story: 'pia_w',
+        person: 'pia',
+        version,
+        sizeBytes,
+        name,
+        expectedImage:
+          version === 1 ? null : `stories/pia_w/${hex(version - 1)}.webp`,
+      });
+    try {
+      // Only api-admin changes it, within its range; nobody else at all.
+      for (const who of [pia, apiUser, workflow]) {
+        await set(204_800, who);
+      }
+      expect(await max()).toBe(3_145_728);
+      for (const out of [204_799, 20_971_521, 1.5, '300000']) {
+        expect((await set(out)).ok, String(out)).toBe(false);
+      }
+      expect(await max()).toBe(3_145_728);
+
+      // Exactly the limit is taken; a byte over isn't. Lowered, it holds from the next upload.
+      expect(await grant(1, 3_145_728, hex(1))).toMatchObject({ ok: true });
+      expect((await set(204_800)).ok).toBe(true);
+      expect(error(await grant(2, 204_801, hex(2)))).toMatch(
+        /limit_upload_size:/,
+      );
+      expect(await grant(2, 204_800, hex(2))).toMatchObject({ ok: true });
+
+      // A trusted submitter gets no bigger pictures (the same for everyone).
+      await run(
+        admin,
+        `UPSERT submitterLimits:pia SET user = user:pia, trusted = true, changedBy = user:imgadmin`,
+      );
+      expect(error(await grant(3, 204_801, hex(3)))).toMatch(
+        /limit_upload_size:/,
+      );
+      expect((await set(20_971_520)).ok).toBe(true);
+      expect(await grant(3, 20_971_520, hex(3))).toMatchObject({ ok: true });
+    } finally {
+      expect((await set(3_145_728)).ok).toBe(true);
+    }
   });
 
   it('puts an image on a story only through a grant: the person may only remove it', async () => {

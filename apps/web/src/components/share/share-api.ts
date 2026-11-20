@@ -115,6 +115,8 @@ export interface SubmissionLimits {
     videoMaxBytes: number;
     audioMaxBytes: number;
     maxDurationSeconds: number;
+    /** One picture's file, as this page prepares it (the setting; the same for everyone). */
+    imageMaxBytes: number;
     perHour: number;
     per7Days: number | null;
     usedIn7Days: number;

@@ -936,8 +936,10 @@ paths:
         **A picture (M2 plan PR 10), on any type:** api-user reads only the first 40 bytes of its file
         in the images zone (Joel, 2026-10-30, picture check R3 = A): it must be there, of the exact
         size recorded at upload, a WebP of the width and height recorded, with no hidden metadata
-        (EXIF, XMP) or animation. Otherwise `400` `image_not_uploaded` (the person adds it again, or
-        removes it; the story stays a draft). `503` `uploads_unavailable` when the zone gives no clear
+        (EXIF, XMP) or animation, and no bigger than the largest picture file in force now
+        (`imageMaxBytes`, Joel 2026-11-20: a picture added under a higher limit is checked against
+        today's). Otherwise `400` `image_not_uploaded` (the person adds it again, or removes it; the
+        story stays a draft; a picture over the limit says so in the message). `503` `uploads_unavailable` when the zone gives no clear
         answer (never a pass). A picture that passes is marked checked, which approval needs.
 
         **A video's picture (Joel, 2026-11-17, P1-13 A):** last, for a video story, api-user tells

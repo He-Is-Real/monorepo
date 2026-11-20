@@ -126,6 +126,8 @@ export interface SubmissionLimits {
     videoMaxBytes: number;
     audioMaxBytes: number;
     maxDurationSeconds: number;
+    /** One picture's file (the setting; the same for everyone, trusted too). */
+    imageMaxBytes: number;
     perHour: number;
     per7Days: number | null;
     usedIn7Days: number;
@@ -732,6 +734,7 @@ export class StoryStore {
         videoMaxBytes: mine.videoMaxBytes,
         audioMaxBytes: mine.audioMaxBytes,
         maxDurationSeconds: mine.mediaMaxSeconds,
+        imageMaxBytes: set.imageMaxBytes,
         perHour: mine.uploadRequestsPerHour,
         per7Days: mine.uploadsPer7Days ?? null,
         usedIn7Days: uploaded,

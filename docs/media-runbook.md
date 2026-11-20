@@ -421,6 +421,16 @@ submit answers `400 image_not_uploaded` and the person adds the picture again; a
 `503 uploads_unavailable` and the person tries again. A picture that passes is marked
 `processing = 'ready'` on api-user's login, which is what approval needs for pictures until M7.
 
+**Largest picture file (Joel, 2026-11-20):** an Admin sets it at /admin/limits, "Pictures"
+(`submissionSettings.imageMaxBytes`: 3 MiB by default, 200 KiB to 20 MiB; the same for everyone).
+The presigned PUT binds the exact `Content-Length` declared at RequestUpload, so a file in the zone
+is never bigger than what api-user and the database checked then (`400 validation_failed` on
+`/fileSizeBytes`; the database's `limit_upload_size`). At submit, after the picture check above
+(which matches the zone's size to the recorded one), api-user checks that size against the
+setting in force now: over it, submit answers `400 image_not_uploaded` with "Your picture is
+larger than we can take now…" and logs `Picture <path> refused at submit: over the limit (<size> >
+<limit> bytes)`. The media worker accepts pictures up to the 20 MiB ceiling.
+
 **MP4 copies (C1, Joel 2026-11-06):** the library also makes an MP4 file of each video and audio
 item per encoded resolution (`<video id>/play_<height>p.mp4`, up to 1080p; stored with the video in
 Frankfurt), so "Download my data" can give the person their video as a file: a 7-day signed link

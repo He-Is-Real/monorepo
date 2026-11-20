@@ -63,11 +63,19 @@ import {
  * for again, and if they go back it stays to add, with the reason.
  */
 
-/** The longer side the browser re-encodes to, and the bounds api-user and the database check. */
+/**
+ * The longer side the browser re-encodes to, and the bounds api-user and the database check. The
+ * largest file is the admin's setting (`imageMaxBytes`, Joel 2026-11-20), passed in from the limits.
+ */
 const MAX_SIDE = 2048;
 const MIN_SIDE = 200;
-const MAX_BYTES = 5_242_880;
 const QUALITY = 0.85;
+
+/** What the person reads when their prepared picture is over the largest picture file. */
+const tooLarge = (size: number | null, maxBytes: number | null) =>
+  size !== null && maxBytes !== null
+    ? `This picture is too large: ${formatBytes(size)} once prepared, and the most we can take is ${formatBytes(maxBytes)}. Please choose a smaller one.`
+    : 'This picture is too large. Please choose a smaller one.';
 
 /** `uploading`: being prepared or sent now; `unfinished`: chosen or on the story, its file not there. */
 export type PictureState = 'none' | 'uploading' | 'unfinished' | 'done';
@@ -178,7 +186,10 @@ const primary = `${button} bg-primary text-primary-foreground hover:bg-primary/9
 const secondary = `${button} border border-border-hover text-secondary-text hover:border-brand hover:bg-accent hover:text-foreground`;
 
 /** Re-encodes the photo to WebP (no metadata), or answers a plain reason it can't be used. */
-async function prepare(file: File): Promise<Prepared | string> {
+async function prepare(
+  file: File,
+  maxBytes: number,
+): Promise<Prepared | string> {
   let bitmap: ImageBitmap;
   try {
     bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
@@ -211,9 +222,7 @@ async function prepare(file: File): Promise<Prepared | string> {
   if (!blob || blob.type !== 'image/webp') {
     return 'This browser can’t prepare pictures for upload. Please try another browser.';
   }
-  if (blob.size > MAX_BYTES) {
-    return `That picture is still ${formatBytes(blob.size)} once prepared. Please choose a simpler one.`;
-  }
+  if (blob.size > maxBytes) return tooLarge(blob.size, maxBytes);
   return {
     blob,
     url: URL.createObjectURL(blob),
@@ -273,6 +282,7 @@ export function ImagePanel({
   current,
   reload,
   onState,
+  maxBytes,
 }: {
   calls: ShareApi;
   owner: string;
@@ -286,6 +296,8 @@ export function ImagePanel({
   current: () => { draftId: string | null; version: number | null };
   reload: (draftId: string) => Promise<boolean>;
   onState?: (state: PictureState) => void;
+  /** The largest picture file (the limits' `uploads.imageMaxBytes`): checked before anything is sent. */
+  maxBytes: number;
 }) {
   const noun = NOUN[format];
   const [phase, setPhaseState] = useState<Phase>({ at: 'idle' });
@@ -412,7 +424,7 @@ export function ImagePanel({
     // Uploading from the moment it's chosen, so a Continue already waiting won't move on without it.
     setPhase({ at: 'reading' });
     const gone = begin();
-    const prepared = await prepare(file);
+    const prepared = await prepare(file, maxBytes);
     if (gone()) return;
     if (typeof prepared === 'string') {
       setPhase({ at: 'idle' });
@@ -832,6 +844,14 @@ function refusal(err: unknown, noun: string): React.ReactNode {
         timeZone: 'Europe/London',
       }).format(new Date(p.availableAt));
       return `You’ve started as many uploads as you can for now. Your story is saved: you can add your ${noun} from ${when}.`;
+    }
+    // An admin lowered the largest picture file since this page read the limits.
+    const errors = (p as { errors?: { pointer?: string }[] }).errors;
+    if (
+      p.code === 'validation_failed' &&
+      errors?.some((e) => e.pointer === '/fileSizeBytes')
+    ) {
+      return tooLarge(null, null);
     }
   }
   // On our side: only the plain message (Joel, 2026-11-09); else the refusal's own words.

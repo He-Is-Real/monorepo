@@ -428,6 +428,7 @@ describe('the submit flow for written stories', () => {
         videoMaxBytes: 4294967296,
         audioMaxBytes: 524288000,
         maxDurationSeconds: 900,
+        imageMaxBytes: 3145728,
         perHour: 10,
         per7Days: 5,
         usedIn7Days: 0,

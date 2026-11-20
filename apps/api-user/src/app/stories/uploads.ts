@@ -94,11 +94,11 @@ export type UploadTarget =
     });
 
 /**
- * An image's fixed bounds, as the database's fn::upload::image_limits: the browser sends at most
- * 2048 px on the longer side, so these only stop what no browser of ours sends.
+ * An image's pixel bounds, as the database's fn::upload::image_limits: the browser sends at most
+ * 2048 px on the longer side, so these only stop what no browser of ours sends. Its file's size is
+ * the admin's setting, `imageMaxBytes` (Joel, 2026-11-20), read for each request and send.
  */
 export const IMAGE_LIMITS = {
-  maxBytes: 5_242_880,
   minSide: 200,
   maxSide: 4096,
 };
@@ -403,7 +403,8 @@ export class Uploads {
    * retry after a lost answer replays the same path. The path is picked here, never by the browser (D80), and the row's event puts it on
    * the draft with its size and description. A replay signs the same path again only while it's
    * still the story's image and the story editable; the PUT is one use (`If-None-Match: *`), so
-   * a file already there can't be replaced.
+   * a file already there can't be replaced, and the picture still within the largest picture file
+   * in force then (imageMaxBytes).
    */
   private async requestImage(
     person: SurrealQueryable,
@@ -482,6 +483,9 @@ export class Uploads {
         });
       }
       await this.requireAgreements(user);
+      // A replay skips prepare's checks, so the picture meets the largest picture file in force
+      // now before its PUT is signed again (Codex #253): refused as a fresh request would be.
+      checkImage(input, await this.imageMaxBytes(person));
     }
     return {
       id,
@@ -641,7 +645,7 @@ export class Uploads {
     if (draft.version !== ifMatch) throw new StaleVersionException();
     if (!EDITABLE.includes(draft.status)) throw locked();
     if (input.format === 'image') {
-      checkImage(input);
+      checkImage(input, await this.imageMaxBytes(person));
       return draft;
     }
     if (draft.primaryFormat !== input.format) {
@@ -777,6 +781,20 @@ export class Uploads {
           'Your picture hasn’t finished uploading. Add it again, or remove it, then submit your story.',
       });
     }
+    // The stored file is the recorded size (pictureProblem), so this is the zone's own size
+    // against the limit in force now (imageMaxBytes, Joel 2026-11-20): a picture added under a
+    // higher limit is refused like an unfinished one, with its own words.
+    const maxBytes = await this.imageMaxBytes(person);
+    if (recorded.sizeBytes > maxBytes) {
+      this.logger.warn(
+        `Picture ${path} refused at submit: over the limit (${recorded.sizeBytes} > ${maxBytes} bytes)`,
+      );
+      throw new BadRequestException({
+        code: 'image_not_uploaded',
+        message:
+          'Your picture is larger than we can take now. Add a smaller one, or remove it, then submit your story.',
+      });
+    }
     this.remember(path);
     if (recorded.processing === 'ready') return;
     try {
@@ -822,6 +840,15 @@ export class Uploads {
       'RETURN fn::limits::effective($auth)',
     )) as [UploadLimits];
     return limits;
+  }
+
+  /** The largest picture file anyone may add now (the admin's setting, the same for everyone). */
+  private async imageMaxBytes(person: SurrealQueryable): Promise<number> {
+    const [max] = (await runQuery(
+      person,
+      'RETURN fn::upload::image_limits().maxBytes',
+    )) as [number];
+    return max;
   }
 
   private async nextAllowedAt(
@@ -922,16 +949,16 @@ export class Uploads {
 /**
  * An image's checks before anything is written (D53; the database checks them again): a written
  * story's image, an audio story's picture or a video's own thumbnail (Joel, 2026-10-30), within
- * the fixed size and pixel bounds, 1:3..3:1. Its description is never required (Joel,
- * 2026-10-30).
+ * the admin's size limit (`maxBytes`) and the fixed pixel bounds, 1:3..3:1. Its description is
+ * never required (Joel, 2026-10-30).
  */
-function checkImage(input: UploadRequest) {
+function checkImage(input: UploadRequest, maxBytes: number) {
   const errors: FieldError[] = [];
   const { width = 0, height = 0 } = input;
-  if (input.fileSizeBytes > IMAGE_LIMITS.maxBytes) {
+  if (input.fileSizeBytes > maxBytes) {
     errors.push({
       pointer: '/fileSizeBytes',
-      message: `at most ${IMAGE_LIMITS.maxBytes} bytes`,
+      message: `at most ${maxBytes} bytes`,
     });
   }
   for (const [side, px] of [

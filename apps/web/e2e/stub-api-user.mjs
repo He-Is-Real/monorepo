@@ -242,6 +242,7 @@ const SETTING_BOUNDS = {
   videoMaxBytes: { min: MIB, max: 10 * 1024 * MIB },
   audioMaxBytes: { min: MIB, max: 2 * 1024 * MIB },
   mediaMaxSeconds: { min: 60, max: 10_800 },
+  imageMaxBytes: { min: 200 * 1024, max: 20 * MIB },
   rejectedRetentionDays: { min: 7, max: 3650 },
   editingRetentionDays: { min: 7, max: 3650 },
 };
@@ -264,6 +265,7 @@ const settingsFor = (session) => {
         videoMaxBytes: 4096 * MIB,
         audioMaxBytes: 500 * MIB,
         mediaMaxSeconds: 900,
+        imageMaxBytes: 3 * MIB,
         rejectedRetentionDays: 90,
         editingRetentionDays: 186,
       },
@@ -1347,6 +1349,7 @@ const SETTINGS = {
   videoMaxBytes: 4294967296,
   audioMaxBytes: 524288000,
   mediaMaxSeconds: 900,
+  imageMaxBytes: 3145728,
 };
 /**
  * GET /v1/themes (themes plan v3): every category with themes, A–Z with Other last, themes A–Z.
@@ -1767,6 +1770,8 @@ function uploadLimitsOf(s, format = 'video') {
     videoMaxBytes: s.trusted ? 10737418240 : s.settings.videoMaxBytes,
     audioMaxBytes: s.trusted ? 2147483648 : s.settings.audioMaxBytes,
     maxDurationSeconds: s.trusted ? 10800 : s.settings.mediaMaxSeconds,
+    // The same for everyone, trusted too (Joel, 2026-11-20).
+    imageMaxBytes: s.settings.imageMaxBytes,
     perHour,
     per7Days,
     usedIn7Days: week.length,
@@ -2160,6 +2165,15 @@ async function handleShare(req, res, path, url, s) {
           detail:
             'Your picture hasn’t finished uploading. Add it again, or remove it, then submit your story.',
         });
+      // As api-user: a picture over the largest picture file in force now (imageMaxBytes).
+      if (
+        st.image?.path &&
+        s.images.get(st.image.path).bytes.length > s.settings.imageMaxBytes
+      )
+        return p(400, 'Bad request', 'image_not_uploaded', {
+          detail:
+            'Your picture is larger than we can take now. Add a smaller one, or remove it, then submit your story.',
+        });
       if ((st.primaryFormat ?? 'written') !== 'written') {
         const video = st.videoId ? s.videos.get(st.videoId) : undefined;
         if (!video?.done)
@@ -2240,13 +2254,16 @@ async function handleShare(req, res, path, url, s) {
       const limits = uploadLimitsOf(s);
       const errors = [];
       if (b.format === 'image') {
-        // As api-user (uploads.ts, checkImage): WebP, 5 MiB, 200–4096 px, 1:3..3:1, and a
-        // written story's description.
+        // As api-user (uploads.ts, checkImage): WebP, the setting's imageMaxBytes, 200–4096 px,
+        // 1:3..3:1.
         const { width: w, height: h } = b;
         if (b.contentType !== 'image/webp')
           errors.push({ pointer: '/contentType', message: 'a WebP image' });
-        if (!(b.fileSizeBytes > 0) || b.fileSizeBytes > 5_242_880)
-          errors.push({ pointer: '/fileSizeBytes', message: 'at most 5 MiB' });
+        if (!(b.fileSizeBytes > 0) || b.fileSizeBytes > limits.imageMaxBytes)
+          errors.push({
+            pointer: '/fileSizeBytes',
+            message: `at most ${limits.imageMaxBytes} bytes`,
+          });
         if (
           ![w, h].every((x) => Number.isInteger(x) && x >= 200 && x <= 4096) ||
           w > h * 3 ||

@@ -40,6 +40,8 @@ describe('submission settings (api-admin)', () => {
     videoMaxBytes: 4_294_967_296,
     audioMaxBytes: 524_288_000,
     mediaMaxSeconds: 900,
+    // Joel, 2026-11-20: the largest picture file, 3 MiB.
+    imageMaxBytes: 3_145_728,
     // G3 B: the deletion times, read as their defaults before any admin saved them.
     rejectedRetentionDays: 90,
     editingRetentionDays: 186,
@@ -139,12 +141,17 @@ describe('submission settings (api-admin)', () => {
       min: 1_048_576,
       max: 10_737_418_240,
     });
+    expect(body.bounds['imageMaxBytes']).toEqual({
+      min: 204_800,
+      max: 20_971_520,
+    });
 
     const next = {
       ...DEFAULTS,
       submissionsPer7Days: 2,
       videoMaxBytes: 2048 * 1_048_576,
       mediaMaxSeconds: 20 * 60,
+      imageMaxBytes: 1024 * 1024,
       rejectedRetentionDays: 60,
     };
     const saved = await save(next, '"1"');
@@ -166,6 +173,10 @@ describe('submission settings (api-admin)', () => {
         `RETURN fn::settings::submission().rejectedRetentionDays`,
       ),
     ).toEqual([60]);
+    // The largest picture file: what RequestUpload and the database check a picture against.
+    expect(
+      await rows(migrator, `RETURN fn::upload::image_limits().maxBytes`),
+    ).toEqual([1024 * 1024]);
     expect(await changedBy()).toEqual([
       { by: 'admin', changedByRole: 'Admin' },
     ]);
@@ -187,6 +198,8 @@ describe('submission settings (api-admin)', () => {
       [{ ...DEFAULTS, videoMaxBytes: 10_737_418_241 }, '/videoMaxBytes'],
       [{ ...DEFAULTS, mediaMaxSeconds: 59 }, '/mediaMaxSeconds'],
       [{ ...DEFAULTS, audioMaxBytes: '500' }, '/audioMaxBytes'],
+      [{ ...DEFAULTS, imageMaxBytes: 204_799 }, '/imageMaxBytes'],
+      [{ ...DEFAULTS, imageMaxBytes: 20_971_521 }, '/imageMaxBytes'],
       [{ ...DEFAULTS, rejectedRetentionDays: 6 }, '/rejectedRetentionDays'],
       [{ ...DEFAULTS, editingRetentionDays: 3651 }, '/editingRetentionDays'],
       [{ ...DEFAULTS, featured: true }, '/featured'],
