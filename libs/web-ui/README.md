@@ -90,6 +90,13 @@ means. Pages use only these names, as Tailwind classes (`bg-danger`, `text-dange
 - `Input`: the site's text box. `size`: `compact` (default; the drop-down's field: search boxes and
   filters), `form` (admin forms) or `writing` (sharing a story). The three sizes are the looks the
   pages had before WL-1, kept until one is chosen.
+- `RadioGroup`: radio buttons as a fieldset with its legend as a small heading over 44 px rows,
+  each a drawn round button filled teal when chosen (the moderators' list's sort, and the Stories
+  page's since Joel, 2026-11-20). Controlled (`value`) or in a form (`name`, `defaultValue`,
+  `submitOnChange`).
+- `SearchBox`: the search box (BS-2 A, Joel 2026-11-20): the compact `Input` with a magnifier submit
+  button inside it, named "Search" (`buttonLabel`). Enter searches too. The Stories page and the
+  moderators' list both use it (BS-4 B).
 - `Textarea`: the text box's look, taller (`size` `writing`, the default, or `form`; set the
   height with a `min-h-*` class).
 - `Field`, `FieldLabel`, `FieldHint`, `FieldError`: the label, hint and error of one control. `Field`

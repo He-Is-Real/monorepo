@@ -2,16 +2,16 @@ import { randomUUID } from 'node:crypto';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { connection } from 'next/server';
-import { BrowseFilters } from '@/components/browse/browse-filters';
+import {
+  BrowseChoices,
+  BrowseSearch,
+  BrowseSortFormat,
+  FILTER_HEADING,
+} from '@/components/browse/browse-filters';
 import { BrowseResults } from '@/components/browse/browse-results';
 import { BrowseView } from '@/components/browse/browse-view';
 import { ThemeFilter } from '@/components/browse/theme-filter';
-import {
-  browseStories,
-  listThemes,
-  type StorySummary,
-  type ThemeCategory,
-} from '@/lib/browse';
+import { browseStories, listThemes, type StorySummary } from '@/lib/browse';
 import {
   type BrowseFilters as Filters,
   parseBrowseSearch,
@@ -42,14 +42,7 @@ const KINDS = {
 } as const;
 
 /** What the list shows, in words (never a count: api-conventions has no totals). */
-function summaryOf(
-  filters: Filters,
-  categories: ThemeCategory[],
-): string | null {
-  // A theme that's gone (or never was) filters nothing (A8), so it isn't named either.
-  const theme = categories
-    .flatMap((c) => c.themes)
-    .find((t) => t.id === filters.theme)?.name;
+function summaryOf(filters: Filters, theme: string | undefined): string | null {
   const kind = filters.format ? KINDS[filters.format] : 'stories';
   const about = theme ? ` about ${theme}` : '';
   if (filters.q)
@@ -100,7 +93,11 @@ export default async function BrowsePage({ searchParams }: Props) {
     loadPages(filters, pages),
   ]);
   const categories = themes ?? [];
-  const summary = summaryOf(filters, categories);
+  // A theme that's gone (or never was) filters nothing (A8), so it isn't named either.
+  const themeName = categories
+    .flatMap((c) => c.themes)
+    .find((t) => t.id === filters.theme)?.name;
+  const summary = summaryOf(filters, themeName);
   const filtered = summary !== null;
 
   return (
@@ -118,69 +115,84 @@ export default async function BrowsePage({ searchParams }: Props) {
         <p className="mt-3 text-lg text-secondary-text">{INTRO}</p>
       </header>
 
-      <BrowseView
-        query={filters}
-        themeIds={themes && themes.flatMap((c) => c.themes.map((t) => t.id))}
-        filters={
-          <>
-            <BrowseFilters filters={filters} />
-            <ThemeFilter categories={categories} filters={filters} />
-          </>
-        }
-        summary={
-          summary && (
-            <p className="mt-6 text-sm text-muted-foreground">
-              <strong className="font-semibold text-foreground">
-                {summary}
-              </strong>
-            </p>
-          )
-        }
-        results={
-          result instanceof StoriesUnavailableError &&
-          result.restartingSeconds !== undefined ? (
-            <RestartingMessage
-              seconds={result.restartingSeconds}
-              variant="inline"
-            />
-          ) : result instanceof StoriesUnavailableError ? (
-            <p
-              role="status"
-              className="mx-auto max-w-measure rounded-xl bg-raised px-4 py-6 text-center text-secondary-text"
-            >
-              {TRY_AGAIN_LATER}
-            </p>
-          ) : result.cards.length === 0 ? (
-            <div className="mx-auto max-w-measure rounded-xl bg-raised px-4 py-10 text-center">
-              <p className="text-lg">
-                {/* A highlighted theme no story uses yet says so plainly (A14). */}
-                {filters.q || filters.format
-                  ? 'No stories match these filters yet.'
-                  : 'No stories yet.'}
-              </p>
-              {filtered && (
-                <p className="mt-3">
-                  <Link
-                    href="/stories"
-                    className="inline-flex min-h-11 items-center font-medium"
-                  >
-                    Clear filters
-                  </Link>
-                </p>
+      <BrowseChoices filters={filters}>
+        <BrowseView
+          query={filters}
+          themeIds={themes && themes.flatMap((c) => c.themes.map((t) => t.id))}
+          themeName={themeName ?? null}
+          search={<BrowseSearch filters={filters} />}
+          panel={
+            <>
+              <BrowseSortFormat filters={filters} />
+              {categories.length > 0 && (
+                <section aria-labelledby="browse-themes">
+                  <h2 id="browse-themes" className={FILTER_HEADING}>
+                    Themes
+                  </h2>
+                  <ThemeFilter
+                    categories={categories}
+                    filters={filters}
+                    className="mt-0"
+                  />
+                </section>
               )}
-            </div>
-          ) : (
-            <BrowseResults
-              // New on every server render: the list restarts from these cards (BrowseResults).
-              snapshot={randomUUID()}
-              filters={filters}
-              cards={result.cards}
-              nextCursor={result.cursor}
-              pagesLoaded={result.loaded}
-            />
-          )
-        }
-      />
+            </>
+          }
+          summary={
+            summary && (
+              <p className="mt-6 text-sm text-muted-foreground">
+                <strong className="font-semibold text-foreground">
+                  {summary}
+                </strong>
+              </p>
+            )
+          }
+          results={
+            result instanceof StoriesUnavailableError &&
+            result.restartingSeconds !== undefined ? (
+              <RestartingMessage
+                seconds={result.restartingSeconds}
+                variant="inline"
+              />
+            ) : result instanceof StoriesUnavailableError ? (
+              <p
+                role="status"
+                className="mx-auto max-w-measure rounded-xl bg-raised px-4 py-6 text-center text-secondary-text"
+              >
+                {TRY_AGAIN_LATER}
+              </p>
+            ) : result.cards.length === 0 ? (
+              <div className="mx-auto max-w-measure rounded-xl bg-raised px-4 py-10 text-center">
+                <p className="text-lg">
+                  {/* A highlighted theme no story uses yet says so plainly (A14). */}
+                  {filters.q || filters.format
+                    ? 'No stories match these filters yet.'
+                    : 'No stories yet.'}
+                </p>
+                {filtered && (
+                  <p className="mt-3">
+                    <Link
+                      href="/stories"
+                      className="inline-flex min-h-11 items-center font-medium"
+                    >
+                      Clear filters
+                    </Link>
+                  </p>
+                )}
+              </div>
+            ) : (
+              <BrowseResults
+                // New on every server render: the list restarts from these cards (BrowseResults).
+                snapshot={randomUUID()}
+                filters={filters}
+                cards={result.cards}
+                nextCursor={result.cursor}
+                pagesLoaded={result.loaded}
+              />
+            )
+          }
+        />
+      </BrowseChoices>
     </main>
   );
 }

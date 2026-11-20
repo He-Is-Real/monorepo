@@ -109,6 +109,7 @@ Kept basic for now. Joel will decide later how stories are shared out between mo
 - ✅ Every drop-down on the site uses the same styled list, in every browser
 - ✅ Text boxes, panels, menus and buttons come from one shared set, so pages don't restyle them
 - ✅ The site's colours live in the shared set, named by meaning, with one red for delete buttons everywhere
+- ✅ Stories page search and filters take less room: a column beside the stories on computers, a Filters button on tablets and phones, sort as round choice buttons
 - ⏸ One look each for chips, notices, open/close sections, confirm boxes, check boxes, tabs and switches: waits for Joel's choice
 - ⚪ Final docs and a demo walk-through on dev
 - ⚪ Two-step sign-in for staff: deferred until we're happy to pay for it

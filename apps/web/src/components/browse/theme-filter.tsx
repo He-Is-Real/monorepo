@@ -20,9 +20,11 @@ import {
 export function ThemeFilter({
   categories,
   filters,
+  className,
 }: {
   categories: ThemeCategory[];
   filters: BrowseFilters;
+  className?: string;
 }) {
   // "Favourites only" stays on: its list is filtered by theme too.
   const favourites = favouritesOn(useSearchParams());
@@ -31,6 +33,7 @@ export function ThemeFilter({
       categories={categories}
       chosen={filters.theme}
       hrefOf={(id) => browseHref(toggleTheme(filters, id), { favourites })}
+      className={className}
     />
   );
 }
@@ -47,15 +50,18 @@ export function ThemeLinks({
   chosen,
   hrefOf,
   onChoose,
+  className = 'mt-5',
 }: {
   categories: ThemeCategory[];
   chosen: string | null | undefined;
   hrefOf: (themeId: string) => string;
   onChoose?: (themeId: string) => void;
+  /** Layout classes for the list (its margin). */
+  className?: string;
 }) {
   if (categories.length === 0) return null;
   return (
-    <nav aria-label="Themes" className="mt-5">
+    <nav aria-label="Themes" className={className}>
       <ThemePicker
         // A new chosen theme (a link, Back) starts the picker again.
         key={chosen ?? ''}
