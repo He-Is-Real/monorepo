@@ -157,7 +157,7 @@ DEFINE FUNCTION OVERWRITE fn::story::status_of($s: any) {
 -- Story states (Joel, 2026-11-11): the state each status log action leaves a story in. A
 -- history-only action (fn::story::history_only) leaves it as it is: $story's state now.
 DEFINE FUNCTION OVERWRITE fn::story::action_status($action: string, $story: any) {
-  RETURN IF $action = 'sent' { 'pending' }
+  RETURN IF $action IN ['sent', 'returnedToQueue'] { 'pending' }
     ELSE IF $action IN ['editStarted', 'changesRequested', 'fileUnusable'] { 'editing' }
     ELSE IF $action IN ['approved', 'shownBySystem', 'shownByModerator'] { 'approved' }
     ELSE IF $action = 'rejected' { 'rejected' }
@@ -187,11 +187,13 @@ DEFINE FUNCTION OVERWRITE fn::story::step_allowed($actor: string, $action: strin
         OR ($action = 'editStarted' AND $from IN ['pending', 'approved', 'hidden'])
     } ELSE IF $actor = 'moderator' {
       ($action IN ['approved', 'changesRequested', 'rejected'] AND $from = 'pending')
-        -- P1-9, P1-11 (Joel, 2026-11-14): a story the site took off itself is resolved by
-        -- rejecting it (storyStatusLog_step allows it only from the site's own hiddenBySystem).
-        OR ($action = 'rejected' AND $from = 'hidden')
+        -- Overturning a rejection (OV-1 C, Joel 2026-11-20): approve it, send it back, or put it
+        -- back in the waiting list unchanged (returnedToQueue).
+        OR ($action IN ['approved', 'changesRequested', 'returnedToQueue'] AND $from = 'rejected')
         OR ($action = 'hiddenByModerator' AND $from = 'approved')
-        OR ($action = 'shownByModerator' AND $from = 'hidden')
+        -- Every taken-down story, whoever took it down (OV-2 A, Joel 2026-11-20; P1-9, P1-11):
+        -- show it again, send it back or reject it.
+        OR ($action IN ['shownByModerator', 'changesRequested', 'rejected'] AND $from = 'hidden')
     } ELSE {
       ($action = 'hiddenBySystem' AND $from = 'approved')
         OR ($action = 'shownBySystem' AND $from = 'hidden')
@@ -549,7 +551,8 @@ DEFINE EVENT OVERWRITE story_limits ON story
 --   - sending (its `sent` status entry moving the pointer from editing) needs
 --     the text's minimum and maximum length, from themesMin to
 --     themesMax themes, and every theme still there, as they are now. A story already submitted
---     or published is never re-checked (a deleted theme may leave it under the minimum).
+--     or published is never re-checked (a deleted theme may leave it under the minimum), nor
+--     a rejected one a moderator approves or puts back in the waiting list (OV-1 C: unchanged).
 -- Hard ceilings stay on the fields (body, themeRefs). Messages start with a code for api-user.
 DEFINE EVENT OVERWRITE story_text_limits ON story
   WHEN $event IN ['CREATE', 'UPDATE']
@@ -562,7 +565,8 @@ DEFINE EVENT OVERWRITE story_text_limits ON story
     };
     LET $status = fn::story::status_of($after);
     IF $status IN ['pending', 'approved']
-       AND ($event = 'CREATE' OR fn::story::status_of($before) NOT IN ['pending', 'approved', 'hidden']) {
+       AND ($event = 'CREATE'
+         OR fn::story::status_of($before) NOT IN ['pending', 'approved', 'hidden', 'rejected']) {
       IF $len > $set.storyTextMax {
         THROW 'story_text_too_long: the story’s body is longer than the setting allows (W3)';
       };
@@ -849,16 +853,18 @@ DEFINE EVENT OVERWRITE storySearch_theme_renamed ON theme
 -- legal-text agreements (plan 4e).
 -- Five states (Joel, 2026-11-11, "Story states"; m3-plan-and-m2-extras.html): editing (the person
 -- can change it and send it), pending (sent, waiting for a moderator, locked), approved (on the
--- site), hidden (approved but off the site), rejected (final: the person can only delete it).
+-- site), hidden (approved but off the site), rejected (the person can only delete it; a moderator
+-- may overturn it, OV-1 C).
 -- Each row's `action` says how the story got there (ED-2 B: "easier for moderators to understand
 -- why things are happening"); the row's status follows from it (fn::story::action_status).
 -- Who adds which action (fn::story::step_allowed), checked by storyStatusLog_step whoever writes:
 --   the person (their own session, own story): sent (editing -> pending) and editStarted
 --     (pending, approved or hidden -> editing: Edit, ED-1/ED-4; it leaves the site at once);
 --   a moderator (api-admin, naming the moderator in `by`): approved, changesRequested or rejected
---     (from pending: the first decision wins, D-1; a second finds the story no longer pending),
---     rejected also from hidden when the site hid it (hiddenBySystem; P1-9, P1-11),
---     hiddenByModerator (from approved) and shownByModerator (from hidden); changesRequested,
+--     (from pending: the first decision wins, D-1; a second finds the story no longer pending);
+--     from rejected (OV-1 C, Joel 2026-11-20): approved, changesRequested or returnedToQueue
+--     (back to pending unchanged, no note); hiddenByModerator (from approved); from hidden,
+--     whoever hid it (OV-2 A): shownByModerator, changesRequested or rejected; changesRequested,
 --     rejected and hiddenByModerator carry the moderator's note (`comment`);
 --   the system: hiddenBySystem (from approved) when the media fails or changes, shownBySystem
 --     (from hidden) when the same media is ready again, fileUnusable (pending, approved or hidden
@@ -904,7 +910,7 @@ DEFINE TABLE OVERWRITE storyStatusLog SCHEMAFULL PERMISSIONS        -- id = stor
   FOR create WHERE (story.submitter = $auth AND $auth.status != 'deleted'
       AND action IN ['sent', 'editStarted'])
     OR ($auth = service:api_admin AND action IN ['approved', 'changesRequested', 'rejected',
-      'hiddenByModerator', 'shownByModerator']),
+      'hiddenByModerator', 'shownByModerator', 'returnedToQueue']),
   FOR update WHERE $auth = service:housekeeping AND at < fn::story::sender_ips_expire_before(),
   FOR delete NONE;
 DEFINE FIELD OVERWRITE story        ON storyStatusLog TYPE record<story> READONLY;
@@ -913,7 +919,7 @@ DEFINE FIELD OVERWRITE story        ON storyStatusLog TYPE record<story> READONL
 DEFINE FIELD OVERWRITE action       ON storyStatusLog TYPE string READONLY
   ASSERT $value IN ['sent', 'editStarted', 'changesRequested', 'fileUnusable', 'approved',
     'rejected', 'hiddenBySystem', 'shownBySystem', 'hiddenByModerator', 'shownByModerator',
-    'fileReplaced', 'pictureReplaced', 'wordsChanged']
+    'returnedToQueue', 'fileReplaced', 'pictureReplaced', 'wordsChanged']
   PERMISSIONS FOR select WHERE story.submitter = $auth OR $auth = service:api_admin;
 -- The state the action leaves the story in, set by the database from the action (a history-only
 -- entry carries the story's state unchanged); any value a writer gives is ignored.
@@ -1066,11 +1072,6 @@ DEFINE EVENT OVERWRITE storyStatusLog_step ON storyStatusLog
     LET $history = fn::story::history_only($action);
     IF !fn::story::step_allowed($after.actor, $action, $from) {
       THROW 'status_step: a ' + $after.actor + ' can’t ' + $action + ' a story that is ' + $from;
-    };
-    -- Rejecting a hidden story: only one the site hid (P1-9); a moderator's take-down ends with
-    -- Show again.
-    IF $action = 'rejected' AND $from = 'hidden' AND $s.currentStatus.action != 'hiddenBySystem' {
-      THROW 'status_step: a moderator can reject a hidden story only when the site hid it';
     };
     IF $after.actor != 'moderator' AND $after.comment != NONE {
       THROW 'status_step: only a moderator’s entry has a comment';

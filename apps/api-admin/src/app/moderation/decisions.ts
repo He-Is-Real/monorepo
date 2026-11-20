@@ -27,7 +27,8 @@ export type Decision =
   | 'changesRequested'
   | 'rejected'
   | 'hiddenByModerator'
-  | 'shownByModerator';
+  | 'shownByModerator'
+  | 'returnedToQueue';
 
 /** Longest note a moderator may leave (Joel's plan: 1–2000 characters). */
 export const NOTE_MAX = 2000;
@@ -89,9 +90,9 @@ export function parseReviewTag(
  * moves the story. Two moderators at once write the same fence (the story's owner's), so the second
  * conflicts at commit; its retry finds the story's entry changed: "already decided" (D-1). Answers
  * the story's version and what the next decision names. The table's permissions let api-admin
- * create only the five moderator actions; a refused create writes nothing and answers empty (no
+ * create only the six moderator actions; a refused create writes nothing and answers empty (no
  * error), so an empty answer is thrown as `moderation_cmd:not_written`: a fault in this service
- * (it only ever sends those five), so a plain 500, never one of the moderator's refusals.
+ * (it only ever sends those six), so a plain 500, never one of the moderator's refusals.
  */
 const DECIDE_SQL = `BEGIN TRANSACTION;
   LET $story = type::record('story', $id);

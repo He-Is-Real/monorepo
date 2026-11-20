@@ -739,6 +739,86 @@ describe('person sessions via Clerk JWT (D27 B)', () => {
       }
       expect(await statusOf(migrator, 'ann_rejected')).toBe('rejected');
     });
+
+    // OV-1 C, OV-2 A (Joel, 2026-11-20): only a moderator overturns a rejection or a take-down,
+    // and only by the moves decided; nobody else, and nothing more.
+    it('only a moderator overturns: the person can’t, and no one makes a move outside the rules', async () => {
+      const entries = (id: string) =>
+        truth<string>(
+          `SELECT VALUE action FROM storyStatusLog WHERE story = type::record('story', $id)
+             ORDER BY at`,
+          { id },
+        );
+      await draft(ann, 'ann_overturn');
+      await submit(ann, 'ann_overturn');
+      await step(admin, 'ann_overturn', 'rejected');
+      // The person's own session: the permissions refuse a moderator's step outright.
+      for (const action of [
+        'approved',
+        'changesRequested',
+        'returnedToQueue',
+      ]) {
+        expect(
+          await outcome(
+            ann,
+            `CREATE storyStatusLog CONTENT { story: story:ann_overturn, action: $action }`,
+            { action },
+          ),
+          action,
+        ).toEqual({ ok: true, result: [] });
+      }
+      // A system user writing as the system: not a system step.
+      expect(
+        await outcome(
+          migrator,
+          `CREATE storyStatusLog CONTENT {
+          story: story:ann_overturn, action: 'returnedToQueue', actor: 'system' }`,
+        ),
+      ).toMatchObject({
+        ok: false,
+        error: expect.stringContaining('status_step'),
+      });
+      // api-admin: from rejected, never to hidden or shown again, nor rejected twice.
+      for (const action of [
+        'hiddenByModerator',
+        'shownByModerator',
+        'rejected',
+      ]) {
+        await expect(
+          step(admin, 'ann_overturn', action),
+          action,
+        ).rejects.toThrow(/status_step/);
+      }
+      expect(await statusOf(migrator, 'ann_overturn')).toBe('rejected');
+      // Back in the waiting list (no note), then only from rejected.
+      await step(admin, 'ann_overturn', 'returnedToQueue');
+      expect(await statusOf(migrator, 'ann_overturn')).toBe('pending');
+      await expect(
+        step(admin, 'ann_overturn', 'returnedToQueue'),
+      ).rejects.toThrow(/status_step/);
+      await step(admin, 'ann_overturn', 'approved');
+      await expect(
+        step(admin, 'ann_overturn', 'returnedToQueue'),
+      ).rejects.toThrow(/status_step/);
+      await step(admin, 'ann_overturn', 'hiddenByModerator');
+      await expect(
+        step(admin, 'ann_overturn', 'returnedToQueue'),
+      ).rejects.toThrow(/status_step/);
+      // A note is still required to send back or reject a taken-down story.
+      for (const action of ['changesRequested', 'rejected']) {
+        await expect(
+          step(admin, 'ann_overturn', action, { comment: undefined }),
+          action,
+        ).rejects.toThrow(/needs the moderator’s note/);
+      }
+      expect(await entries('ann_overturn')).toEqual([
+        'sent',
+        'rejected',
+        'returnedToQueue',
+        'approved',
+        'hiddenByModerator',
+      ]);
+    });
   });
 
   describe('their own idempotency keys (D29; PR #41 review round 1)', () => {

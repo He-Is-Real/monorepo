@@ -93,6 +93,7 @@ Kept basic for now. Joel will decide later how stories are shared out between mo
 - ✅ Review page showing a story as the public will see it, with its history
 - ✅ Approve, send back with a note, reject, take down and put back
 - ✅ Take-down button on a published story's own page
+- ✅ Rejections and take-downs can be overturned: approve, send back, reject, or put back in the waiting list
 - ✅ Admins can delete any story
 - ✅ Stories have clear states, and Edit replaces Withdraw
 - ✅ Old rejected and abandoned stories are deleted automatically

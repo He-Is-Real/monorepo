@@ -60,6 +60,7 @@ const STEP_LABEL: Record<string, string> = {
   shownBySystem: 'Shown again',
   hiddenByModerator: 'Taken down',
   shownByModerator: 'Shown again',
+  returnedToQueue: 'Put back in the waiting list',
   fileReplaced: 'New video or audio file',
   pictureReplaced: 'New picture',
   wordsChanged: 'Words changed',
@@ -87,11 +88,15 @@ function statusLabel(story: ModerationStory): string {
   return stateLabel(story.status, currentAction(story));
 }
 
-/** The states with something to decide (G5, G24); the rest are read only (MD-4). */
+/**
+ * The states with something to decide (G5, G24; a rejection can be overturned, OV-1 C); a story
+ * being edited is read only (MD-4).
+ */
 const DECIDABLE: ModerationStory['status'][] = [
   'pending',
   'approved',
   'hidden',
+  'rejected',
 ];
 
 /**
@@ -100,7 +105,8 @@ const DECIDABLE: ModerationStory['status'][] = [
  * (api-admin checks it too, M3 plan concern C2). The story shows as the public would see it,
  * through the story page's own parts, with the player's speed menu on; then what the moderator
  * can do with it (approve, send back or reject a waiting story; hide a published one, G5; show a
- * hidden one again, or reject one the site hid, P1-9; nothing for one being edited or rejected;
+ * taken-down one again, send it back or reject it, OV-2 A; approve a rejected one, send it back or
+ * put it back in the waiting list, OV-1 C; nothing for one being edited;
  * Admins can also delete it in any state, P1-11) and its history, with moderators' notes.
  */
 export function ModerationReview({
@@ -657,9 +663,6 @@ function Decisions({
     refusal?.anyway && refusal.route !== 'delete' ? refusal.route : null;
   const decidable = DECIDABLE.includes(story.status);
   if (!decidable && !isAdmin) return null;
-  // P1-9: a story the site took off itself is resolved by rejecting it.
-  const hiddenBySite =
-    story.status === 'hidden' && currentAction(story) === 'hiddenBySystem';
 
   return (
     <Card
@@ -674,9 +677,11 @@ function Decisions({
         <h2 id="decide-heading" className="mb-4 text-xl font-semibold">
           {story.status === 'pending'
             ? 'Your decision'
-            : decidable
-              ? 'On the site'
-              : 'Admin'}
+            : story.status === 'rejected'
+              ? 'Overturn the rejection'
+              : decidable
+                ? 'On the site'
+                : 'Admin'}
         </h2>
         {confirmDelete && (
           <div
@@ -715,32 +720,49 @@ function Decisions({
         )}
         {!open && !confirmDelete && (
           <div className="flex flex-wrap gap-3">
-            {story.status === 'pending' && (
-              <>
-                <Button
-                  wrap
-                  disabled={busy}
-                  onClick={() => void decide('approve')}
-                >
-                  Approve
-                </Button>
-                <Button
-                  wrap
-                  className={SEND_BACK_BUTTON}
-                  disabled={busy}
-                  onClick={() => setOpen('request-changes')}
-                >
-                  Send back
-                </Button>
-                <Button
-                  wrap
-                  className={RED_BUTTON}
-                  disabled={busy}
-                  onClick={() => setOpen('reject')}
-                >
-                  Reject
-                </Button>
-              </>
+            {story.status === 'hidden' && (
+              <Button wrap disabled={busy} onClick={() => void decide('show')}>
+                Show again
+              </Button>
+            )}
+            {(story.status === 'pending' || story.status === 'rejected') && (
+              <Button
+                wrap
+                disabled={busy}
+                onClick={() => void decide('approve')}
+              >
+                Approve
+              </Button>
+            )}
+            {['pending', 'hidden', 'rejected'].includes(story.status) && (
+              <Button
+                wrap
+                className={SEND_BACK_BUTTON}
+                disabled={busy}
+                onClick={() => setOpen('request-changes')}
+              >
+                Send back
+              </Button>
+            )}
+            {(story.status === 'pending' || story.status === 'hidden') && (
+              <Button
+                wrap
+                className={RED_BUTTON}
+                disabled={busy}
+                onClick={() => setOpen('reject')}
+              >
+                Reject
+              </Button>
+            )}
+            {story.status === 'rejected' && (
+              <Button
+                variant="outline"
+                wrap
+                disabled={busy}
+                onClick={() => void decide('return-to-queue')}
+              >
+                Put back in the waiting list
+              </Button>
             )}
             {story.status === 'approved' && (
               <Button
@@ -750,21 +772,6 @@ function Decisions({
                 onClick={() => setOpen('hide')}
               >
                 Take down
-              </Button>
-            )}
-            {story.status === 'hidden' && (
-              <Button wrap disabled={busy} onClick={() => void decide('show')}>
-                Show again
-              </Button>
-            )}
-            {hiddenBySite && (
-              <Button
-                wrap
-                className={RED_BUTTON}
-                disabled={busy}
-                onClick={() => setOpen('reject')}
-              >
-                Reject
               </Button>
             )}
             {isAdmin && (

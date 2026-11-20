@@ -445,7 +445,8 @@ recording | picture` (worked out from the status history: set while the story's 
   change: words, themes, video or audio, picture (M3-6 A, G15). It goes back to moderators only
   when the person sends it again, and back on the site only once a moderator approves it. Its
   hearts, its first publication date and its address are kept. A story sent back is edited the
-  same way. A rejected story can't be edited, only deleted.
+  same way. A rejected story can't be edited, only deleted (unless a moderator overturns the
+  rejection: then it is in its new state, OV-1 C).
 - **The address follows the title until the story is first approved (SL-1 A):** after that,
   changing the title keeps the address.
 - **Delete (ED-3):** a person can delete their own story in any state, after one "This can't be
@@ -583,9 +584,10 @@ Built in the database (the decisions and their pages are planned, M3):
   story it was about. A moderator's entry can carry a note to the person. The story's state is that
   of its newest entry that moved it; a story with none is a draft. Who may take which step is
   fixed in the database: the person sends (from editing) and starts editing (Edit, from pending,
-  approved or hidden); a moderator approves, sends back or rejects (from pending; rejects also a
-  story the site hid itself, P1-9 and P1-11, Joel 2026-11-14), hides (from approved) and shows
-  again (from hidden); the system hides and shows again when media breaks and
+  approved or hidden); a moderator approves, sends back or rejects (from pending); approves,
+  sends back or puts back in the waiting list a rejected story (OV-1 C, Joel 2026-11-20); hides
+  (from approved); and shows again, sends back or rejects a hidden story, whoever hid it (OV-2 A,
+  Joel 2026-11-20; P1-9, P1-11); the system hides and shows again when media breaks and
   works again, and sends a story back when its file can't be used (below). Sending back,
   rejecting and a moderator's hide need a note.
 - **"Your video couldn't be used" (Part 1a, Joel 2026-11-10; P1a-4 A; G2, 2026-11-11; RE-1 A,
@@ -615,8 +617,8 @@ Built in the database (the decisions and their pages are planned, M3):
   owner.
 - **A story the site took off itself is never deleted automatically (P1-9, Joel 2026-11-14):** the
   nightly clean-up deletes only rejected stories and ones left in editing, never one off the site.
-  The owner uses Edit and uploads a new file, or a Moderator or Admin rejects it (then it is deleted like any
-  rejected story), or an Admin deletes it.
+  The owner uses Edit and uploads a new file, or a Moderator or Admin sends it back or rejects it
+  (then it is deleted like any rejected story), or an Admin deletes it.
 - **Which file couldn't be used (P1-2, Joel 2026-11-14; G17 B):** the "file unusable" entry
   records `recording` (the story's video or audio file) or `picture` (an audio story's picture
   video made with its picture; one made on the site's default background, with no picture, counts
@@ -746,18 +748,34 @@ Built (M3 plan, pull requests 1 and 6; Joel, 2026-11-09 and 2026-11-11):
   to edit, approved, rejected, taken down with the reason, shown again, a new file or picture,
   words changed, a file that can't be used), whether the person, a moderator (by their email,
   EM-1) or the system made it, when, and any note a moderator left. Any story on the list opens (a draft never sent for
-  Admins only), and a published one; only a waiting, published or hidden story has a decision to
-  make, so one being edited or rejected is read only.
+  Admins only), and a published one; a waiting, published, taken-down or rejected story has a
+  decision to make, so only one being edited is read only.
 - **Decisions (M3 basics, Joel 2026-11-11):** on a waiting story, Approve, Send back or Reject.
   Send back and Reject need a note of 1 to 2,000 characters, written pastorally: the person reads
   it as "What our team said". Moderators and admins may decide on their own stories. On a
   published story, Take down with a reason (G5); their profile says "Taken down by our team" with
   the reason under "What our team said", like a sent-back note (MD-2, Joel 2026-11-14), and it is
-  in Download my data. Only a moderator shows it again (Show again, on the hidden story). A story
-  the site took off itself (its video or audio can't play) can also be rejected, with a note, and
-  is then deleted with the other rejected stories (P1-9, P1-11, Joel 2026-11-14); one a moderator
-  took down can't (Show again ends it). The page confirms each decision and shows the story as it
-  now is.
+  in Download my data. Only a moderator shows it again (Show again, on the hidden story).
+- **Overturning (Joel, 2026-11-20, OV-1 C to OV-6 A):** Moderators and Admins alike.
+  - **A taken-down story**, whoever took it down (a moderator, or the site while its video or
+    audio can't play): Show again, Send back (with a note) or Reject (with a note; it is then
+    deleted with the other rejected stories, P1-9, P1-11). For one the site took down, Show again
+    still waits until its video plays again.
+  - **A rejected story:** Approve (publish it), Send back (with a note), or **Put back in the
+    waiting list**: it returns to "Waiting for review" unchanged, with no note, for any moderator
+    to decide again (its own step in the history). Approve runs every check a first approval does
+    (the media, the picture at Bunny, the testimony consent); Approve anyway stays Admin only.
+  - **Notes** as for any decision (OV-3 A): Approve, Show again and Put back need none; Send back
+    and Reject need the note the person reads.
+  - **What the person sees** (OV-4 A): the new state and only the latest note, as with any
+    decision; the full history is in Download my data. No email.
+  - **Date** (OV-5 A): a re-approved story keeps its first publication date (its place in "newest
+    first"); one rejected while waiting was never published, so it is published that day.
+  - **No limit** (OV-6 A): any number of times, any time until the story is deleted. Once a
+    story leaves Rejected, the 90-day deletion no longer applies; a story sent back starts the
+    186-day editing clock.
+  - The page confirms each decision and shows the story as it now is. Two moderators at once: the
+    first decision wins, as for every decision.
 - **Admins delete (P1-11, Joel 2026-11-14):** an Admin, never a Moderator, has a Delete button on
   the review page of a story in any state they can open, after one "This can't be undone"
   question (as the owner's Delete). It deletes the story exactly as the owner's Delete does: its
@@ -868,7 +886,7 @@ Planned (M3):
   resumed upload) for 186 days (about 6 months) is deleted, with its files, by the nightly clean-up at 03:30 London time.
   (D71) The emailed warning before that comes with the Emails milestone.
 - **Rejected stories** are deleted, with their files, by the same nightly clean-up 90 days after
-  the decision; until then the person can read the moderator's note and download it with their
+  the decision (only while still rejected: a rejection overturned, OV-1 C, stops the clock); until then the person can read the moderator's note and download it with their
   data. **Stories left in editing** after being sent at least once (sent back, or taken down with
   Edit) are deleted once nobody has touched them for 186 days, by the same clock as drafts (last
   edit, or a resumed upload; being sent back or taken down counts as a touch). Admins change both

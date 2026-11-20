@@ -572,6 +572,22 @@ export class ModerationController {
   }
 
   /**
+   * OV-1 C (Joel, 2026-11-20): put a rejected story back in the waiting list, unchanged and with
+   * no note (OV-3 A): a `returnedToQueue` entry (→ `pending`).
+   */
+  @Post('stories/:id/return-to-queue')
+  @HttpCode(200)
+  @RequiresRole('Moderator')
+  returnStoryToQueue(
+    @Param('id') id: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @Headers('if-match') ifMatch?: string,
+  ) {
+    return this.decision(req, res, id, ifMatch, 'returnedToQueue');
+  }
+
+  /**
    * An Admin's Delete (P1-11, Joel 2026-11-14): the story in any state an Admin can open, gone as
    * its owner's Delete takes it (decisions.ts, deleteStory), whatever changed since the page was
    * opened (DEL-3: no If-Match). Then its videos and picture folder go at Bunny at once (DEL-1,
