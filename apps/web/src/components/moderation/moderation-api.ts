@@ -196,8 +196,8 @@ export interface ModerationStory {
   id: string;
   version: number;
   /**
-   * Waiting for review, published, or hidden (G5): something to decide. Being edited (a draft
-   * when `submittedAt` is null, Admins only) or rejected: read only (MD-4).
+   * Waiting for review, published, hidden (G5) or rejected (OV-1 C): something to decide. Being
+   * edited (a draft when `submittedAt` is null, Admins only): read only (MD-4).
    */
   status: 'editing' | 'pending' | 'approved' | 'hidden' | 'rejected';
   title: string;
@@ -228,7 +228,12 @@ export interface ModerationStory {
 
 /** The decisions, by api-admin's route, and the status entry each adds. */
 export type DecisionRoute =
-  'approve' | 'request-changes' | 'reject' | 'hide' | 'show';
+  | 'approve'
+  | 'request-changes'
+  | 'reject'
+  | 'hide'
+  | 'show'
+  | 'return-to-queue';
 
 /** What the moderator did, as the page confirms it (and an Admin's Delete, P1-11). */
 export const DONE: Record<DecisionRoute | 'delete', string> = {
@@ -237,6 +242,8 @@ export const DONE: Record<DecisionRoute | 'delete', string> = {
   reject: 'Rejected. The person can read your note.',
   hide: 'Taken down. It stays off the site until a moderator shows it again.',
   show: 'Shown again. It’s back on the site.',
+  'return-to-queue':
+    'Put back in the waiting list. Any moderator can decide it again.',
   delete: 'Deleted. The story and its files are gone.',
 };
 

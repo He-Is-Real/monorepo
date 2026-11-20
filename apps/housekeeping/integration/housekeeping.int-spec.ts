@@ -538,6 +538,19 @@ describe('housekeeping: old rejected and abandoned stories', () => {
     await decided('approved_then_edited', 'approved', 10);
     await edit(cat, 'approved_then_edited');
 
+    // OV-1 C (Joel, 2026-11-20): rejected 120 days ago, then overturned 100 days ago: put back in
+    // the waiting list, or approved. Neither is rejected any more, so neither is due.
+    for (const [id, action] of [
+      ['requeued_rejected', 'returnedToQueue'],
+      ['approved_rejected', 'approved'],
+    ]) {
+      await createDraft(cat, id, 'written');
+      await submit(cat, id);
+      await decided(id, 'rejected', 120);
+      await decided(id, action, 100);
+      await touch(migrator, id, 100);
+    }
+
     library = new FakeLibrary([story(V.rejected, ago(240))]);
   });
   afterAll(() => t?.close());
@@ -596,13 +609,16 @@ describe('housekeeping: old rejected and abandoned stories', () => {
     expect(await days('young_editing')).toBe(1);
     expect(await days('old_pending')).toBeNull();
     expect(await days('site_hidden')).toBeNull();
+    // OV-1 C: the 90 days stop once a story leaves Rejected.
+    expect(await days('requeued_rejected')).toBeNull();
+    expect(await days('approved_rejected')).toBeNull();
   });
 
   it('refuses its delete of a story not yet due, or of any pending story', async () => {
     await run(
       housekeeping,
       `DELETE story:young_rejected; DELETE story:young_editing; DELETE story:old_pending;
-       DELETE story:site_hidden`,
+       DELETE story:site_hidden; DELETE story:requeued_rejected; DELETE story:approved_rejected`,
     );
     for (const id of [
       'young_rejected',
@@ -610,6 +626,8 @@ describe('housekeeping: old rejected and abandoned stories', () => {
       'old_pending',
       'site_hidden',
       'approved_then_edited',
+      'requeued_rejected',
+      'approved_rejected',
     ]) {
       expect(await exists(id)).toBe(true);
     }
@@ -659,6 +677,8 @@ describe('housekeeping: old rejected and abandoned stories', () => {
       'old_pending',
       'site_hidden',
       'approved_then_edited',
+      'requeued_rejected',
+      'approved_rejected',
     ]) {
       expect(await exists(id)).toBe(true);
     }

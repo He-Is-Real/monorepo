@@ -254,8 +254,10 @@ paths:
         Command `ApproveStory` (M3 plan PR 6). The database checks the submitter has the testimony
         consent (plan 4e; any version: it covers every story they submit), then adds an `approved`
         entry to the story's status log (R6), which publishes it (one `story` table, R11): one
-        write. Straight from `pending` (no pick-up; Joel, 2026-11-11); moderators and admins may
-        approve their own stories. Moderation emails come after Go live; until then the submitter
+        write. Straight from `pending` (no pick-up; Joel, 2026-11-11), or from `rejected` to overturn
+        a rejection (OV-1 C, Joel 2026-11-20; with every check below, and a story published before
+        keeps its first publication date, OV-5 A); moderators and admins may approve their own
+        stories. Moderation emails come after Go live; until then the submitter
         sees the outcome on "My submissions".
         Every decision names what the moderator reviewed in `If-Match` (`reviewTag`, G14 B), and is
         refused, nothing written, when the story has moved on: `409` `already_decided` when another
@@ -328,12 +330,10 @@ paths:
       operationId: rejectStory
       summary: Reject a story
       description: |
-        Command `RejectStory` (→ `rejected`, final: the person can only delete it). Feedback to the
-        submitter is required (1–2000 characters; `400` otherwise), which they see as "What our team
-        said" with "Not accepted". From `pending`, or from `hidden` when the site took it off itself
-        (its newest entry is the system's `hiddenBySystem`: P1-9 and P1-11, Joel 2026-11-14, a
-        moderator or Admin resolves such a story by rejecting it; a moderator's take-down is refused,
-        `409 wrong_status`).
+        Command `RejectStory` (→ `rejected`: the person can only delete it; a moderator may overturn
+        it, OV-1 C). Feedback to the submitter is required (1–2000 characters; `400` otherwise), which
+        they see as "What our team said" with "Not accepted". From `pending`, or from `hidden`
+        whoever took it down, the site or a moderator (OV-2 A, Joel 2026-11-20; P1-9, P1-11).
         Every decision names what the moderator reviewed in `If-Match` (`reviewTag`, G14 B), and is
         refused, nothing written, when the story has moved on: `409` `already_decided` when another
         moderator's decision is the story's newest entry (the first decision wins, D-1; the web
@@ -379,7 +379,8 @@ paths:
       description: |
         Command `RequestStoryChanges` (→ `editing`, a `changesRequested` entry with the note; the
         person sees "Sent back" and "What our team said"). Feedback is required (1–2000 characters;
-        `400` otherwise). Straight from `pending`.
+        `400` otherwise). From `pending`, `rejected` (OV-1 C, Joel 2026-11-20) or `hidden`, whoever
+        took it down (OV-2 A).
         Every decision names what the moderator reviewed in `If-Match` (`reviewTag`, G14 B), and is
         refused, nothing written, when the story has moved on: `409` `already_decided` when another
         moderator's decision is the story's newest entry (the first decision wins, D-1; the web
@@ -509,6 +510,47 @@ paths:
           $ref: './components.yaml#/components/responses/CommandApplied'
         '400':
           $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './components.yaml#/components/responses/Conflict'
+        '412':
+          $ref: './components.yaml#/components/responses/PreconditionFailed'
+        '428':
+          $ref: './components.yaml#/components/responses/PreconditionRequired'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+
+  /v1/moderation/stories/{id}/return-to-queue:
+    post:
+      tags: [Moderation]
+      operationId: returnStoryToQueue
+      summary: Put a rejected story back in the waiting list
+      description: |
+        Command `ReturnStoryToQueue` (OV-1 C, Joel 2026-11-20): a `returnedToQueue` entry
+        (`rejected` → `pending`). The story goes back to "Waiting for review" unchanged, for any
+        moderator to decide again; no note (OV-3 A), no body. Only from `rejected` (else `409`
+        `wrong_status`). It stops the rejected story's deletion clock (only rejected stories and
+        ones left in editing have one).
+        Every decision names what the moderator reviewed in `If-Match` (`reviewTag`, G14 B), and is
+        refused, nothing written, when the story has moved on: `409` `already_decided` when another
+        moderator's decision is the story's newest entry (the first decision wins, D-1; the web
+        says "Another moderator has already decided this story" and refreshes), else `412`
+        `stale_version`. The answer's `ETag` is the story's new `reviewTag`.
+      x-required-role: Moderator
+      x-milestone: M3
+      parameters:
+        - $ref: './components.yaml#/components/parameters/storyId'
+        - $ref: './components.yaml#/components/parameters/ifMatchReviewTag'
+      responses:
+        '200':
+          $ref: './components.yaml#/components/responses/CommandApplied'
         '401':
           $ref: './components.yaml#/components/responses/Unauthorized'
         '403':

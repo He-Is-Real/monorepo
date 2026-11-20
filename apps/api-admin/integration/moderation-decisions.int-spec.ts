@@ -86,7 +86,7 @@ const NOTE =
 /**
  * M3 plan PR 6: the moderators' decisions through api-admin's real AppModule on its own login,
  * against the real database rules: approve, send back and reject from pending, hide and show
- * again (G5), the first decision wins (D-1), decisions name what was reviewed (G14 B), and only an
+ * again (G5), overturning a rejection or a take-down (OV-1 C, OV-2 A), the first decision wins (D-1), decisions name what was reviewed (G14 B), and only an
  * Admin approves anyway, never during the upload-link hour (G11 B, G24), or deletes (P1-11). Every answer is checked
  * against api-admin.yaml.
  */
@@ -146,7 +146,13 @@ describe('moderation, the decisions (api-admin)', () => {
 
   const decide = (
     id: string,
-    what: 'approve' | 'request-changes' | 'reject' | 'hide' | 'show',
+    what:
+      | 'approve'
+      | 'request-changes'
+      | 'reject'
+      | 'hide'
+      | 'show'
+      | 'return-to-queue',
     tag: string,
     body?: unknown,
     who = MOD,
@@ -612,43 +618,251 @@ describe('moderation, the decisions (api-admin)', () => {
     expect(await statusOf(migrator, id)).toBe('approved');
   });
 
-  it('a story the site took off itself can be rejected (P1-9, P1-11); a moderator’s take-down can’t', async () => {
-    const hidBySite = await waiting();
-    expect(
-      (await decide(hidBySite, 'approve', (await open(hidBySite)).tag)).status,
-    ).toBe(200);
-    // The site takes it off: its video or audio can't play.
-    await run(
+  /** The story's status log, as api-admin's review page lists it. */
+  const actions = async (id: string) =>
+    (await open(id)).story.statusLog.map((e: { action: string }) => e.action);
+  /** When the nightly housekeeping would delete it (G3 B), or null: the database's one rule. */
+  const deletesAt = async (id: string) =>
+    (
+      await rows<string | null>(
+        migrator,
+        `SELECT VALUE fn::story::deletes_at(id) FROM type::record('story', $id)`,
+        { id },
+      )
+    )[0] ?? null;
+  /** The site takes it off itself: its video or audio can't play. */
+  const hideBySite = (id: string) =>
+    run(
       migrator,
       `CREATE storyStatusLog CONTENT { story: type::record('story', $id), action: 'hiddenBySystem',
          actor: 'system', hiddenReason: 'media_unavailable' }`,
-      { id: hidBySite },
+      { id },
     );
-    const site = await open(hidBySite);
-    expect(site.story.status).toBe('hidden');
+  const rejectNow = async (id: string) =>
     expect(
       (
-        await decide(hidBySite, 'reject', site.tag, {
+        await decide(id, 'reject', (await open(id)).tag, {
           feedbackToSubmitter: NOTE,
         })
       ).status,
     ).toBe(200);
-    expect(await statusOf(migrator, hidBySite)).toBe('rejected');
 
+  it('every taken-down story, whoever took it down, can be rejected or sent back with a note (OV-2 A)', async () => {
+    // Taken down by a moderator, then rejected (refused before OV-2 A).
     const hidByMod = await waiting();
     expect(
       (await decide(hidByMod, 'approve', (await open(hidByMod)).tag)).status,
     ).toBe(200);
-    const live = await open(hidByMod);
     expect(
-      (await decide(hidByMod, 'hide', live.tag, { reason: NOTE })).status,
+      (
+        await decide(hidByMod, 'hide', (await open(hidByMod)).tag, {
+          reason: NOTE,
+        })
+      ).status,
     ).toBe(200);
-    const taken = await open(hidByMod);
-    const refused = await decide(hidByMod, 'reject', taken.tag, {
-      feedbackToSubmitter: NOTE,
+    await rejectNow(hidByMod);
+    expect(await statusOf(migrator, hidByMod)).toBe('rejected');
+
+    // Taken down by the site, then rejected (P1-9, P1-11) or sent back.
+    for (const what of ['reject', 'request-changes'] as const) {
+      const hidBySite = await waiting();
+      expect(
+        (await decide(hidBySite, 'approve', (await open(hidBySite)).tag))
+          .status,
+      ).toBe(200);
+      await hideBySite(hidBySite);
+      const site = await open(hidBySite);
+      expect(site.story.status).toBe('hidden');
+      // A note is needed, as from pending.
+      expect((await decide(hidBySite, what, site.tag, {})).status).toBe(400);
+      expect(
+        (await decide(hidBySite, what, site.tag, { feedbackToSubmitter: NOTE }))
+          .status,
+      ).toBe(200);
+      expect(await statusOf(migrator, hidBySite)).toBe(
+        what === 'reject' ? 'rejected' : 'editing',
+      );
+    }
+
+    // Taken down by a moderator, then sent back: the person reads the note and can change it.
+    const back = await waiting();
+    expect((await decide(back, 'approve', (await open(back)).tag)).status).toBe(
+      200,
+    );
+    expect(
+      (await decide(back, 'hide', (await open(back)).tag, { reason: NOTE }))
+        .status,
+    ).toBe(200);
+    const taken = await open(back);
+    // Nothing else from hidden: no second take-down, no approval, no return to the queue.
+    for (const what of ['hide', 'approve', 'return-to-queue'] as const) {
+      const refused = await decide(back, what, taken.tag, { reason: NOTE });
+      expect([refused.status, refused.body.code], what).toEqual([
+        409,
+        'wrong_status',
+      ]);
+    }
+    expect(
+      (
+        await decide(back, 'request-changes', taken.tag, {
+          feedbackToSubmitter: 'Please leave out the surname.',
+        })
+      ).status,
+    ).toBe(200);
+    expect(await statusOf(migrator, back)).toBe('editing');
+    expect(
+      await rows(
+        ann,
+        `SELECT VALUE currentStatus.comment FROM type::record('story', $id)`,
+        { id: back },
+      ),
+    ).toEqual(['Please leave out the surname.']);
+  });
+
+  it('a rejected story can be approved again; one published before keeps its first publication date (OV-1 C, OV-5 A)', async () => {
+    // Rejected while waiting: never published, so it is published now.
+    const fresh = await waiting();
+    await rejectNow(fresh);
+    expect(await deletesAt(fresh)).not.toBeNull();
+    const rejected = await open(fresh);
+    expect(rejected.story.status).toBe('rejected');
+    const approved = await decide(fresh, 'approve', rejected.tag, {}, ADMIN);
+    expect(approved.status).toBe(200);
+    expect(await statusOf(migrator, fresh)).toBe('approved');
+    // The rejection's 90-day deletion no longer applies.
+    expect(await deletesAt(fresh)).toBeNull();
+
+    // Published, taken down by the site, rejected, then approved again: its first date stands.
+    const id = await waiting();
+    expect((await decide(id, 'approve', (await open(id)).tag)).status).toBe(
+      200,
+    );
+    const published = async () =>
+      rows<string>(
+        await t.service('api_public_read'),
+        `SELECT VALUE currentStatus.publishedAt FROM type::record('story', $id)`,
+        { id },
+      );
+    const [first] = await published();
+    expect(first).toBeDefined();
+    await hideBySite(id);
+    await rejectNow(id);
+    expect(await published()).toEqual([]);
+    expect((await decide(id, 'approve', (await open(id)).tag)).status).toBe(
+      200,
+    );
+    expect(await published()).toEqual([first]);
+    expect(await actions(id)).toEqual([
+      'sent',
+      'approved',
+      'hiddenBySystem',
+      'rejected',
+      'approved',
+    ]);
+  });
+
+  it('approving a rejected story runs approval’s checks: no skipping the upload-link hour', async () => {
+    const id = `dec_${++n}`;
+    await draft(ann, id);
+    // A picture uploaded just now: its link can be used for 10 minutes.
+    const pic = await grantImage(await t.service('api_user'), {
+      story: id,
+      person: 'ann',
+      version: await versionOf(id),
     });
+    expect(pic).toMatchObject({ ok: true });
+    await submit(ann, id);
+    await processed(await t.service('workflow'), id);
+    await rejectNow(id);
+    const { tag } = await open(id);
+    for (const body of [{}, { approveAnyway: true }]) {
+      const refused = await decide(id, 'approve', tag, body, ADMIN);
+      expect([refused.status, refused.body.code]).toEqual([
+        409,
+        'media_recently_uploaded',
+      ]);
+    }
+    expect(await statusOf(migrator, id)).toBe('rejected');
+  });
+
+  it('a rejected story can be sent back with a note, or put back in the waiting list unchanged (OV-1 C, OV-3 A)', async () => {
+    const id = await waiting();
+    await rejectNow(id);
+    const rejected = await open(id);
+    // Nothing else from rejected: no take-down, no show again, no second rejection.
+    for (const what of ['hide', 'show', 'reject'] as const) {
+      const refused = await decide(id, what, rejected.tag, {
+        reason: NOTE,
+        feedbackToSubmitter: NOTE,
+      });
+      expect([refused.status, refused.body.code], what).toEqual([
+        409,
+        'wrong_status',
+      ]);
+    }
+    // Back in the waiting list: no note, its words and files as they were.
+    const back = await decide(id, 'return-to-queue', rejected.tag);
+    expect(back.status).toBe(200);
+    expect(await statusOf(migrator, id)).toBe('pending');
+    expect(await deletesAt(id)).toBeNull();
+    const waitingAgain = await open(id);
+    expect(back.etag).toBe(waitingAgain.tag);
+    for (const field of ['title', 'description', 'body', 'themes', 'media'])
+      expect(waitingAgain.story[field], field).toEqual(rejected.story[field]);
+    expect(
+      waitingAgain.story.statusLog.map(
+        (e: { action: string; status: string; comment: string | null }) => [
+          e.action,
+          e.status,
+          e.comment,
+        ],
+      ),
+    ).toEqual([
+      ['sent', 'pending', null],
+      ['rejected', 'rejected', NOTE],
+      ['returnedToQueue', 'pending', null],
+    ]);
+    // It shows on the Waiting for review list again.
+    const list = await call('GET', '/v1/moderation/stories?state=pending');
+    expect(list.body.data.map((s: { id: string }) => s.id)).toContain(id);
+    // Only from rejected.
+    const again = await decide(id, 'return-to-queue', waitingAgain.tag);
+    expect([again.status, again.body.code]).toEqual([409, 'wrong_status']);
+
+    // Rejected again, then sent back: the person reads the new note and can change it.
+    await rejectNow(id);
+    const r2 = await open(id);
+    expect((await decide(id, 'request-changes', r2.tag, {})).status).toBe(400);
+    expect(
+      (
+        await decide(id, 'request-changes', r2.tag, {
+          feedbackToSubmitter: 'Nearly there: please leave out the surname.',
+        })
+      ).status,
+    ).toBe(200);
+    expect(await statusOf(migrator, id)).toBe('editing');
+    expect(
+      await rows(
+        ann,
+        `SELECT VALUE currentStatus.comment FROM type::record('story', $id)`,
+        { id },
+      ),
+    ).toEqual(['Nearly there: please leave out the surname.']);
+    await run(ann, `UPDATE type::record('story', $id) SET title = 'Changed'`, {
+      id,
+    });
+    await submit(ann, id);
+    expect(await statusOf(migrator, id)).toBe('pending');
+  });
+
+  it('a published story can’t be put back in the waiting list', async () => {
+    const id = await waiting();
+    expect((await decide(id, 'approve', (await open(id)).tag)).status).toBe(
+      200,
+    );
+    const refused = await decide(id, 'return-to-queue', (await open(id)).tag);
     expect([refused.status, refused.body.code]).toEqual([409, 'wrong_status']);
-    expect(await statusOf(migrator, hidByMod)).toBe('hidden');
+    expect(await statusOf(migrator, id)).toBe('approved');
   });
 
   /** Ann's video story with a picture, sent for review: its video's id at Bunny. */
@@ -824,6 +1038,7 @@ describe('moderation, the decisions (api-admin)', () => {
       'reject',
       'hide',
       'show',
+      'return-to-queue',
     ] as const) {
       const refused = await decide(
         id,

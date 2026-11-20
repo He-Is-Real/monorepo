@@ -19,8 +19,10 @@ import { fixtureToken, STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 // own parts, with the player's speed menu), what the moderator can do with it, and its history
 // with moderators' notes. Approve, Send back and Reject a waiting story (a note for the last two),
 // Take down a published one and Show it again (G5); refusals in plain words; the first decision
-// wins (D-1); only an Admin approves anyway, never in the upload-link hour (G11 B, G24); a story
-// the site hid can be rejected (P1-9); only an Admin deletes, after one question (P1-11).
+// wins (D-1); only an Admin approves anyway, never in the upload-link hour (G11 B, G24); a
+// rejected story can be approved, sent back or put back in the waiting list (OV-1 C), and any
+// taken-down one shown again, sent back or rejected (OV-2 A); only an Admin deletes, after one
+// question (P1-11).
 // Moderators and up only; the admin menu shows Moderation to them. The pages fit every device;
 // the behaviour runs on one phone and one desktop. The stub api-admin (stub-api-user.mjs) serves
 // fixed stories and keeps each session's decisions; a published story's public page offers its
@@ -299,7 +301,12 @@ test.describe('moderation', () => {
       'Another moderator has already decided this story.',
     );
     await expect(page.locator('[data-review-status]')).toHaveText('Rejected');
-    await expect(decisions(page)).toHaveCount(0);
+    // Now it's the rejection's buttons (OV-1 C), not the waiting story's.
+    await expect(page.locator('[data-decisions] button')).toHaveText([
+      'Approve',
+      'Send back',
+      'Put back in the waiting list',
+    ]);
   });
 
   test('approval waits for the media, in plain words; only an Admin approves anyway, never in the upload-link hour', async ({
@@ -502,10 +509,14 @@ test.describe('moderation', () => {
     ]);
     await tab(page, 'Rejected').click();
     await expect(titles(page)).toHaveText(['Not for this site']);
-    // A rejected story opens read only, with its history.
+    // A rejected story opens with its history, and its rejection can be overturned (OV-1 C).
     await listItems(page).first().getByRole('link').click();
     await expect(page.locator('[data-review-status]')).toHaveText('Rejected');
-    await expect(page.locator('[data-decisions]')).toHaveCount(0);
+    await expect(page.locator('[data-decisions] button')).toHaveText([
+      'Approve',
+      'Send back',
+      'Put back in the waiting list',
+    ]);
     await expect(page.locator('[data-history-entry]')).toHaveCount(2);
 
     // Drafts never sent aren't a moderator's, even by address.
@@ -834,29 +845,80 @@ test.describe('moderation', () => {
     }
   });
 
-  // P1-9: a story the site took off itself is resolved by rejecting it.
-  test('a story the site hid can be rejected with a note; one a moderator took down can’t', async ({
+  // OV-1 C, OV-2 A (Joel, 2026-11-20): a rejection or a take-down can be overturned.
+  test('a rejected story can be put back in the waiting list, then decided again', async ({
+    page,
+  }) => {
+    await useSession(page, fresh('moderator-puts-back'));
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_rejected`);
+    await expect(page.locator('#decide-heading')).toHaveText(
+      'Overturn the rejection',
+    );
+    // No note and no question: it goes back as it was.
+    await decisions(page)
+      .getByRole('button', { name: 'Put back in the waiting list' })
+      .click();
+    await expect(notice(page)).toHaveText(
+      'Put back in the waiting list. Any moderator can decide it again.',
+    );
+    await expect(page.locator('[data-review-status]')).toHaveText(
+      'Waiting for review',
+    );
+    await expect(page.locator('[data-history-entry]').last()).toContainText(
+      'Put back in the waiting list by e2e-moderator@heisreal.today',
+    );
+    await expect(page.locator('[data-decisions] button')).toHaveText([
+      'Approve',
+      'Send back',
+      'Reject',
+    ]);
+    await decisions(page).getByRole('button', { name: 'Approve' }).click();
+    await expect(page.locator('[data-review-status]')).toHaveText('Published');
+  });
+
+  test('a rejected story can be approved straight away', async ({ page }) => {
+    await useSession(page, fresh('moderator-overturns'));
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_rejected`);
+    await decisions(page).getByRole('button', { name: 'Approve' }).click();
+    await expect(notice(page)).toHaveText('Approved. It’s on the site now.');
+    await expect(page.locator('[data-review-status]')).toHaveText('Published');
+  });
+
+  test('any taken-down story can be shown again, sent back or rejected; a rejected one sent back', async ({
     page,
   }) => {
     await useSession(page, fresh('moderator-rejects-hidden'));
-    await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_hidden_by_site`);
+    for (const id of ['mod_taken_down', 'mod_hidden_by_site']) {
+      await page.goto(`${WEB_SIGNED_IN_URL}/moderation/${id}`);
+      await expect(page.locator('[data-decisions] button')).toHaveText([
+        'Show again',
+        'Send back',
+        'Reject',
+      ]);
+    }
+    // Taken down by a moderator, then rejected with a note.
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_taken_down`);
     await decisions(page).getByRole('button', { name: 'Reject' }).click();
     await page
       .getByLabel('Your note to the person')
-      .fill('Thank you for sharing this. The video can’t be played.');
+      .fill('Thank you for sharing this. We can’t name the people in it.');
     await decisions(page).getByRole('button', { name: 'Reject' }).click();
     await expect(notice(page)).toHaveText(
       'Rejected. The person can read your note.',
     );
     await expect(page.locator('[data-review-status]')).toHaveText('Rejected');
-
-    await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_taken_down`);
-    await expect(
-      decisions(page).getByRole('button', { name: 'Show again' }),
-    ).toBeVisible();
-    await expect(
-      decisions(page).getByRole('button', { name: 'Reject' }),
-    ).toHaveCount(0);
+    // Then sent back after all: the person can change it.
+    await decisions(page).getByRole('button', { name: 'Send back' }).click();
+    await page
+      .getByLabel('Your note to the person')
+      .fill('Please leave out the surnames and send it again.');
+    await decisions(page).getByRole('button', { name: 'Send back' }).click();
+    await expect(notice(page)).toHaveText(
+      'Sent back. The person can read your note.',
+    );
+    await expect(page.locator('[data-review-status]')).toHaveText(
+      'Sent back by a moderator',
+    );
   });
 
   // MD-1: Take down on the story's public page, for moderators only.

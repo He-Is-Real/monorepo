@@ -187,7 +187,8 @@ their fence (see "Transactions").
     (`fn::story::draft_retention`) since the later of `updatedAt` and its files' `renewedAt`; a
     story in editing after it was sent, untouched by the same clock for the settings'
     `editingRetentionDays`; a rejected story the settings' `rejectedRetentionDays` after its status
-    entry's `at` (G3 B, Joel 2026-11-11). The owner's page shows the same `fn::story::deletes_at`
+    entry's `at` (G3 B, Joel 2026-11-11), only while it is still rejected (overturned, OV-1 C:
+    its clock stops, by its new state). The owner's page shows the same `fn::story::deletes_at`
     (api-user's `deletesAt`). A delete takes the status log and
     others' hearts (`story_erasure_cascade`) and the search row (`story_search`), and queues the
     picture folder; its `storyFile` rows stay for the upload limits. Specs: `person-session`, api-user's `my-stories`, housekeeping's suite.
@@ -196,8 +197,8 @@ their fence (see "Transactions").
 - **`storyStatusLog` (R6): one entry per step, append-only (Story states, Joel 2026-11-11).**
   Fields: `story`, `action` (what happened: `sent`, `editStarted`, `changesRequested`,
   `fileUnusable` (Part 1a), `approved`, `rejected`, `hiddenBySystem`, `shownBySystem`,
-  `hiddenByModerator`, `shownByModerator`, and the history-only `fileReplaced`, `pictureReplaced`
-  and `wordsChanged`), `status` (computed from the action: `editing`, `pending`,
+  `hiddenByModerator`, `shownByModerator`, `returnedToQueue` (OV-1 C), and the history-only
+  `fileReplaced`, `pictureReplaced` and `wordsChanged`), `status` (computed from the action: `editing`, `pending`,
   `approved`, `hidden`, `rejected`; a history-only entry keeps the story's), `actor` (set by the database: `person`, `moderator`, `system`), `by` (the person or
   moderator; api-admin alone reads it), `storyVersion`, `comment`, `at` (server time),
   `publishedAt` (approved entries: the first approval's time, kept on later ones), `hiddenReason`
@@ -232,9 +233,13 @@ their fence (see "Transactions").
     never from a direct write. `storyStatusLog_step` checks who may take which
     step (`fn::story::step_allowed`): the owner sends (from editing) and starts editing (Edit, from
     pending, approved or hidden); a moderator (api-admin, naming `by`) approves, sends back or
-    rejects (from pending, so of two decisions the first wins, D-1; and from hidden only when its
-    current entry is the system's `hiddenBySystem`: P1-9, P1-11, Joel 2026-11-14), hides (from approved, with
-    a note) and shows again (from hidden), each naming the staff member's email (`staffEmail`); the system hides and shows again for media
+    rejects from pending (so of two decisions the first wins, D-1); from rejected approves, sends
+    back or puts it back in the waiting list (`returnedToQueue` → pending, no note; OV-1 C, Joel
+    2026-11-20); hides (from approved, with a note); and from hidden, whoever hid it, shows again,
+    sends back or rejects (OV-2 A, Joel 2026-11-20; P1-9, P1-11); each naming the staff member's
+    email (`staffEmail`). Nothing else: a rejected story is never hidden, shown again or rejected
+    again. An approval from rejected runs every approval check (the media wait, the testimony
+    consent) and keeps the story's first `publishedAt` (OV-5 A). The system hides and shows again for media
     (`hiddenBySystem` needs a `hiddenReason`) and sends a story back when its video or audio file
     can't be used (`fileUnusable`, from pending, approved or hidden: `fn::story::check_files`, in
     the same write as the file becomes `failed`; Part 1a). Sending back and rejecting need a note.

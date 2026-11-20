@@ -408,7 +408,10 @@ components:
         editing → pending), `editStarted` (the person pressed Edit: pending, approved or hidden →
         editing), `changesRequested` (a moderator sent it back, with a note: pending → editing),
         `fileUnusable` (the system: its file can’t be used, pending, approved or hidden → editing),
-        `approved` and `rejected` (a moderator, from pending; rejected with a note),
+        `approved` and `rejected` (a moderator, from pending; rejected with a note; approved also
+        from rejected, rejected also from hidden, and `changesRequested` also from rejected or
+        hidden: OV-1 C, OV-2 A), `returnedToQueue` (a moderator put a rejected story back in the
+        waiting list unchanged: rejected → pending, no note; OV-1 C),
         `hiddenBySystem` / `shownBySystem` (approved ↔ hidden while its video can't play),
         `hiddenByModerator` / `shownByModerator` (a moderator, with a reason when hiding; not written
         yet), and the history-only `fileReplaced`, `pictureReplaced` and `wordsChanged` (no change of
@@ -425,6 +428,7 @@ components:
           shownBySystem,
           hiddenByModerator,
           shownByModerator,
+          returnedToQueue,
           fileReplaced,
           pictureReplaced,
           wordsChanged,

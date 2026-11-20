@@ -70,9 +70,9 @@
 //   everyone else 403 `role_required`). Its player and picture
 //   links point at the stub api-public-read's stand-in player and pictures.
 // - api-admin's decisions (M3 plan PR 6): `POST /v1/moderation/stories/{id}/{approve,
-//   request-changes,reject,hide,show}`, per session, with the real one's checks: `If-Match` the
-//   story's `reviewTag` (428 / 412), a note of 1–2000 characters, the step allowed from the
-//   story's state (409 `wrong_status`; reject also from hidden by the site, P1-9), `approveAnyway`
+//   request-changes,reject,hide,show,return-to-queue}`, per session, with the real one's checks:
+//   `If-Match` the story's `reviewTag` (428 / 412), a note of 1–2000 characters, the step allowed
+//   from the story's state (409 `wrong_status`; OV-1 C, OV-2 A), `approveAnyway`
 //   Admins only. An Admin's `DELETE /v1/moderation/stories/{id}` (P1-11; Moderators 403) takes the
 //   story out of that session (no `If-Match`, DEL-3). A story sent back or
 //   rejected is no longer found. Fixed refusals: `mod_raced` was just decided by another
@@ -975,27 +975,38 @@ function moderated(token, id) {
   return { ...story, reviewTag: tagOf(story) };
 }
 
+// OV-1 C, OV-2 A (Joel, 2026-11-20): a rejected story can be approved, sent back or put back in
+// the waiting list; any taken-down story shown again, sent back or rejected.
 const DECISIONS = {
-  approve: { from: 'pending', action: 'approved', to: 'approved' },
+  approve: {
+    from: ['pending', 'rejected'],
+    action: 'approved',
+    to: 'approved',
+  },
   'request-changes': {
-    from: 'pending',
+    from: ['pending', 'rejected', 'hidden'],
     action: 'changesRequested',
     to: 'editing',
     note: 'feedbackToSubmitter',
   },
   reject: {
-    from: 'pending',
+    from: ['pending', 'hidden'],
     action: 'rejected',
     to: 'rejected',
     note: 'feedbackToSubmitter',
   },
   hide: {
-    from: 'approved',
+    from: ['approved'],
     action: 'hiddenByModerator',
     to: 'hidden',
     note: 'reason',
   },
-  show: { from: 'hidden', action: 'shownByModerator', to: 'approved' },
+  show: { from: ['hidden'], action: 'shownByModerator', to: 'approved' },
+  'return-to-queue': {
+    from: ['rejected'],
+    action: 'returnedToQueue',
+    to: 'pending',
+  },
 };
 
 /** `POST /v1/moderation/stories/{id}/{decision}`: as api-admin decides (M3 plan PR 6). */
@@ -1049,11 +1060,7 @@ async function decideStory(req, res, token, id, route) {
   }
   if (ifMatch !== `"${tagOf(story)}"`)
     return problem(res, 412, 'Precondition failed', 'stale_version');
-  // P1-9: a story the site took off itself may be rejected too.
-  const hiddenBySite =
-    story.status === 'hidden' &&
-    story.statusLog.at(-1)?.action === 'hiddenBySystem';
-  if (story.status !== d.from && !(route === 'reject' && hiddenBySite))
+  if (!d.from.includes(story.status))
     return problem(res, 409, 'Conflict', 'wrong_status');
   if (d.to === 'approved') {
     if (id === 'mod_cooldown') {
@@ -2808,7 +2815,7 @@ createServer(async (req, res) => {
     });
   }
   const decision =
-    /^\/v1\/moderation\/stories\/([^/]+)\/(approve|request-changes|reject|hide|show)$/.exec(
+    /^\/v1\/moderation\/stories\/([^/]+)\/(approve|request-changes|reject|hide|show|return-to-queue)$/.exec(
       path,
     );
   if (decision && req.method === 'POST') {
