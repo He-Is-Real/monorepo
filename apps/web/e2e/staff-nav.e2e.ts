@@ -153,6 +153,17 @@ test.describe('staff link', () => {
         nav.getByRole('link', { name: 'Admin' }),
         path,
       ).toHaveAttribute('aria-current', 'page');
+      if (!isPhone(page)) {
+        // On the desktop (1280 px) "Admin" stays on the public links' line here too, where the
+        // page keeps a scrollbar's gutter and so the header has less room.
+        await page.evaluate(() => document.fonts.ready.then(() => undefined));
+        const top = async (name: string) =>
+          (await nav.getByRole('link', { name, exact: true }).boundingBox())?.y;
+        expect(await top('Admin'), `${path}: Admin wrapped`).toBeCloseTo(
+          (await top('Stories')) ?? -1,
+          0,
+        );
+      }
     }
   });
 

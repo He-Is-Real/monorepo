@@ -846,8 +846,9 @@ Planned (M3):
   own title, inside the story exactly as the public will see it (Joel, 2026-11-17, OQ-3 A).
 - **One staff link in the site's navigation** (Joel, 2026-11-14; one "Admin" link, Joel
   2026-11-20): Moderators and Admins see one more link, "Admin", after the public links, in the
-  same row and style (no divider), so their header is the same height as everyone else's; only
-  where the row genuinely has no room (very large text) does it wrap under them. In the phone menu
+  same row and style (no divider), so their header is the same height as everyone else's (from
+  1280 pixels the account area is a little narrower so the row has room); only where the row
+  genuinely has no room (very large text) does it wrap under them. In the phone menu
   it comes after a gap and line. It shows as the current page on the admin landing page and on every admin
   and moderation page. Signed-out people and Users don't see it, and nobody sees it until api-user
   has said their role (no flash of links). It reflects the role when the page was loaded; after a
