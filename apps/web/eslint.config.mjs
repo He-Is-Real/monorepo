@@ -68,12 +68,15 @@ const TOKEN_SELECTORS = [
 // WL-1 (Joel, 2026-11-19): text boxes and text areas are the web library's `Input` and
 // `Textarea` (libs/web-ui). A class string with the field look (the input border and background
 // and a focus ring) in a page is a hand-made copy.
+// The three classes may come in any order (one look-ahead each, whole class names only).
 // (Built from parts, so this file's own strings don't match it.)
+const cls = (name, whole = true) =>
+  `(?=.*(?:^|\\s)${name}${whole ? '(?:\\s|$)' : ''})`;
 const FIELD_LOOK = [
-  'border-input ',
-  'bg-input-background',
-  ' focus-visible:ring',
-].join('.*');
+  cls('border-input'),
+  cls('bg-input-background'),
+  cls('focus-visible:ring', false),
+].join('');
 const FIELD_SELECTORS = [
   {
     selector: `:matches(Literal, TemplateElement[value.raw]):matches([value=/${FIELD_LOOK}/], [value.raw=/${FIELD_LOOK}/])`,
