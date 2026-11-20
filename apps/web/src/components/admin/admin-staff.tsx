@@ -1,12 +1,17 @@
 'use client';
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { AdminAccess, problemText } from '@/components/admin/admin-access';
 import {
-  AdminAccess,
-  problemText,
-  WRAPPING_BUTTON,
-} from '@/components/admin/admin-access';
-import { Button, Select } from '@heisreal/web-ui';
+  Button,
+  Card,
+  Field,
+  FieldError,
+  FieldHint,
+  FieldLabel,
+  Input,
+  Select,
+} from '@heisreal/web-ui';
 import type { ApiUser } from '@/lib/api-user';
 
 type StaffRole = 'Moderator' | 'Admin';
@@ -134,12 +139,9 @@ function Staff({ client }: { client: ApiUser }) {
   }
   if (loaded.status === 'failed') {
     return (
-      <p
-        role="alert"
-        className="rounded-2xl border border-destructive bg-card p-6"
-      >
-        {loaded.message}
-      </p>
+      <Card asChild tone="destructive" className="p-6">
+        <p role="alert">{loaded.message}</p>
+      </Card>
     );
   }
 
@@ -157,131 +159,126 @@ function Staff({ client }: { client: ApiUser }) {
         </div>
       )}
 
-      <form
-        onSubmit={add}
-        noValidate
-        className="space-y-4 rounded-2xl border border-border bg-card p-4 sm:p-6"
-        aria-labelledby={`${id}-add`}
-      >
-        <h2 id={`${id}-add`} className="text-lg font-semibold">
-          Add someone
-        </h2>
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
-          <div className="min-w-0 flex-1">
-            <label
-              htmlFor={`${id}-email`}
-              className="mb-1 block font-medium text-foreground"
-            >
-              Email
-            </label>
-            <input
-              id={`${id}-email`}
-              type="email"
-              autoComplete="off"
-              value={email}
-              aria-invalid={emailError ? true : undefined}
-              aria-describedby={`${id}-email-hint${emailError ? ` ${id}-email-error` : ''}`}
-              onChange={(e) => setEmail(e.target.value)}
-              className="min-h-11 w-full rounded-lg border border-input bg-input-background px-3 py-2 text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none aria-[invalid=true]:border-destructive"
-            />
-          </div>
-          <div>
-            <label
-              htmlFor={`${id}-role`}
-              className="mb-1 block font-medium text-foreground"
-            >
-              Role
-            </label>
-            <Select
-              id={`${id}-role`}
-              wrapperClassName="w-full sm:w-44"
-              value={role}
-              options={ROLE_OPTIONS}
-              onValueChange={(v) => setRole(v as StaffRole)}
-            />
-          </div>
-          <Button type="submit" className={WRAPPING_BUTTON} disabled={busy}>
-            Add
-          </Button>
-        </div>
-        <p id={`${id}-email-hint`} className="text-sm text-secondary-text">
-          Only @heisreal.today addresses. They create an account with that
-          address first, then you add them here.
-        </p>
-        {emailError && (
-          <p id={`${id}-email-error`} className="text-sm text-destructive">
-            {emailError}
-          </p>
-        )}
-      </form>
+      <Card asChild className="space-y-4 p-4 sm:p-6">
+        <form
+          onSubmit={add}
+          noValidate
+
+          aria-labelledby={`${id}-add`}
+        >
+          <h2 id={`${id}-add`} className="text-lg font-semibold">
+            Add someone
+          </h2>
+          <Field id={`${id}-email`} hint error={emailError}>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+              <div className="min-w-0 flex-1">
+                <FieldLabel>Email</FieldLabel>
+                <Input
+                  size="form"
+                  type="email"
+                  autoComplete="off"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor={`${id}-role`}
+                  className="mb-1 block font-medium text-foreground"
+                >
+                  Role
+                </label>
+                <Select
+                  id={`${id}-role`}
+                  wrapperClassName="w-full sm:w-44"
+                  value={role}
+                  options={ROLE_OPTIONS}
+                  onValueChange={(v) => setRole(v as StaffRole)}
+                />
+              </div>
+              <Button type="submit" wrap disabled={busy}>
+                Add
+              </Button>
+            </div>
+            <FieldHint>
+              Only @heisreal.today addresses. They create an account with that
+              address first, then you add them here.
+            </FieldHint>
+            <FieldError />
+          </Field>
+        </form>
+      </Card>
 
       <section aria-labelledby={`${id}-list`} className="space-y-3">
         <h2 id={`${id}-list`} className="text-lg font-semibold">
           Staff
         </h2>
-        <ul className="divide-y divide-border rounded-2xl border border-border bg-card">
-          {loaded.members.map((m) => (
-            <li
-              key={m.email}
-              className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
-              data-staff-member={m.email}
-            >
-              <div className="min-w-0">
-                <p className="font-medium [overflow-wrap:anywhere]">
-                  {m.email}
-                </p>
-                <p className="text-sm text-secondary-text [overflow-wrap:anywhere]">
-                  {m.baseline ? 'Baseline admin. ' : ''}
-                  Added {m.addedBy
-                    ? `by ${m.addedBy}`
-                    : 'by the deploy'} on {day(m.addedAt)}.
-                </p>
-              </div>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                <label className="sr-only" htmlFor={`${id}-${m.email}`}>
-                  Role for {m.email}
-                </label>
-                <Select
-                  id={`${id}-${m.email}`}
-                  wrapperClassName="w-full sm:w-40"
-                  value={m.role}
-                  options={ROLE_OPTIONS}
-                  disabled={busy}
-                  onValueChange={(v) => {
-                    const next = v as StaffRole;
-                    void change(
-                      () =>
-                        client.command(path(m.email), {
-                          method: 'PUT',
-                          body: { role: next },
-                        }),
-                      `${m.email} is now ${next === 'Admin' ? 'an Admin' : 'a Moderator'}.`,
-                    );
-                  }}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={WRAPPING_BUTTON}
-                  disabled={busy}
-                  aria-label={`Remove ${m.email}`}
-                  onClick={() => setRemoving(m.email)}
-                >
-                  Remove
-                </Button>
-              </div>
-            </li>
-          ))}
-        </ul>
+        <Card asChild className="divide-y divide-border">
+          <ul>
+            {loaded.members.map((m) => (
+              <li
+                key={m.email}
+                className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
+                data-staff-member={m.email}
+              >
+                <div className="min-w-0">
+                  <p className="font-medium [overflow-wrap:anywhere]">
+                    {m.email}
+                  </p>
+                  <p className="text-sm text-secondary-text [overflow-wrap:anywhere]">
+                    {m.baseline ? 'Baseline admin. ' : ''}
+                    Added {m.addedBy
+                      ? `by ${m.addedBy}`
+                      : 'by the deploy'} on {day(m.addedAt)}.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <label className="sr-only" htmlFor={`${id}-${m.email}`}>
+                    Role for {m.email}
+                  </label>
+                  <Select
+                    id={`${id}-${m.email}`}
+                    wrapperClassName="w-full sm:w-40"
+                    value={m.role}
+                    options={ROLE_OPTIONS}
+                    disabled={busy}
+                    onValueChange={(v) => {
+                      const next = v as StaffRole;
+                      void change(
+                        () =>
+                          client.command(path(m.email), {
+                            method: 'PUT',
+                            body: { role: next },
+                          }),
+                        `${m.email} is now ${next === 'Admin' ? 'an Admin' : 'a Moderator'}.`,
+                      );
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    wrap
+                    disabled={busy}
+                    aria-label={`Remove ${m.email}`}
+                    onClick={() => setRemoving(m.email)}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Card>
       </section>
 
       {removing && (
-        <div
+        <Card
           ref={confirmRef}
           tabIndex={-1}
           role="alertdialog"
           aria-labelledby={`${id}-confirm`}
-          className="space-y-4 rounded-2xl border border-primary bg-card p-4 sm:p-6"
+          tone="primary"
+          className="space-y-4 p-4 sm:p-6"
         >
           <p id={`${id}-confirm`} className="[overflow-wrap:anywhere]">
             Remove {removing} from the staff? They become a User.
@@ -289,7 +286,7 @@ function Staff({ client }: { client: ApiUser }) {
           <div className="flex flex-col gap-3 sm:flex-row">
             <Button
               type="button"
-              className={WRAPPING_BUTTON}
+              wrap
               onClick={() => {
                 const who = removing;
                 setRemoving(null);
@@ -304,13 +301,13 @@ function Staff({ client }: { client: ApiUser }) {
             <Button
               type="button"
               variant="outline"
-              className={WRAPPING_BUTTON}
+              wrap
               onClick={() => setRemoving(null)}
             >
               Cancel
             </Button>
           </div>
-        </div>
+        </Card>
       )}
     </section>
   );

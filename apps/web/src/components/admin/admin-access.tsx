@@ -14,6 +14,7 @@ import {
 } from '@/lib/api-user';
 import { usePersonalSession } from '@/lib/personal-session';
 import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
+import { Card } from '@heisreal/web-ui';
 
 type Role = Account['role'];
 /** D1's order: each role can do what the ones before it can (S-1: Moderator, then Admin). */
@@ -81,10 +82,6 @@ export function useStaffNavLinks(): {
       account.status === 'failed',
   };
 }
-
-/** A button whose words may wrap (200% text on a 320 px phone): full width there. */
-export const WRAPPING_BUTTON =
-  'h-auto min-h-11 w-full px-5 py-2 whitespace-normal sm:w-auto';
 
 /**
  * What to tell an admin when api-admin refused what they sent (an input refusal's own message,
@@ -168,41 +165,39 @@ export function AdminAccess({
   }
   if (session.status !== 'signed-in') {
     return (
-      <p
-        className="rounded-2xl border border-border bg-card p-6"
-        data-admin-refused=""
-      >
-        {min === 'Moderator'
-          ? 'Sign in with a moderator account to use this page.'
-          : 'Sign in with an admin account to use this page.'}
-      </p>
+      <Card asChild className="p-6">
+        <p data-admin-refused="">
+          {min === 'Moderator'
+            ? 'Sign in with a moderator account to use this page.'
+            : 'Sign in with an admin account to use this page.'}
+        </p>
+      </Card>
     );
   }
   if (!client) {
     return (
-      <p className="rounded-2xl border border-border bg-card p-6">
-        The admin service isn’t available on this site.
-      </p>
+      <Card asChild className="p-6">
+        <p>The admin service isn’t available on this site.</p>
+      </Card>
     );
   }
   if (account.status === 'failed') {
     // The account couldn't be read: that's on our side, not a refusal.
     return (
-      <p role="alert" className="rounded-2xl border border-border bg-card p-6">
-        {TRY_AGAIN_LATER}
-      </p>
+      <Card asChild className="p-6">
+        <p role="alert">{TRY_AGAIN_LATER}</p>
+      </Card>
     );
   }
   if (!atLeast(role, min)) {
     return (
-      <p
-        className="rounded-2xl border border-border bg-card p-6"
-        data-admin-refused=""
-      >
-        {min === 'Moderator'
-          ? 'This page is for moderators.'
-          : 'This page is for admins.'}
-      </p>
+      <Card asChild className="p-6">
+        <p data-admin-refused="">
+          {min === 'Moderator'
+            ? 'This page is for moderators.'
+            : 'This page is for admins.'}
+        </p>
+      </Card>
     );
   }
   return <>{children(client)}</>;

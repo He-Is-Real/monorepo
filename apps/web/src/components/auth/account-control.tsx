@@ -4,7 +4,7 @@ import { SignOutButton, useAuth, useUser } from '@clerk/react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { Popover } from 'radix-ui';
 import { cloneElement, type ReactElement, useEffect, useState } from 'react';
-import { Button } from '@heisreal/web-ui';
+import { Button, PopoverPanel } from '@heisreal/web-ui';
 import { useAccountBootstrap } from '@/components/auth/account-bootstrap';
 import { usePublishPersonalSession } from '@/lib/personal-session';
 import { signInHref } from '@/lib/return-path';
@@ -117,42 +117,33 @@ export function SignedInAccount({
           <path d="M6 9l6 6 6-6" />
         </svg>
       </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content
-          side="bottom"
-          align="end"
-          sideOffset={8}
-          collisionPadding={16}
-          aria-label="Account"
-          className="z-50 max-h-[var(--radix-popover-content-available-height)] w-64 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-2xl border border-border-hover bg-card p-4 text-card-foreground shadow-2xl outline-none data-[state=open]:animate-in data-[state=open]:fade-in data-[state=open]:zoom-in-95"
+      <PopoverPanel aria-label="Account" className="p-4">
+        <p className="mb-3 text-sm text-secondary-text [overflow-wrap:anywhere]">
+          Signed in as{' '}
+          <span className="font-medium text-foreground">{name}</span>
+        </p>
+        <a
+          href="/account"
+          className="mb-2 flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
-          <p className="mb-3 text-sm text-secondary-text [overflow-wrap:anywhere]">
-            Signed in as{' '}
-            <span className="font-medium text-foreground">{name}</span>
-          </p>
-          <a
-            href="/account"
-            className="mb-2 flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent hover:text-foreground"
+          <svg
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+            className="size-4 fill-none stroke-current"
+            strokeWidth="2"
+            strokeLinecap="round"
           >
-            <svg
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-              className="size-4 fill-none stroke-current"
-              strokeWidth="2"
-              strokeLinecap="round"
-            >
-              <circle cx="12" cy="8" r="4" />
-              <path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" />
-            </svg>
-            My profile
-          </a>
-          {signOut(
-            <Button variant="outline" className="h-11 w-full">
-              Sign out
-            </Button>,
-          )}
-        </Popover.Content>
-      </Popover.Portal>
+            <circle cx="12" cy="8" r="4" />
+            <path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" />
+          </svg>
+          My profile
+        </a>
+        {signOut(
+          <Button variant="outline" className="h-11 w-full">
+            Sign out
+          </Button>,
+        )}
+      </PopoverPanel>
     </Popover.Root>
   );
 }

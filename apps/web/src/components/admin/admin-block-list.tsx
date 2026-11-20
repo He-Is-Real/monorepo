@@ -1,12 +1,16 @@
 'use client';
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { AdminAccess, problemText } from '@/components/admin/admin-access';
 import {
-  AdminAccess,
-  problemText,
-  WRAPPING_BUTTON,
-} from '@/components/admin/admin-access';
-import { Button } from '@heisreal/web-ui';
+  Button,
+  Card,
+  Field,
+  FieldError,
+  FieldHint,
+  FieldLabel,
+  Input,
+} from '@heisreal/web-ui';
 import type { ApiUser } from '@/lib/api-user';
 
 /** The contract's `BlockedEmail` and `BlockedIp`. */
@@ -138,12 +142,9 @@ function Blocks({
   }
   if (loaded.status === 'failed') {
     return (
-      <p
-        role="alert"
-        className="rounded-2xl border border-destructive bg-card p-6"
-      >
-        {loaded.message}
-      </p>
+      <Card asChild tone="destructive" className="p-6">
+        <p role="alert">{loaded.message}</p>
+      </Card>
     );
   }
 
@@ -233,77 +234,65 @@ function BlockPart({
       <h2 id={`${id}-heading`} className="text-lg font-semibold">
         {heading}
       </h2>
-      <form
-        onSubmit={submit}
-        noValidate
-        className="space-y-3 rounded-2xl border border-border bg-card p-4 sm:p-6"
-      >
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
-          <div className="min-w-0 flex-1">
-            <label
-              htmlFor={`${id}-value`}
-              className="mb-1 block font-medium text-foreground"
-            >
-              {label}
-            </label>
-            <input
-              id={`${id}-value`}
-              type={kind === 'emails' ? 'email' : 'text'}
-              inputMode={kind === 'emails' ? 'email' : 'text'}
-              autoComplete="off"
-              spellCheck={false}
-              value={value}
-              aria-invalid={error ? true : undefined}
-              aria-describedby={`${id}-hint${error ? ` ${id}-error` : ''}`}
-              onChange={(e) => setValue(e.target.value)}
-              className="min-h-11 w-full rounded-lg border border-input bg-input-background px-3 py-2 text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none aria-[invalid=true]:border-destructive"
-            />
-          </div>
-          <Button type="submit" className={WRAPPING_BUTTON} disabled={busy}>
-            Block
-          </Button>
-        </div>
-        <p id={`${id}-hint`} className="text-sm text-secondary-text">
-          {hint}
-        </p>
-        {error && (
-          <p id={`${id}-error`} className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
-      </form>
+      <Card asChild className="space-y-3 p-4 sm:p-6">
+        <form onSubmit={submit} noValidate>
+          <Field id={`${id}-value`} hint error={error}>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+              <div className="min-w-0 flex-1">
+                <FieldLabel>{label}</FieldLabel>
+                <Input
+                  size="form"
+                  type={kind === 'emails' ? 'email' : 'text'}
+                  inputMode={kind === 'emails' ? 'email' : 'text'}
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                />
+              </div>
+              <Button type="submit" wrap disabled={busy}>
+                Block
+              </Button>
+            </div>
+            <FieldHint>{hint}</FieldHint>
+            <FieldError />
+          </Field>
+        </form>
+      </Card>
       {entries.length === 0 ? (
         <p className="text-secondary-text">{empty}</p>
       ) : (
-        <ul className="divide-y divide-border rounded-2xl border border-border bg-card">
-          {entries.map((e) => (
-            <li
-              key={e.value}
-              className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
-              data-blocked={e.value}
-            >
-              <div className="min-w-0">
-                <p className="font-medium [overflow-wrap:anywhere]">
-                  {e.value}
-                </p>
-                <p className="text-sm text-secondary-text [overflow-wrap:anywhere]">
-                  Blocked {e.addedBy ? `by ${e.addedBy} ` : ''}on{' '}
-                  {day(e.addedAt)}.
-                </p>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                className={WRAPPING_BUTTON}
-                disabled={busy}
-                aria-label={`Unblock ${e.value}`}
-                onClick={() => onRemove(kind, e.value)}
+        <Card asChild className="divide-y divide-border">
+          <ul>
+            {entries.map((e) => (
+              <li
+                key={e.value}
+                className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
+                data-blocked={e.value}
               >
-                Unblock
-              </Button>
-            </li>
-          ))}
-        </ul>
+                <div className="min-w-0">
+                  <p className="font-medium [overflow-wrap:anywhere]">
+                    {e.value}
+                  </p>
+                  <p className="text-sm text-secondary-text [overflow-wrap:anywhere]">
+                    Blocked {e.addedBy ? `by ${e.addedBy} ` : ''}on{' '}
+                    {day(e.addedAt)}.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  wrap
+                  disabled={busy}
+                  aria-label={`Unblock ${e.value}`}
+                  onClick={() => onRemove(kind, e.value)}
+                >
+                  Unblock
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </Card>
       )}
     </section>
   );

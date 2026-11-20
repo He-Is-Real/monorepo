@@ -2,8 +2,8 @@
 
 import Link from 'next/link';
 import { useMemo, useRef, useEffect, useState } from 'react';
-import { useRole, WRAPPING_BUTTON } from '@/components/admin/admin-access';
-import { Button } from '@heisreal/web-ui';
+import { useRole } from '@/components/admin/admin-access';
+import { Button, Card } from '@heisreal/web-ui';
 import { apiUser, type ApiUser } from '@/lib/api-user';
 import { usePersonalSession } from '@/lib/personal-session';
 import {
@@ -95,57 +95,62 @@ function TakeDown({ storyId, client }: { storyId: string; client: ApiUser }) {
   }
 
   return (
-    <section
-      aria-labelledby="take-down-heading"
-      className="mx-auto mt-12 w-full max-w-measure min-w-0 rounded-2xl border border-border bg-card p-4 sm:p-6"
-      data-take-down=""
+    <Card
+      asChild
+      className="mx-auto mt-12 w-full max-w-measure min-w-0 p-4 sm:p-6"
     >
-      <h2 id="take-down-heading" className="mb-4 text-xl font-semibold">
-        For moderators
-      </h2>
-      {(state.step === 'closed' || state.step === 'opening') && (
-        <Button
-          variant="outline"
-          className={WRAPPING_BUTTON}
-          disabled={state.step === 'opening'}
-          onClick={() => void open()}
-        >
-          Take down
-        </Button>
-      )}
-      {state.step === 'open' && (
-        <>
-          <NoteForm
-            kind="hide"
-            busy={state.busy}
-            onSubmit={(body) => void takeDown(state.story, body)}
-            onCancel={() => setState({ step: 'closed' })}
-          />
-          {state.refusal && (
-            <p role="alert" className="mt-4" data-decision-refused="">
-              {state.refusal}
-            </p>
-          )}
-        </>
-      )}
-      {(state.step === 'done' || state.step === 'problem') && (
-        <>
-          <p
-            ref={doneRef}
-            tabIndex={-1}
-            role="status"
-            className="font-semibold outline-none"
-            data-take-down-notice={state.step}
+      <section
+        aria-labelledby="take-down-heading"
+
+        data-take-down=""
+      >
+        <h2 id="take-down-heading" className="mb-4 text-xl font-semibold">
+          For moderators
+        </h2>
+        {(state.step === 'closed' || state.step === 'opening') && (
+          <Button
+            variant="outline"
+            wrap
+            disabled={state.step === 'opening'}
+            onClick={() => void open()}
           >
-            {state.step === 'done' ? DONE.hide : state.message}
-          </p>
-          <p className="mt-2">
-            <Link href={review} className="inline-flex min-h-11 items-center">
-              Open its review page
-            </Link>
-          </p>
-        </>
-      )}
-    </section>
+            Take down
+          </Button>
+        )}
+        {state.step === 'open' && (
+          <>
+            <NoteForm
+              kind="hide"
+              busy={state.busy}
+              onSubmit={(body) => void takeDown(state.story, body)}
+              onCancel={() => setState({ step: 'closed' })}
+            />
+            {state.refusal && (
+              <p role="alert" className="mt-4" data-decision-refused="">
+                {state.refusal}
+              </p>
+            )}
+          </>
+        )}
+        {(state.step === 'done' || state.step === 'problem') && (
+          <>
+            <p
+              ref={doneRef}
+              tabIndex={-1}
+              role="status"
+              className="font-semibold outline-none"
+              data-take-down-notice={state.step}
+            >
+              {state.step === 'done' ? DONE.hide : state.message}
+            </p>
+            <p className="mt-2">
+              <Link href={review} className="inline-flex min-h-11 items-center">
+                Open its review page
+              </Link>
+            </p>
+          </>
+        )}
+      </section>
+    </Card>
   );
 }

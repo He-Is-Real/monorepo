@@ -9,6 +9,7 @@ import { ClerkYourData, FixtureYourData } from '@/components/account/your-data';
 import { NarrowColumn, PageHeader } from '@/components/page/page-header';
 import { clerkPublishableKey, e2eFixtures } from '@/lib/config';
 import { pageMetadata } from '@/lib/seo';
+import { Card } from '@heisreal/web-ui';
 
 /** Never indexed: it's personal, and the same empty shell for every visitor. */
 export function generateMetadata(): Metadata {
@@ -43,10 +44,12 @@ export default async function ProfilePage() {
           lead="Your stories, your account and your choices. Only you can see this page."
         />
         <noscript>
-          <p className="mb-6 rounded-2xl border border-border bg-card p-6 text-center">
-            Your profile needs JavaScript. Please turn it on, or use a browser
-            that has it, to see it.
-          </p>
+          <Card asChild className="mb-6 p-6 text-center">
+            <p>
+              Your profile needs JavaScript. Please turn it on, or use a browser
+              that has it, to see it.
+            </p>
+          </Card>
         </noscript>
         <MySubmissions />
         {manage && (
@@ -54,13 +57,13 @@ export default async function ProfilePage() {
             <h2 id="your-account" className="mb-5 text-2xl font-normal">
               Your account
             </h2>
-            <div className="rounded-2xl border border-border bg-card p-5 sm:p-6">
+            <Card className="p-5 sm:p-6">
               <p className="mb-4 text-secondary-text">
                 Your name, email address, password and Google sign-in are kept
                 by our sign-in provider, Clerk. Change them there.
               </p>
               {manage}
-            </div>
+            </Card>
           </section>
         )}
         {e2eFixtures() ? (

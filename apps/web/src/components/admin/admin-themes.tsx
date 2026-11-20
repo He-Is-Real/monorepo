@@ -20,12 +20,15 @@ import {
   useRef,
   useState,
 } from 'react';
+import { AdminAccess, problemText } from '@/components/admin/admin-access';
 import {
-  AdminAccess,
-  problemText,
-  WRAPPING_BUTTON,
-} from '@/components/admin/admin-access';
-import { Button, Select } from '@heisreal/web-ui';
+  Button,
+  Card,
+  Field,
+  FieldLabel,
+  Input,
+  Select,
+} from '@heisreal/web-ui';
 import { type ApiUser, StaleVersion } from '@/lib/api-user';
 import {
   type AdminThemes as Loaded,
@@ -58,8 +61,6 @@ const PILL =
   'inline-flex min-h-11 max-w-full items-center rounded-full border border-border bg-card text-sm text-foreground';
 const SMALL_BUTTON =
   'inline-flex min-h-11 min-w-11 items-center justify-center rounded-md px-2 text-sm font-medium text-link hover:text-link-hover';
-const INPUT =
-  'min-h-11 w-full rounded-lg border border-input bg-input-background px-3 text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none';
 
 /**
  * /admin/themes (themes plan v3): every category and its themes for Admin and above (api-admin
@@ -108,12 +109,9 @@ function ThemesLoader({ client }: { client: ApiUser }) {
     return <p className="text-secondary-text">Loading the themes…</p>;
   if (loaded.status === 'failed')
     return (
-      <p
-        role="alert"
-        className="rounded-2xl border border-destructive bg-card p-6"
-      >
-        {loaded.message}
-      </p>
+      <Card asChild tone="destructive" className="p-6">
+        <p role="alert">{loaded.message}</p>
+      </Card>
     );
   return (
     <Editor
@@ -362,20 +360,21 @@ function Editor({
       </Locked.Provider>
 
       {(status.kind === 'error' || status.kind === 'stale') && (
-        <div
+        <Card
           ref={alert}
           tabIndex={-1}
           role="alert"
-          className="mt-6 space-y-3 rounded-2xl border border-destructive bg-card p-4 [overflow-wrap:anywhere]"
+          tone="destructive"
+          className="mt-6 space-y-3 p-4 [overflow-wrap:anywhere]"
           data-save-status={status.kind}
         >
           <p>{status.kind === 'stale' ? STALE : status.message}</p>
           {status.kind === 'stale' && (
-            <Button type="button" className={WRAPPING_BUTTON} onClick={reload}>
+            <Button type="button" wrap onClick={reload}>
               Reload
             </Button>
           )}
-        </div>
+        </Card>
       )}
 
       <SaveBar
@@ -470,74 +469,76 @@ function CategorySection({
       </li>
     ));
   return (
-    <section
-      aria-labelledby={id}
-      className="rounded-2xl border border-border bg-card p-4 sm:p-6"
-      data-category={category.name}
-    >
-      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1">
-        {renaming ? (
-          <NameInput
-            label={`Rename ${category.name}`}
-            initial={category.name}
-            onDone={(name) => {
-              if (name && name !== category.name) onRenameCategory(name);
-              setRenaming(false);
-            }}
-          />
-        ) : (
-          <h2
-            id={id}
-            className="text-xl font-semibold [overflow-wrap:anywhere]"
-          >
-            {category.name}
-          </h2>
-        )}
-        {other ? (
-          <p className="text-sm text-secondary-text">
-            Fixed · themes land here when their category is deleted
-          </p>
-        ) : (
-          !renaming && (
-            <span className="flex flex-wrap">
-              <button
-                type="button"
-                className={SMALL_BUTTON}
-                onClick={() => setRenaming(true)}
-                aria-label={`Rename ${category.name}`}
-              >
-                Rename
-              </button>
-              <button
-                type="button"
-                className={`${SMALL_BUTTON} text-destructive hover:text-destructive`}
-                onClick={onDeleteCategory}
-                aria-label={`Delete category ${category.name}`}
-              >
-                Delete category
-              </button>
-            </span>
-          )
-        )}
-      </div>
-      <Zone
-        id={`${category.id}|highlighted`}
-        label={`★ Highlighted · ${highlighted.length || 'none'}`}
-        empty="Nothing highlighted: these show first wherever people choose themes."
-        addLabel={`Add a highlighted theme to ${category.name}`}
-        onAdd={(name) => onAdd(name, true)}
+    <Card asChild className="p-4 sm:p-6">
+      <section
+        aria-labelledby={id}
+
+        data-category={category.name}
       >
-        {pills(highlighted)}
-      </Zone>
-      <Zone
-        id={`${category.id}|rest`}
-        label="Other themes"
-        addLabel={`Add a theme to ${category.name}`}
-        onAdd={(name) => onAdd(name, false)}
-      >
-        {pills(rest)}
-      </Zone>
-    </section>
+        <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+          {renaming ? (
+            <NameInput
+              label={`Rename ${category.name}`}
+              initial={category.name}
+              onDone={(name) => {
+                if (name && name !== category.name) onRenameCategory(name);
+                setRenaming(false);
+              }}
+            />
+          ) : (
+            <h2
+              id={id}
+              className="text-xl font-semibold [overflow-wrap:anywhere]"
+            >
+              {category.name}
+            </h2>
+          )}
+          {other ? (
+            <p className="text-sm text-secondary-text">
+              Fixed · themes land here when their category is deleted
+            </p>
+          ) : (
+            !renaming && (
+              <span className="flex flex-wrap">
+                <button
+                  type="button"
+                  className={SMALL_BUTTON}
+                  onClick={() => setRenaming(true)}
+                  aria-label={`Rename ${category.name}`}
+                >
+                  Rename
+                </button>
+                <button
+                  type="button"
+                  className={`${SMALL_BUTTON} text-destructive hover:text-destructive`}
+                  onClick={onDeleteCategory}
+                  aria-label={`Delete category ${category.name}`}
+                >
+                  Delete category
+                </button>
+              </span>
+            )
+          )}
+        </div>
+        <Zone
+          id={`${category.id}|highlighted`}
+          label={`★ Highlighted · ${highlighted.length || 'none'}`}
+          empty="Nothing highlighted: these show first wherever people choose themes."
+          addLabel={`Add a highlighted theme to ${category.name}`}
+          onAdd={(name) => onAdd(name, true)}
+        >
+          {pills(highlighted)}
+        </Zone>
+        <Zone
+          id={`${category.id}|rest`}
+          label="Other themes"
+          addLabel={`Add a theme to ${category.name}`}
+          onAdd={(name) => onAdd(name, false)}
+        >
+          {pills(rest)}
+        </Zone>
+      </section>
+    </Card>
   );
 }
 
@@ -704,7 +705,8 @@ function NameInput({
     onDone(name);
   };
   return (
-    <input
+    <Input
+      size="form"
       autoFocus
       aria-label={label}
       maxLength={40}
@@ -718,7 +720,7 @@ function NameInput({
         }
         if (e.key === 'Escape') finish(initial);
       }}
-      className={`${INPUT} min-h-11 w-56 max-w-full rounded-full`}
+      className="w-56 max-w-full rounded-full"
     />
   );
 }
@@ -827,18 +829,17 @@ function ThemePanel({
           onDone({ name: tidy || theme.name, category: where, highlighted });
         }}
       >
-        <div>
-          <label htmlFor={`${id}-name`} className="mb-1 block font-medium">
-            Name
-          </label>
-          <input
-            id={`${id}-name`}
-            className={INPUT}
-            maxLength={40}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </div>
+        <Field id={`${id}-name`}>
+          <div>
+            <FieldLabel>Name</FieldLabel>
+            <Input
+              size="form"
+              maxLength={40}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+        </Field>
         <div>
           <label htmlFor={`${id}-category`} className="mb-1 block font-medium">
             Category
@@ -862,23 +863,13 @@ function ThemePanel({
           />
         </label>
         <div className="flex flex-wrap gap-3">
-          <Button type="submit" className={WRAPPING_BUTTON}>
+          <Button type="submit" wrap>
             Done
           </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className={WRAPPING_BUTTON}
-            onClick={onClose}
-          >
+          <Button type="button" variant="outline" wrap onClick={onClose}>
             Cancel
           </Button>
-          <Button
-            type="button"
-            variant="destructive"
-            className={WRAPPING_BUTTON}
-            onClick={onDelete}
-          >
+          <Button type="button" variant="destructive" wrap onClick={onDelete}>
             Delete theme
           </Button>
         </div>
@@ -923,9 +914,9 @@ function DeleteTheme({
           <label htmlFor={id} className="sr-only">
             Type delete {theme.name}
           </label>
-          <input
+          <Input
+            size="form"
             id={id}
-            className={INPUT}
             autoComplete="off"
             value={typed}
             placeholder={`delete ${theme.name}`}
@@ -933,20 +924,10 @@ function DeleteTheme({
           />
         </div>
         <div className="flex flex-wrap gap-3">
-          <Button
-            type="submit"
-            variant="destructive"
-            className={WRAPPING_BUTTON}
-            disabled={!ok}
-          >
+          <Button type="submit" variant="destructive" wrap disabled={!ok}>
             Delete theme
           </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className={WRAPPING_BUTTON}
-            onClick={onClose}
-          >
+          <Button type="button" variant="outline" wrap onClick={onClose}>
             Cancel
           </Button>
         </div>
@@ -1054,15 +1035,10 @@ function ConfirmSave({
         </div>
       )}
       <div className="flex flex-wrap gap-3">
-        <Button type="button" className={WRAPPING_BUTTON} onClick={onSave}>
+        <Button type="button" wrap onClick={onSave}>
           Save changes
         </Button>
-        <Button
-          type="button"
-          variant="outline"
-          className={WRAPPING_BUTTON}
-          onClick={onClose}
-        >
+        <Button type="button" variant="outline" wrap onClick={onClose}>
           Go back
         </Button>
       </div>

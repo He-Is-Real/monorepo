@@ -10,6 +10,8 @@ import {
 } from 'react';
 import { Select as SelectPrimitive } from 'radix-ui';
 import { cn } from './cn';
+import { COMPACT_FIELD } from './field-style';
+import { useFieldControl } from './field';
 
 export interface SelectOption {
   value: string;
@@ -63,8 +65,8 @@ const EMPTY = '\u0000empty';
 const toRadix = (value: string) => (value === '' ? EMPTY : value);
 const fromRadix = (value: string) => (value === EMPTY ? '' : value);
 
-const field =
-  'h-11 w-full min-w-0 cursor-pointer rounded-lg border border-input bg-input-background py-0 pr-10 pl-3 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50';
+// The text box's compact field (field-style.ts), with room for the chevron.
+const field = `${COMPACT_FIELD} cursor-pointer py-0 pr-10 pl-3`;
 
 /**
  * The site's drop-down (Joel, 2026-10-24 and 2026-11-17): every drop-down is this one.
@@ -76,7 +78,7 @@ const field =
  * `<select>`: forms work without JavaScript and touch screens keep their own picker.
  */
 export function Select({
-  id,
+  id: ownId,
   name,
   options,
   value,
@@ -87,8 +89,15 @@ export function Select({
   required,
   className,
   wrapperClassName,
-  ...aria
+  ...ownAria
 }: SelectProps) {
+  // Inside a Field (field.tsx): its id, hint and error, unless given an id of its own.
+  const { id: fieldId, ...fieldAria } = useFieldControl({
+    id: ownId,
+    ...ownAria,
+  });
+  const id = fieldId ?? ownId;
+  const aria = { ...ownAria, ...fieldAria };
   const themed = useThemedList();
   const [own, setOwn] = useState(defaultValue ?? options[0]?.value ?? '');
   const current = value ?? own;

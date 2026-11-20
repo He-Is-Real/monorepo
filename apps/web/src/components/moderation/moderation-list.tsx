@@ -10,16 +10,12 @@ import {
   useRef,
   useState,
 } from 'react';
-import {
-  AdminAccess,
-  useRole,
-  WRAPPING_BUTTON,
-} from '@/components/admin/admin-access';
+import { AdminAccess, useRole } from '@/components/admin/admin-access';
 import {
   type StoryFormat as Format,
   toggleTheme,
 } from '@heisreal/story-filters';
-import { Button } from '@heisreal/web-ui';
+import { Button, Card, Input } from '@heisreal/web-ui';
 import { ThemeLinks } from '@/components/browse/theme-filter';
 import { FormatSelect } from '@/components/story-filters/format-select';
 import type { ApiUser } from '@/lib/api-user';
@@ -432,7 +428,7 @@ function Search({
       <label htmlFor={id} className="sr-only">
         Search titles
       </label>
-      <input
+      <Input
         id={id}
         type="search"
         value={text}
@@ -440,7 +436,7 @@ function Search({
         onChange={(e) => setText(e.target.value)}
         placeholder="Search titles…"
         autoComplete="off"
-        className="h-11 min-w-40 flex-1 rounded-lg border border-input bg-input-background px-3 text-sm text-foreground outline-none placeholder:text-faint focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30"
+        className="min-w-40 flex-1"
       />
       <Button type="submit" variant="outline" className="h-11 shrink-0 px-4">
         Search
@@ -503,13 +499,15 @@ function List({
   }
   if (loaded.status === 'failed') {
     return (
-      <p
-        role="alert"
-        className="rounded-2xl border border-destructive bg-card p-6"
-        data-moderation-error=""
-      >
-        {loaded.message}
-      </p>
+      <Card asChild tone="destructive" className="p-6">
+        <p
+          role="alert"
+
+          data-moderation-error=""
+        >
+          {loaded.message}
+        </p>
+      </Card>
     );
   }
 
@@ -519,10 +517,7 @@ function List({
   if (loaded.items.length === 0) {
     const filtered = activeFilters(filters) > 0;
     return (
-      <div
-        className="rounded-2xl border border-border bg-card p-6"
-        data-list-empty=""
-      >
+      <Card className="p-6" data-list-empty="">
         <p>
           {filtered ? 'No stories match these filters.' : 'No stories here.'}
         </p>
@@ -536,7 +531,7 @@ function List({
             Clear filters
           </Link>
         )}
-      </div>
+      </Card>
     );
   }
   const waiting = filters.state === 'pending' ? 'Waiting' : 'In this state';
@@ -679,7 +674,7 @@ function List({
           <Button
             type="button"
             variant="outline"
-            className={WRAPPING_BUTTON}
+            wrap
             disabled={loaded.more === 'loading'}
             onClick={more}
           >

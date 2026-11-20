@@ -9,7 +9,15 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Card } from '@/components/page/card';
+import {
+  Card,
+  Field,
+  FieldError,
+  FieldHint,
+  FieldLabel,
+  Input,
+  Textarea,
+} from '@heisreal/web-ui';
 import { agreementTexts } from '@/app/consent/actions';
 import { AgreementStep } from '@/components/consent/agreement-step';
 import {
@@ -196,8 +204,6 @@ const button =
   'inline-flex min-h-11 items-center justify-center rounded-md px-5 text-sm font-semibold transition-colors disabled:opacity-60';
 const primary = `${button} bg-primary text-primary-foreground hover:bg-primary/90`;
 const secondary = `${button} border border-border-hover text-secondary-text hover:border-teal hover:bg-accent hover:text-foreground`;
-const input =
-  'w-full rounded-md border border-input bg-input-background px-3 py-2.5 text-base text-foreground outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50';
 
 export function ShareFlow({
   auth,
@@ -1473,59 +1479,43 @@ function WriteStep({
     >
       <StepHeading heading={heading}>Write your story</StepHeading>
       <div className="flex flex-col gap-5">
-        <div>
-          <label htmlFor="story-title" className="mb-1.5 block font-semibold">
-            Title
-          </label>
-          <input
-            id="story-title"
-            className={input}
-            maxLength={140}
-            value={draft.fields.title}
-            aria-invalid={!!problems.title}
-            aria-describedby={
-              problems.title ? 'story-title-problem' : undefined
-            }
-            onChange={(e) => draft.update({ title: e.target.value })}
-          />
-          {problems.title && (
-            <p
-              id="story-title-problem"
-              className="mt-1 text-sm text-destructive"
-            >
-              {problems.title}
-            </p>
-          )}
-        </div>
-        <div>
-          <label htmlFor="story-body" className="mb-1.5 block font-semibold">
-            Your story
-          </label>
-          <textarea
-            id="story-body"
-            className={`${input} min-h-72 leading-relaxed`}
-            maxLength={limits.storyText.max}
-            value={draft.fields.body}
-            aria-invalid={!!problems.body}
-            aria-describedby="story-body-count"
-            onChange={(e) => draft.update({ body: e.target.value })}
-          />
-          <p id="story-body-count" className="mt-1 text-sm text-secondary-text">
-            {length.toLocaleString('en-GB')} /{' '}
-            {limits.storyText.max.toLocaleString('en-GB')} characters. At least{' '}
-            {limits.storyText.min.toLocaleString('en-GB')} to submit.
-          </p>
-          {fullLength > limits.storyText.max && (
-            <p role="alert" className="mt-1 text-sm text-destructive">
-              This is over the current limit of{' '}
-              {limits.storyText.max.toLocaleString('en-GB')} characters. Shorten
-              it before you submit; your shorter versions are saved as you go.
-            </p>
-          )}
-          {problems.body && (
-            <p className="mt-1 text-sm text-destructive">{problems.body}</p>
-          )}
-        </div>
+        <Field id="story-title" error={problems.title}>
+          <div>
+            <FieldLabel size="writing">Title</FieldLabel>
+            <Input
+              size="writing"
+              maxLength={140}
+              value={draft.fields.title}
+              onChange={(e) => draft.update({ title: e.target.value })}
+            />
+            <FieldError className="mt-1" />
+          </div>
+        </Field>
+        <Field id="story-body" hint error={problems.body}>
+          <div>
+            <FieldLabel size="writing">Your story</FieldLabel>
+            <Textarea
+              className="min-h-72 leading-relaxed"
+              maxLength={limits.storyText.max}
+              value={draft.fields.body}
+              onChange={(e) => draft.update({ body: e.target.value })}
+            />
+            <FieldHint className="mt-1">
+              {length.toLocaleString('en-GB')} /{' '}
+              {limits.storyText.max.toLocaleString('en-GB')} characters. At
+              least {limits.storyText.min.toLocaleString('en-GB')} to submit.
+            </FieldHint>
+            {fullLength > limits.storyText.max && (
+              <p role="alert" className="mt-1 text-sm text-destructive">
+                This is over the current limit of{' '}
+                {limits.storyText.max.toLocaleString('en-GB')} characters.
+                Shorten it before you submit; your shorter versions are saved as
+                you go.
+              </p>
+            )}
+            <FieldError className="mt-1" />
+          </div>
+        </Field>
         <div>
           <p className="mb-1.5 font-semibold">A picture (optional)</p>
           <ImagePanel
@@ -1637,28 +1627,18 @@ function MediaStep({
     >
       <StepHeading heading={heading}>Upload your {noun}</StepHeading>
       <div className="flex flex-col gap-5">
-        <div>
-          <label htmlFor="story-title" className="mb-1.5 block font-semibold">
-            Title
-          </label>
-          <input
-            id="story-title"
-            className={input}
-            maxLength={140}
-            value={draft.fields.title}
-            aria-invalid={!!titleProblem}
-            aria-describedby={titleProblem ? 'story-title-problem' : undefined}
-            onChange={(e) => draft.update({ title: e.target.value })}
-          />
-          {titleProblem && (
-            <p
-              id="story-title-problem"
-              className="mt-1 text-sm text-destructive"
-            >
-              {titleProblem}
-            </p>
-          )}
-        </div>
+        <Field id="story-title" error={titleProblem}>
+          <div>
+            <FieldLabel size="writing">Title</FieldLabel>
+            <Input
+              size="writing"
+              maxLength={140}
+              value={draft.fields.title}
+              onChange={(e) => draft.update({ title: e.target.value })}
+            />
+            <FieldError className="mt-1" />
+          </div>
+        </Field>
         <div>
           <p className="mb-1.5 font-semibold">Your {noun}</p>
           {/* Part 1a: the file sent before couldn't be used. P1-6 A (Joel, 2026-11-14): for an
@@ -1796,48 +1776,48 @@ function DetailsStep({
     >
       <StepHeading heading={heading}>Add some details</StepHeading>
       <div className="flex flex-col gap-6">
-        <div>
-          <label htmlFor="story-name" className="mb-1.5 block font-semibold">
-            Your first name{' '}
-            <span className="font-normal text-secondary-text">(optional)</span>
-          </label>
-          <input
-            id="story-name"
-            className={`${input} placeholder:text-secondary-text focus:placeholder:text-transparent`}
-            placeholder="Anonymous"
-            maxLength={80}
-            autoComplete="given-name"
-            value={draft.fields.bylineName}
-            aria-describedby="story-name-hint"
-            onChange={(e) => draft.update({ bylineName: e.target.value })}
-          />
-          <p id="story-name-hint" className="mt-1 text-sm text-secondary-text">
-            Shown with your story. Leave it empty to share as Anonymous.
-          </p>
-        </div>
-        <div>
-          <label
-            htmlFor="story-description"
-            className="mb-1.5 block font-semibold"
-          >
-            Brief description{' '}
-            <span className="font-normal text-secondary-text">(optional)</span>
-          </label>
-          <textarea
-            id="story-description"
-            className={`${input} min-h-24`}
-            maxLength={5000}
-            value={draft.fields.description}
-            aria-describedby="story-description-hint"
-            onChange={(e) => draft.update({ description: e.target.value })}
-          />
-          <p
-            id="story-description-hint"
-            className="mt-1 text-sm text-secondary-text"
-          >
-            In a sentence or two, what is your story about?
-          </p>
-        </div>
+        <Field id="story-name" hint>
+          <div>
+            <FieldLabel size="writing">
+              Your first name{' '}
+              <span className="font-normal text-secondary-text">
+                (optional)
+              </span>
+            </FieldLabel>
+            {/* "Anonymous" is the name it shows when left empty, so it reads as text, not a faint example. */}
+            <Input
+              size="writing"
+              className="placeholder:text-secondary-text focus:placeholder:text-transparent"
+              placeholder="Anonymous"
+              maxLength={80}
+              autoComplete="given-name"
+              value={draft.fields.bylineName}
+              onChange={(e) => draft.update({ bylineName: e.target.value })}
+            />
+            <FieldHint className="mt-1">
+              Shown with your story. Leave it empty to share as Anonymous.
+            </FieldHint>
+          </div>
+        </Field>
+        <Field id="story-description" hint>
+          <div>
+            <FieldLabel size="writing">
+              Brief description{' '}
+              <span className="font-normal text-secondary-text">
+                (optional)
+              </span>
+            </FieldLabel>
+            <Textarea
+              className="min-h-24"
+              maxLength={5000}
+              value={draft.fields.description}
+              onChange={(e) => draft.update({ description: e.target.value })}
+            />
+            <FieldHint className="mt-1">
+              In a sentence or two, what is your story about?
+            </FieldHint>
+          </div>
+        </Field>
         <fieldset aria-describedby="story-themes-hint">
           <legend className="mb-1.5 font-semibold">
             Which themes fit your story?

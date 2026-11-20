@@ -1,5 +1,5 @@
 import { ButtonLink } from '@/components/page/button-link';
-import { Card } from '@/components/page/card';
+import { Card } from '@heisreal/web-ui';
 import { NarrowColumn, PageHeader } from '@/components/page/page-header';
 import { pageMetadata } from '@/lib/seo';
 

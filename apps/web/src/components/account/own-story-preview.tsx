@@ -9,10 +9,9 @@ import { type ApiUser, ApiUserProblem } from '@/lib/api-user';
 import { signInHref } from '@/lib/return-path';
 import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 import { useOwnData } from './use-own-data';
+import { Card } from '@heisreal/web-ui';
 
 type Read = { story: MyStory } | { gone: true };
-
-const box = 'rounded-2xl border border-border bg-card p-6';
 
 /**
  * "See your story as others will" (M3 plan PR 2, part 1b B; Joel, 2026-11-10, P1b-1 C): the
@@ -43,17 +42,19 @@ export function OwnStoryPreview({ id }: { id: string }) {
 
   if (state.status === 'signed-out') {
     return (
-      <p className={box}>
-        <a
-          href={signInHref(
-            `/account/stories/${encodeURIComponent(id)}/preview`,
-          )}
-          className="inline-flex min-h-11 items-center font-semibold"
-        >
-          Sign in
-        </a>{' '}
-        to see your story’s preview.
-      </p>
+      <Card asChild className="p-6">
+        <p>
+          <a
+            href={signInHref(
+              `/account/stories/${encodeURIComponent(id)}/preview`,
+            )}
+            className="inline-flex min-h-11 items-center font-semibold"
+          >
+            Sign in
+          </a>{' '}
+          to see your story’s preview.
+        </p>
+      </Card>
     );
   }
   if (state.status === 'loading') {
@@ -67,20 +68,24 @@ export function OwnStoryPreview({ id }: { id: string }) {
   }
   if (state.status === 'failed') {
     return (
-      <p role="alert" className={box} data-preview-error="">
-        {TRY_AGAIN_LATER}
-      </p>
+      <Card asChild className="p-6">
+        <p role="alert" data-preview-error="">
+          {TRY_AGAIN_LATER}
+        </p>
+      </Card>
     );
   }
   if ('gone' in state.data) {
     return (
-      <p className={box} data-preview-gone="">
-        This story isn’t available. It may have been deleted, or it belongs to
-        another account.{' '}
-        <Link href="/account" className="inline-flex min-h-11 items-center">
-          Back to your profile
-        </Link>
-      </p>
+      <Card asChild className="p-6">
+        <p data-preview-gone="">
+          This story isn’t available. It may have been deleted, or it belongs to
+          another account.{' '}
+          <Link href="/account" className="inline-flex min-h-11 items-center">
+            Back to your profile
+          </Link>
+        </p>
+      </Card>
     );
   }
   const { story } = state.data;

@@ -115,6 +115,10 @@ real-SurrealDB suites use `vitest.integration.config.mts` with libs/database's g
 `apps/web` uses Jest.
 
 **Web UI building blocks** live in `libs/web-ui` (`@heisreal/web-ui`): pages use them instead of their own
-styled copies, and every drop-down is its `Select` (`docs/how-the-app-works.md`, technical decisions).
+styled copies (`docs/how-the-app-works.md`, technical decisions; `libs/web-ui/README.md`). Every drop-down is
+its `Select`, every text box its `Input`, every text area its `Textarea` (with `Field`, `FieldLabel`, `FieldHint`
+and `FieldError` for the label, hint and error wiring), every bordered panel its `Card`, every pop-up menu panel
+its `PopoverPanel`, and buttons whose words may wrap are `Button wrap`. Pages pass layout classes only (width,
+margins, padding, grid placement); a copied field class string fails lint.
 
 Run tasks through Nx with the package manager prefix (`pnpm nx run-many -t lint test build typecheck`, `pnpm nx affected -t ...`). Check `pnpm nx <target> --help` rather than guessing flags. Scaffold with the Nx generators (`pnpm nx g ...`).
