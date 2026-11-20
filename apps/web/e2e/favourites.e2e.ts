@@ -9,7 +9,9 @@ import {
 } from '@playwright/test';
 import { BEHAVIOUR_DEVICES, SCREENSHOT_DEVICES } from './devices';
 import {
+  browseFilters,
   chooseOption,
+  closeBrowseFilters,
   countFetches,
   expectAllTargets,
   expectNoHorizontalOverflow,
@@ -282,12 +284,19 @@ test.describe('hearts', () => {
     );
     await page.keyboard.press('Escape');
     await page.goto(`${WEB_SIGNED_IN_URL}/stories`);
-    const only = page.getByRole('switch', { name: 'Favourites only' });
+    const only = page.getByRole('switch', {
+      name: 'Favourites only',
+      // On a phone it's in the Filters panel, hidden until that opens (BS-1 C).
+      includeHidden: true,
+    });
     await expect(only).not.toBeChecked();
     await expect(page.getByRole('search', { name: 'Stories' })).toBeVisible();
+    // In the filters column, or the Filters panel on a phone (BS-1 C).
+    await browseFilters(page);
     await only.click();
     await expect(only).toBeChecked();
     await expect(page).toHaveURL(FAVOURITES_ONLY);
+    await closeBrowseFilters(page);
     // Only the hearted story; the filters stay (they filter the favourites).
     await expect(page.locator('main article h2')).toHaveText([title]);
     await expect(page.getByRole('search', { name: 'Stories' })).toBeVisible();
@@ -325,9 +334,14 @@ test.describe('hearts', () => {
     await heartAtStub(request, session, ['browse_05', heartId(project)]);
     // The heart_test theme's favourites: its own story, not browse_05 (another theme).
     await page.goto(`${WEB_SIGNED_IN_URL}${HEART_PAGE}&favourites=1`);
-    const only = page.getByRole('switch', { name: 'Favourites only' });
+    const only = page.getByRole('switch', {
+      name: 'Favourites only',
+      // On a phone it's in the Filters panel, hidden until that opens (BS-1 C).
+      includeHidden: true,
+    });
     await expect(only).toBeChecked();
     await expect(page.locator('main article h2')).toHaveText([title]);
+    await browseFilters(page);
     await only.click();
     await expect(only).not.toBeChecked();
     await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}${HEART_PAGE}`);
@@ -398,11 +412,17 @@ test.describe('hearts', () => {
     await expect(page.getByRole('link', { name: 'My favourites' })).toHaveCount(
       0,
     );
-    const only = page.getByRole('switch', { name: 'Favourites only' });
+    const only = page.getByRole('switch', {
+      name: 'Favourites only',
+      // On a phone it's in the Filters panel, hidden until that opens (BS-1 C).
+      includeHidden: true,
+    });
     await expect(only).not.toBeChecked();
+    await browseFilters(page);
     await only.click();
     await expect(only).toBeChecked();
     await expect(page).toHaveURL('/stories?favourites=1');
+    await closeBrowseFilters(page);
     await expect(page.locator('main article h2')).toHaveText([title]);
     await expect(cardHeart(page, title)).toHaveAttribute(
       'aria-pressed',
@@ -800,23 +820,31 @@ const titlesOf = (...ns: number[]) => ns.map(titleOf);
 // eight stories' formats: 01 video, 02 written, 03 video, 04 audio, 05 written, 06 video,
 // 07 written, 08 video; 04 alone has the themes Depression and Salvation (stub-api.mjs).
 async function filtersOverFavourites(page: Page, base: string) {
-  const only = page.getByRole('switch', { name: 'Favourites only' });
+  const only = page.getByRole('switch', {
+    name: 'Favourites only',
+    // On a phone it's in the Filters panel, hidden until that opens (BS-1 C).
+    includeHidden: true,
+  });
   const cards = page.locator('[data-favourites] article h2');
   await page.goto(`${base}/stories?favourites=1`);
   await expect(only).toBeChecked();
   // Latest first, by when each story was published (as browse), whatever the hearts' order.
   await expect(cards).toHaveText(titlesOf(1, 2, 3, 4, 5, 6, 7, 8));
 
-  const search = page.getByRole('search', { name: 'Stories' });
-  await chooseOption(search.getByLabel('Sort'), 'Oldest first');
+  // Sort and format: in the filters column, or the Filters panel on a phone (BS-1 C).
+  const filters = await browseFilters(page);
+  // The radio's input hides behind its drawn mark: press its line, as a person does.
+  await filters.locator('label').filter({ hasText: 'Oldest first' }).click();
   await expect(page).toHaveURL(/[?&]sort=oldest(&|$)/);
   await expect(page).toHaveURL(/[?&]favourites=1(&|$)/);
   await expect(cards).toHaveText(titlesOf(8, 7, 6, 5, 4, 3, 2, 1));
 
-  await chooseOption(search.getByLabel('Format'), 'Video');
+  await chooseOption(filters.getByLabel('Format'), 'Video');
   await expect(cards).toHaveText(titlesOf(8, 6, 3, 1));
+  await closeBrowseFilters(page);
 
   // Search: every word, in the title, description or theme names, case ignored.
+  const search = page.getByRole('search', { name: 'Stories' });
   await search.getByLabel('Search stories').fill('WRAPS over');
   await search.getByRole('button', { name: 'Search' }).click();
   await expect(only).toBeChecked();

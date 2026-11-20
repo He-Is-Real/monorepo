@@ -7,6 +7,7 @@ import {
 } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import {
+  browseFilters,
   chooseOption,
   expectAllTargets,
   expectChosen,
@@ -107,6 +108,12 @@ for (const scheme of ['light', 'dark'] as const) {
       await expectNoHorizontalOverflow(page);
       await expectAllTargets(page);
       await shots(page, info.project.name, scheme, 'browse');
+      // With filters chosen: the chips under the search box on tablets and phones (BS-1 C).
+      await page.goto('/stories?theme=hope&format=video&sort=oldest');
+      await expect(page.getByText('Video stories about Hope')).toBeVisible();
+      await expectNoHorizontalOverflow(page);
+      await expectAllTargets(page);
+      await shots(page, info.project.name, scheme, 'browse-filtered');
 
       await page.goto('/stories?q=nothing-matches-this');
       await expect(
@@ -250,7 +257,10 @@ test.describe('behaviour', () => {
     page,
   }) => {
     await page.goto('/stories');
-    const themes = page.getByRole('navigation', { name: 'Themes' });
+    // In the filters column, or the Filters panel on a phone (BS-1 C).
+    const themes = (await browseFilters(page)).getByRole('navigation', {
+      name: 'Themes',
+    });
     const headings = themes.getByRole('heading', { level: 3 });
     await expect(headings).toHaveText(['Feelings', 'Topics']);
     await expect(themes.getByRole('link', { name: 'Gratitude' })).toBeVisible();
@@ -380,8 +390,10 @@ test.describe('behaviour', () => {
 
   test('keyboard: skip link first, filters before the cards', async ({
     page,
-  }) => {
+  }, info) => {
     await page.goto('/stories');
+    // The switch shows once the page's JavaScript has run (it's in the order then).
+    await expect(page.locator('[data-favourites-only]')).toBeAttached();
     await page.keyboard.press('Tab');
     await expect(
       page.getByRole('link', { name: 'Skip to content' }),
@@ -397,8 +409,16 @@ test.describe('behaviour', () => {
       order.push(label);
       if (label === 'card') break;
     }
-    expect(order.indexOf('Search')).toBeGreaterThan(-1);
-    expect(order.indexOf('Healing')).toBeGreaterThan(order.indexOf('Search'));
+    // The search box's magnifier first; then, on a computer, the filters column (BS-1 C), and
+    // on a phone the Filters button (the filters are in its panel).
+    expect(order[0]).toBe('Search');
+    if (info.project.name === 'desktop-1280') {
+      expect(order[1]).toBe('Favourites only');
+      expect(order.indexOf('Healing')).toBeGreaterThan(1);
+    } else {
+      expect(order[1]).toBe('Filters');
+      expect(order).not.toContain('Healing');
+    }
     expect(order.at(-1)).toBe('card');
   });
 
@@ -503,11 +523,12 @@ test.describe('behaviour', () => {
   }) => {
     await page.goto('/stories?format=audio');
     await page.getByLabel('Search stories').fill('placeholder');
-    await chooseOption(page.getByLabel('Format'), 'Video');
+    const filters = await browseFilters(page);
+    await chooseOption(filters.getByLabel('Format'), 'Video');
     await expect(page).toHaveURL(/format=video/);
     await page.goBack();
     await expect(page).toHaveURL(/\/stories\?format=audio$/);
-    await expectChosen(page.getByLabel('Format'), 'Audio');
+    await expectChosen(filters.getByLabel('Format'), 'Audio');
     await expect(page.getByLabel('Search stories')).toHaveValue('');
   });
 

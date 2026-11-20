@@ -303,3 +303,28 @@ export async function optionLabels(control: Locator) {
   await expect(list).toHaveCount(0);
   return labels;
 }
+
+/**
+ * The Stories page's filters (BS-1 C, Joel 2026-11-20): on a computer, the column beside the
+ * stories; on tablets and phones, the Filters panel, opened here. Waits for the page's
+ * JavaScript first (the "Favourites only" switch shows once it has run), so the press opens it.
+ */
+export async function browseFilters(page: Page): Promise<Locator> {
+  const button = page.getByRole('button', { name: /^Filters/ });
+  if (!(await button.isVisible()))
+    return page.getByRole('complementary', { name: 'Filters' });
+  const panel = page.getByRole('dialog', { name: 'Filters' });
+  if (await panel.isVisible()) return panel;
+  await expect(page.locator('[data-favourites-only]')).toBeAttached();
+  await button.click();
+  await expect(panel).toBeVisible();
+  return panel;
+}
+
+/** Closes the Stories page's Filters panel with "Show stories", if it's open. */
+export async function closeBrowseFilters(page: Page) {
+  const panel = page.getByRole('dialog', { name: 'Filters' });
+  if (!(await panel.isVisible())) return;
+  await panel.getByRole('button', { name: 'Show stories' }).click();
+  await expect(panel).toBeHidden();
+}

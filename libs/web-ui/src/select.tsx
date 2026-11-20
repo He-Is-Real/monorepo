@@ -119,7 +119,9 @@ export function Select({
 
   // Hydration: the person may have used the native select while the page's JavaScript loaded.
   // Keep their choice (React leaves the DOM's value alone and doesn't replay the change), and
-  // if it had focus, give focus to the themed list's button when it replaces the select.
+  // if it had focus, give focus to the themed list's button when it replaces the select. A
+  // `submitOnChange` select applies that choice now, as it would have had the JavaScript been
+  // there (the Stories page's sort and format have no other button to send them).
   useLayoutEffect(() => {
     const el = native.current;
     if (!el) return;
@@ -127,6 +129,7 @@ export function Select({
       document.activeElement === el && !matchMedia(TOUCH).matches;
     if (el.value !== current && options.some((o) => o.value === el.value)) {
       if (value === undefined) setOwn(el.value);
+      submitPending.current = submitOnChange;
       onValueChange?.(el.value);
     }
     // Once, on hydration only.

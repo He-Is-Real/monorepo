@@ -15,7 +15,7 @@ import {
   type StoryFormat as Format,
   toggleTheme,
 } from '@heisreal/story-filters';
-import { Button, Card, Input } from '@heisreal/web-ui';
+import { Button, Card, RadioGroup, SearchBox } from '@heisreal/web-ui';
 import { ThemeLinks } from '@/components/browse/theme-filter';
 import { FormatSelect } from '@/components/story-filters/format-select';
 import type { ApiUser } from '@/lib/api-user';
@@ -331,32 +331,13 @@ function SidePanel({
       >
         <Search key={filters.q ?? ''} q={filters.q} go={go} />
 
-        <fieldset>
-          <legend className={SECTION_HEADING}>Sort</legend>
-          {SORTS.map((s) => (
-            <label
-              key={s.sort}
-              className="relative flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-1 hover:bg-surface"
-            >
-              <input
-                type="radio"
-                name={`${id}-sort`}
-                value={s.sort}
-                checked={filters.sort === s.sort}
-                onChange={() => go({ sort: s.sort })}
-                className="peer sr-only"
-              />
-              {/* The drawn dot beside the hidden input, in the theme's colours. */}
-              <span
-                aria-hidden="true"
-                className="flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-input bg-input-background peer-checked:border-primary peer-checked:bg-primary peer-focus-visible:ring-[3px] peer-focus-visible:ring-ring/50 [&>*]:invisible peer-checked:[&>*]:visible"
-              >
-                <span className="size-2 rounded-full bg-primary-foreground" />
-              </span>
-              {s.label}
-            </label>
-          ))}
-        </fieldset>
+        {/* The shared radio buttons: the Stories page's sort looks and works the same. */}
+        <RadioGroup
+          legend="Sort"
+          options={SORTS.map((s) => ({ value: s.sort, label: s.label }))}
+          value={filters.sort}
+          onValueChange={(v) => go({ sort: v as ListFilters['sort'] })}
+        />
 
         <div>
           <FormatSelect
@@ -405,7 +386,7 @@ const cleared = (f: ListFilters): ListFilters => ({
   theme: null,
 });
 
-/** A title search: sent with Enter or the button; an empty one clears it. */
+/** A title search: sent with Enter or the magnifier; an empty one clears it. */
 function Search({
   q,
   go,
@@ -423,24 +404,19 @@ function Search({
         const trimmed = text.trim();
         go({ q: trimmed === '' ? null : trimmed });
       }}
-      className="flex flex-wrap gap-2"
     >
       <label htmlFor={id} className="sr-only">
         Search titles
       </label>
-      <Input
+      {/* The site's search box (BS-4 B: the list keeps its layout, sharing the box). */}
+      <SearchBox
         id={id}
-        type="search"
         value={text}
         maxLength={100}
         onChange={(e) => setText(e.target.value)}
         placeholder="Search titles…"
         autoComplete="off"
-        className="min-w-40 flex-1"
       />
-      <Button type="submit" variant="outline" className="h-11 shrink-0 px-4">
-        Search
-      </Button>
     </form>
   );
 }

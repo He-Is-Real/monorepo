@@ -2,16 +2,15 @@ import { randomUUID } from 'node:crypto';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { connection } from 'next/server';
-import { BrowseFilters } from '@/components/browse/browse-filters';
+import {
+  BrowseSearch,
+  BrowseSortFormat,
+  FILTER_HEADING,
+} from '@/components/browse/browse-filters';
 import { BrowseResults } from '@/components/browse/browse-results';
 import { BrowseView } from '@/components/browse/browse-view';
 import { ThemeFilter } from '@/components/browse/theme-filter';
-import {
-  browseStories,
-  listThemes,
-  type StorySummary,
-  type ThemeCategory,
-} from '@/lib/browse';
+import { browseStories, listThemes, type StorySummary } from '@/lib/browse';
 import {
   type BrowseFilters as Filters,
   parseBrowseSearch,
@@ -42,14 +41,7 @@ const KINDS = {
 } as const;
 
 /** What the list shows, in words (never a count: api-conventions has no totals). */
-function summaryOf(
-  filters: Filters,
-  categories: ThemeCategory[],
-): string | null {
-  // A theme that's gone (or never was) filters nothing (A8), so it isn't named either.
-  const theme = categories
-    .flatMap((c) => c.themes)
-    .find((t) => t.id === filters.theme)?.name;
+function summaryOf(filters: Filters, theme: string | undefined): string | null {
   const kind = filters.format ? KINDS[filters.format] : 'stories';
   const about = theme ? ` about ${theme}` : '';
   if (filters.q)
@@ -100,7 +92,11 @@ export default async function BrowsePage({ searchParams }: Props) {
     loadPages(filters, pages),
   ]);
   const categories = themes ?? [];
-  const summary = summaryOf(filters, categories);
+  // A theme that's gone (or never was) filters nothing (A8), so it isn't named either.
+  const themeName = categories
+    .flatMap((c) => c.themes)
+    .find((t) => t.id === filters.theme)?.name;
+  const summary = summaryOf(filters, themeName);
   const filtered = summary !== null;
 
   return (
@@ -121,10 +117,23 @@ export default async function BrowsePage({ searchParams }: Props) {
       <BrowseView
         query={filters}
         themeIds={themes && themes.flatMap((c) => c.themes.map((t) => t.id))}
-        filters={
+        themeName={themeName ?? null}
+        search={<BrowseSearch filters={filters} />}
+        panel={
           <>
-            <BrowseFilters filters={filters} />
-            <ThemeFilter categories={categories} filters={filters} />
+            <BrowseSortFormat filters={filters} />
+            {categories.length > 0 && (
+              <section aria-labelledby="browse-themes">
+                <h2 id="browse-themes" className={FILTER_HEADING}>
+                  Themes
+                </h2>
+                <ThemeFilter
+                  categories={categories}
+                  filters={filters}
+                  className="mt-0"
+                />
+              </section>
+            )}
           </>
         }
         summary={

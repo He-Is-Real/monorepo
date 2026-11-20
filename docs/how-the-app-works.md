@@ -528,6 +528,21 @@ recording | picture` (worked out from the status history: set while the story's 
   at each picture's own shape (limited between tall 9:16 and wide 2:1) and never move once shown.
   More stories load on their own as the reader nears the end, to the end of the list, with an end
   message. Without JavaScript there is a link to the next page. (D55)
+- **Browse's filters take little room (BS-1 C, Joel 2026-11-20: "for compact search implement
+  option C").** On a computer (1280 px and up) "Favourites only", sort, format and every theme are
+  a column on the left, and only the search box sits above the stories (the three story columns
+  stay, a little narrower). On tablets and phones a "Filters" button beside the search box, with a
+  count of what's on, opens the same filters in a panel (a sheet from the bottom on phones) with
+  "Clear all" and "Show stories"; each choice applies at once, Escape closes it and the focus goes
+  back to the button. What's chosen (theme, format, a sort other than the usual one, Favourites
+  only) shows under the search box as chips, each removed with one tap, plus "Clear all", which
+  keeps the search. The search box has a magnifier button inside it; Enter searches too (BS-2 A,
+  the recommendation, as Joel didn't answer). Sort is radio buttons, as on the moderators' list
+  (Joel, 2026-11-20: "can we set sort to be radio buttons for sorting on the public search instead
+  of pills in the same way as the moderator view?"). Everything stays in the address. Without
+  JavaScript the filters show above the stories at every width, with their own "Show stories"
+  button. The moderators' list keeps its own layout and shares the search box and the sort's radio
+  buttons (BS-4 B, the recommendation).
 - **Story grids** (browse, with or without Favourites only): 3 columns from 1024 px wide, 2 from 640 px, 1
   below, whatever the text size (Joel, 2026-11-07/08). The column count follows the screen's width
   only; larger text makes the cards narrower, never fewer columns.
@@ -1097,7 +1112,9 @@ For developers. Details are in the linked documents.
   sensible and then in the ui code just to reference a text box or a switch, without having to
   style them much or at all in the frontend code"):** text boxes are its `Input`, text areas its
   `Textarea`, labels, hints and errors under a field its `Field` parts, bordered panels its `Card`,
-  pop-up menu panels its `PopoverPanel`, and buttons whose words may wrap `Button wrap`. Pages add
+  pop-up menu panels its `PopoverPanel`, and buttons whose words may wrap `Button wrap`. Search
+  boxes are its `SearchBox` (a magnifier button inside; BS-2 A) and radio buttons its `RadioGroup`
+  (Joel, 2026-11-20). Pages add
   layout classes only. These moved with their looks unchanged; where pages had slightly different
   looks (three text box sizes, two label weights), the library keeps them as named sizes until
   Joel picks one (WL-2, with chips, notices, open/close sections, confirm boxes, check boxes,

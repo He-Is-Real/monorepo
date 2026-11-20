@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page, test } from '@playwright/test';
 import {
+  browseFilters,
   expectAtLeastTarget,
   expectChosen,
   expectNoHorizontalOverflow,
@@ -101,9 +102,11 @@ for (const scheme of ['light', 'dark'] as const) {
       page,
     }, info) => {
       await page.goto('/stories');
-      for (const name of ['Sort', 'Format']) {
+      const filters = await browseFilters(page);
+      // Sort is radio buttons since Joel, 2026-11-20 (browse-filters.e2e.ts).
+      for (const name of ['Format']) {
         const control = await hydrated(
-          page.getByLabel(name, { exact: true }),
+          filters.getByLabel(name, { exact: true }),
           info,
         );
         await expectTarget(page, control);
@@ -133,8 +136,9 @@ for (const scheme of ['light', 'dark'] as const) {
     }, info) => {
       test.skip(touch(info), 'touch screens keep their own picker (U3)');
       await page.goto('/stories');
+      const filters = await browseFilters(page);
       const control = await hydrated(
-        page.getByLabel('Format', { exact: true }),
+        filters.getByLabel('Format', { exact: true }),
         info,
       );
       await control.click();
@@ -188,8 +192,9 @@ for (const scheme of ['light', 'dark'] as const) {
     }, info) => {
       test.skip(touch(info), 'touch screens keep their own picker (U3)');
       await page.goto('/stories');
+      const filters = await browseFilters(page);
       const control = await hydrated(
-        page.getByLabel('Format', { exact: true }),
+        filters.getByLabel('Format', { exact: true }),
         info,
       );
       await control.focus();
@@ -235,6 +240,7 @@ test.describe('on phones and tablets (U3)', () => {
     page,
   }, info) => {
     await page.goto('/stories');
+    const filters = await browseFilters(page);
     // The emulated device really is a touch screen.
     expect(
       await page.evaluate(
@@ -242,7 +248,7 @@ test.describe('on phones and tablets (U3)', () => {
       ),
     ).toBe(true);
     const format = await hydrated(
-      page.getByLabel('Format', { exact: true }),
+      filters.getByLabel('Format', { exact: true }),
       info,
     );
     expect(await format.evaluate((el) => el.tagName)).toBe('SELECT');
@@ -287,28 +293,7 @@ test.describe('behaviour', () => {
     await expectChosen(page.getByLabel('Format', { exact: true }), 'Video');
   });
 
-  test('choosing with a mouse reloads the stories sorted', async ({
-    page,
-  }, info) => {
-    await page.goto('/stories');
-    const titles = page.locator('main article h3');
-    const latestFirst = await titles.allTextContents();
-    expect(latestFirst.length).toBeGreaterThan(1);
-    const sort = await hydrated(page.getByLabel('Sort', { exact: true }), info);
-    await sort.click();
-    await page
-      .getByRole('listbox')
-      .getByRole('option', { name: 'Oldest first' })
-      .click();
-    await expect(page).toHaveURL(/sort=oldest/);
-    await expectChosen(
-      page.getByLabel('Sort', { exact: true }),
-      'Oldest first',
-    );
-    // The oldest story now comes first.
-    await expect(titles.first()).not.toHaveText(latestFirst[0]);
-  });
-  test('a choice made before the page’s JavaScript runs is kept, with focus', async ({
+  test('a choice made before the page’s JavaScript runs is kept and applied', async ({
     page,
   }, info) => {
     // Hold the page's JavaScript back until the native drop-down has been used.
@@ -322,16 +307,13 @@ test.describe('behaviour', () => {
     const format = page.getByLabel('Format', { exact: true });
     await expect(format).toHaveAttribute('data-slot', 'select-native');
     await format.selectOption('video');
-    await format.focus();
     release();
-    // The themed list's button takes over with the choice and the focus.
+    // Sort and format apply as they change, so once the JavaScript runs it applies the choice
+    // (BS-1 C: the search box's button no longer sends them), and the themed list's button
+    // shows it.
+    await expect(page).toHaveURL(/\/stories\?.*format=video/);
     await hydrated(format, info);
     await expectChosen(format, 'Video');
-    await expect(format).toBeFocused();
-    // Nothing applied it yet (no change after the JavaScript ran): Search posts it.
-    await expect(page).not.toHaveURL(/format=/);
-    await page.getByRole('button', { name: 'Search' }).click();
-    await expect(page).toHaveURL(/\/stories\?.*format=video/);
     await expect(page.getByText('Video stories')).toBeVisible();
   });
 });
@@ -376,8 +358,9 @@ test.describe('without JavaScript', () => {
   test('the native drop-downs still submit with the form', async ({ page }) => {
     await page.goto('/stories');
     await page.getByLabel('Format', { exact: true }).selectOption('audio');
-    await page.getByLabel('Sort', { exact: true }).selectOption('oldest');
-    await page.getByRole('button', { name: 'Search' }).click();
+    await page.locator('label').filter({ hasText: 'Oldest first' }).click();
+    // Without JavaScript the filters have their own button (BS-1 C).
+    await page.getByRole('button', { name: 'Show stories' }).click();
     await expect(page).toHaveURL(/format=audio/);
     await expect(page).toHaveURL(/sort=oldest/);
     await expect(page.getByText('Audio stories')).toBeVisible();
