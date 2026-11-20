@@ -179,9 +179,9 @@ async function dropPictures(
   const zone = page.locator('[data-picture-phase] [data-drop-zone]');
   await zone.dispatchEvent('dragover', { dataTransfer: dropped });
   // Highlighted while a file is over it.
-  await expect(zone).toHaveClass(/border-teal/);
+  await expect(zone).toHaveClass(/border-brand/);
   await zone.dispatchEvent('drop', { dataTransfer: dropped });
-  await expect(zone).not.toHaveClass(/border-teal/);
+  await expect(zone).not.toHaveClass(/border-brand/);
 }
 
 test('a written story’s picture is previewed at its real shape, and the step fits the screen', async ({

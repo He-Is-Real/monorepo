@@ -37,7 +37,7 @@ async function Player({ videoKey, title, label }: Props) {
   return (
     <div
       data-player=""
-      className="relative aspect-video w-full overflow-hidden rounded-2xl bg-black"
+      className="relative aspect-video w-full overflow-hidden rounded-2xl bg-media"
       style={{ minHeight: PLAYER_MIN_HEIGHT }}
     >
       <iframe
@@ -55,7 +55,7 @@ function Placeholder({ label }: { label: string }) {
   return (
     <div
       data-video-placeholder=""
-      className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-2xl bg-black px-4 text-center text-white/70"
+      className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-2xl bg-media px-4 text-center text-on-media/70"
     >
       <svg
         aria-hidden="true"
@@ -65,7 +65,7 @@ function Placeholder({ label }: { label: string }) {
         <polygon points="8,5 19,12 8,19" fill="currentColor" />
       </svg>
       <p className="text-sm">{label}</p>
-      <p className="text-xs text-white/60">Video coming soon</p>
+      <p className="text-xs text-on-media/60">Video coming soon</p>
     </div>
   );
 }

@@ -60,9 +60,9 @@ export function CardHeart({
         onClick={press}
         className={`absolute top-2 right-2 z-10 flex size-11 group-has-[[data-card-playing]]:hidden items-center justify-center rounded-full transition-colors motion-reduce:transition-none ${
           overPicture
-            ? 'border border-white/20 bg-black/55 text-white backdrop-blur-sm hover:bg-black/70'
+            ? 'border border-on-media/20 bg-media/55 text-on-media backdrop-blur-sm hover:bg-media/70'
             : `bg-card hover:bg-accent ${on ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`
-        } ${failed ? 'ring-2 ring-destructive' : ''}`}
+        } ${failed ? 'ring-2 ring-danger' : ''}`}
       >
         <HeartIcon on={on} className="size-5" />
       </button>
@@ -87,11 +87,11 @@ export function StoryHeart({ storyId }: { storyId: string }) {
         aria-busy={busy}
         title={failed ? FAILED : undefined}
         onClick={press}
-        className={`inline-flex min-h-11 items-center gap-2 rounded-lg border px-4 text-sm font-semibold transition-colors hover:border-teal hover:bg-accent hover:text-foreground motion-reduce:transition-none ${
+        className={`inline-flex min-h-11 items-center gap-2 rounded-lg border px-4 text-sm font-semibold transition-colors hover:border-brand hover:bg-accent hover:text-foreground motion-reduce:transition-none ${
           on
-            ? 'border-teal text-foreground'
+            ? 'border-brand text-foreground'
             : 'border-border-hover text-secondary-text'
-        } ${failed ? 'ring-2 ring-destructive' : ''}`}
+        } ${failed ? 'ring-2 ring-danger' : ''}`}
       >
         <HeartIcon on={on} className={`size-4 ${on ? 'text-primary' : ''}`} />
         Favourite

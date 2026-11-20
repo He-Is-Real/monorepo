@@ -67,7 +67,7 @@ function Segments({ segments }: { segments: Segment[] }) {
             <span className="sr-only">]</span>
           </ins>
         ) : (
-          <del className="rounded-sm bg-destructive/10 line-through decoration-destructive decoration-2">
+          <del className="rounded-sm bg-danger/10 line-through decoration-danger decoration-2">
             <span className="sr-only">[removed: </span>
             {s.text}
             <span className="sr-only">]</span>

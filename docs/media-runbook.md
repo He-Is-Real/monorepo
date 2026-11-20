@@ -584,7 +584,7 @@ object by S3 leaves the folder behind).
 
 Videos and audio play in Bunny's player, a frame from `player.mediadelivery.net`. Its look comes
 from the Stream library's settings in OpenTofu (`bunnynet_stream_library.media` in
-`infra/terraform/modules/bunny/main.tf`), matched to the site theme (`apps/web/src/app/global.css`).
+`infra/terraform/modules/bunny/main.tf`), matched to the site theme (`libs/web-ui/src/styles/theme.css`).
 Change them there, never in Bunny's dashboard: a dashboard change shows up as drift in the next plan.
 
 | Setting                                                          | Value                  | Why                                                                                                                                                                     |

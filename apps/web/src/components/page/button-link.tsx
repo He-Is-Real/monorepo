@@ -4,7 +4,7 @@ const VARIANTS = {
   primary:
     'bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground',
   secondary:
-    'border border-border-hover text-secondary-text hover:border-teal hover:bg-accent hover:text-foreground',
+    'border border-border-hover text-secondary-text hover:border-brand hover:bg-accent hover:text-foreground',
 } as const;
 
 /**

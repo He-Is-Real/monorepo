@@ -78,7 +78,7 @@ export function StoryMedia({
       <div
         data-player=""
         data-story-media=""
-        className={`relative mx-auto mt-6 overflow-hidden first:mt-0 rounded-lg bg-black ${
+        className={`relative mx-auto mt-6 overflow-hidden first:mt-0 rounded-lg bg-media ${
           size ? '' : 'aspect-video w-full'
         }`}
         style={style}

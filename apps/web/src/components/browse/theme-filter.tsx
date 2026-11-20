@@ -89,7 +89,7 @@ export function ThemeLinks({
                 <svg
                   viewBox="0 0 24 24"
                   aria-hidden="true"
-                  className="mr-1.5 size-4 fill-none stroke-teal"
+                  className="mr-1.5 size-4 fill-none stroke-brand"
                   strokeWidth="2.5"
                 >
                   <path d="M5 12l5 5L19 7" />

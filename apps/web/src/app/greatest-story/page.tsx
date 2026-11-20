@@ -115,7 +115,7 @@ function PartText({ part, number }: { part: Part; number: number }) {
     <div>
       <p
         aria-hidden="true"
-        className="mb-2 text-5xl leading-none font-bold text-teal/25 sm:text-7xl"
+        className="mb-2 text-5xl leading-none font-bold text-brand/25 sm:text-7xl"
       >
         {String(number).padStart(2, '0')}
       </p>
@@ -127,7 +127,7 @@ function PartText({ part, number }: { part: Part; number: number }) {
           <p key={p}>{p}</p>
         ))}
       </div>
-      <figure className="mt-6 border-l-2 border-teal pl-5">
+      <figure className="mt-6 border-l-2 border-brand pl-5">
         <blockquote className="text-[0.9375rem] text-muted-foreground italic sm:text-[1.0625rem]">
           <p>“{part.verse}”</p>
         </blockquote>
@@ -171,7 +171,7 @@ export default function GreatestStoryPage() {
                 <div className="mx-auto grid max-w-[calc(var(--container-measure)+2rem)] items-center gap-8 px-4 sm:max-w-[calc(var(--container-measure)+5rem)] sm:px-10 md:max-w-site md:grid-cols-2 md:gap-16">
                   <PartText part={part} number={i + 1} />
                   <div
-                    className={`flex aspect-video items-center justify-center rounded-3xl border border-border bg-card p-6 text-teal md:aspect-square ${
+                    className={`flex aspect-video items-center justify-center rounded-3xl border border-border bg-card p-6 text-brand md:aspect-square ${
                       i % 2 === 1 ? 'md:order-first' : ''
                     }`}
                   >

@@ -175,7 +175,7 @@ function DownloadMyData() {
         {notice && (
           <p
             role={notice.alert ? 'alert' : 'status'}
-            className={`mt-3 text-sm ${notice.alert ? 'text-destructive' : ''}`}
+            className={`mt-3 text-sm ${notice.alert ? 'text-danger-text' : ''}`}
           >
             {notice.text}
           </p>
@@ -294,7 +294,7 @@ function DeleteAccount({ afterDeletion }: { afterDeletion: AfterDeletion }) {
               <div className="flex flex-wrap gap-3">
                 <Button
                   type="submit"
-                  variant="destructive"
+                  variant="danger"
                   className="h-auto min-h-11 px-5 py-2 whitespace-normal"
                   disabled={!ready || busy}
                 >
@@ -325,7 +325,7 @@ function DeleteAccount({ afterDeletion }: { afterDeletion: AfterDeletion }) {
           </Button>
         )}
         {error && (
-          <p role="alert" className="mt-3 text-sm text-destructive">
+          <p role="alert" className="mt-3 text-sm text-danger-text">
             {error}
           </p>
         )}

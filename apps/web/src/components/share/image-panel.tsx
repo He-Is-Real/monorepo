@@ -175,7 +175,7 @@ const NOUN: Record<StoryFormat, string> = {
 const button =
   'inline-flex min-h-11 items-center justify-center rounded-md px-5 text-sm font-semibold transition-colors disabled:opacity-60';
 const primary = `${button} bg-primary text-primary-foreground hover:bg-primary/90`;
-const secondary = `${button} border border-border-hover text-secondary-text hover:border-teal hover:bg-accent hover:text-foreground`;
+const secondary = `${button} border border-border-hover text-secondary-text hover:border-brand hover:bg-accent hover:text-foreground`;
 
 /** Re-encodes the photo to WebP (no metadata), or answers a plain reason it can't be used. */
 async function prepare(file: File): Promise<Prepared | string> {
@@ -802,7 +802,7 @@ export function ImagePanel({
         </p>
       )}
       {problem && (
-        <p role="alert" className="text-destructive">
+        <p role="alert" className="text-danger-text">
           {problem}
         </p>
       )}

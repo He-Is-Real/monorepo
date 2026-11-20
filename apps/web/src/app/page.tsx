@@ -74,13 +74,13 @@ function ThemeTrack({ category }: { category: ThemeCategory }) {
           <li key={t.id}>
             <Link
               href={`/stories?theme=${t.id}`}
-              className="group flex min-h-14 items-center justify-between rounded-lg border border-border bg-card px-4 font-semibold text-foreground transition-colors hover:border-teal hover:bg-accent hover:text-foreground"
+              className="group flex min-h-14 items-center justify-between rounded-lg border border-border bg-card px-4 font-semibold text-foreground transition-colors hover:border-brand hover:bg-accent hover:text-foreground"
             >
               {t.name}
               <svg
                 viewBox="0 0 24 24"
                 aria-hidden="true"
-                className="size-4 fill-none stroke-faint transition-transform group-hover:translate-x-0.5 group-hover:stroke-teal motion-reduce:transition-none"
+                className="size-4 fill-none stroke-faint transition-transform group-hover:translate-x-0.5 group-hover:stroke-brand motion-reduce:transition-none"
                 strokeWidth="2"
               >
                 <path d="M9 6l6 6-6 6" />
@@ -120,7 +120,7 @@ export default async function Page() {
         Keagan Henman's "black metal framed padded folding chair" (Unsplash, iFBIdX54BOk; free
         under the Unsplash License), greyscale and darkened to 72% in the file itself.
       */}
-      <section className="relative isolate flex min-h-[min(88svh,52rem)] items-center justify-center overflow-hidden bg-[#111113] px-4 pt-20 pb-32 text-center text-white">
+      <section className="relative isolate flex min-h-[min(88svh,52rem)] items-center justify-center overflow-hidden bg-hero px-4 pt-20 pb-32 text-center text-on-media">
         <Image
           src="/hero-backdrop.webp"
           alt=""
@@ -131,7 +131,7 @@ export default async function Page() {
         />
         <div
           aria-hidden="true"
-          className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_50%_30%,rgb(78_155_160/0.06)_0%,transparent_60%),linear-gradient(180deg,rgb(17_17_19/0.05)_0%,rgb(17_17_19/0.28)_60%,rgb(17_17_19/0.6)_100%)]"
+          className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_50%_30%,color-mix(in_srgb,var(--brand)_6%,transparent)_0%,transparent_60%),linear-gradient(180deg,color-mix(in_srgb,var(--hero)_5%,transparent)_0%,color-mix(in_srgb,var(--hero)_28%,transparent)_60%,color-mix(in_srgb,var(--hero)_60%,transparent)_100%)]"
         />
         {/* The fade into the page stays below the content (pb-32), so text keeps its contrast. */}
         <div
@@ -141,14 +141,14 @@ export default async function Page() {
         <div className="max-w-2xl">
           <Logo
             size={120}
-            className="mx-auto mb-10 animate-in fade-in duration-700 [--logo:#fff]"
+            className="mx-auto mb-10 animate-in fade-in duration-700 [--logo:var(--on-media)]"
           />
           <h1 className="text-[clamp(2.5rem,7vw,4rem)] leading-[1.12] font-normal tracking-tight animate-in fade-in slide-in-from-bottom-4 delay-150 duration-700 fill-mode-both">
-            Is <em className="text-teal-light">God</em> Real?
+            Is <em className="text-brand-bright">God</em> Real?
             <br />
-            Does <em className="text-teal-light">God</em> exist?
+            Does <em className="text-brand-bright">God</em> exist?
           </h1>
-          <p className="mx-auto mt-7 max-w-xl text-[clamp(1rem,2vw,1.2rem)] leading-relaxed text-white/80 animate-in fade-in slide-in-from-bottom-4 delay-300 duration-700 fill-mode-both">
+          <p className="mx-auto mt-7 max-w-xl text-[clamp(1rem,2vw,1.2rem)] leading-relaxed text-on-media/80 animate-in fade-in slide-in-from-bottom-4 delay-300 duration-700 fill-mode-both">
             Whatever brought you here, you’ll find real stories from real people
             about moments that changed them. No scripts, no performance, just
             honesty.
@@ -156,13 +156,13 @@ export default async function Page() {
           <div className="mt-10 flex flex-wrap justify-center gap-4 animate-in fade-in delay-500 duration-700 fill-mode-both">
             <Link
               href="/stories"
-              className={`${button} bg-teal text-[#111113] hover:bg-teal-light hover:text-[#111113]`}
+              className={`${button} bg-brand text-hero hover:bg-brand-bright hover:text-hero`}
             >
               Browse stories
             </Link>
             <Link
               href={SHARE_HREF}
-              className={`${button} border border-white/30 text-white hover:border-teal-light hover:bg-white/5 hover:text-white`}
+              className={`${button} border border-on-media/30 text-on-media hover:border-brand-bright hover:bg-on-media/5 hover:text-on-media`}
             >
               Share your story
             </Link>
@@ -234,7 +234,7 @@ export default async function Page() {
       >
         <span
           aria-hidden="true"
-          className="absolute top-0 left-1/2 h-px w-20 -translate-x-1/2 bg-linear-to-r from-transparent via-teal to-transparent"
+          className="absolute top-0 left-1/2 h-px w-20 -translate-x-1/2 bg-linear-to-r from-transparent via-brand to-transparent"
         />
         <Eyebrow id="your-story">Your story</Eyebrow>
         <p className="mx-auto max-w-xl text-lg text-secondary-text">
@@ -253,7 +253,7 @@ export default async function Page() {
 
       <section
         aria-labelledby="support"
-        className="bg-[radial-gradient(ellipse_at_50%_0%,rgb(78_155_160/0.15),transparent_70%)] px-4 py-16 text-center sm:py-24"
+        className="bg-[radial-gradient(ellipse_at_50%_0%,color-mix(in_srgb,var(--brand)_15%,transparent),transparent_70%)] px-4 py-16 text-center sm:py-24"
       >
         <div className="mx-auto max-w-measure">
           <h2

@@ -218,7 +218,7 @@ function Limits({ client }: { client: ApiUser }) {
   }
   if (loaded.status === 'failed') {
     return (
-      <Card asChild tone="destructive" className="p-6">
+      <Card asChild tone="danger" className="p-6">
         <p role="alert">{loaded.message}</p>
       </Card>
     );
@@ -425,7 +425,7 @@ function LimitsForm({
                   >
                     {g.title}
                     {groupHasError(i) && (
-                      <span className="text-sm font-normal text-destructive">
+                      <span className="text-sm font-normal text-danger-text">
                         Needs fixing
                       </span>
                     )}
@@ -523,7 +523,7 @@ function LimitsForm({
             ref={alert}
             tabIndex={-1}
             role="alert"
-            className="rounded-xl border border-destructive px-4 py-3"
+            className="rounded-xl border border-danger px-4 py-3"
             data-save-status="error"
           >
             {status.message}
@@ -534,7 +534,7 @@ function LimitsForm({
             ref={alert}
             tabIndex={-1}
             role="alert"
-            className="space-y-3 rounded-xl border border-destructive px-4 py-3"
+            className="space-y-3 rounded-xl border border-danger px-4 py-3"
             data-save-status="stale"
           >
             <p>

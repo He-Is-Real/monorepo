@@ -210,7 +210,7 @@ export function AgreementStep({
             tabIndex={-1}
             role="alert"
             data-agreement-problem=""
-            className="mb-4 rounded-xl border border-destructive px-4 py-3 text-foreground outline-none"
+            className="mb-4 rounded-xl border border-danger px-4 py-3 text-foreground outline-none"
           >
             {problem}
           </div>
@@ -256,7 +256,7 @@ export function AgreementStep({
 
         <div className="mt-6">
           <label
-            className={`flex min-h-11 cursor-pointer items-start gap-[12px] rounded-xl border bg-accent px-[12px] py-3 text-[1.0625rem] leading-relaxed text-foreground has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 [overflow-wrap:anywhere] sm:px-4 ${missing ? 'border-destructive' : 'border-border'}`}
+            className={`flex min-h-11 cursor-pointer items-start gap-[12px] rounded-xl border bg-accent px-[12px] py-3 text-[1.0625rem] leading-relaxed text-foreground has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 [overflow-wrap:anywhere] sm:px-4 ${missing ? 'border-danger' : 'border-border'}`}
           >
             <input
               ref={box}
@@ -287,7 +287,7 @@ export function AgreementStep({
           {missing && (
             <p
               id={`${id}-missing`}
-              className="mt-2 font-medium text-destructive"
+              className="mt-2 font-medium text-danger-text"
             >
               Tick the box to continue. Nothing is saved until you do.
             </p>

@@ -20,7 +20,7 @@ export function DropZone({
   return (
     <div
       className={`flex flex-col items-center gap-3 rounded-xl border-2 border-dashed p-6 text-center ${
-        over ? 'border-teal bg-accent' : 'border-border-hover'
+        over ? 'border-brand bg-accent' : 'border-border-hover'
       }`}
       onDragOver={(e) => {
         e.preventDefault();

@@ -325,7 +325,7 @@ function ConsentTexts({ client }: { client: ApiUser }) {
           <p className="text-secondary-text">Loading the versions…</p>
         )}
         {loaded.status === 'failed' && (
-          <Card asChild tone="destructive" className="p-6">
+          <Card asChild tone="danger" className="p-6">
             <p role="alert">{loaded.message}</p>
           </Card>
         )}
@@ -622,7 +622,7 @@ function EditVersion({
           ref={alert}
           tabIndex={-1}
           role="alert"
-          className="rounded-xl border border-destructive px-4 py-3 outline-none"
+          className="rounded-xl border border-danger px-4 py-3 outline-none"
           data-publish-status="error"
         >
           {status.message}
@@ -633,7 +633,7 @@ function EditVersion({
           ref={alert}
           tabIndex={-1}
           role="alert"
-          className="space-y-3 rounded-xl border border-destructive px-4 py-3 outline-none"
+          className="space-y-3 rounded-xl border border-danger px-4 py-3 outline-none"
           data-publish-status="stale"
         >
           <p>

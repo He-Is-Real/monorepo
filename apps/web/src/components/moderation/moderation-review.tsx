@@ -256,7 +256,7 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
     return (
       <>
         {noticeLine}
-        <Card asChild tone="destructive" className="p-6">
+        <Card asChild tone="danger" className="p-6">
           <p
             role="alert"
 
@@ -445,14 +445,15 @@ function SenderLine({
             Admin removes it.
           </p>
           {error && (
-            <p role="alert" className="mb-2 text-destructive">
+            <p role="alert" className="mb-2 text-danger-text">
               {error}
             </p>
           )}
           <div className="flex flex-col gap-2 sm:flex-row">
             <Button
               wrap
-              className={RED_BUTTON}
+              variant="danger"
+              className={SITE_FOCUS}
               disabled={step === 'busy'}
               onClick={() => void block()}
             >
@@ -482,22 +483,19 @@ export type Noted = Exclude<Open, null>;
 
 /**
  * Decision colours (Joel, 17 November 2026): Send back is orange, Reject and Delete are red,
- * filled like Approve, on the decision button and on the confirm button it leads to.
- * Contrast (WCAG AA): light, white on warning 5.9:1 and on destructive 5.6:1; dark, near-black
- * on warning 8.6:1, and white on destructive at 80% over the card 5.6:1 (the dark destructive
- * token itself is 4.2:1 with white, 4.5:1 with black, so it isn't used as a solid fill).
+ * filled like Approve, on the decision button and on the confirm button it leads to. They are
+ * the library's `caution` and `danger` buttons (OT-1, Joel, 20 November 2026).
+ * Their keyboard focus ring stays the site's usual one, as before OT-1 (the library's danger
+ * button has a red ring; one focus look for all buttons is BT-1's, later).
  */
-const SEND_BACK_BUTTON = 'bg-warning text-background hover:bg-warning/90';
-const RED_BUTTON =
-  'bg-destructive text-white hover:bg-destructive/90 dark:bg-destructive/80 dark:hover:bg-destructive/70';
-
+const SITE_FOCUS = 'focus-visible:ring-ring/50 dark:focus-visible:ring-ring/50';
 const NOTED: Record<
   Noted,
   {
     label: string;
     hint: string;
     confirm: string;
-    confirmColour: string;
+    confirmVariant: 'default' | 'caution' | 'danger';
     field: string;
   }
 > = {
@@ -505,21 +503,21 @@ const NOTED: Record<
     label: 'Your note to the person',
     hint: 'They see it as “What our team said”, with their story to change. Write kindly: thank them, and say what would help.',
     confirm: 'Send back',
-    confirmColour: SEND_BACK_BUTTON,
+    confirmVariant: 'caution',
     field: 'feedbackToSubmitter',
   },
   reject: {
     label: 'Your note to the person',
     hint: 'They see it as “What our team said”. Write kindly: thank them for sharing, and say why it can’t go on the site.',
     confirm: 'Reject',
-    confirmColour: RED_BUTTON,
+    confirmVariant: 'danger',
     field: 'feedbackToSubmitter',
   },
   hide: {
     label: 'Why it’s being taken down',
     hint: 'The person can read this, as “What our team said”, beside “Taken down by our team” on their profile.',
     confirm: 'Take down',
-    confirmColour: '',
+    confirmVariant: 'default',
     field: 'reason',
   },
 };
@@ -575,7 +573,8 @@ export function NoteForm({
         <Button
           type="submit"
           wrap
-          className={noted.confirmColour}
+          variant={noted.confirmVariant}
+          className={SITE_FOCUS}
           disabled={busy || noteLength === 0}
         >
           {noted.confirm}
@@ -698,7 +697,8 @@ function Decisions({
               <Button
                 autoFocus
                 wrap
-                className={RED_BUTTON}
+                variant="danger"
+                className={SITE_FOCUS}
                 disabled={busy}
                 onClick={() => void remove()}
               >
@@ -737,7 +737,7 @@ function Decisions({
             {['pending', 'hidden', 'rejected'].includes(story.status) && (
               <Button
                 wrap
-                className={SEND_BACK_BUTTON}
+                variant="caution"
                 disabled={busy}
                 onClick={() => setOpen('request-changes')}
               >
@@ -747,7 +747,8 @@ function Decisions({
             {(story.status === 'pending' || story.status === 'hidden') && (
               <Button
                 wrap
-                className={RED_BUTTON}
+                variant="danger"
+                className={SITE_FOCUS}
                 disabled={busy}
                 onClick={() => setOpen('reject')}
               >
@@ -777,7 +778,8 @@ function Decisions({
             {isAdmin && (
               <Button
                 wrap
-                className={RED_BUTTON}
+                variant="danger"
+                className={SITE_FOCUS}
                 disabled={busy}
                 onClick={() => setConfirmDelete(true)}
               >

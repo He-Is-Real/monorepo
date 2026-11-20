@@ -202,7 +202,7 @@ export function Select({
                 align="start"
                 sideOffset={6}
                 collisionPadding={8}
-                className="z-50 max-h-[var(--radix-select-content-available-height)] min-w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-1rem)] overflow-hidden rounded-[var(--radius)] border border-border-hover bg-popover text-popover-foreground shadow-[0_12px_32px_-8px_rgb(0_0_0/0.35)] duration-120 motion-safe:data-[side=bottom]:slide-in-from-top-1 motion-safe:data-[side=top]:slide-in-from-bottom-1 motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:fade-in-0"
+                className="z-50 max-h-[var(--radix-select-content-available-height)] min-w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-1rem)] overflow-hidden rounded-[var(--radius)] border border-border-hover bg-popover text-popover-foreground shadow-popover duration-120 motion-safe:data-[side=bottom]:slide-in-from-top-1 motion-safe:data-[side=top]:slide-in-from-bottom-1 motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:fade-in-0"
               >
                 <SelectPrimitive.Viewport className="p-1">
                   {options.map((o) => (
@@ -210,7 +210,7 @@ export function Select({
                       key={o.value}
                       value={toRadix(o.value)}
                       disabled={o.disabled}
-                      className="flex min-h-11 cursor-pointer items-center gap-2.5 rounded-[calc(var(--radius)-4px)] px-3 text-sm outline-none select-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid focus-visible:outline-ring data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50 data-[highlighted]:bg-[color-mix(in_srgb,var(--teal)_16%,transparent)] data-[state=checked]:font-semibold data-[state=checked]:text-link data-[state=checked]:data-[highlighted]:text-link-hover"
+                      className="flex min-h-11 cursor-pointer items-center gap-2.5 rounded-[calc(var(--radius)-4px)] px-3 text-sm outline-none select-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid focus-visible:outline-ring data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50 data-[highlighted]:bg-[color-mix(in_srgb,var(--brand)_16%,transparent)] data-[state=checked]:font-semibold data-[state=checked]:text-link data-[state=checked]:data-[highlighted]:text-link-hover"
                     >
                       <SelectPrimitive.ItemText>
                         {o.label}

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { DM_Sans } from 'next/font/google';
 import { connection } from 'next/server';
+import { browserThemeColour } from '@heisreal/web-ui';
 import { ClerkBrowser } from '@/components/auth/clerk-browser';
 import { DeviceHeartsPrompt } from '@/components/favourites/device-hearts-prompt';
 import { JsonLd } from '@/components/page/json-ld';
@@ -26,7 +27,7 @@ import './global.css';
 const dmSans = DM_Sans({
   subsets: ['latin'],
   display: 'swap',
-  variable: '--font-dm-sans',
+  variable: '--font-brand',
 });
 
 /**
@@ -50,11 +51,11 @@ export function generateMetadata(): Metadata {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  viewportFit: 'cover', // notched phones; the safe areas are padded in global.css
+  viewportFit: 'cover', // notched phones; the safe areas are padded in the library's theme.css
   colorScheme: 'light dark',
   themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#ffffff' },
-    { media: '(prefers-color-scheme: dark)', color: '#111113' },
+    { media: '(prefers-color-scheme: light)', color: browserThemeColour.light },
+    { media: '(prefers-color-scheme: dark)', color: browserThemeColour.dark },
   ],
 };
 

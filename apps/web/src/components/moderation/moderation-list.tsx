@@ -254,7 +254,7 @@ function StateTabs({
                 data-state-tab={s.state}
                 className={`inline-flex min-h-11 items-center gap-2 border-b-[3px] px-3 py-2 whitespace-nowrap transition-colors sm:px-4 ${
                   on
-                    ? 'border-teal font-semibold text-foreground'
+                    ? 'border-brand font-semibold text-foreground'
                     : 'border-transparent text-secondary-text hover:text-foreground'
                 }`}
               >
@@ -477,10 +477,8 @@ function FormatIcon({ format }: { format: Format }) {
 /** OQ-2: orange after 2 days and red after 7, on Waiting for review only (AA as text, both themes). */
 const ALERT = {
   late: 'font-semibold text-warning',
-  // The dark destructive is 4.5:1 on the background only: lightened 25% it is 4.8:1 or more on
-  // every surface a row sits on.
-  overdue:
-    'font-semibold text-destructive dark:text-[color-mix(in_srgb,var(--destructive),white_25%)]',
+  // Danger words: in dark, the red lightened 25% (4.8:1 or more on every surface a row sits on).
+  overdue: 'font-semibold text-danger-text',
 } as const;
 
 function List({
@@ -499,7 +497,7 @@ function List({
   }
   if (loaded.status === 'failed') {
     return (
-      <Card asChild tone="destructive" className="p-6">
+      <Card asChild tone="danger" className="p-6">
         <p
           role="alert"
 
@@ -601,7 +599,7 @@ function List({
                   className={`${s.mediaProblem === 'ours' ? '' : 'hidden'} col-span-2 ${cell} xl:w-44 2xl:w-52`}
                   data-list-state=""
                 >
-                  <span className="hidden rounded-full border border-teal/40 bg-accent px-2.5 py-0.5 text-sm font-medium text-foreground xl:inline-block">
+                  <span className="hidden rounded-full border border-brand/40 bg-accent px-2.5 py-0.5 text-sm font-medium text-foreground xl:inline-block">
                     {stateLabel(s.state, s.action)}
                   </span>
                   {s.mediaProblem === 'ours' && (
@@ -667,7 +665,7 @@ function List({
       {loaded.next && (
         <div className="mt-6 space-y-3">
           {loaded.more && loaded.more !== 'loading' && (
-            <p role="alert" className="text-destructive">
+            <p role="alert" className="text-danger-text">
               {loaded.more}
             </p>
           )}

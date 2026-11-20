@@ -29,7 +29,7 @@ const isCurrent = (pathname: string, href: string) =>
   pathname === href || pathname.startsWith(`${href}/`);
 
 const DESKTOP_LINK =
-  'relative inline-flex min-h-11 min-w-11 items-center justify-center text-sm font-medium text-secondary-text after:absolute after:inset-x-0 after:bottom-2 after:h-0.5 after:origin-left after:scale-x-0 after:bg-teal after:transition-transform hover:text-foreground hover:after:scale-x-100 aria-[current=page]:text-foreground aria-[current=page]:after:scale-x-100 motion-reduce:after:transition-none';
+  'relative inline-flex min-h-11 min-w-11 items-center justify-center text-sm font-medium text-secondary-text after:absolute after:inset-x-0 after:bottom-2 after:h-0.5 after:origin-left after:scale-x-0 after:bg-brand after:transition-transform hover:text-foreground hover:after:scale-x-100 aria-[current=page]:text-foreground aria-[current=page]:after:scale-x-100 motion-reduce:after:transition-none';
 const MENU_LINK =
   'flex min-h-12 items-center text-lg text-secondary-text hover:text-foreground aria-[current=page]:font-semibold aria-[current=page]:text-foreground';
 

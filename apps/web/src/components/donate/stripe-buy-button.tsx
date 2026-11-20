@@ -31,7 +31,7 @@ export function StripeBuyButtonScript() {
  * own styling inside it is set in its Dashboard), so a wider card would leave the button looking
  * shrunk in the middle of an empty box: the card is the button's width plus padding, centred.
  * Stripe's iframe is light only, so the card is the light theme's in either theme (`light`,
- * global.css), and in dark mode the button sits on it rather than as a white box on the dark page.
+ * the web library's theme.css), and in dark mode the button sits on it rather than as a white box on the dark page.
  * On phones the card may use the column's side margin (its 1 rem gutter), with less padding,
  * as the padded card is wider than a 320 px phone's 288 px column. The element reserves the button's size (the taller button's height) so nothing
  * moves when it arrives; its text shows only until Stripe's script draws the button (Stripe's

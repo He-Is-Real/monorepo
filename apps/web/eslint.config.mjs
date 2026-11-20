@@ -1,5 +1,6 @@
 import nextEslintPluginNext from '@next/eslint-plugin-next';
 import nx from '@nx/eslint-plugin';
+import webUi from '@heisreal/web-ui/eslint';
 import baseConfig from '../../eslint.config.mjs';
 
 // D32: Clerk runs in the browser only. Its session cookie reaches web's server incidentally
@@ -65,26 +66,6 @@ const TOKEN_SELECTORS = [
   },
 ];
 
-// WL-1 (Joel, 2026-11-19): text boxes and text areas are the web library's `Input` and
-// `Textarea` (libs/web-ui). A class string with the field look (the input border and background
-// and a focus ring) in a page is a hand-made copy.
-// The three classes may come in any order (one look-ahead each, whole class names only).
-// (Built from parts, so this file's own strings don't match it.)
-const cls = (name, whole = true) =>
-  `(?=.*(?:^|\\s)${name}${whole ? '(?:\\s|$)' : ''})`;
-const FIELD_LOOK = [
-  cls('border-input'),
-  cls('bg-input-background'),
-  cls('focus-visible:ring', false),
-].join('');
-const FIELD_SELECTORS = [
-  {
-    selector: `:matches(Literal, TemplateElement[value.raw]):matches([value=/${FIELD_LOOK}/], [value.raw=/${FIELD_LOOK}/])`,
-    message:
-      'Use Input or Textarea from @heisreal/web-ui instead of copying the field look.',
-  },
-];
-
 // The one reviewed carve-out (M2, apps/web/README.md): web's browser-only api-user client sends
 // the person's own Clerk token to api-user and reads api-user's response headers (ETag,
 // Location), so it builds request headers and reads `.headers`. It is 'use client' and refuses
@@ -98,6 +79,9 @@ export default [
   {
     ignores: ['.next/**/*', '**/out-tsc'],
   },
+  // The web library's checks (libs/web-ui/eslint): text boxes are its Input and Textarea, and
+  // colours are the theme's meaning names, never raw ones.
+  ...webUi.configs.pages,
   {
     files: ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx', '**/*.mjs'],
     // Specs and e2e tests never ship and may inspect responses; the rules cover everything that
@@ -135,7 +119,6 @@ export default [
         'error',
         ...MODULE_SELECTORS,
         ...TOKEN_SELECTORS,
-        ...FIELD_SELECTORS,
       ],
     },
   },
@@ -145,7 +128,6 @@ export default [
       'no-restricted-syntax': [
         'error',
         ...MODULE_SELECTORS,
-        ...FIELD_SELECTORS,
         {
           selector: 'MemberExpression[property.name=/^cookies?$/]',
           message: `${tokenBoundary}: no .cookies access.`,

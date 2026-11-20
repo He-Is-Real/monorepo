@@ -20,8 +20,8 @@ export const COMPACT_FIELD = `${FIELD_BASE} h-11 min-w-0 text-sm focus-visible:b
 export const fieldVariants = cva('', {
   variants: {
     size: {
-      compact: `${COMPACT_FIELD} px-3 placeholder:text-faint aria-[invalid=true]:border-destructive`,
-      form: `${FIELD_BASE} min-h-11 px-3 py-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive`,
+      compact: `${COMPACT_FIELD} px-3 placeholder:text-faint aria-[invalid=true]:border-danger`,
+      form: `${FIELD_BASE} min-h-11 px-3 py-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-danger`,
       writing: `${FIELD_BASE} rounded-md px-3 py-2.5 text-base focus-visible:border-ring focus-visible:ring-ring/50`,
     },
   },

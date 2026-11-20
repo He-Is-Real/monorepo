@@ -136,7 +136,7 @@ export function FieldError({
     <p
       data-slot="field-error"
       id={field.errorId}
-      className={cn('text-sm text-destructive', className)}
+      className={cn('text-sm text-danger-text', className)}
       {...props}
     >
       {children ?? field.error}
