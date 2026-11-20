@@ -1,3 +1,4 @@
+import type { StatusTone } from '@heisreal/web-ui';
 import {
   sanitizeStoryFilters,
   type StoryFilters,
@@ -177,6 +178,25 @@ export function stateLabel(state: string, action: string | null): string {
           : 'Being edited by the person';
   }
   return state;
+}
+
+/** A state's badge colour, by meaning (CH-2 A, Joel, 20 November 2026), as on My submissions. */
+export function stateTone(state: string, action: string | null): StatusTone {
+  switch (state) {
+    case 'pending':
+      return 'brand';
+    case 'approved':
+      return 'success';
+    case 'rejected':
+      return 'danger';
+    case 'hidden':
+      return 'warning';
+    case 'editing':
+      return action === 'changesRequested' || action === 'fileUnusable'
+        ? 'brand'
+        : 'neutral';
+  }
+  return 'neutral';
 }
 
 /** api-admin's `ModerationStatusEntry`. */

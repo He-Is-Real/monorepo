@@ -825,9 +825,13 @@ test.describe('moderation', () => {
     await expect(confirm).toHaveCount(0);
     await expect(page.locator('[data-review-status]')).toHaveText('Published');
     await decisions(page).getByRole('button', { name: 'Delete' }).click();
+    // Focus lands on the question, never on the danger button (CD-1 A).
+    await expect(
+      confirm.getByText('Delete this story for good?'),
+    ).toBeFocused();
     await expect(
       confirm.getByRole('button', { name: 'Delete story' }),
-    ).toBeFocused();
+    ).not.toBeFocused();
     await confirm.getByRole('button', { name: 'Delete story' }).click();
     await expect(notice(page)).toHaveText(
       'Deleted. The story and its files are gone.',
@@ -947,7 +951,10 @@ test.describe('moderation', () => {
     await expect(takeDown).toContainText('The person can read this');
     const confirm = takeDown.getByRole('button', { name: 'Take down' });
     await expect(confirm).toBeDisabled();
+    // OT-2 A: why it's greyed out, under it and read with it.
+    await expect(confirm).toHaveAccessibleDescription('Write a reason first.');
     await reason.fill('Someone named in it asked us to check it first.');
+    await expect(takeDown.getByText('Write a reason first.')).toHaveCount(0);
     await expectNoHorizontalOverflow(page);
     await confirm.click();
     await expect(page.locator('[data-take-down-notice]')).toHaveText(

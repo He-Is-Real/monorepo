@@ -24,6 +24,9 @@ import { AdminAccess, problemText } from '@/components/admin/admin-access';
 import {
   Button,
   Card,
+  Checkbox,
+  chipVariants,
+  cn,
   Field,
   FieldLabel,
   Input,
@@ -57,8 +60,8 @@ const Locked = createContext(false);
 /** How far (px) the mouse moves before a press on a pill becomes a drag. */
 const DRAG_DISTANCE = 6;
 
-const PILL =
-  'inline-flex min-h-11 max-w-full items-center rounded-full border border-border bg-card text-sm text-foreground';
+/** A theme's pill: the browse chip's shape (CH-1 A), its name and its × inside. */
+const PILL = cn(chipVariants({ padding: 'none' }), 'text-foreground');
 const SMALL_BUTTON =
   'inline-flex min-h-11 min-w-11 items-center justify-center rounded-md px-2 text-sm font-medium text-link hover:text-link-hover';
 
@@ -706,7 +709,7 @@ function NameInput({
   };
   return (
     <Input
-      size="form"
+      size="standard"
       autoFocus
       aria-label={label}
       maxLength={40}
@@ -752,7 +755,7 @@ function AddName({
   return (
     <button
       type="button"
-      className={`${PILL} min-w-11 justify-center border-dashed px-4 text-link`}
+      className={chipVariants({ add: true })}
       aria-label={ariaLabel}
       onClick={() => setOpen(true)}
     >
@@ -783,7 +786,7 @@ function Modal({
       ref={ref}
       aria-labelledby={titleId}
       onClose={onClose}
-      className="m-auto w-[min(100%-2rem,28rem)] max-w-full rounded-2xl border border-border bg-card p-0 text-foreground backdrop:bg-media/50"
+      className="m-auto w-[min(100%-2rem,28rem)] max-w-full rounded-2xl border border-border bg-card p-0 text-foreground backdrop:bg-overlay"
     >
       <div className="max-h-[85svh] space-y-4 overflow-y-auto p-5 [overflow-wrap:anywhere]">
         <h2 id={titleId} className="text-xl font-semibold">
@@ -833,7 +836,7 @@ function ThemePanel({
           <div>
             <FieldLabel>Name</FieldLabel>
             <Input
-              size="form"
+              size="standard"
               maxLength={40}
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -852,16 +855,15 @@ function ThemePanel({
             onValueChange={setWhere}
           />
         </div>
-        <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3 font-medium">
+        {/* A choice kept until Done, so a check box, not a switch (SW-1 B, CB-1 A). */}
+        <Checkbox
+          boxAfter
+          checked={highlighted}
+          onChange={(e) => setHighlighted(e.target.checked)}
+          labelClassName="font-medium"
+        >
           ★ Highlighted
-          <input
-            type="checkbox"
-            role="switch"
-            checked={highlighted}
-            onChange={(e) => setHighlighted(e.target.checked)}
-            className="size-6 accent-brand"
-          />
-        </label>
+        </Checkbox>
         <div className="flex flex-wrap gap-3">
           <Button type="submit" wrap>
             Done
@@ -915,7 +917,7 @@ function DeleteTheme({
             Type delete {theme.name}
           </label>
           <Input
-            size="form"
+            size="standard"
             id={id}
             autoComplete="off"
             value={typed}

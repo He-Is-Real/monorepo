@@ -101,9 +101,10 @@ test.describe('/admin/staff', () => {
       .getByRole('button', { name: 'Remove ann@heisreal.today' })
       .click();
     const confirm = page.getByRole('alertdialog');
-    await expect(confirm).toContainText(
-      'Remove ann@heisreal.today from the staff? They become a User.',
+    await expect(confirm).toHaveAccessibleName(
+      'Remove ann@heisreal.today from the staff?',
     );
+    await expect(confirm).toHaveAccessibleDescription('They become a User.');
     await confirm.getByRole('button', { name: 'Yes, remove' }).click();
     await expect(page.locator('[data-staff-status="done"]')).toHaveText(
       'ann@heisreal.today is no longer staff.',

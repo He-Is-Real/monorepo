@@ -6,7 +6,10 @@ import { fieldVariants, type FieldSize } from './field-style';
 import { useFieldControl } from './field';
 
 export type InputProps = Omit<React.ComponentProps<'input'>, 'size'> & {
-  /** `compact` (default): the drop-down's field. `form`: admin forms. `writing`: sharing a story. */
+  /**
+   * `compact` (default): small text, a search box beside drop-downs. `standard`: normal text,
+   * everywhere people type (TF-1 B).
+   */
   size?: FieldSize;
 };
 

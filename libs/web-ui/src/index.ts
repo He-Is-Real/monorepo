@@ -20,3 +20,17 @@ export {
 export { SearchBox, type SearchBoxProps } from './search-box';
 export { Select, type SelectOption, type SelectProps } from './select';
 export { Textarea, type TextareaProps } from './textarea';
+export { Checkbox, type CheckboxProps } from './checkbox';
+export { Chip, ChipTick, chipVariants } from './chip';
+export {
+  ChoiceCards,
+  SegmentedChoice,
+  type ChoiceOption,
+} from './choice-cards';
+export { Confirm, type ConfirmProps } from './confirm';
+export { DangerZone } from './danger-zone';
+export { Quiet } from './quiet';
+export { Switch, type SwitchProps } from './switch';
+export { StatusBadge, Tag, type StatusTone } from './tag';
+export { Tabs, tabId, type TabItem } from './tabs';
+export { Disclosure } from './disclosure';

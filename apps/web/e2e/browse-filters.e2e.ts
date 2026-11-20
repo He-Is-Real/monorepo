@@ -56,6 +56,13 @@ test.describe('tablets and phones: the Filters panel', () => {
       'aria-current',
       'true',
     );
+    // The chosen chip has the ✓ (CH-1 A); the others don't.
+    await expect(
+      panel.getByRole('link', { name: 'Hope' }).locator('[data-chip-tick]'),
+    ).toBeVisible();
+    await expect(
+      panel.getByRole('link', { name: 'Grief' }).locator('[data-chip-tick]'),
+    ).toHaveCount(0);
     await chooseOption(panel.getByLabel('Format', { exact: true }), 'Video');
     await expect(page).toHaveURL(/[?&]format=video(&|$)/);
     await expect(page).toHaveURL(/[?&]theme=hope(&|$)/);

@@ -15,7 +15,14 @@ import {
 import { AdminAccess, problemText } from '@/components/admin/admin-access';
 import { LegalMarkdown } from '@/components/legal/legal-markdown';
 import { Redline } from '@/components/legal/redline';
-import { Button, Card, Textarea } from '@heisreal/web-ui';
+import {
+  Button,
+  Card,
+  Confirm,
+  Disclosure,
+  Tabs,
+  Textarea,
+} from '@heisreal/web-ui';
 import { type ApiUser, ApiUserProblem } from '@/lib/api-user';
 import {
   DOCUMENT_NAMES,
@@ -182,7 +189,6 @@ function ConsentTexts({ client }: { client: ApiUser }) {
     setNotice(null);
   }
   const noticeRef = useRef<HTMLParagraphElement>(null);
-  const tabs = useRef(new Map<LegalDocumentName, HTMLButtonElement>());
   const load = useRef(0);
   const id = useId();
 
@@ -249,60 +255,27 @@ function ConsentTexts({ client }: { client: ApiUser }) {
     // Next keeps useSearchParams in step with the browser's own history (a new entry each time).
     window.history.pushState(null, '', url);
   };
-  // Arrow keys move between the tabs (ARIA tabs pattern).
-  const onKey = (event: React.KeyboardEvent) => {
-    const i = LEGAL_DOCUMENTS.indexOf(document);
-    const step =
-      event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
-    if (!step) return;
-    event.preventDefault();
-    const next =
-      LEGAL_DOCUMENTS[
-        (i + step + LEGAL_DOCUMENTS.length) % LEGAL_DOCUMENTS.length
-      ];
-    choose(next);
-    tabs.current.get(next)?.focus();
-  };
-
   return (
     <div className="space-y-8">
-      <div
-        role="tablist"
-        aria-label="Which text"
-        onKeyDown={onKey}
-        className="grid grid-cols-2 md:flex md:border-b md:border-border"
+      <Tabs
+        label="Which text"
+        idBase={id}
+        panelId={`${id}-panel`}
+        value={document}
+        onValueChange={choose}
         data-text-tabs=""
-      >
-        {LEGAL_DOCUMENTS.map((d) => (
-          <button
-            key={d}
-            ref={(el) => {
-              if (el) tabs.current.set(d, el);
-              else tabs.current.delete(d);
-            }}
-            type="button"
-            role="tab"
-            id={`${id}-tab-${d}`}
-            aria-selected={document === d}
-            aria-controls={`${id}-panel`}
-            tabIndex={document === d ? 0 : -1}
-            onClick={() => choose(d)}
-            // Under 768 px a 2×2 grid, each cell with its own underline (a 1 px rule; the chosen
-            // one 3 px teal); from 768 px one row on a shared rule, the chosen one underlined.
-            className="flex min-h-11 min-w-0 flex-col items-start justify-center px-3 py-2 text-left leading-snug text-secondary-text shadow-[inset_0_-1px_0_var(--color-border)] hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none aria-selected:font-semibold aria-selected:text-foreground aria-selected:shadow-[inset_0_-3px_0_var(--color-primary)] md:-mb-px md:px-4 md:shadow-none md:aria-selected:shadow-[inset_0_-3px_0_var(--color-primary)]"
-          >
-            <span>{DOCUMENT_TITLES[d]}</span>
-            <span
-              className="text-sm font-normal text-secondary-text"
-              data-tab-version={currents[d]?.version}
-            >
+        items={LEGAL_DOCUMENTS.map((d) => ({
+          value: d,
+          label: DOCUMENT_TITLES[d],
+          detail: (
+            <span data-tab-version={currents[d]?.version}>
               {currents[d]
                 ? `v${currents[d].version} · ${tabDate(currents[d].releaseDate)}`
                 : '\u00a0'}
             </span>
-          </button>
-        ))}
-      </div>
+          ),
+        }))}
+      />
 
       <div
         role="tabpanel"
@@ -385,7 +358,6 @@ function EditVersion({
   );
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const alert = useRef<HTMLDivElement>(null);
-  const confirm = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   useFullHeight(box, text);
   const content = text.replace(/\r\n?/g, '\n');
@@ -394,7 +366,6 @@ function EditVersion({
   useEffect(() => {
     if (status.kind === 'error' || status.kind === 'stale')
       alert.current?.focus();
-    if (status.kind === 'confirm') confirm.current?.focus();
   }, [status]);
 
   function askConfirm(event: React.FormEvent) {
@@ -445,11 +416,8 @@ function EditVersion({
             {shortDate(current.releaseDate)}
           </time>
         </p>
-        <details className="mt-1">
-          <summary className="inline-flex min-h-11 cursor-pointer items-center font-medium text-link hover:text-link-hover">
-            See all versions
-          </summary>
-          <ol className="mt-2 space-y-1" data-versions={document}>
+        <Disclosure summary="See all versions" className="mt-1">
+          <ol className="space-y-1" data-versions={document}>
             {list.data.map((v) => (
               <li
                 key={v.version}
@@ -473,7 +441,7 @@ function EditVersion({
               </li>
             ))}
           </ol>
-        </details>
+        </Disclosure>
       </div>
 
       <form onSubmit={askConfirm} className="space-y-6" noValidate>
@@ -485,22 +453,12 @@ function EditVersion({
             >
               New text (version {next}) · Markdown
             </label>
-            <details className="group mb-2 text-sm text-secondary-text">
-              {/* A down arrow that turns up when open, in link colour, so it reads as something to
-                  click (Joel, 2026-11-17). */}
-              <summary className="inline-flex min-h-11 cursor-pointer list-none items-center gap-2 font-medium text-link hover:text-link-hover [&::-webkit-details-marker]:hidden">
-                How to format it
-                <svg
-                  viewBox="0 0 24 24"
-                  aria-hidden="true"
-                  className="size-4 shrink-0 fill-none stroke-current transition-transform group-open:rotate-180"
-                  strokeWidth="2"
-                >
-                  <path d="M6 9l6 6 6-6" />
-                </svg>
-              </summary>
+            <Disclosure
+              summary="How to format it"
+              className="mb-2 text-sm text-secondary-text"
+            >
               <dl
-                className="mt-2 grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-[auto_1fr]"
+                className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-[auto_1fr]"
                 data-cheat-sheet=""
               >
                 {CHEAT_SHEET.map(([mark, meaning]) => (
@@ -515,9 +473,8 @@ function EditVersion({
                 ))}
               </dl>
               <p className="mt-2">Leave a blank line between paragraphs.</p>
-            </details>
+            </Disclosure>
             <Textarea
-              size="form"
               ref={box}
               id={`${id}-text`}
               value={text}
@@ -582,39 +539,18 @@ function EditVersion({
       </form>
 
       {status.kind === 'confirm' && (
-        <Card
-          ref={confirm}
-          tabIndex={-1}
-          role="alertdialog"
-          aria-labelledby={`${id}-confirm`}
-          aria-describedby={`${id}-confirm-more`}
-          tone="primary"
-          className="space-y-4 p-4 outline-none sm:p-6"
+        <Confirm
           data-confirm=""
+          question={`Save version ${next} of ${name}?`}
+          confirmLabel="Save"
+          onConfirm={doSave}
+          onCancel={() => setStatus({ kind: 'idle' })}
         >
-          <p className="text-foreground">
-            <b id={`${id}-confirm`}>
-              Save version {next} of {name}?
-            </b>{' '}
-            <span id={`${id}-confirm-more`}>
-              It can’t be changed or deleted after saving. It takes effect as
-              soon as it’s saved.
-            </span>
+          <p>
+            It can’t be changed or deleted after saving. It takes effect as soon
+            as it’s saved.
           </p>
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <Button type="button" wrap onClick={doSave}>
-              Save
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              wrap
-              onClick={() => setStatus({ kind: 'idle' })}
-            >
-              Cancel
-            </Button>
-          </div>
-        </Card>
+        </Confirm>
       )}
 
       {status.kind === 'error' && (

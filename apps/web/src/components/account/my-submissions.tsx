@@ -4,7 +4,15 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
 import { previewHref } from '@/components/share/own-media';
-import { Button, Card } from '@heisreal/web-ui';
+import {
+  Button,
+  Card,
+  Confirm,
+  DangerZone,
+  Quiet,
+  StatusBadge,
+  type StatusTone,
+} from '@heisreal/web-ui';
 import {
   type Agreement,
   type ApiUser,
@@ -74,23 +82,18 @@ type Label =
   | 'hidden'
   | 'taken_down'
   | 'rejected';
-const LABEL: Record<Label, { label: string; tone: string }> = {
-  draft: { label: 'Draft', tone: 'border-border text-secondary-text' },
-  needs_file: { label: 'Needs a new file', tone: 'border-link text-link' },
-  ready_again: { label: 'Ready to send again', tone: 'border-link text-link' },
-  sent_back: { label: 'Sent back', tone: 'border-link text-link' },
-  editing: { label: 'Being edited', tone: 'border-border text-secondary-text' },
-  pending: { label: 'Waiting for review', tone: 'border-link text-link' },
-  approved: { label: 'Published', tone: 'border-primary text-foreground' },
-  hidden: {
-    label: 'Not on the site right now',
-    tone: 'border-border text-foreground',
-  },
-  taken_down: {
-    label: 'Taken down by our team',
-    tone: 'border-border text-foreground',
-  },
-  rejected: { label: 'Not accepted', tone: 'border-border text-foreground' },
+/** Each label's words and badge colour, by meaning (CH-2 A, Joel, 20 November 2026). */
+const LABEL: Record<Label, { label: string; tone: StatusTone }> = {
+  draft: { label: 'Draft', tone: 'neutral' },
+  needs_file: { label: 'Needs a new file', tone: 'brand' },
+  ready_again: { label: 'Ready to send again', tone: 'brand' },
+  sent_back: { label: 'Sent back', tone: 'brand' },
+  editing: { label: 'Being edited', tone: 'neutral' },
+  pending: { label: 'Waiting for review', tone: 'brand' },
+  approved: { label: 'Published', tone: 'success' },
+  hidden: { label: 'Not on the site right now', tone: 'warning' },
+  taken_down: { label: 'Taken down by our team', tone: 'warning' },
+  rejected: { label: 'Not accepted', tone: 'danger' },
 };
 function labelOf(story: MyStoryRow): Label {
   if (story.status === 'editing') {
@@ -247,10 +250,10 @@ export function MySubmissions() {
     );
   } else if (state.data.stories.length === 0) {
     body = (
-      <p className="min-h-24 text-secondary-text">
+      <Quiet as="p" data-submissions-empty="">
         You haven’t shared a story yet. When you do, you’ll see it here, with
         where it is in review.
-      </p>
+      </Quiet>
     );
   } else {
     body = (
@@ -308,8 +311,9 @@ function StoryRow({
   const label = labelOf(story);
   const status = LABEL[label] ?? {
     label: story.status,
-    tone: 'border-border text-secondary-text',
+    tone: 'neutral' as const,
   };
+  const editButton = useRef<HTMLButtonElement>(null);
   const titleId = `story-${story.id}`;
   const what = label === 'draft' ? 'draft' : 'story';
   const media = story.primaryFormat === 'audio' ? 'recording' : 'video';
@@ -341,12 +345,9 @@ function StoryRow({
           >
             {story.title}
           </h3>
-          <span
-            data-status=""
-            className={`max-w-full rounded-full border px-3 py-1 text-sm font-medium ${status.tone}`}
-          >
+          <StatusBadge data-status="" tone={status.tone}>
             {status.label}
-          </span>
+          </StatusBadge>
         </div>
         <p className="mb-3 text-sm text-secondary-text [overflow-wrap:anywhere]">
           {meta.join(' · ')}
@@ -424,42 +425,21 @@ function StoryRow({
           </p>
         )}
 
-        {confirm ? (
-          <div
-            data-confirm={confirm}
-            className="rounded-xl border border-border-hover p-4"
+        {confirm === 'edit' ? (
+          <Confirm
+            data-confirm="edit"
+            question="Edit this story?"
+            confirmLabel={busy ? 'Opening…' : 'Edit story'}
+            busy={busy}
+            returnFocus={editButton}
+            onConfirm={() => void go('edit')}
+            onCancel={() => setConfirm(null)}
           >
-            <p className="mb-3">
-              {confirm === 'delete'
-                ? `Delete this ${what} for good? Its text and any video or audio go too${onSite ? ', and it comes off the site' : ''}. This can’t be undone.`
-                : 'Edit this story? It comes off the site straight away, and goes back on once our team has approved it again.'}
+            <p>
+              It comes off the site straight away, and goes back on once our
+              team has approved it again.
             </p>
-            <div className="flex flex-wrap gap-3">
-              <Button
-                autoFocus
-                variant={confirm === 'delete' ? 'danger' : 'default'}
-                className="h-auto min-h-11 px-5 py-2 whitespace-normal"
-                disabled={busy}
-                onClick={() => go(confirm)}
-              >
-                {busy
-                  ? confirm === 'delete'
-                    ? 'Deleting…'
-                    : 'Opening…'
-                  : confirm === 'delete'
-                    ? `Delete ${what}`
-                    : 'Edit story'}
-              </Button>
-              <Button
-                variant="outline"
-                className="h-auto min-h-11 px-5 py-2 whitespace-normal"
-                disabled={busy}
-                onClick={() => setConfirm(null)}
-              >
-                Keep it
-              </Button>
-            </div>
-          </div>
+          </Confirm>
         ) : (
           <div className="flex flex-wrap gap-3">
             {story.status === 'editing' && (
@@ -510,6 +490,7 @@ function StoryRow({
             )}
             {CAN_START_EDITING.includes(story.status) && (
               <Button
+                ref={editButton}
                 variant="outline"
                 className="h-auto min-h-11 px-5 py-2 whitespace-normal"
                 aria-describedby={titleId}
@@ -521,16 +502,26 @@ function StoryRow({
                 Edit
               </Button>
             )}
-            <Button
-              variant="outline"
-              className="h-auto min-h-11 px-5 py-2 whitespace-normal"
-              aria-describedby={titleId}
-              onClick={() => setConfirm('delete')}
-            >
-              Delete
-            </Button>
           </div>
         )}
+        <DangerZone
+          className="mt-4"
+          open={confirm === 'delete'}
+          onOpenChange={(open) => setConfirm(open ? 'delete' : null)}
+          actionProps={{ 'aria-describedby': titleId }}
+          confirmProps={{ 'data-confirm': 'delete' }}
+          question={`Delete this ${what} for good?`}
+          detail={
+            <p>
+              Its text and any video or audio go too
+              {onSite ? ', and it comes off the site' : ''}. This can’t be
+              undone.
+            </p>
+          }
+          confirmLabel={busy ? 'Deleting…' : `Delete ${what}`}
+          busy={busy}
+          onConfirm={() => void go('delete')}
+        />
         {error && (
           <p role="alert" className="mt-3 text-sm text-danger-text">
             {error}

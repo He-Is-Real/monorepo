@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page, test } from '@playwright/test';
 import { BEHAVIOUR_DEVICES } from './devices';
 import {
   chooseOption,
@@ -38,6 +38,14 @@ const pill = (page: Page, name: string) =>
 const namesIn = (page: Page, name: string, part: 'highlighted' | 'rest') =>
   zone(page, name, part).locator('[data-theme]');
 
+/** "★ Highlighted" in a theme's panel: a check box whose words are pressed (CB-1 A). */
+async function highlighted(dialog: Locator, on: boolean) {
+  const box = dialog.getByRole('checkbox', { name: /Highlighted/ });
+  if ((await box.isChecked()) !== on)
+    await dialog.getByText('★ Highlighted').click();
+  await expect(box).toBeChecked({ checked: on });
+}
+
 /** The pill's panel, the way a keyboard (or a tap) opens it. */
 async function panel(page: Page, name: string) {
   await pill(page, name)
@@ -65,7 +73,11 @@ test('/admin/themes fits with 44 px targets, and a theme’s panel, a delete and
   // The panel, with a longer name and Highlighted on.
   let dialog = await panel(page, 'Work');
   await dialog.getByLabel('Name').fill('work and money');
-  await dialog.getByRole('switch', { name: /Highlighted/ }).check();
+  // A check box now (SW-1 B, CB-1 A): pressing its words ticks it.
+  await dialog.getByText('★ Highlighted').click();
+  await expect(
+    dialog.getByRole('checkbox', { name: /Highlighted/ }),
+  ).toBeChecked();
   await expectNoHorizontalOverflow(page);
   await dialog.getByRole('button', { name: 'Done' }).click();
   // A theme and a category deleted, so the summary lists what reaches beyond the page.
@@ -120,7 +132,7 @@ test.describe('/admin/themes', () => {
     // The panel: a new name (tidied), highlighted.
     let dialog = await panel(page, 'Work');
     await dialog.getByLabel('Name').fill('  work   and  money ');
-    await dialog.getByRole('switch', { name: /Highlighted/ }).check();
+    await highlighted(dialog, true);
     await expectNoHorizontalOverflow(page);
     await dialog.getByRole('button', { name: 'Done' }).click();
     await expect(namesIn(page, 'Topics', 'highlighted')).toHaveText([
@@ -217,7 +229,7 @@ test.describe('/admin/themes', () => {
     await expect(pill(page, 'A')).toBeVisible();
     await expectAllTargets(page);
     const dialog = await panel(page, 'Healing');
-    await dialog.getByRole('switch', { name: /Highlighted/ }).uncheck();
+    await highlighted(dialog, false);
     await dialog.getByRole('button', { name: 'Done' }).click();
     await expect(namesIn(page, 'Topics', 'rest')).toHaveText([
       'Healing×',
@@ -237,7 +249,7 @@ test.describe('/admin/themes', () => {
   }) => {
     await open(page);
     const dialog = await panel(page, 'Work');
-    await dialog.getByRole('switch', { name: /Highlighted/ }).check();
+    await highlighted(dialog, true);
     await dialog.getByRole('button', { name: 'Done' }).click();
     // The save's PUT is held until the test lets it go.
     let release = () => undefined as void;
@@ -354,7 +366,7 @@ test.describe('/admin/themes', () => {
     const theirs = await start();
     const highlight = async (page: Page, theme: string) => {
       const dialog = await panel(page, theme);
-      await dialog.getByRole('switch', { name: /Highlighted/ }).check();
+      await highlighted(dialog, true);
       await dialog.getByRole('button', { name: 'Done' }).click();
       await page.getByRole('button', { name: 'Save changes' }).click();
       await page

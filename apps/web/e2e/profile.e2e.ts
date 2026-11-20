@@ -511,8 +511,8 @@ test.describe('behaviour', () => {
     await expect(story.locator('[data-confirm]')).toContainText(
       'It comes off the site straight away',
     );
-    // "Keep it" leaves it on the site.
-    await story.getByRole('button', { name: 'Keep it' }).click();
+    // "Cancel" (an edit's way out, CD-2 B) leaves it on the site.
+    await story.getByRole('button', { name: 'Cancel' }).click();
     expect(await me.stories()).toEqual([['p1', 'approved']]);
     await story.getByRole('button', { name: 'Edit' }).click();
     await story.getByRole('button', { name: 'Edit story' }).click();
@@ -566,8 +566,10 @@ test.describe('behaviour', () => {
     await page.goto(PROFILE);
     const story = row(page, 'Live one');
     await story.getByRole('button', { name: 'Delete' }).click();
-    await expect(story.locator('[data-confirm]')).toContainText(
-      'Delete this story for good? Its text and any video or audio go too, and it comes off the site. This can’t be undone.',
+    const step = story.getByRole('alertdialog');
+    await expect(step).toHaveAccessibleName('Delete this story for good?');
+    await expect(step).toHaveAccessibleDescription(
+      'Its text and any video or audio go too, and it comes off the site. This can’t be undone.',
     );
     await story.getByRole('button', { name: 'Delete story' }).click();
     await expect(page.locator('[data-notice]')).toContainText(
@@ -607,6 +609,36 @@ test.describe('behaviour', () => {
       page.getByRole('heading', { name: 'My submissions' }),
     ).toBeFocused();
     expect(await me.stories()).toEqual([['d1', 'editing']]);
+  });
+
+  test('the “Are you sure?” step takes keyboard focus to its question, never the Delete button, and Escape means no', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, {
+      stories: [{ id: 'k1', title: 'Keep me' }],
+    });
+    await page.goto(PROFILE);
+    const story = row(page, 'Keep me');
+    // In the Danger zone (DL-2 A), opened from the keyboard.
+    await story.getByRole('button', { name: 'Delete' }).focus();
+    await page.keyboard.press('Enter');
+    const step = story.getByRole('alertdialog', {
+      name: 'Delete this draft for good?',
+    });
+    await expect(step.getByText('Delete this draft for good?')).toBeFocused();
+    await expect(
+      step.getByRole('button', { name: 'Delete draft' }),
+    ).not.toBeFocused();
+    // Enter again lands on the question, so nothing is deleted.
+    await page.keyboard.press('Enter');
+    await expect(step).toBeVisible();
+    expect(await me.stories()).toEqual([['k1', 'editing']]);
+    // Escape is "no": the step goes and focus is back on Delete.
+    await page.keyboard.press('Escape');
+    await expect(step).toHaveCount(0);
+    await expect(story.getByRole('button', { name: 'Delete' })).toBeFocused();
+    expect(await me.stories()).toEqual([['k1', 'editing']]);
   });
 
   test('once the person signs out, what they did is never shown: not a notice, not one finishing late', async ({

@@ -6,7 +6,7 @@ import { confirmAgreement } from '@/components/auth/account-bootstrap';
 import { LegalHtml } from '@/components/legal/legal-html';
 import { PrivacyNoticeLink } from '@/components/legal/privacy-notice-link';
 import { Redline } from '@/components/legal/redline';
-import { Button } from '@heisreal/web-ui';
+import { Button, Checkbox, Disclosure } from '@heisreal/web-ui';
 import {
   type Agreement,
   type AgreementState,
@@ -255,35 +255,21 @@ export function AgreementStep({
         )}
 
         <div className="mt-6">
-          <label
-            className={`flex min-h-11 cursor-pointer items-start gap-[12px] rounded-xl border bg-accent px-[12px] py-3 text-[1.0625rem] leading-relaxed text-foreground has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 [overflow-wrap:anywhere] sm:px-4 ${missing ? 'border-danger' : 'border-border'}`}
+          <Checkbox
+            card
+            ref={box}
+            checked={ticked}
+            onChange={(e) => {
+              setTicked(e.target.checked);
+              setMissing(false);
+            }}
+            aria-invalid={missing || undefined}
+            aria-describedby={missing ? `${id}-missing` : undefined}
+            className="text-[1.0625rem] leading-relaxed [overflow-wrap:anywhere]"
+            labelClassName="font-semibold"
           >
-            <input
-              ref={box}
-              type="checkbox"
-              checked={ticked}
-              onChange={(e) => {
-                setTicked(e.target.checked);
-                setMissing(false);
-              }}
-              aria-invalid={missing || undefined}
-              aria-describedby={missing ? `${id}-missing` : undefined}
-              className="peer sr-only"
-            />
-            <span
-              aria-hidden="true"
-              className="mt-[3px] flex size-[22px] shrink-0 items-center justify-center rounded-md border-2 border-input bg-input-background text-primary-foreground peer-checked:border-primary peer-checked:bg-primary [&>svg]:invisible peer-checked:[&>svg]:visible"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                className="size-[16px] fill-none stroke-current"
-                strokeWidth="3"
-              >
-                <path d="M5 12l5 5 9-10" />
-              </svg>
-            </span>
-            <span className="min-w-0 font-semibold">{label}</span>
-          </label>
+            {label}
+          </Checkbox>
           {missing && (
             <p
               id={`${id}-missing`}
@@ -328,25 +314,15 @@ function title(
 /** The latest version in full, folded away under the redline ("Read the full version N"). */
 function FullText({ version, html }: { version: number; html: string }) {
   return (
-    <details className="group mt-2">
-      <summary className="flex min-h-11 cursor-pointer items-center gap-2 font-medium text-link hover:text-link-hover">
-        <svg
-          viewBox="0 0 24 24"
-          aria-hidden="true"
-          className="size-4 shrink-0 fill-none stroke-current transition-transform group-open:rotate-90"
-          strokeWidth="2"
-        >
-          <path d="M9 6l6 6-6 6" />
-        </svg>
-        Read the full version {version}
-      </summary>
-      <div
-        data-full-version={version}
-        className="mt-2 rounded-xl border border-border bg-card px-4 py-4 sm:px-5"
-      >
+    <Disclosure
+      variant="long"
+      summary={`Read the full version ${version}`}
+      className="mt-2"
+    >
+      <div data-full-version={version}>
         <LegalHtml html={html} />
       </div>
-    </details>
+    </Disclosure>
   );
 }
 

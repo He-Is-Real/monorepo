@@ -5,6 +5,7 @@ import { AdminAccess, problemText } from '@/components/admin/admin-access';
 import {
   Button,
   Card,
+  Confirm,
   Field,
   FieldError,
   FieldHint,
@@ -70,7 +71,6 @@ function Staff({ client }: { client: ApiUser }) {
   const [emailError, setEmailError] = useState<string | null>(null);
   const load = useRef(0);
   const noteRef = useRef<HTMLDivElement>(null);
-  const confirmRef = useRef<HTMLDivElement>(null);
 
   const refresh = useCallback(() => {
     const mine = ++load.current;
@@ -96,9 +96,6 @@ function Staff({ client }: { client: ApiUser }) {
   useEffect(() => {
     if (note) noteRef.current?.focus();
   }, [note]);
-  useEffect(() => {
-    if (removing) confirmRef.current?.focus();
-  }, [removing]);
 
   /** Runs one change, then shows `done` (or why not) and reads the list again. */
   async function change(
@@ -174,7 +171,7 @@ function Staff({ client }: { client: ApiUser }) {
               <div className="min-w-0 flex-1">
                 <FieldLabel>Email</FieldLabel>
                 <Input
-                  size="form"
+                  size="standard"
                   type="email"
                   autoComplete="off"
                   value={email}
@@ -272,42 +269,21 @@ function Staff({ client }: { client: ApiUser }) {
       </section>
 
       {removing && (
-        <Card
-          ref={confirmRef}
-          tabIndex={-1}
-          role="alertdialog"
-          aria-labelledby={`${id}-confirm`}
-          tone="primary"
-          className="space-y-4 p-4 sm:p-6"
+        <Confirm
+          question={`Remove ${removing} from the staff?`}
+          confirmLabel="Yes, remove"
+          onConfirm={() => {
+            const who = removing;
+            setRemoving(null);
+            void change(
+              () => client.command(path(who), { method: 'DELETE' }),
+              `${who} is no longer staff.`,
+            );
+          }}
+          onCancel={() => setRemoving(null)}
         >
-          <p id={`${id}-confirm`} className="[overflow-wrap:anywhere]">
-            Remove {removing} from the staff? They become a User.
-          </p>
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <Button
-              type="button"
-              wrap
-              onClick={() => {
-                const who = removing;
-                setRemoving(null);
-                void change(
-                  () => client.command(path(who), { method: 'DELETE' }),
-                  `${who} is no longer staff.`,
-                );
-              }}
-            >
-              Yes, remove
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              wrap
-              onClick={() => setRemoving(null)}
-            >
-              Cancel
-            </Button>
-          </div>
-        </Card>
+          <p>They become a User.</p>
+        </Confirm>
       )}
     </section>
   );

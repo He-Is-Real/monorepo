@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { SegmentedChoice } from '@heisreal/web-ui';
 import { useSearchParams } from 'next/navigation';
 import type { StripeDonations } from '@/lib/config';
 import { type Frequency, frequencyFor } from './frequency';
@@ -42,28 +43,13 @@ export function DonateChooser({ stripe }: { stripe: StripeDonations }) {
           <p id="frequency-label" className="mb-3 font-semibold">
             How often would you like to give?
           </p>
-          <div
-            role="radiogroup"
+          <SegmentedChoice
             aria-labelledby="frequency-label"
-            className="inline-flex max-w-full rounded-full border border-border bg-raised p-1"
-          >
-            {options.map((o) => (
-              <label
-                key={o.value}
-                className="inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-full px-6 text-sm font-semibold text-secondary-text transition-colors has-checked:bg-primary has-checked:text-primary-foreground has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-ring"
-              >
-                <input
-                  type="radio"
-                  name="frequency"
-                  value={o.value}
-                  checked={frequency === o.value}
-                  onChange={() => choose(o.value)}
-                  className="sr-only"
-                />
-                {o.label}
-              </label>
-            ))}
-          </div>
+            name="frequency"
+            options={options}
+            value={frequency}
+            onValueChange={choose}
+          />
         </div>
       )}
 

@@ -70,13 +70,14 @@ means. Pages use only these names, as Tailwind classes (`bg-danger`, `text-dange
 | `danger-foreground`                    | Text on a danger fill.                                                                                                  |
 | `danger-text`                          | Red words (errors, "overdue"). In dark, the red lightened 25% so it reads on every surface.                             |
 | `warning`, `warning-foreground`        | Needs attention soon (late, send back, a notice): amber, and text on an amber fill.                                     |
-| `success`                              | Done or added (a legal text's added words).                                                                             |
+| `success`, `success-text`              | Done or added (a legal text's added words); `success-text` for words on a success tint (the Published badge).           |
 | `info`                                 | A neutral note (the link colour).                                                                                       |
 | `brand`                                | The logo teal: decoration, edges, a chosen item's mark. Never small text on white (3.2:1).                              |
 | `brand-strong`, `brand-bright`         | The brand's stronger and brighter steps (an avatar's fill; the hero's words and hovers).                                |
 | `logo`                                 | The logo: brand teal on light, white on dark.                                                                           |
 | `media`, `on-media`                    | Black behind pictures and video and the veil over them; white for what sits on them (play buttons, captions, initials). |
 | `hero`                                 | The home page's hero, always dark.                                                                                      |
+| `overlay`                              | The veil behind a dialog (`backdrop:bg-overlay`): the Stories Filters panel, the Admin themes dialogs.                  |
 | `--art-1-…` to `--art-5-…`             | A story card without a picture: five quiet artworks (`-from`, `-to`, `-accent`), CSS variables only.                    |
 
 ## Components
@@ -87,9 +88,10 @@ means. Pages use only these names, as Tailwind classes (`bg-danger`, `text-dange
   native `<select>` (forms work without JavaScript; touch screens keep their own picker).
   Options are passed as `options={[{ value, label }]}`; `onValueChange` reports a choice;
   `submitOnChange` submits the surrounding form once the new value is in it.
-- `Input`: the site's text box. `size`: `compact` (default; the drop-down's field: search boxes and
-  filters), `form` (admin forms) or `writing` (sharing a story). The three sizes are the looks the
-  pages had before WL-1, kept until one is chosen.
+- `Input`: the site's text box (TF-1 B, Joel, 20 November 2026): one look in two sizes. `size`
+  `compact` (default; small text, for a search box beside drop-downs) or `standard` (normal text,
+  everywhere people type: Share, admin forms, "Delete my account"). The theme-naming box keeps its
+  round ends (`rounded-full`), as it stands in for a theme chip while you type.
 - `RadioGroup`: radio buttons as a fieldset with its legend as a small heading over 44 px rows,
   each a drawn round button filled teal when chosen (the moderators' list's sort, and the Stories
   page's since Joel, 2026-11-20). Controlled (`value`) or in a form (`name`, `defaultValue`,
@@ -97,8 +99,7 @@ means. Pages use only these names, as Tailwind classes (`bg-danger`, `text-dange
 - `SearchBox`: the search box (BS-2 A, Joel 2026-11-20): the compact `Input` with a magnifier submit
   button inside it, named "Search" (`buttonLabel`). Enter searches too. The Stories page and the
   moderators' list both use it (BS-4 B).
-- `Textarea`: the text box's look, taller (`size` `writing`, the default, or `form`; set the
-  height with a `min-h-*` class).
+- `Textarea`: the standard text box, taller (set the height with a `min-h-*` class).
 - `Field`, `FieldLabel`, `FieldHint`, `FieldError`: the label, hint and error of one control. `Field`
   adds no element: inside it, the label points at the control, and the `Input`, `Textarea` or
   `Select` takes the id, `aria-describedby` (hint, any `describedBy` ids, error) and `aria-invalid`
@@ -111,6 +112,50 @@ means. Pages use only these names, as Tailwind classes (`bg-danger`, `text-dange
 - `Button` and `buttonVariants`: the site's buttons (shadcn/ui, cva). `variant`: `default`,
   `danger` (can't be undone: delete, reject), `caution` (moderation's Send back), `outline`,
   `secondary`, `ghost`, `link`. `wrap`: words may wrap, at least 44 px tall, full width on phones.
+  `disabledReason`: while it's disabled, a short line under it says why (OT-2 A: "Write a reason
+  first."), read with it; only where the page has a reason.
+- `Chip` and `chipVariants`: a chip you press (CH-1 A): the browse chip everywhere (browse, a
+  story's page, Share's theme picker, chosen filters, Admin themes). `chosen`: the brand outline,
+  the pale brand fill, bold words and a ✓ (`ChipTick` when `asChild` puts the look on a `Link` or
+  a `label`). `add`: the dashed "+ Add" chip. A chip of several controls (an Admin theme's name and
+  ×) puts `chipVariants({ padding: 'none' })` on a wrapper.
+- `Tag`: a grey label that only says something (a card's themes, "Coming soon"). Not pressable.
+- `StatusBadge`: a story's status, a dot and a word coloured by meaning (`tone`): `neutral`
+  (Draft, Being edited), `brand` (Waiting for review, Sent back, Ready to send again, Needs a new
+  file), `success` (Published), `warning` (Taken down, Hidden), `danger` (Not accepted). My
+  submissions and the moderators' list.
+- `Confirm`: the one "Are you sure?" step (CD-1 A, CD-2 B), shown in place of the buttons that
+  opened it: a bold `question`, the detail (children: a line, a list), the action
+  (`confirmLabel`, `onConfirm`) and the way out (`onCancel`; "Keep it" for `danger`, "Cancel"
+  otherwise). Focus lands on the question, never the action; Escape is the way out; it's an
+  `alertdialog` named by the question and described by the detail; `returnFocus` is where focus
+  goes after the way out. `danger`: a danger outline and button. Used for Limits save, Consent &
+  legal save, removing staff, and My submissions' Edit.
+- `DangerZone`: every delete that can't be undone (DL-1 A as changed, DL-2 A): a red-outlined,
+  faintly red box with a warning sign in its title ("Danger zone", "Danger zone (Admins)") and a
+  solid danger button with a bin ("Delete"). Pressing it shows a danger `Confirm` in its place
+  (`question`, `detail`, `confirmLabel`, `onConfirm`), or the page's own step (`children`, with
+  `open`/`onOpenChange`: "Delete my account" asks for a word typed first). Focus comes back to the
+  button when the step closes. An Admin's Delete in moderation, "Delete my account", and Delete on
+  My submissions.
+- `Checkbox`: the site's check box (CB-1 A): a 22 px box with the field edge, dark brand when
+  ticked, the whole line pressable. `card` puts the line in a pale brand box (the agreement step,
+  Share's sharing box; its edge turns danger with `aria-invalid`); `boxAfter` puts the box at the
+  line's end (the Themes panel's "★ Highlighted").
+- `Switch`: on/off (SW-1 B), only where it acts at once ("Favourites only"). A ✓ in the knob when
+  on, the field edge when off. `checked`, `onCheckedChange`, its words as children.
+- `Tabs` and `tabId`: underlined tabs (TB-1 A, Consent & legal): one row, two rows of two on
+  phones; arrow keys move and choose. The page draws the panel with `aria-labelledby={tabId(…)}`.
+- `ChoiceCards`: big radio cards (CB-2 B, Share's Written / Video / Audio), the chosen one with a
+  2 px brand edge.
+- `SegmentedChoice`: a rounded tray of radios, the chosen one filled (CB-2 B, donate's One-off /
+  Monthly).
+- `Disclosure`: an open/close section (DS-1 A+E 4) on the native `<details>`: closed, link
+  words with a solid triangle; open, `variant` `short` (default; the content hangs from a grey
+  bar: "See all versions", "How to format it") or `long` (words and content in a light panel:
+  "Read the full version 3"). `summary` is the words to press.
+- `Quiet`: quiet context that isn't news (NT-2 B): a plain grey box (Share's weekly limit line,
+  an empty My submissions).
 - `fieldVariants`: the field look, for a control the library doesn't have yet.
 - `cn`: class names, with later Tailwind utilities overriding earlier ones.
 - `browserThemeColour`: the page background, light and dark, for `theme-color` meta tags.

@@ -353,8 +353,11 @@ test.describe('hearts', () => {
     await expect(only).toBeChecked();
     await expect(page.locator('main article h2')).toHaveText([title]);
     await browseFilters(page);
+    // On, the knob shows a ✓ (SW-1 B); off, it doesn't.
+    await expect(only.locator('[data-switch-tick]')).toBeVisible();
     await only.click();
     await expect(only).not.toBeChecked();
+    await expect(only.locator('[data-switch-tick]')).toBeHidden();
     await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}${HEART_PAGE}`);
     // Browse as the address says (every story with the heart_test theme), with its filters.
     await expect(cardHeart(page, title)).toBeVisible();
