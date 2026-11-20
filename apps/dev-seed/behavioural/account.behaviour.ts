@@ -1,5 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { expectClerkTargetsFullSize, expectFitsScreen } from './clerk-card';
+import {
+  codeSent,
+  expectClerkTargetsFullSize,
+  expectFitsScreen,
+} from './clerk-card';
 
 // Signing in on the deployed dev site with the real Clerk dev instance (the test user lands on
 // the terms of use step, plan 4e, without ticking it), then the browser's
@@ -34,6 +38,7 @@ for (const viewport of [
     await expect(page).toHaveURL(/\/sign-in\?redirect_url=%2Fabout/);
 
     await page.getByLabel(/email address/i).fill(TEST_USER);
+    const sent = codeSent(page);
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     // Email code (D2): the code boxes take the fixed test code.
     await expect(page.getByText(/check your email for a code/i)).toBeVisible();
@@ -51,6 +56,7 @@ for (const viewport of [
         r.request().method() === 'GET',
       { timeout: 45_000 },
     );
+    expect((await sent).ok()).toBe(true);
     await page.keyboard.type(TEST_CODE);
 
     // The step follows api-user's answer, which can take a while from a cold start.

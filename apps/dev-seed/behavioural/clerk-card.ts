@@ -44,3 +44,17 @@ export async function expectFitsScreen(page: Page, width: number) {
     'no horizontal scroll',
   ).toBe(true);
 }
+
+/**
+ * Clerk's code step, once the code can be checked. Clerk shows the code boxes at once and asks
+ * its server to send the code (`prepare_first_factor`) meanwhile; a code typed before that
+ * answers is refused ("You need to send a verification code before attempting to verify") and
+ * the sign-in stops there (CI, 2026-11-20). Start this before pressing Continue.
+ */
+export function codeSent(page: Page) {
+  return page.waitForResponse(
+    (r) =>
+      new URL(r.url()).pathname.endsWith('/prepare_first_factor') &&
+      r.request().method() === 'POST',
+  );
+}

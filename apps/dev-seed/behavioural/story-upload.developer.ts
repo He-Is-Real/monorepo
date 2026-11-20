@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import BUNNY_MEDIA from '../src/app/bunny-media.json';
 import { DEV_PROJECT } from '../src/app/config';
 import { API_USER_URL } from './playwright.config';
+import { codeSent } from './clerk-card';
 
 // A video story end to end on dev (M2 plan PR 7): a Clerk test user shares a real 2-second clip
 // at /share, which api-user creates at Bunny Stream and signs, the browser uploads by TUS and
@@ -88,8 +89,10 @@ async function signIn(page: Page) {
     .getByRole('link', { name: 'Sign in', exact: true })
     .click();
   await page.getByLabel(/email address/i).fill(TEST_USER);
+  const sent = codeSent(page);
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await expect(page.getByLabel(/verification code/i)).toBeVisible();
+  expect((await sent).ok()).toBe(true);
   const bootstrap = page.waitForResponse(
     (r) =>
       new URL(r.url()).origin === new URL(API_USER_URL).origin &&
