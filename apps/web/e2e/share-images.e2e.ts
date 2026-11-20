@@ -28,10 +28,15 @@ interface Uploaded {
   bytes: string | null;
 }
 
-async function person(page: Page, request: APIRequestContext) {
+async function person(
+  page: Page,
+  request: APIRequestContext,
+  /** The admin's settings for this person's session, where a test needs others. */
+  settings: Record<string, number> = {},
+) {
   const id = randomUUID().replace(/-/g, '');
   const res = await request.post(`${STUB_USER_URL}/__e2e/sessions/${id}`, {
-    data: {},
+    data: { settings },
   });
   expect(res.status()).toBe(204);
   await page.addInitScript((session) => {
@@ -106,6 +111,26 @@ async function drawn(page: Page, width: number, height: number, type: string) {
       return [...new Uint8Array(await blob.arrayBuffer())];
     },
     [width, height, type],
+  );
+  return Buffer.from(bytes);
+}
+
+/** A PNG of random noise: the hardest picture to make small, so its WebP stays large. */
+async function noise(page: Page, width: number, height: number) {
+  const bytes = await page.evaluate(
+    async ([w, h]) => {
+      const c = new OffscreenCanvas(w, h);
+      const ctx = c.getContext('2d') as OffscreenCanvasRenderingContext2D;
+      const img = ctx.createImageData(w, h);
+      // getRandomValues fills at most 65,536 bytes at a time; alpha stays opaque.
+      for (let at = 0; at < img.data.length; at += 65_536)
+        crypto.getRandomValues(img.data.subarray(at, at + 65_536));
+      for (let i = 3; i < img.data.length; i += 4) img.data[i] = 255;
+      ctx.putImageData(img, 0, 0);
+      const blob = await c.convertToBlob({ type: 'image/png' });
+      return [...new Uint8Array(await blob.arrayBuffer())];
+    },
+    [width, height],
   );
   return Buffer.from(bytes);
 }
@@ -279,6 +304,35 @@ test.describe('behaviour', () => {
     await expect(alert(page, 'That picture is too wide')).toBeVisible();
     await expect(page.locator('[data-picture-preview]')).toHaveCount(0);
     expect(await me.uploads()).toMatchObject({ requests: 0, images: [] });
+  });
+
+  // Joel, 2026-11-20: the largest picture file is the admin's setting, checked once prepared.
+  test('a picture over the largest picture file is refused with a plain message, before anything is sent', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request, { imageMaxBytes: 204_800 });
+    await toWrite(page);
+    // About 600 KB as a WebP: three times the 200 KB set here.
+    await page.getByLabel('Choose a picture').setInputFiles({
+      name: 'busy.png',
+      mimeType: 'image/png',
+      buffer: await noise(page, 1000, 800),
+    });
+    await expect(alert(page, 'This picture is too large: ')).toContainText(
+      'the most we can take is 200 KB. Please choose a smaller one.',
+    );
+    await expect(page.locator('[data-picture-preview]')).toHaveCount(0);
+    expect(await me.uploads()).toMatchObject({ requests: 0, images: [] });
+
+    // A picture under it is added as usual.
+    await page.getByLabel('Choose a picture').setInputFiles({
+      name: 'calm.png',
+      mimeType: 'image/png',
+      buffer: await drawn(page, 900, 1200, 'image/png'),
+    });
+    await expect(page.locator('[data-picture-preview]')).toBeVisible();
+    await expect(alert(page, 'This picture is too large')).toHaveCount(0);
   });
 
   test('a picture dropped on a written story is added as a chosen one is: the first of several, as WebP without its EXIF or GPS', async ({

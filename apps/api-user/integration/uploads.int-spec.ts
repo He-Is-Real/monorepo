@@ -988,6 +988,61 @@ describe('video and audio uploads', () => {
     return file;
   };
 
+  it('the largest picture file is the admin’s setting: a bigger picture is refused before anything is signed, and one added under a higher limit is refused at submit, as the zone stores it (Joel, 2026-11-20)', async () => {
+    // RequestUpload: the PUT would bind exactly the size declared, so the size is checked here.
+    try {
+      await settings({ imageMaxBytes: 204_800 });
+      await person('lex');
+      const created = await call('POST', '/v1/stories', 'lex', {
+        body: {
+          title: 'Words',
+          primaryFormat: 'written',
+          body: 'x'.repeat(250),
+        },
+        headers: { 'idempotency-key': key() },
+      });
+      const big = await upload('lex', created.body.id as string, 1, {
+        format: 'image',
+        contentType: 'image/webp',
+        fileSizeBytes: 204_801,
+        width: 1200,
+        height: 900,
+        expectedImage: null,
+      });
+      expect(big.status).toBe(400);
+      expect(big.body.errors).toEqual([
+        { pointer: '/fileSizeBytes', message: 'at most 204800 bytes' },
+      ]);
+      expect(
+        await rows(
+          migrator,
+          `SELECT VALUE id FROM storyFile WHERE story = type::record('story', $id)`,
+          { id: created.body.id },
+        ),
+      ).toEqual([]);
+    } finally {
+      await settings({ imageMaxBytes: 3_145_728 });
+    }
+
+    // Submit: a picture of 300,000 bytes, arrived whole, then the limit lowered under it.
+    const { id, path } = await pictureStory('lia', 300_000);
+    zone.files.set(path, webp({ size: 300_000 }));
+    try {
+      await settings({ imageMaxBytes: 204_800 });
+      const refused = await submit('lia', id, 2);
+      expect(refused.status).toBe(400);
+      expect(refused.body).toMatchObject({
+        code: 'image_not_uploaded',
+        detail:
+          'Your picture is larger than we can take now. Add a smaller one, or remove it, then submit your story.',
+      });
+    } finally {
+      await settings({ imageMaxBytes: 3_145_728 });
+    }
+    // Back under the limit, the same picture is sent.
+    expect((await submit('lia', id, 2)).status).toBe(200);
+  });
+
   it('the picture check refuses a WebP whose chunks couldn’t be real: an odd RIFF size, a VP8X header not 10 bytes long, a VP8 or VP8L header too short to hold its size, a first chunk that runs past the end (Codex, #208 review)', async () => {
     const odd = await pictureStory('pod', 40_001);
     // 40,001 bytes as recorded and as stored, but a RIFF size (39,993) no RIFF file can have.

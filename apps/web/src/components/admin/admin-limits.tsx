@@ -34,6 +34,7 @@ type Field =
   | 'videoMaxBytes'
   | 'audioMaxBytes'
   | 'mediaMaxSeconds'
+  | 'imageMaxBytes'
   | 'rejectedRetentionDays'
   | 'editingRetentionDays';
 type Values = Record<Field, number>;
@@ -47,6 +48,8 @@ interface Settings {
 
 /** 1 MB as the page shows it: 1,048,576 bytes, so today's 4 GiB reads 4,096 MB. */
 const MB = 1_048_576;
+/** 1 KB likewise: 1,024 bytes, so a picture's 3 MiB reads 3,072 KB. */
+const KB = 1024;
 
 /** Each limit in plain words, with the unit shown and how many stored units make one. */
 const GROUPS: {
@@ -124,6 +127,19 @@ const GROUPS: {
         label: 'Longest video or audio',
         unit: 'minutes',
         per: 60,
+      },
+    ],
+  },
+  {
+    // Joel, 2026-11-20: "admin modifiable limitations for image object size".
+    title: 'Pictures',
+    note: 'For every story’s picture or video thumbnail, trusted submitters included. The person’s device makes it a WebP at most 2,048 pixels across first: photos come to about 200–1,000 KB.',
+    fields: [
+      {
+        field: 'imageMaxBytes',
+        label: 'Largest picture file',
+        unit: 'KB',
+        per: KB,
       },
     ],
   },

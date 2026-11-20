@@ -61,8 +61,11 @@ export interface Renderer {
 const MP4_HEIGHTS = [240, 360, 480, 720, 1080];
 /** Our longest story's sound is far smaller; anything bigger isn't one of ours. */
 const MAX_SOURCE_BYTES = 2 * 1024 ** 3;
-/** Pictures are WebP at most 5 MB, 4096 px on either side (fn::upload::image_limits). */
-const MAX_PICTURE_BYTES = 5 * 1024 ** 2;
+/**
+ * Pictures are WebP at most the admin's imageMaxBytes, which can't be set above 20 MiB, and 4096
+ * px on either side (fn::upload::image_limits).
+ */
+const MAX_PICTURE_BYTES = 20 * 1024 ** 2;
 const MAX_PICTURE_SIDE = 4096;
 /**
  * The picture video's file: the sound copied plus a picture a second, so never far over the sound

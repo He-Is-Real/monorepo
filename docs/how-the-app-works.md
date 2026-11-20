@@ -330,12 +330,21 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
 | Video file size               | 4 GB                             |
 | Audio file size               | 500 MB                           |
 | Video and audio length        | 15 minutes                       |
+| Picture file size             | 3 MB (200 KB to 20 MB)           |
 | Keeping a rejected story      | 90 days after the decision       |
 | Keeping a story being edited  | 186 days untouched (sent before) |
 
 - Pictures never count towards the 7-day upload limit. (D113)
+- **The largest picture file** (Joel, 2026-11-20) is the same for everyone, trusted submitters
+  too, and covers every picture: a written story's, an audio story's and a video's thumbnail. It is
+  measured after the browser has made the picture smaller (most photos come to 200 KB to 1 MB; a
+  2048-pixel picture of pure noise, the worst case, is just under 3 MB). The browser checks it
+  before uploading ("This picture is too large: … Please choose a smaller one."); api-user and the
+  database check it again when the upload is asked for, and api-user once more when the story is
+  sent. Lowering it doesn't touch stories already sent.
 - Invisible zero-width characters count towards the 200-character minimum. (A2)
-- **Trusted submitters** have no open-drafts or weekly limits, only the hourly upload limit. An
+- **Trusted submitters** have no open-drafts or weekly limits, only the hourly upload limit, and
+  the largest video and audio sizes and lengths (not bigger pictures). An
   admin can also set a person's own limits. (W3, D112) There is no admin page for that yet.
 - **New limits apply to everyone at once** (no "grandfathering"): every later action must meet
   the limits in force. An edit over a maximum is accepted only if it doesn't make it worse, so a
@@ -357,14 +366,17 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   recorded, and without hidden metadata (EXIF, which can hold a photo's location, or XMP) or
   animation; a picture our page made never has them, so one that does wasn't cleaned. Otherwise
   the story stays a draft and the person is told "Your picture hasn't finished uploading. Add it
-  again, or remove it, then submit your story." If the picture storage can't be reached, the story
+  again, or remove it, then submit your story." A picture bigger than the largest picture file in
+  force now (an admin lowered it after the picture was added) is refused the same way, with "Your
+  picture is larger than we can take now. Add a smaller one, or remove it, then submit your
+  story." If the picture storage can't be reached, the story
   stays a draft and the person tries again later; it never passes unchecked. A colour profile and
   transparency are allowed (Chrome adds a standard colour profile to every picture). A picture
   that passes counts as processed, so a moderator can approve it; until M7's scanning, that check
   and the moderator seeing every picture are what stand between an upload and the public.
 - Pictures are converted in the browser before upload, so no location or camera data leaves the
-  device: WebP, at most 2048 pixels on the long side, at least 200 pixels a side, at most 5 MB,
-  and no more extreme than 1:3 or 3:1.
+  device: WebP, at most 2048 pixels on the long side, at least 200 pixels a side, no bigger than
+  the largest picture file an admin set (see "Limits"), and no more extreme than 1:3 or 3:1.
 - **A picture has no description** (Joel, 2026-11-14, having weighed accessibility and search):
   there is no "describe the picture" box, and none is stored or sent anywhere. Readers' pages give
   every story picture the same neutral alternative text ("A photo shared with this story"). The
@@ -859,7 +871,8 @@ Planned (M3):
   sees every staff page), no page in it chosen, the title "Admin" and a one-line description, and
   nothing else. For Moderators and Admins; anyone else gets the same refusal as the moderation
   pages. The other staff pages are reached from the staff menu.
-- **Limits** (Admins, on the site's full 1200-pixel content width): the submission limits in plain words with their units, and the two
+- **Limits** (Admins, on the site's full 1200-pixel content width): the submission limits in plain words with their units (the
+  largest picture file in KB, 1 KB = 1,024 bytes, under "Pictures"), and the two
   deletion times (rejected stories, stories left in editing; G3 B, Joel 2026-11-11). One group
   at a time, picked from a side list (a "Group" drop-down on phones); a changed box is outlined
   in teal, and a save bar lists every unsaved change with Undo and Save (SL-1 C, Joel

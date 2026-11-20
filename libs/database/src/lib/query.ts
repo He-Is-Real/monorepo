@@ -121,6 +121,8 @@ export interface SubmissionSettings {
   videoMaxBytes: number;
   audioMaxBytes: number;
   mediaMaxSeconds: number;
+  /** One picture's file, as the browser prepared it (Joel, 2026-11-20); the same for everyone. */
+  imageMaxBytes: number;
   /** G3 B: days housekeeping keeps a rejected story, and a story left in editing after it was sent. */
   rejectedRetentionDays: number;
   editingRetentionDays: number;

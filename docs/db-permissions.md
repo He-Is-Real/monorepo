@@ -410,6 +410,8 @@ changedBy, changedByRole}`. Everyone reads them; only api-admin's login writes t
   `editingRetentionDays` (7 to 3,650 days; G3 B).
   `fn::settings::submission()` fills defaults; `fn::settings::upload_ceilings()` caps uploads
   (10 GiB video, 2 GiB audio, 3 h), which is also what trusted people get.
+  `imageMaxBytes` (200 KiB to 20 MiB, 3 MiB by default; Joel 2026-11-20) is the largest picture
+  file for everyone, trusted too: `fn::upload::image_limits()` reads it for `storyFile_attach`.
 - **`submitterLimits:<user id>`** (D112): `trusted` and optional overrides. The person reads their
   own; api-user and api-admin read; only api-admin writes (naming the admin; a reset is an update,
   so it says who); only api-user deletes (erasure). `devSeed` rows are refused outside dev.

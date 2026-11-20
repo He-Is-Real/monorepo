@@ -46,6 +46,8 @@ export const BOUNDS = {
   videoMaxBytes: { min: MIB, max: 10_737_418_240 }, // 10 GiB
   audioMaxBytes: { min: MIB, max: 2_147_483_648 }, // 2 GiB
   mediaMaxSeconds: { min: 60, max: 10_800 }, // 3 hours
+  // Joel, 2026-11-20: one picture's file, 200 KiB to 20 MiB (the schema's own bounds).
+  imageMaxBytes: { min: 204_800, max: 20_971_520 },
   // G3 B (Joel, 2026-11-11): days until the nightly housekeeping deletes a rejected story, and a
   // story left in editing after it was sent (fn::story::deletes_at).
   rejectedRetentionDays: { min: 7, max: 3650 },

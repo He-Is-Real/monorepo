@@ -58,6 +58,12 @@ DEFINE INDEX OVERWRITE idem_expiry ON idempotencyKey FIELDS expiresAt;     -- ho
 --     (overridable; none if trusted; Joel, 2026-10-30);
 --   videoMaxBytes / audioMaxBytes / mediaMaxSeconds: one file's size and length (A4: 4 GB and
 --     500 MB, 15 minutes; trusted submitters get the hard ceilings, fn::settings::upload_ceilings).
+--   imageMaxBytes: one picture's file, as the browser prepared it (Joel, 2026-11-20: "admin
+--     modifiable limitations for image object size when uploading to bunny.net storage"): 3 MiB
+--     by default (a 2048 px WebP of pure noise, the worst a browser makes, is just under it;
+--     photos are 0.2 to 1 MB), from 200 KiB to 20 MiB. The same for everyone, trusted too.
+--     Checked when a picture's upload is recorded (fn::upload::image_limits, storyFile_attach)
+--     and again by api-user when the story is sent.
 --   rejectedRetentionDays / editingRetentionDays: how long the nightly housekeeping keeps a
 --     rejected story (from its rejection) and a story left in editing after it was sent at least
 --     once (from when it was last touched, the drafts' clock): 90 and 186 days (G3 B, Joel
@@ -98,6 +104,8 @@ DEFINE FIELD OVERWRITE audioMaxBytes ON submissionSettings TYPE int DEFAULT 5242
   ASSERT $value >= 1 AND $value <= fn::settings::upload_ceilings().audioMaxBytes;
 DEFINE FIELD OVERWRITE mediaMaxSeconds ON submissionSettings TYPE int DEFAULT 900        -- 15 minutes
   ASSERT $value >= 1 AND $value <= fn::settings::upload_ceilings().mediaMaxSeconds;
+DEFINE FIELD OVERWRITE imageMaxBytes ON submissionSettings TYPE int DEFAULT 3145728      -- 3 MiB
+  ASSERT $value >= 204800 AND $value <= 20971520;                    -- 200 KiB to 20 MiB
 -- G3 B (Joel, 2026-11-11): days, 7 to 3650 (ten years) each, so a typo can neither delete a
 -- story days after its feedback nor keep it for ever.
 DEFINE FIELD OVERWRITE rejectedRetentionDays ON submissionSettings TYPE int DEFAULT 90
@@ -130,6 +138,7 @@ DEFINE FUNCTION OVERWRITE fn::settings::submission() {
     uploadsPer7Days: $s.uploadsPer7Days ?? 5,
     videoMaxBytes: $s.videoMaxBytes ?? 4294967296, audioMaxBytes: $s.audioMaxBytes ?? 524288000,
     mediaMaxSeconds: $s.mediaMaxSeconds ?? 900,
+    imageMaxBytes: $s.imageMaxBytes ?? 3145728,
     rejectedRetentionDays: $s.rejectedRetentionDays ?? 90,
     editingRetentionDays: $s.editingRetentionDays ?? 186
   };

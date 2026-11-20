@@ -1413,10 +1413,11 @@ DEFINE FUNCTION OVERWRITE fn::upload::next_allowed_at($user: option<record<user>
   RETURN IF $byHour = NONE { $byWeek } ELSE IF $byWeek = NONE { $byHour }
     ELSE IF $byHour > $byWeek { $byHour } ELSE { $byWeek };
 };
--- An image's fixed bounds (M2 plan PR 10): the browser re-encodes it to WebP at most 2048 px on its
--- longer side, so these only stop what no browser of ours sends. Mirrored in api-user (uploads.ts).
+-- An image's bounds (M2 plan PR 10): the browser re-encodes it to WebP at most 2048 px on its
+-- longer side, so the pixel bounds only stop what no browser of ours sends (mirrored in api-user,
+-- uploads.ts). The file's size is the admin's setting (imageMaxBytes, Joel 2026-11-20).
 DEFINE FUNCTION OVERWRITE fn::upload::image_limits() {
-  RETURN { maxBytes: 5242880, minSide: 200, maxSide: 4096 };
+  RETURN { maxBytes: fn::settings::submission().imageMaxBytes, minSide: 200, maxSide: 4096 };
 };
 -- RequestUpload's write (api-user's login; system users load rows as given): the story must be the
 -- person's and editable at the version they saw, they must have agreed to the latest terms of use
@@ -1447,7 +1448,7 @@ DEFINE EVENT OVERWRITE storyFile_attach ON storyFile
       };
       LET $il = fn::upload::image_limits();
       IF $after.sizeBytes > $il.maxBytes {
-        THROW 'limit_upload_size: the image is bigger than we take (M2 plan PR 10)';
+        THROW 'limit_upload_size: the image is bigger than the setting allows (imageMaxBytes)';
       };
       IF $after.width = NONE OR $after.height = NONE
         OR $after.width < $il.minSide OR $after.height < $il.minSide
