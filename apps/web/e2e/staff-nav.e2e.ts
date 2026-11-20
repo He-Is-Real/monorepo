@@ -4,7 +4,7 @@ import { expectAllTargets, expectNoHorizontalOverflow } from './helpers';
 import { WEB_SIGNED_IN_URL } from './servers';
 
 // The staff link in the site's main navigation (Joel, 2026-11-14; one "Admin" link, Joel
-// 2026-11-20): after the public links, set apart by a thin line, one "Admin" link to the admin
+// 2026-11-20): one "Admin" link after the public links, in their row and style, to the admin
 // landing page for Moderators and Admins, current on every admin and moderation page. Nobody else
 // sees it: not signed-out people, not Users, and nobody until their role is known. The navigation
 // marks itself `data-role-known` once the links are final for the page load (signed out, or
@@ -69,12 +69,28 @@ test('the navigation with the Admin link fits, with 44 px targets', async ({
       .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().height));
     for (const h of heights)
       expect(h, 'a link wraps onto two lines').toBeLessThanOrEqual(44.5);
-    const t = await tops(nav.locator('li:not([data-staff-links]) > a'));
+    // "Admin" sits in the public links' row, so the header is no taller than a non-staff
+    // person's. Every device in the matrix from 640 px has the room; only larger text than the
+    // matrix's wraps it under them (the row's own wrapping, the fallback).
+    const t = await tops(nav.locator('li > a'));
     for (const top of t)
       expect(
         Math.abs(top - t[0]),
-        'the public links split',
+        'Admin or a public link left the row',
       ).toBeLessThanOrEqual(1);
+    const staffHeader = await page.locator('header').boundingBox();
+    const other = await page.context().newPage();
+    await useSession(other, 'user-nav-fit');
+    await other.goto(`${WEB_SIGNED_IN_URL}/`);
+    await expect(
+      other.getByRole('navigation', { name: 'Main navigation' }),
+    ).toHaveAttribute('data-role-known', '');
+    const userHeader = await other.locator('header').boundingBox();
+    await other.close();
+    expect(staffHeader?.height, 'the staff header is taller').toBeCloseTo(
+      userHeader?.height ?? 0,
+      0,
+    );
     // On wide screens the links share the logo's line; they end before the actions.
     const n = await nav.boundingBox();
     const a = await page.locator('[data-header-actions]').boundingBox();

@@ -36,9 +36,10 @@ const MENU_LINK =
 /** The main navigation: one row on desktops, a second header row on tablets (plan 1.6). */
 export function NavLinks({ className = '' }: { className?: string }) {
   const pathname = usePathname() ?? '/';
-  // Staff see one "Admin" link after the public links, set apart by a thin line, once their role
-  // is known (Joel, 2026-11-14; one link, Joel 2026-11-20). Where the row has no room for it, it
-  // goes under the public links rather than squeezing every link's words onto two lines.
+  // Staff see one "Admin" link after the public links, in the same row and style, once their
+  // role is known (Joel, 2026-11-14; one link in the bar, Joel 2026-11-20). Only where the row
+  // genuinely has no room for it (a 600 px tablet, large text) does it wrap under them, rather
+  // than squeezing every link's words onto two lines.
   const { links: staff, known } = useStaffNavLinks();
   return (
     <nav
@@ -60,24 +61,18 @@ export function NavLinks({ className = '' }: { className?: string }) {
             </Link>
           </li>
         ))}
-        {staff.length > 0 && (
-          <li
-            data-staff-links=""
-            className="flex items-center gap-x-5 whitespace-nowrap before:h-5 before:w-px before:bg-border lg:gap-x-7"
-          >
-            {staff.map((l) => (
-              <Link
-                key={l.href}
-                href={l.href}
-                data-staff-link=""
-                aria-current={isStaffPath(pathname) ? 'page' : undefined}
-                className={DESKTOP_LINK}
-              >
-                {l.label}
-              </Link>
-            ))}
+        {staff.map((l) => (
+          <li key={l.href} className="whitespace-nowrap">
+            <Link
+              href={l.href}
+              data-staff-link=""
+              aria-current={isStaffPath(pathname) ? 'page' : undefined}
+              className={DESKTOP_LINK}
+            >
+              {l.label}
+            </Link>
           </li>
-        )}
+        ))}
       </ul>
     </nav>
   );
