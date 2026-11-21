@@ -34,7 +34,8 @@ const VALUES = [
   },
 ];
 
-function AboutContent() {
+/** `keep`: rendered for the saved copy (a failed video lookup isn't kept, site-video.tsx). */
+function AboutContent({ keep }: { keep: boolean }) {
   return (
     <main id="main" className="flex-1">
       <section className="py-12 sm:py-20">
@@ -45,6 +46,7 @@ function AboutContent() {
             lead="Hear from our founder, Stephen Linnecar"
           />
           <SiteVideo
+            keep={keep}
             videoKey="founder-intro"
             title="Video: The heart behind He Is Real, from our founder Stephen Linnecar"
             label="Founder’s introduction"
@@ -136,11 +138,11 @@ function AboutContent() {
 
 /** Per request, or this page's saved copy (page-cache.config.ts). */
 export default function AboutPage() {
-  return cachedPage('/about', savedPage, () => <AboutContent />);
+  return cachedPage('/about', savedPage, () => <AboutContent keep={false} />);
 }
 
 async function savedPage(life: PageCacheLife) {
   'use cache';
   cacheLife(life);
-  return <AboutContent />;
+  return <AboutContent keep />;
 }

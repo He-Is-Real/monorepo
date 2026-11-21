@@ -4,7 +4,7 @@ import { CACHED_TIMES, STUB_CACHED_URL, WEB_CACHED_URL } from './servers';
 
 // Page caching (Joel, 2026-11-21): a public page's saved copy is served for its time and never
 // after it, even when the refresh fails (D51's problem: an old copy kept while the API is down).
-// On the page-cache server only (production's column, with test times: home 1 hour, Stories
+// On the page-cache server only (production's column, with test times: home and About 1 hour, Stories
 // 1 second), whose stub port nothing else uses. Every other server runs dev's column.
 //
 // One device, in order: the tests share that port's hidden stories and its "failing" switch.
@@ -86,4 +86,35 @@ test('after its time, a failed refresh is "try again later", never the old copy'
   // The failed render wasn't saved: the next visit has the stories again.
   await page.reload();
   await expect(card(page, href).first()).toBeVisible();
+});
+
+test('a failed video lookup is never saved: the next visit plays the video', async ({
+  page,
+}) => {
+  // About's first visit on this server, with api-public-read failing: the placeholder, and no
+  // copy kept (About's test time is an hour, so a kept copy would still show it below).
+  expect(CACHED_TIMES['/about']).toBeGreaterThanOrEqual(3600);
+  await hook(page, 'fail');
+  try {
+    await page.goto('/about');
+    await expect(
+      page.getByRole('main').getByText('Video coming soon'),
+    ).toBeVisible();
+  } finally {
+    await hook(page, 'recover');
+  }
+  await page.reload();
+  await expect(
+    page.getByRole('main').getByTitle(/^Video: The heart behind He Is Real/),
+  ).toBeVisible();
+  // That copy had the video, so it was kept: the video stays while the API is down.
+  await hook(page, 'fail');
+  try {
+    await page.reload();
+    await expect(
+      page.getByRole('main').getByTitle(/^Video: The heart behind He Is Real/),
+    ).toBeVisible();
+  } finally {
+    await hook(page, 'recover');
+  }
 });

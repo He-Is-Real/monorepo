@@ -623,7 +623,9 @@ recording | picture` (worked out from the status history: set while the story's 
   - Single story pages are never kept. Signed-in, staff, moderation, account, share, consent and
     sign-in pages can never be kept: a build check and the server refuse a file that lists one.
   - A saved page is never shown after its time, even if making a fresh one fails: the visitor
-    gets the normal "try again later" message instead. Saved pages hold nothing personal (sign-in
+    gets the normal "try again later" message instead. A page whose stories, texts or founder's
+    video couldn't be read is never saved (the visitor sees the usual message or "Video coming
+    soon", and the next visit tries again). Saved pages hold nothing personal (sign-in
     runs in the browser), and the "noindex" header still applies to them.
   - **Built:** production's column is used once production exists.
 - **While the database restarts, public pages keep working from the last copy.** Each running

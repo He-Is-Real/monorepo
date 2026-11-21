@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { cacheLife } from 'next/cache';
 import { unstable_rethrow } from 'next/navigation';
 import { connection } from 'next/server';
 import { writeLog } from '@heisreal/logging';
@@ -154,4 +155,13 @@ export async function cachedPage(
     unstable_rethrow(err);
     return fresh();
   }
+}
+
+/**
+ * Inside a saved copy's render: this render is shown to the visitor but not kept. For a part that
+ * streams in later (a site video), where throwing would show an error instead. Next keeps the
+ * shortest `cacheLife` in a render, and its store never saves one that expires at once.
+ */
+export function notKept(): void {
+  cacheLife({ stale: 0, revalidate: 0, expire: 0 });
 }

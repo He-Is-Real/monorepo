@@ -11,30 +11,34 @@ export type SiteVideoKey = 'founder-intro' | 'next-steps';
 /** A short wait: the page shows its placeholder rather than hang on a slow API. */
 const TIMEOUT_MS = 5_000;
 
+/** A site video's link: `none` when none is set here (404), `unavailable` when it couldn't be read. */
+export type SiteVideoLink = { playbackUrl: string } | 'none' | 'unavailable';
+
 /**
- * The signed player link for a site video (`GET /v1/site-videos/{key}`), or `null` when there's
- * none: not set in this environment (404), or api-public-read is down or answers oddly. The page
- * then shows its placeholder; nothing here fails the page.
+ * The signed player link for a site video (`GET /v1/site-videos/{key}`): `none` when none is set
+ * in this environment (404), `unavailable` (logged) when api-public-read is down, too slow or
+ * answers oddly. The page then shows its placeholder; nothing here fails the page. A saved copy
+ * keeps `none` but never `unavailable` (site-video.tsx).
  */
-export async function siteVideoUrl(key: SiteVideoKey): Promise<string | null> {
+export async function siteVideoLink(key: SiteVideoKey): Promise<SiteVideoLink> {
   try {
     const res = await fetch(`${apiPublicReadUrl()}/v1/site-videos/${key}`, {
       headers: { accept: 'application/json' },
       cache: 'no-store',
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-    if (res.status === 404) return null;
+    if (res.status === 404) return 'none';
     if (!res.ok) throw new Error(`status ${res.status}`);
     const body = (await res.json()) as { key?: unknown; playbackUrl?: unknown };
     if (body.key !== key || typeof body.playbackUrl !== 'string') {
       throw new Error('unexpected body');
     }
-    return body.playbackUrl;
+    return { playbackUrl: body.playbackUrl };
   } catch (err) {
     writeLog(
       'ERROR',
       `api-public-read: site video ${key} unavailable: ${err instanceof Error ? err.message : 'error'}`,
     );
-    return null;
+    return 'unavailable';
   }
 }

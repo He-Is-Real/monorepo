@@ -40,7 +40,7 @@ export const WEB_CACHED_URL = `http://localhost:${WEB_CACHED_PORT}`;
 /** Its stub port's test hooks. */
 export const STUB_CACHED_URL = `http://127.0.0.1:${STUB_CACHED_PORT}`;
 /** The times it keeps them for, in seconds: long enough to see a copy kept, short enough to see one go. */
-export const CACHED_TIMES = { '/': 3600, '/stories': 1 };
+export const CACHED_TIMES = { '/': 3600, '/stories': 1, '/about': 3600 };
 /** api-public-read slow to give site videos their links (site-videos.e2e.ts). */
 export const WEB_SLOW_PORT = base + 4;
 export const WEB_SLOW_URL = `http://localhost:${WEB_SLOW_PORT}`;

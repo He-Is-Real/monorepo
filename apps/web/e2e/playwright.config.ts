@@ -112,7 +112,7 @@ export default defineConfig({
     }),
     web(WEB_DOWN_PORT, STUB_DOWN_PORT, { E2E_FIXTURES: 'true' }),
     web(WEB_SLOW_PORT, STUB_SLOW_PORT, { E2E_FIXTURES: 'true' }),
-    // Keeps saved pages (page-cache.e2e.ts): production's column, with test times for home and
+    // Keeps saved pages (page-cache.e2e.ts): production's column, with test times for home, About and
     // Stories.
     web(WEB_CACHED_PORT, STUB_CACHED_PORT, {
       E2E_FIXTURES: 'true',

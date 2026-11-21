@@ -46,7 +46,8 @@ const STEPS = [
   },
 ];
 
-function NextStepsContent() {
+/** `keep`: rendered for the saved copy (a failed video lookup isn't kept, site-video.tsx). */
+function NextStepsContent({ keep }: { keep: boolean }) {
   return (
     <main id="main" className="flex-1 py-12 sm:py-20">
       {/* The header and the founder's video in About's wider column; the steps keep the
@@ -58,6 +59,7 @@ function NextStepsContent() {
           lead="You don’t need to have all the answers to keep exploring. Here are some gentle ways to take the next step."
         />
         <SiteVideo
+          keep={keep}
           videoKey="next-steps"
           title="Video: Next steps with He Is Real, from our founder Stephen Linnecar"
           label="Next steps with our founder"
@@ -101,11 +103,13 @@ function NextStepsContent() {
 
 /** Per request, or this page's saved copy (page-cache.config.ts). */
 export default function NextStepsPage() {
-  return cachedPage('/next-steps', savedPage, () => <NextStepsContent />);
+  return cachedPage('/next-steps', savedPage, () => (
+    <NextStepsContent keep={false} />
+  ));
 }
 
 async function savedPage(life: PageCacheLife) {
   'use cache';
   cacheLife(life);
-  return <NextStepsContent />;
+  return <NextStepsContent keep />;
 }
