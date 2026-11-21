@@ -25,8 +25,9 @@ import { usePersonalSession } from '@/lib/personal-session';
 // BESIDE_FILTERS, which repeats both widths).
 //
 // Wide screens (BS-8 B, Joel 2026-11-21). The page (stories/page.tsx's <main>, the `browse-page`
-// container) may grow past the site's width by two filters columns (15rem + 2.5rem gap each);
-// the block holding the heading, filters and stories (the `browse` container) is centred in it:
+// container) is the screen's full width; the block holding the heading, filters and stories (the
+// `browse` container) is capped and centred in it, growing past the site's width by up to two
+// filters columns (15rem + 2.5rem gap each):
 // - below 87.5rem of page (about 1480 px screens): the site's content width, as on every page;
 // - from 87.5rem: the filters column plus a story list as wide as the site's content, centred
 //   together (the heading lines up with the filters);

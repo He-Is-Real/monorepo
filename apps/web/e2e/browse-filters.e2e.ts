@@ -7,6 +7,7 @@ import {
   expectNoHorizontalOverflow,
   shots,
   storiesColumns,
+  textSetting,
 } from './helpers';
 
 // The Stories page's filters (BS-1 C, Joel 2026-11-20: "for compact search implement option
@@ -303,22 +304,28 @@ test('the column starts at exactly 1024 px', async ({ page }, info) => {
 // the heading lined up with it, and the filters column to its left, outside the site's width.
 // From about 1480 px the filters and the 3 story columns are centred together (the heading lined
 // up with the filters). Below that, as before: the block is the site's content, centred.
+// The thresholds are in rem, so at the browser's "Large" text (20 px, Joel's own setting) they
+// come at 1.25 times the width: the stories are centred from 2200 px (Codex review of #265).
 test('wide screens centre the stories, with the filters to their left', async ({
   page,
 }, info) => {
   test.skip(info.project.name !== 'desktop-1280', 'one computer, resized');
-  /** The site's content: 1200 px less 40 px of padding a side, as Home's. */
-  const SITE = 1120;
-  for (const [width, layout] of [
-    [1280, 'site'],
-    [1440, 'site'],
-    [1600, 'together'],
-    [1759, 'together'],
-    [1760, 'stories'],
-    [1920, 'stories'],
-    [2560, 'stories'],
+  for (const [width, text, layout] of [
+    [1280, 16, 'site'],
+    [1440, 16, 'site'],
+    [1600, 16, 'together'],
+    [1759, 16, 'together'],
+    [1760, 16, 'stories'],
+    [1920, 16, 'stories'],
+    [2560, 16, 'stories'],
+    [2199, 20, 'together'],
+    [2200, 20, 'stories'],
+    [2560, 20, 'stories'],
   ] as const) {
+    /** The site's content: 1200 px less 2.5rem of padding a side, as Home's. */
+    const site = 1200 - 5 * text;
     await page.setViewportSize({ width, height: 900 });
+    await textSetting(page, text);
     await page.goto('/stories');
     await expect(page.locator('[data-favourites-only]')).toBeAttached();
     const cards = page.locator('main ul.masonry > li');
@@ -341,10 +348,10 @@ test('wide screens centre the stories, with the filters to their left', async ({
     const list = await box('form[role="search"]');
     const heading = await box('main h1');
     const centre = (from: number, to: number) => (from + to) / 2;
-    const at = `${width} px`;
+    const at = `${width} px at ${text} px text`;
     expect(side.right, at).toBeLessThan(list.left);
     if (layout === 'stories') {
-      expect(list.width, at).toBeCloseTo(SITE, 0);
+      expect(list.width, at).toBeCloseTo(site, 0);
       expect(
         Math.abs(centre(list.left, list.right) - width / 2),
         at,
@@ -358,7 +365,8 @@ test('wide screens centre the stories, with the filters to their left', async ({
       ).toBeLessThan(2);
       expect(Math.abs(heading.left - side.left), at).toBeLessThan(1);
       expect(list.right - side.left, at).toBeCloseTo(
-        layout === 'together' ? SITE + 280 : SITE,
+        // The filters column and its gap: 17.5rem.
+        layout === 'together' ? site + 17.5 * text : site,
         0,
       );
     }

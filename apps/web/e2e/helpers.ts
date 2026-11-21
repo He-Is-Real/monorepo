@@ -329,7 +329,7 @@ export async function browseFilters(page: Page): Promise<Locator> {
  * The block (browse-view.tsx, BS-8 B): the site's content (1200 px less 2.5rem of padding a side)
  * until the page's content is 87.5rem; then 1200 px + 12.5rem (the filters beside a list as wide as
  * the site's content); from 105rem, 1200 px + 30rem (a matching empty column on the right). The
- * page's content is at most 1200 px + 30rem. `text` is the reader's text setting in px.
+ * page's content is the screen less 2.5rem of padding a side. `text` is the reader's text setting in px.
  * Playwright's screens have no scrollbar.
  */
 export function storiesColumns(width: number, text = 16): number {
@@ -338,7 +338,7 @@ export function storiesColumns(width: number, text = 16): number {
   // The column also needs the screen at least 64rem (`lg`), and a reader's text setting scales
   // that too: at 20 px text it starts at 1280 px.
   if (width < 64 * text) return 3;
-  const page = Math.min(width - 5 * text, 1200 + 30 * text);
+  const page = width - 5 * text;
   const block =
     page >= 105 * text
       ? Math.min(page, 1200 + 30 * text)
@@ -355,4 +355,14 @@ export async function closeBrowseFilters(page: Page) {
   if (!(await panel.isVisible())) return;
   await panel.getByRole('button', { name: 'Show stories' }).click();
   await expect(panel).toBeHidden();
+}
+
+/**
+ * The reader's text-size setting in the browser (Chrome's Settings > Appearance > Font size:
+ * "Large" is 20 px), as CDP sets it: rem grows, the screen's width stays. Chromium only.
+ */
+export async function textSetting(page: Page, px: number) {
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Page.setFontSizes', { fontSizes: { standard: px } });
+  await page.evaluate(() => document.fonts.ready);
 }

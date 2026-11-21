@@ -113,9 +113,11 @@ export default async function BrowsePage({ searchParams }: Props) {
   return (
     <main
       id="main"
-      // Wider than the site by two filters columns (BS-8 B, Joel 2026-11-21): BrowseView centres
-      // the heading, filters and stories in it (browse-view.tsx).
-      className="mx-auto w-full max-w-[calc(var(--container-site)+35rem)] flex-1 px-4 py-10 sm:px-10 sm:py-14"
+      // The screen's full width (BS-8 B, Joel 2026-11-21): BrowseView caps and centres the
+      // heading, filters and stories in it (browse-view.tsx). Uncapped here so its rem thresholds
+      // are reached at any text size (at the browser's Large text, 20 px, a cap of the site's
+      // width plus rem never reached them).
+      className="w-full flex-1 px-4 py-10 sm:px-10 sm:py-14"
     >
       <BrowseChoices filters={filters}>
         <BrowseView
