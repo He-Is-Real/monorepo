@@ -621,7 +621,7 @@ recording | picture` (worked out from the status history: set while the story's 
     dev, 30 seconds in production. So in production a story that is taken down can show on Home or
     Stories for up to 30 seconds more (on top of the public API's minute).
   - Single story pages are never kept. Signed-in, staff, moderation, account, share, consent and
-    sign-in pages can never be kept: the website refuses to start if the file lists one.
+    sign-in pages can never be kept: a build check and the server refuse a file that lists one.
   - A saved page is never shown after its time, even if making a fresh one fails: the visitor
     gets the normal "try again later" message instead. Saved pages hold nothing personal (sign-in
     runs in the browser), and the "noindex" header still applies to them.
