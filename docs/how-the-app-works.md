@@ -542,7 +542,9 @@ recording | picture` (worked out from the status history: set while the story's 
   is chosen. The address repeats `theme` once per theme (`/stories?theme=a&theme=b`); the order
   doesn't matter, a repeat counts once, and an old single-theme link still works. A theme that
   doesn't exist (deleted, or never was) filters nothing; the other chosen themes still do. At most
-  10 themes at once (the API refuses more; the page doesn't add an 11th). The moderators' list
+  10 themes at once (the API refuses more). With 10 chosen, another stays unchosen and a short
+  note near the themes says "You can choose up to 10 themes.", read out by screen readers; it goes
+  once a theme is taken off (Joel 2026-11-21). The moderators' list does the same. The moderators' list
   filters by format and theme the same way, through the same shared definition, so changing one
   changes both (revised OQ-2, Joel 2026-11-19; Joel 2026-11-21, BS-7). Cards are laid out in balanced columns
   at each picture's own shape (limited between tall 9:16 and wide 2:1) and never move once shown.
@@ -551,9 +553,9 @@ recording | picture` (worked out from the status history: set while the story's 
 - **Browse's filters take little room (BS-1 C, Joel 2026-11-20: "for compact search implement
   option C").** From 1024 px wide screens (small laptops, landscape tablets and up; Joel
   2026-11-21, BS-5 B), "Favourites only", sort, format and every theme are a column on the left,
-  and only the search box sits above the stories. The column shows while the page's content is at
-  least 57rem wide: screens from 1024 px at the usual text size; with larger text the Filters
-  button below is used instead. Beside the column the stories take 2 columns until about 1200 px
+  and only the search box sits above the stories. The column shows on screens at least 1024 px
+  wide (64rem) whose page content is at least 57rem wide, so with larger text the Filters button
+  below is used instead. Beside the column the stories take 2 columns until about 1200 px
   screens (the page's content 70rem wide), then 3, a little narrower than without the column. On
   portrait tablets and phones (below 1024 px) a "Filters" button beside the search box, with a
   count of what's on, opens the same filters in a panel (a sheet from the bottom on phones) with

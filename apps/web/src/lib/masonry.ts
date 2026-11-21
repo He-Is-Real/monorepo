@@ -430,8 +430,8 @@ function columnRules(n: ColumnCount): string {
 
 /**
  * Browse beside its filters column (BS-5 B, Joel 2026-11-21; browse-view.tsx): the column shows
- * while the page's content (the `browse` container) is at least `from` wide, from 1024 px
- * screens, and the stories beside it keep 2 columns until the content is `threeColumns` wide
+ * from 1024 px screens (`lg`, 64rem) while the page's content (the `browse` container) is at
+ * least `from` wide, and the stories beside it keep 2 columns until the content is `threeColumns` wide
  * (about 1200 px screens): 3 columns there would be under the 260 px a card needs. In rem, as
  * browse-view's classes, which repeat these numbers.
  */
@@ -463,5 +463,6 @@ export const MASONRY_CSS = [
     (n) => `@media (min-width:${BREAKPOINTS[n]}px){${columnRules(n)}}`,
   ),
   // After the 3 columns' rules, so these win where both apply.
-  `@media (min-width:${BREAKPOINTS[3]}px){@container browse (min-width:${BESIDE_FILTERS.from}rem) and (width < ${BESIDE_FILTERS.threeColumns}rem){${columnRules(2)}}}`,
+  // The column's own condition (browse-view.tsx's `lg:@min-[57rem]:`), below 3 columns' width.
+  `@media (min-width:${BREAKPOINTS[3]}px){@media (min-width:64rem){@container browse (min-width:${BESIDE_FILTERS.from}rem) and (width < ${BESIDE_FILTERS.threeColumns}rem){${columnRules(2)}}}}`,
 ].join('\n');

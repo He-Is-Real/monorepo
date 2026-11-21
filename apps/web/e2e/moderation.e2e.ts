@@ -623,6 +623,31 @@ test.describe('moderation', () => {
     await panel.getByRole('link', { name: 'Clear themes' }).click();
     await expect(page).toHaveURL(/\/moderation$/);
     await expect(listItems(page)).toHaveCount(20);
+    // At most 10, as browse (Joel 2026-11-21): an 11th stays unchosen, with a note.
+    const ten = [
+      'answered_prayers',
+      'doubt',
+      'faith',
+      'forgiveness',
+      'grief',
+      'joy',
+      'peace',
+      'salvation',
+      'waiting',
+      'healing',
+    ].sort();
+    await page.goto(
+      `${WEB_SIGNED_IN_URL}/moderation?${ten.map((id) => `theme=${id}`).join('&')}`,
+    );
+    panel = await filters(page);
+    await theme(panel, 'Hope').click();
+    await expect(
+      panel.getByRole('status').filter({
+        hasText: 'You can choose up to 10 themes.',
+      }),
+    ).toBeVisible();
+    await expect(theme(panel, 'Hope')).not.toHaveAttribute('aria-current');
+    await expect(page).not.toHaveURL(/theme=hope/);
     // The format and theme together: both must match.
     await page.goto(`${WEB_SIGNED_IN_URL}/moderation?format=audio&theme=doubt`);
     await expect(page.locator('[data-list-empty]')).toContainText(

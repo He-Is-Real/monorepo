@@ -15,11 +15,11 @@ import {
 } from '@/lib/browse-query';
 import { usePersonalSession } from '@/lib/personal-session';
 
-// The filters are a column beside the stories (BS-1 C) while the page's content is at least 57rem
-// wide (the `@min-[57rem]:` classes below, a container query on the `browse` container): from
-// 1024 px screens at the usual text size, small laptops and landscape tablets (BS-5 B, Joel
-// 2026-11-21); phones and portrait tablets get the Filters button. In rem, so larger text (a
-// browser setting, or the page's root size at 200%) gives the Filters button instead of story
+// The filters are a column beside the stories (BS-1 C) from 1024 px screens, small laptops and
+// landscape tablets (BS-5 B, Joel 2026-11-21); phones and portrait tablets get the Filters
+// button. The `lg:@min-[57rem]:` classes below: the screen at least 64rem (1024 px at the usual
+// text size, `lg`) and the page's content (the `browse` container) at least 57rem, so larger text
+// (a browser setting, or the page's root size at 200%) gives the Filters button instead of story
 // columns squeezed beside a wider column. Beside the column the stories take 2 columns until the
 // content is 70rem wide (about 1200 px screens), then 3 as before (lib/masonry.ts,
 // BESIDE_FILTERS, which repeats both widths).
@@ -39,7 +39,7 @@ type Chosen = { key: string; label: string } & (
  * Browse's layout (BS-1 C, Joel 2026-11-20) and "Favourites only" (Joel, 2026-11-14; it replaces
  * the My favourites page).
  *
- * From 1024 px screens (while the page's content is at least 57rem wide; BS-5 B) "Favourites
+ * From 1024 px screens (BS-5 B) "Favourites
  * only", sort, format and every theme are a column on the left and only the search box sits above
  * the stories. On portrait tablets and phones a "Filters"
  * button beside the search box (with a count of what's on) opens the same filters in a modal
@@ -181,8 +181,8 @@ export function BrowseView({
       {/* DOM order is search, filters, stories (the keyboard's order); on a computer the
           filters column sits to the left of both. */}
       <div ref={page} className="@container/browse">
-        <div className="@min-[57rem]:grid @min-[57rem]:grid-cols-[15rem_minmax(0,1fr)] @min-[57rem]:grid-rows-[auto_1fr] @min-[57rem]:gap-x-10">
-          <div className="min-w-0 @min-[57rem]:col-start-2 @min-[57rem]:row-start-1">
+        <div className="lg:@min-[57rem]:grid lg:@min-[57rem]:grid-cols-[15rem_minmax(0,1fr)] lg:@min-[57rem]:grid-rows-[auto_1fr] lg:@min-[57rem]:gap-x-10">
+          <div className="min-w-0 lg:@min-[57rem]:col-start-2 lg:@min-[57rem]:row-start-1">
             <div className="flex items-start gap-3">
               {search}
               <Button
@@ -194,7 +194,7 @@ export function BrowseView({
                 aria-controls={`${id}-panel`}
                 onClick={() => setOpen(true)}
                 data-filters-button=""
-                className="h-11 px-4 @min-[57rem]:hidden noscript:hidden"
+                className="h-11 px-4 lg:@min-[57rem]:hidden noscript:hidden"
               >
                 <svg
                   viewBox="0 0 24 24"
@@ -224,7 +224,7 @@ export function BrowseView({
             {chosen.length > 0 && (
               <ul
                 aria-label="Chosen filters"
-                className="mt-3 flex flex-wrap items-center gap-2 @min-[57rem]:hidden"
+                className="mt-3 flex flex-wrap items-center gap-2 lg:@min-[57rem]:hidden"
                 data-chosen-filters=""
               >
                 {chosen.map((c) => (
@@ -263,13 +263,13 @@ export function BrowseView({
 
           <aside
             aria-label="Filters"
-            className="mt-6 hidden @min-[57rem]:col-start-1 @min-[57rem]:row-span-2 @min-[57rem]:row-start-1 @min-[57rem]:mt-0 @min-[57rem]:block noscript:block"
+            className="mt-6 hidden lg:@min-[57rem]:col-start-1 lg:@min-[57rem]:row-span-2 lg:@min-[57rem]:row-start-1 lg:@min-[57rem]:mt-0 lg:@min-[57rem]:block noscript:block"
             data-filters-column=""
           >
             {open && body ? createPortal(filters, body) : !open && filters}
           </aside>
 
-          <div className="min-w-0 @min-[57rem]:col-start-2 @min-[57rem]:row-start-2">
+          <div className="min-w-0 lg:@min-[57rem]:col-start-2 lg:@min-[57rem]:row-start-2">
             {summary}
             <div className="mt-8">
               {on && (

@@ -35,15 +35,15 @@ components:
       in: query
       description: |
         Themes' ids: only stories that carry every one of them (BS-6 B and BS-7, Joel 2026-11-21).
-        Repeat it for each theme (`?theme=a&theme=b`), at most 10 different ones (more is `400`).
-        Their order doesn't matter and a repeat counts once. An id that isn't a theme (deleted,
+        Repeat it for each theme (`?theme=a&theme=b`), at most 10 different ones: more than 10
+        different ids is `400`. Their order doesn't matter and a repeat counts once, so the cap is on
+        distinct ids, not on how many times the parameter appears (no `maxItems` for that reason). An id that isn't a theme (deleted,
         or never was) is ignored (themes plan v3, A8): with no other theme, the link shows every
         story.
       style: form
       explode: true
       schema:
         type: array
-        maxItems: 10
         items:
           type: string
           maxLength: 40

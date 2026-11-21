@@ -266,6 +266,38 @@ test.describe('where the column starts', () => {
   });
 });
 
+// BS-5 B exactly at its edge (Codex, #259): 1023 px has the Filters button, 1024 px the column
+// with 2 story columns beside it.
+test('the column starts at exactly 1024 px', async ({ page }, info) => {
+  test.skip(info.project.name !== 'desktop-1280', 'one computer, resized');
+  for (const [width, column] of [
+    [1023, false],
+    [1024, true],
+  ] as const) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto('/stories');
+    await expect(page.locator('[data-favourites-only]')).toBeAttached();
+    await expect(page.locator('[data-filters-column]'), `${width}`).toBeVisible(
+      { visible: column },
+    );
+    await expect(filtersButton(page), `${width}`).toBeVisible({
+      visible: !column,
+    });
+    const cards = page.locator('main ul.masonry > li');
+    await expect(cards).toHaveCount(15);
+    await expect
+      .poll(() =>
+        cards.evaluateAll(
+          (lis) =>
+            new Set(lis.map((li) => Math.round(li.getBoundingClientRect().x)))
+              .size,
+        ),
+      )
+      .toBe(2);
+    await expectNoHorizontalOverflow(page);
+  }
+});
+
 // BS-6 B (Joel, 2026-11-21): themes stack, and a story shows only if it has every chosen theme.
 test.describe('stacked themes', () => {
   // eslint-disable-next-line no-empty-pattern
@@ -347,6 +379,86 @@ test.describe('stacked themes', () => {
       'aria-current',
       'true',
     );
+  });
+
+  // Joel 2026-11-21: "yes display a theme limit note".
+  test('with 10 themes chosen, an 11th stays unchosen and a note says so until one is taken off', async ({
+    page,
+  }) => {
+    const ten = [
+      'faith',
+      'answered_prayers',
+      'forgiveness',
+      'salvation',
+      'doubt',
+      'peace',
+      'grief',
+      'joy',
+      'waiting',
+      'healing',
+    ];
+    const address = `/stories?${ten
+      .sort()
+      .map((id) => `theme=${id}`)
+      .join('&')}`;
+    await page.goto(address);
+    const filters = await browseFilters(page);
+    const note = filters.getByRole('status').filter({
+      hasText: 'You can choose up to 10 themes.',
+    });
+    await expect(note).toHaveCount(0);
+    await theme(filters, 'Hope').click();
+    await expect(note).toBeVisible();
+    await expect(theme(filters, 'Hope')).not.toHaveAttribute('aria-current');
+    await expect(page).not.toHaveURL(/theme=hope/);
+    // Taking one off removes the note; the 11th can then be chosen.
+    await theme(filters, 'Healing').click();
+    await expect(page).not.toHaveURL(/theme=healing/);
+    await expect(note).toHaveCount(0);
+    await theme(filters, 'Hope').click();
+    await expect(page).toHaveURL(/theme=hope/);
+    await expect(theme(filters, 'Hope')).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+  });
+
+  // Codex, #259: a second theme pressed before the first one's page has loaded builds on it.
+  test('two themes pressed quickly both stay chosen', async ({ page }) => {
+    await page.goto('/stories');
+    let release = () => undefined as void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let seen = () => undefined as void;
+    const asked = new Promise<void>((resolve) => (seen = resolve));
+    await page.route(
+      (url) =>
+        url.pathname === '/stories' &&
+        url.searchParams.getAll('theme').join() === 'healing',
+      async (route) => {
+        seen();
+        await held;
+        await route.continue().catch(() => undefined);
+      },
+    );
+    try {
+      const filters = await browseFilters(page);
+      await theme(filters, 'Healing').click();
+      await asked;
+      await theme(filters, 'Hope').click();
+    } finally {
+      release();
+    }
+    await expect(page).toHaveURL(/\/stories\?theme=healing&theme=hope$/);
+    const filters = await browseFilters(page);
+    for (const name of ['Healing', 'Hope'])
+      await expect(theme(filters, name)).toHaveAttribute(
+        'aria-current',
+        'true',
+      );
+    for (const card of await cards(page).all()) {
+      await expect(card).toContainText('Healing');
+      await expect(card).toContainText('Hope');
+    }
   });
 
   test('on a phone, each chosen theme is its own chip', async ({
