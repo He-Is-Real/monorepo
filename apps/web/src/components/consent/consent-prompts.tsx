@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useSyncExternalStore } from 'react';
 import { useAccountState } from '@/components/auth/account-bootstrap';
-import { Button } from '@heisreal/web-ui';
+import { Button, Notice } from '@heisreal/web-ui';
 import { SIGN_IN_PATH, stepReturnPath } from '@/lib/return-path';
 
 /** The terms of use on the person's account: at sign-up, and after the terms change (plan 4e). */
@@ -113,35 +113,38 @@ export function ConsentPrompts() {
   if (!showBanner) return null;
 
   return (
-    <section
-      aria-labelledby="consent-banner-title"
-      data-consent-banner=""
-      className="border-b border-border bg-surface"
-    >
-      <div className="mx-auto flex max-w-[90rem] flex-wrap items-center gap-x-6 gap-y-3 px-4 py-4 sm:px-10">
-        <div className="min-w-0 flex-[1_1_20rem]">
-          <h2
-            id="consent-banner-title"
-            className="text-base font-semibold text-foreground"
-          >
-            Our testimony consent has changed
-          </h2>
-          <p className="text-sm text-secondary-text">
-            Please read what’s changed and agree before you start or change a
-            story. Your published stories stay up either way.
-          </p>
+    <div className="mx-auto max-w-[90rem] px-4 pt-4 sm:px-10">
+      <Notice
+        kind="info"
+        as="section"
+        aria-labelledby="consent-banner-title"
+        data-consent-banner=""
+      >
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+          <div className="min-w-0 flex-[1_1_20rem]">
+            <h2
+              id="consent-banner-title"
+              className="text-base font-semibold text-foreground"
+            >
+              Our testimony consent has changed
+            </h2>
+            <p className="text-sm">
+              Please read what’s changed and agree before you start or change a
+              story. Your published stories stay up either way.
+            </p>
+          </div>
+          <div className="flex min-w-0 max-w-full flex-wrap gap-2">
+            <Button asChild wrap>
+              <Link href={withReturn(TESTIMONY_CONSENT_PATH, here)}>
+                Read what’s changed
+              </Link>
+            </Button>
+            <Button variant="outline" wrap onClick={dismissTestimonyBanner}>
+              Not now
+            </Button>
+          </div>
         </div>
-        <div className="flex min-w-0 max-w-full flex-wrap gap-2">
-          <Button asChild wrap>
-            <Link href={withReturn(TESTIMONY_CONSENT_PATH, here)}>
-              Read what’s changed
-            </Link>
-          </Button>
-          <Button variant="outline" wrap onClick={dismissTestimonyBanner}>
-            Not now
-          </Button>
-        </div>
-      </div>
-    </section>
+      </Notice>
+    </div>
   );
 }

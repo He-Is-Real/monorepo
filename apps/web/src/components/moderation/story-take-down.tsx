@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useMemo, useRef, useEffect, useState } from 'react';
 import { useRole } from '@/components/admin/admin-access';
-import { Button, Card } from '@heisreal/web-ui';
+import { Button, Card, Notice } from '@heisreal/web-ui';
 import { apiUser, type ApiUser } from '@/lib/api-user';
 import { usePersonalSession } from '@/lib/personal-session';
 import {
@@ -126,15 +126,23 @@ function TakeDown({ storyId, client }: { storyId: string; client: ApiUser }) {
               onCancel={() => setState({ step: 'closed' })}
             />
             {state.refusal && (
-              <p role="alert" className="mt-4" data-decision-refused="">
+              <Notice
+                kind="warning"
+                as="p"
+                role="alert"
+                className="mt-4"
+                data-decision-refused=""
+              >
                 {state.refusal}
-              </p>
+              </Notice>
             )}
           </>
         )}
         {(state.step === 'done' || state.step === 'problem') && (
           <>
-            <p
+            <Notice
+              kind={state.step === 'done' ? 'success' : 'danger'}
+              as="p"
               ref={doneRef}
               tabIndex={-1}
               role="status"
@@ -142,7 +150,7 @@ function TakeDown({ storyId, client }: { storyId: string; client: ApiUser }) {
               data-take-down-notice={state.step}
             >
               {state.step === 'done' ? DONE.hide : state.message}
-            </p>
+            </Notice>
             <p className="mt-2">
               <Link href={review} className="inline-flex min-h-11 items-center">
                 Open its review page

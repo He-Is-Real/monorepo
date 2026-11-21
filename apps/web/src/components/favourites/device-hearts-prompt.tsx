@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { deviceHeartCards } from '@/app/stories/actions';
 import { useAccountState } from '@/components/auth/account-bootstrap';
-import { Button } from '@heisreal/web-ui';
+import { Button, Notice } from '@heisreal/web-ui';
 import { MAX_IDS } from '@/lib/browse';
 import {
   deviceHeartIdsToOffer,
@@ -139,9 +139,9 @@ export function DeviceHeartsPrompt() {
             : `Add the ${count} stories you hearted on this device to your account?`}
         </p>
         {adding === 'failed' && (
-          <p role="alert" className="mt-2 text-sm text-secondary-text">
+          <Notice kind="danger" as="p" role="alert" className="mt-2 text-sm">
             {TRY_AGAIN_LATER}
-          </p>
+          </Notice>
         )}
         <div className="mt-3 flex flex-wrap justify-end gap-2">
           <Button

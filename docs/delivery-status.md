@@ -113,7 +113,7 @@ Kept basic for now. Joel will decide later how stories are shared out between mo
 - ✅ Choose several themes at once on the Stories page and the moderators' list: only stories with all of them show
 - ✅ One look each for chips, labels, "Are you sure?" steps, delete boxes, check boxes, tabs, switches, open/close sections and text boxes
 - ✅ One look for buttons and links that look like buttons
-- ⏸ One look for notices: waits for Joel's choice
+- ✅ One look for notices
 - ⚪ Final docs and a demo walk-through on dev
 - ⚪ Two-step sign-in for staff: deferred until we're happy to pay for it
 

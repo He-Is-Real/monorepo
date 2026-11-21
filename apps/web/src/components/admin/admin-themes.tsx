@@ -30,6 +30,7 @@ import {
   Field,
   FieldLabel,
   Input,
+  Notice,
   Select,
 } from '@heisreal/web-ui';
 import { type ApiUser, StaleVersion } from '@/lib/api-user';
@@ -112,9 +113,9 @@ function ThemesLoader({ client }: { client: ApiUser }) {
     return <p className="text-secondary-text">Loading the themes…</p>;
   if (loaded.status === 'failed')
     return (
-      <Card asChild tone="danger" className="p-6">
-        <p role="alert">{loaded.message}</p>
-      </Card>
+      <Notice kind="danger" as="p" role="alert">
+        {loaded.message}
+      </Notice>
     );
   return (
     <Editor
@@ -310,13 +311,15 @@ function Editor({
   return (
     <div>
       {saved && count === 0 && (
-        <p
+        <Notice
+          kind="success"
+          as="p"
           role="status"
-          className="mb-6 rounded-xl border border-primary px-4 py-3"
+          className="mb-6"
           data-save-status="done"
         >
           Saved. Everyone sees the new themes now.
-        </p>
+        </Notice>
       )}
       <Locked.Provider value={busy}>
         {/* While saving, every control here is disabled (Locked above for dragging). */}
@@ -363,21 +366,21 @@ function Editor({
       </Locked.Provider>
 
       {(status.kind === 'error' || status.kind === 'stale') && (
-        <Card
+        <Notice
+          kind="danger"
           ref={alert}
           tabIndex={-1}
           role="alert"
-          tone="danger"
-          className="mt-6 space-y-3 p-4 [overflow-wrap:anywhere]"
+          className="mt-6 outline-none"
           data-save-status={status.kind}
         >
           <p>{status.kind === 'stale' ? STALE : status.message}</p>
           {status.kind === 'stale' && (
-            <Button type="button" wrap onClick={reload}>
+            <Button type="button" wrap className="mt-3" onClick={reload}>
               Reload
             </Button>
           )}
-        </Card>
+        </Notice>
       )}
 
       <SaveBar

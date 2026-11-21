@@ -6,7 +6,7 @@ import { useEffect, useMemo } from 'react';
 import { useAccountState } from '@/components/auth/account-bootstrap';
 import { AgreementStep } from '@/components/consent/agreement-step';
 import { dismissTestimonyBanner } from '@/components/consent/consent-prompts';
-import { Button, Card } from '@heisreal/web-ui';
+import { Button, Card, Notice } from '@heisreal/web-ui';
 import type { AgreementName } from '@/lib/legal-text';
 import { personalApiUser, usePersonalSession } from '@/lib/personal-session';
 import { signInHref } from '@/lib/return-path';
@@ -72,12 +72,12 @@ export function AgreementPage({
   }
   if (account.status === 'failed') {
     return (
-      <Card role="alert" className="p-6">
-        <p className="mb-4 text-secondary-text">{TRY_AGAIN_LATER}</p>
+      <Notice kind="danger" role="alert">
+        <p className="mb-3">{TRY_AGAIN_LATER}</p>
         <Button variant="outline" wrap onClick={() => window.location.reload()}>
           Try again
         </Button>
-      </Card>
+      </Notice>
     );
   }
   if (!state || !api || !userId || upToDate) {

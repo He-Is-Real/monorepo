@@ -149,6 +149,10 @@ test.describe('behaviour', () => {
     await page.goto(`${WEB_SIGNED_IN_URL}/about`);
     const banner = page.locator('[data-consent-banner]');
     await expect(banner).toContainText('Our testimony consent has changed');
+    // A region named by its heading, as before the notice look (NT-1 A1).
+    await expect(
+      page.getByRole('region', { name: 'Our testimony consent has changed' }),
+    ).toBeVisible();
     // "Not now" hides it for now.
     await banner.getByRole('button', { name: 'Not now' }).click();
     await expect(banner).toHaveCount(0);

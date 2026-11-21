@@ -6,7 +6,7 @@ import { confirmAgreement } from '@/components/auth/account-bootstrap';
 import { LegalHtml } from '@/components/legal/legal-html';
 import { PrivacyNoticeLink } from '@/components/legal/privacy-notice-link';
 import { Redline } from '@/components/legal/redline';
-import { Button, Checkbox, Disclosure } from '@heisreal/web-ui';
+import { Button, Checkbox, Disclosure, Notice } from '@heisreal/web-ui';
 import {
   type Agreement,
   type AgreementState,
@@ -115,16 +115,18 @@ export function AgreementStep({
       <div>
         {heading(title(document, agreed))}
         <div data-agreement-unavailable="">
-          <p role="alert" className="mb-4 text-secondary-text">
-            {TRY_AGAIN_LATER}
-          </p>
-          <Button
-            variant="outline"
-            wrap
-            onClick={() => void load(changedFrom ?? agreed?.version ?? null)}
-          >
-            Try again
-          </Button>
+          <Notice kind="danger">
+            <p role="alert" className="mb-3">
+              {TRY_AGAIN_LATER}
+            </p>
+            <Button
+              variant="outline"
+              wrap
+              onClick={() => void load(changedFrom ?? agreed?.version ?? null)}
+            >
+              Try again
+            </Button>
+          </Notice>
           {after}
         </div>
       </div>
@@ -205,15 +207,16 @@ export function AgreementStep({
         )}
 
         {problem && (
-          <div
+          <Notice
+            kind="danger"
             ref={alert}
             tabIndex={-1}
             role="alert"
             data-agreement-problem=""
-            className="mb-4 rounded-xl border border-danger px-4 py-3 text-foreground outline-none"
+            className="mb-4 outline-none"
           >
             {problem}
-          </div>
+          </Notice>
         )}
 
         {reAgree ? (

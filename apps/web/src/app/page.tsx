@@ -17,7 +17,7 @@ import { StoriesUnavailableError } from '@/lib/public-stories';
 import { RestartingMessage } from '@/components/restarting/restarting-message';
 import { pageMetadata } from '@/lib/seo';
 import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
-import { Button } from '@heisreal/web-ui';
+import { Button, Notice } from '@heisreal/web-ui';
 
 export async function generateMetadata(): Promise<Metadata> {
   return pageMetadata({
@@ -186,12 +186,14 @@ export default async function Page() {
             variant="inline"
           />
         ) : stories instanceof StoriesUnavailableError ? (
-          <p
+          <Notice
+            kind="danger"
+            as="p"
             role="status"
-            className="mx-auto max-w-measure rounded-xl bg-raised px-4 py-6 text-center text-secondary-text"
+            className="mx-auto max-w-measure"
           >
             {TRY_AGAIN_LATER}
-          </p>
+          </Notice>
         ) : (
           <ul className="mx-auto grid max-w-[30rem] grid-cols-[minmax(0,1fr)] gap-7 md:max-w-none md:grid-cols-3">
             {stories.map((s) => (

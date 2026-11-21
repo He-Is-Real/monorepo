@@ -18,6 +18,7 @@ import {
   FieldHint,
   FieldLabel,
   Input,
+  Notice,
   Select,
 } from '@heisreal/web-ui';
 import { type ApiUser, StaleVersion } from '@/lib/api-user';
@@ -235,9 +236,9 @@ function Limits({ client }: { client: ApiUser }) {
   }
   if (loaded.status === 'failed') {
     return (
-      <Card asChild tone="danger" className="p-6">
-        <p role="alert">{loaded.message}</p>
-      </Card>
+      <Notice kind="danger" as="p" role="alert">
+        {loaded.message}
+      </Notice>
     );
   }
   return (
@@ -408,15 +409,17 @@ function LimitsForm({
   return (
     <section className="space-y-6">
       {saved && (
-        <p
+        <Notice
+          kind="success"
+          as="p"
           ref={done}
           tabIndex={-1}
           role="status"
-          className="rounded-xl border border-primary px-4 py-3"
+          className="outline-none"
           data-save-status="done"
         >
           Saved. The new limits apply now.
-        </p>
+        </Notice>
       )}
       <form onSubmit={askConfirm} className="space-y-6" noValidate>
         <div className="md:grid md:grid-cols-[12rem_minmax(0,1fr)] md:items-start md:gap-8">
@@ -536,32 +539,34 @@ function LimitsForm({
         </div>
 
         {status.kind === 'error' && (
-          <div
+          <Notice
+            kind="danger"
             ref={alert}
             tabIndex={-1}
             role="alert"
-            className="rounded-xl border border-danger px-4 py-3"
+            className="outline-none"
             data-save-status="error"
           >
             {status.message}
-          </div>
+          </Notice>
         )}
         {status.kind === 'stale' && (
-          <div
+          <Notice
+            kind="danger"
             ref={alert}
             tabIndex={-1}
             role="alert"
-            className="space-y-3 rounded-xl border border-danger px-4 py-3"
+            className="outline-none"
             data-save-status="stale"
           >
             <p>
               Someone else changed the limits while you were editing, so yours
               weren’t saved. Reload to see theirs, then make your changes again.
             </p>
-            <Button type="button" wrap onClick={reload}>
+            <Button type="button" wrap className="mt-3" onClick={reload}>
               Reload
             </Button>
-          </div>
+          </Notice>
         )}
 
         {status.kind === 'confirm' && (

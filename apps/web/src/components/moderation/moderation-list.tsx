@@ -20,6 +20,7 @@ import {
 import {
   Button,
   Card,
+  Notice,
   RadioGroup,
   SearchBox,
   StatusBadge,
@@ -469,15 +470,9 @@ function List({
   }
   if (loaded.status === 'failed') {
     return (
-      <Card asChild tone="danger" className="p-6">
-        <p
-          role="alert"
-
-          data-moderation-error=""
-        >
-          {loaded.message}
-        </p>
-      </Card>
+      <Notice kind="danger" as="p" role="alert" data-moderation-error="">
+        {loaded.message}
+      </Notice>
     );
   }
 

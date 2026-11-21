@@ -9,7 +9,7 @@ import { type ApiUser, ApiUserProblem } from '@/lib/api-user';
 import { signInHref } from '@/lib/return-path';
 import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 import { useOwnData } from './use-own-data';
-import { Card } from '@heisreal/web-ui';
+import { Card, Notice } from '@heisreal/web-ui';
 
 type Read = { story: MyStory } | { gone: true };
 
@@ -68,11 +68,9 @@ export function OwnStoryPreview({ id }: { id: string }) {
   }
   if (state.status === 'failed') {
     return (
-      <Card asChild className="p-6">
-        <p role="alert" data-preview-error="">
-          {TRY_AGAIN_LATER}
-        </p>
-      </Card>
+      <Notice kind="danger" as="p" role="alert" data-preview-error="">
+        {TRY_AGAIN_LATER}
+      </Notice>
     );
   }
   if ('gone' in state.data) {
@@ -92,15 +90,18 @@ export function OwnStoryPreview({ id }: { id: string }) {
   const when = story.approvedAt ?? story.submittedAt;
   return (
     <>
-      <div
+      <Notice
+        kind="info"
         data-preview-banner=""
-        className="mx-auto mb-8 flex max-w-measure flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-2xl border-l-4 border-link bg-raised px-4 py-3"
+        className="mx-auto mb-8 max-w-measure"
       >
-        <p className="font-semibold">Only you can see this preview</p>
-        <Link href="/account" className="inline-flex min-h-11 items-center">
-          Back to your profile
-        </Link>
-      </div>
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+          <p className="font-semibold">Only you can see this preview</p>
+          <Link href="/account" className="inline-flex min-h-11 items-center">
+            Back to your profile
+          </Link>
+        </div>
+      </Notice>
       <PreviewLater story={story} className="mx-auto mb-6 max-w-measure" />
       <StoryArticle
         story={ownStoryContent(story)}

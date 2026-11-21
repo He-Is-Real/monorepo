@@ -51,7 +51,13 @@ const variants = cva(
         false: '',
       },
     },
-    compoundVariants: [{ size: 'lg', wrap: true, class: 'min-h-12' }],
+    // Wrapping buttons keep their side padding in px, so with large text (200%) on a phone the
+    // words get the room instead of the padding (a 320 px phone at 200% would otherwise leave a
+    // word or two per line, or one letter inside a notice).
+    compoundVariants: [
+      { size: 'default', wrap: true, class: 'px-[20px]' },
+      { size: 'lg', wrap: true, class: 'min-h-12 px-[28px]' },
+    ],
     defaultVariants: {
       variant: 'default',
       size: 'default',

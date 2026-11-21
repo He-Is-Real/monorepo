@@ -6,6 +6,7 @@ import { StripeBuyButtonScript } from '@/components/donate/stripe-buy-button';
 import { NarrowColumn } from '@/components/page/page-header';
 import { stripeDonations, type StripeDonations } from '@/lib/config';
 import { pageMetadata } from '@/lib/seo';
+import { Notice } from '@heisreal/web-ui';
 
 /** At request time: the site's address (SITE_URL) and the Stripe settings are read per request. */
 export async function generateMetadata(): Promise<Metadata> {
@@ -73,14 +74,16 @@ function Giving({ stripe }: { stripe: StripeDonations }) {
         more people searching for answers about faith.
       </p>
       {stripe.publishableKey.startsWith('pk_test_') && (
-        <p
+        <Notice
+          kind="warning"
+          as="p"
           role="note"
-          className="mt-6 rounded-xl border border-warning/50 bg-warning/10 px-4 py-3 text-sm text-foreground"
+          className="mt-6 text-sm"
+          title="Test mode — dev only."
         >
-          <strong>Test mode — dev only.</strong> These buttons use Stripe’s
-          sandbox: no real money is taken. Pay with one of Stripe’s test cards,
-          such as 4242 4242 4242 4242.
-        </p>
+          These buttons use Stripe’s sandbox: no real money is taken. Pay with
+          one of Stripe’s test cards, such as 4242 4242 4242 4242.
+        </Notice>
       )}
 
       <DonateChooser stripe={stripe} />

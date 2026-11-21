@@ -239,7 +239,9 @@ export function CardPlayer({
           />
         )}
       </button>
-      {/* Always present, so screen readers hear the message when it appears. */}
+      {/* Always present, so screen readers hear the message when it appears. Drawn on the
+          media overlay, not as a Notice: it sits on top of the story's picture (libs/web-ui
+          README, Notice). */}
       <p
         id={`${id}-error`}
         role="status"

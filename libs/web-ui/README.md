@@ -164,6 +164,19 @@ means. Pages use only these names, as Tailwind classes (`bg-danger`, `text-dange
   words with a solid triangle; open, `variant` `short` (default; the content hangs from a grey
   bar: "See all versions", "How to format it") or `long` (words and content in a light panel:
   "Read the full version 3"). `summary` is the words to press.
+- `Notice`: something that just happened or needs attention (NT-1 A1): a tinted box, the whole
+  box rounded, a 4 px bar on the left and the kind's plain icon. `kind`: `danger` (it went
+  wrong), `warning` (needs a second look), `success` (done), `info` (worth knowing); `title`: a
+  bold first line. It adds no role: pass `role="alert"` or `role="status"` as the page announces
+  it, and for a live region that's in the page before its words, keep the role on a wrapper with
+  the Notice inside. `as="p"` for one line; `ref` and `tabIndex={-1}` to move focus to it.
+  Not for messages drawn on top of a story's picture or video (a card's "Something went wrong"
+  while playing): those keep the media overlay (`media`/`on-media`), since a tinted box over a
+  picture would clash. Plain one-line messages inside lists and red error words under a field
+  aren't notices either, and neither is a page whose whole content is that the thing isn't here
+  ("This draft isn't available", a preview or a story under review that's gone): that is the
+  page's state, a plain `Card`. Padding and gap are in px (A1's), so large text grows the
+  words, not the space.
 - `Quiet`: quiet context that isn't news (NT-2 B): a plain grey box (Share's weekly limit line,
   an empty My submissions).
 - `fieldVariants`: the field look, for a control the library doesn't have yet.

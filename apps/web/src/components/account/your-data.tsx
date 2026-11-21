@@ -3,7 +3,7 @@
 import { useClerk } from '@clerk/react';
 import { useRouter } from 'next/navigation';
 import { useId, useRef, useState } from 'react';
-import { Button, Card, DangerZone, Input } from '@heisreal/web-ui';
+import { Button, Card, DangerZone, Input, Notice } from '@heisreal/web-ui';
 import {
   type ApiUser,
   ApiUserProblem,
@@ -249,9 +249,9 @@ function DeleteAccount({ afterDeletion }: { afterDeletion: AfterDeletion }) {
           Edit or Delete on it in My submissions.
         </p>
         {done ? (
-          <p role="status" data-deleted="">
+          <Notice kind="success" as="p" role="status" data-deleted="">
             Your account is deleted. Signing you out…
-          </p>
+          </Notice>
         ) : (
           // DL-2 A: the Danger zone look of every delete that can't be undone. Its step asks for
           // the word typed first, so it brings its own form instead of the plain question.

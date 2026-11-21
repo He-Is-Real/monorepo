@@ -11,6 +11,7 @@ import {
   FieldHint,
   FieldLabel,
   Input,
+  Notice,
   Select,
 } from '@heisreal/web-ui';
 import type { ApiUser } from '@/lib/api-user';
@@ -138,24 +139,25 @@ function Staff({ client }: { client: ApiUser }) {
   }
   if (loaded.status === 'failed') {
     return (
-      <Card asChild tone="danger" className="p-6">
-        <p role="alert">{loaded.message}</p>
-      </Card>
+      <Notice kind="danger" as="p" role="alert">
+        {loaded.message}
+      </Notice>
     );
   }
 
   return (
     <section className="space-y-8">
       {note && (
-        <div
+        <Notice
+          kind={note.kind === 'error' ? 'danger' : 'success'}
           ref={noteRef}
           tabIndex={-1}
           role={note.kind === 'error' ? 'alert' : 'status'}
-          className={`rounded-xl border px-4 py-3 [overflow-wrap:anywhere] ${note.kind === 'error' ? 'border-danger' : 'border-primary'}`}
+          className="outline-none"
           data-staff-status={note.kind}
         >
           {note.text}
-        </div>
+        </Notice>
       )}
 
       <Card asChild className="space-y-4 p-4 sm:p-6">
