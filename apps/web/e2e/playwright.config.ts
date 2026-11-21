@@ -2,8 +2,10 @@ import { resolve } from 'node:path';
 import { defineConfig } from '@playwright/test';
 import { DEVICES } from './devices';
 import {
+  CACHED_TIMES,
   E2E_NOW,
   SIGNED_IN_NAME,
+  STUB_CACHED_PORT,
   STUB_DOWN_PORT,
   STUB_LIVE_PORT,
   STUB_PORT,
@@ -11,6 +13,7 @@ import {
   STUB_USER_PORT,
   STRIPE_E2E,
   STUB_USER_URL,
+  WEB_CACHED_PORT,
   WEB_DOWN_PORT,
   WEB_LIVE_PORT,
   WEB_PORT,
@@ -22,8 +25,8 @@ import {
 // api-public-read (and, for the signed-in server's browser, a stub api-user), across the device
 // matrix in light and dark. Screenshots land in
 // test-output/e2e/screenshots (CI uploads them). More copies of the server cover Go live
-// (indexing on, D48 off), api-public-read down, api-public-read slow to give site videos and a
-// signed-in visitor (servers.ts). Nothing
+// (indexing on, D48 off), api-public-read down, api-public-read slow to give site videos, a
+// signed-in visitor and saved pages (servers.ts). Nothing
 // is loaded over the internet: the real Clerk is checked on dev (apps/dev-seed/behavioural).
 const root = `${resolve(__dirname, '../../..')}/`;
 // Chromium in CI. Locally, E2E_BROWSER=firefox runs the same suite in Firefox (no WebKit: Joel,
@@ -79,6 +82,7 @@ export default defineConfig({
         STUB_LIVE_PORT: String(STUB_LIVE_PORT),
         STUB_DOWN_PORT: String(STUB_DOWN_PORT),
         STUB_SLOW_PORT: String(STUB_SLOW_PORT),
+        STUB_CACHED_PORT: String(STUB_CACHED_PORT),
       },
       reuseExistingServer: false,
     },
@@ -108,6 +112,13 @@ export default defineConfig({
     }),
     web(WEB_DOWN_PORT, STUB_DOWN_PORT, { E2E_FIXTURES: 'true' }),
     web(WEB_SLOW_PORT, STUB_SLOW_PORT, { E2E_FIXTURES: 'true' }),
+    // Keeps saved pages (page-cache.e2e.ts): production's column, with test times for home and
+    // Stories.
+    web(WEB_CACHED_PORT, STUB_CACHED_PORT, {
+      E2E_FIXTURES: 'true',
+      SITE_ENVIRONMENT: 'prod',
+      E2E_PAGE_CACHE: JSON.stringify(CACHED_TIMES),
+    }),
     // Signed in: E2E_FIXTURES makes the header show this name instead of Clerk's control, so no
     // Clerk session or secret is needed. Its browser calls the stub api-user.
     web(WEB_SIGNED_IN_PORT, STUB_PORT, {
@@ -135,6 +146,9 @@ function web(port: number, stubPort: number, env: Record<string, string>) {
       SITE_URL: `http://localhost:${port}`,
       // The pinned clock for the NEW badge (servers.ts); read only with E2E_FIXTURES.
       E2E_NOW,
+      // Dev's column of page-cache.config.ts, as on dev: tests that change stories and reload
+      // never see a saved copy. Only the page-cache server changes it.
+      SITE_ENVIRONMENT: 'dev',
       ...env,
     },
     reuseExistingServer: false,

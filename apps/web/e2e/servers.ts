@@ -1,4 +1,4 @@
-// The e2e servers (playwright.config.ts starts them): the built site five times over, each
+// The e2e servers (playwright.config.ts starts them): the built site six times over, each
 // against a port of the stub api-public-read (stub-api.mjs), and the stub api-user
 // (stub-api-user.mjs) the signed-in one calls from the browser. E2E_PORT_BASE moves them all,
 // so two checkouts can run the suite at once (default 4300).
@@ -8,6 +8,7 @@ export const STUB_PORT = base + 10;
 export const STUB_LIVE_PORT = base + 11;
 export const STUB_DOWN_PORT = base + 12;
 export const STUB_SLOW_PORT = base + 14;
+export const STUB_CACHED_PORT = base + 15;
 export const STUB_SLOW_URL = `http://127.0.0.1:${STUB_SLOW_PORT}`;
 export const STUB_URL = `http://127.0.0.1:${STUB_PORT}`;
 /** The stub api-user (stub-api-user.mjs), for the signed-in server's browser calls. */
@@ -30,6 +31,16 @@ export const WEB_LIVE_URL = `http://localhost:${WEB_LIVE_PORT}`;
 /** api-public-read down: every API request answers 503. */
 export const WEB_DOWN_PORT = base + 2;
 export const WEB_DOWN_URL = `http://localhost:${WEB_DOWN_PORT}`;
+/**
+ * Keeps saved pages (page-cache.e2e.ts): production's column with test times (E2E_PAGE_CACHE).
+ * Every other server runs with dev's column, as dev does: story pages aren't kept there.
+ */
+export const WEB_CACHED_PORT = base + 5;
+export const WEB_CACHED_URL = `http://localhost:${WEB_CACHED_PORT}`;
+/** Its stub port's test hooks. */
+export const STUB_CACHED_URL = `http://127.0.0.1:${STUB_CACHED_PORT}`;
+/** The times it keeps them for, in seconds: long enough to see a copy kept, short enough to see one go. */
+export const CACHED_TIMES = { '/': 3600, '/stories': 1 };
 /** api-public-read slow to give site videos their links (site-videos.e2e.ts). */
 export const WEB_SLOW_PORT = base + 4;
 export const WEB_SLOW_URL = `http://localhost:${WEB_SLOW_PORT}`;
