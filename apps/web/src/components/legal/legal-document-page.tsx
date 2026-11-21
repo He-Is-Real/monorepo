@@ -10,6 +10,7 @@ import {
   type PublicDocument,
 } from '@/lib/legal-text';
 import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
+import { Notice } from '@heisreal/web-ui';
 
 const LINK =
   'inline-flex min-h-11 items-center font-medium underline-offset-4 hover:underline';
@@ -61,15 +62,12 @@ export function LegalDocumentPage({
               </time>
             </p>
             {inForce !== null && inForce !== version.version && (
-              <p
-                role="note"
-                className="mb-8 rounded-xl border border-border bg-raised px-4 py-3 text-sm text-foreground"
-              >
+              <Notice kind="info" as="p" role="note" className="mb-8 text-sm">
                 This is an earlier version, kept so you can see what it said.{' '}
                 <Link href={documentHref(document)} className={LINK}>
                   Read the latest {title.toLowerCase()} (version {inForce})
                 </Link>
-              </p>
+              </Notice>
             )}
             {/* From 1024 px the page has room either side of its reading column: its tables
                 widen into it by the same amount on both sides. Not in a card, which has none. */}

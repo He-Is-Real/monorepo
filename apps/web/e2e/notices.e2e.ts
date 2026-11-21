@@ -99,3 +99,35 @@ test('My submissions: the status region is there before a delete, and announces 
     page.getByRole('status').filter({ hasText: '“Delete me” is deleted.' }),
   ).toBeVisible();
 });
+
+test('the owner’s preview: a story that can’t load is an alert', async ({
+  page,
+  request,
+}) => {
+  const id = randomUUID().replace(/-/g, '');
+  const res = await request.post(`${STUB_USER_URL}/__e2e/sessions/${id}`, {
+    data: { stories: [{ id: 'p1', title: 'My draft' }] },
+  });
+  expect(res.status()).toBe(204);
+  await useSession(page, id);
+  await page.route('**/v1/account/stories/p1', (route) =>
+    route.request().method() === 'GET'
+      ? route.fulfill({
+          status: 500,
+          contentType: 'application/problem+json',
+          body: JSON.stringify({
+            type: 'about:blank',
+            title: 'Internal Server Error',
+            status: 500,
+            code: 'something_internal',
+          }),
+        })
+      : route.continue(),
+  );
+  await page.goto(`${WEB_SIGNED_IN_URL}/account/stories/p1/preview`);
+  await expect(
+    page
+      .getByRole('alert')
+      .filter({ hasText: 'Something went wrong. Please try again later.' }),
+  ).toBeVisible();
+});

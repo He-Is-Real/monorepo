@@ -68,11 +68,9 @@ export function OwnStoryPreview({ id }: { id: string }) {
   }
   if (state.status === 'failed') {
     return (
-      <Card asChild className="p-6">
-        <p role="alert" data-preview-error="">
-          {TRY_AGAIN_LATER}
-        </p>
-      </Card>
+      <Notice kind="danger" as="p" role="alert" data-preview-error="">
+        {TRY_AGAIN_LATER}
+      </Notice>
     );
   }
   if ('gone' in state.data) {
