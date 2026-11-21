@@ -23,6 +23,7 @@ import {
   Input,
   Notice,
   Quiet,
+  Tag,
   Textarea,
 } from '@heisreal/web-ui';
 import { agreementTexts } from '@/app/consent/actions';
@@ -2283,7 +2284,21 @@ export function ReviewStep({
         {row('Title', <span id="review-title">{f.title}</span>, 'write')}
         {row('Name shown', f.bylineName.trim() || 'Anonymous', 'details')}
         {row('Description', f.description.trim() || '—', 'details')}
-        {row('Themes', themeNames.join(', ') || '—', 'details')}
+        {row(
+          'Themes',
+          themeNames.length > 0 ? (
+            <ul className="flex flex-wrap gap-1.5" data-review-themes="">
+              {themeNames.map((name) => (
+                <li key={name} className="max-w-full">
+                  <Tag>{name}</Tag>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            '—'
+          ),
+          'details',
+        )}
         {draft.format === 'written'
           ? row(
               'Your story',
