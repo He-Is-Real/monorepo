@@ -77,9 +77,9 @@ export function LegalDocumentPage({
             />
           </article>
         ) : (
-          <p className="text-secondary-text" data-legal-problem="unavailable">
+          <Notice kind="danger" as="p" data-legal-problem="unavailable">
             {TRY_AGAIN_LATER}
-          </p>
+          </Notice>
         )}
         {others.length > 0 && (
           <section
