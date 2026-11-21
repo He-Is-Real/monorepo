@@ -307,15 +307,17 @@ export async function optionLabels(control: Locator) {
 /**
  * The Stories page's filters (BS-1 C, Joel 2026-11-20): on a computer, the column beside the
  * stories; on tablets and phones, the Filters panel, opened here. Waits for the page's
- * JavaScript first (the "Favourites only" switch shows once it has run), so the press opens it.
+ * JavaScript first: the "Favourites only" switch shows once it has run, so the press opens the
+ * panel, and on a computer the column's themes have moved down to make room for it (a click
+ * aimed before that lands between two themes and does nothing).
  */
 export async function browseFilters(page: Page): Promise<Locator> {
+  await expect(page.locator('[data-favourites-only]')).toBeAttached();
   const button = page.getByRole('button', { name: /^Filters/ });
   if (!(await button.isVisible()))
     return page.getByRole('complementary', { name: 'Filters' });
   const panel = page.getByRole('dialog', { name: 'Filters' });
   if (await panel.isVisible()) return panel;
-  await expect(page.locator('[data-favourites-only]')).toBeAttached();
   await button.click();
   await expect(panel).toBeVisible();
   return panel;
