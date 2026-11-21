@@ -532,17 +532,17 @@ function SignedInFlow({
   }
   if (loaded.state === 'failed') {
     return (
-      <Card className="p-6 text-center sm:p-8">
+      <Notice kind="danger" className="p-6 sm:p-8">
         <h2 role="alert" className="mb-3 text-2xl font-normal">
           Something went wrong
         </h2>
-        <p className="mb-6 text-secondary-text">
+        <p className="mb-6">
           Please try again later. Anything you wrote on this device is kept.
         </p>
         <button type="button" className={primary} onClick={() => void start()}>
           Try again
         </button>
-      </Card>
+      </Notice>
     );
   }
   const { account, limits, themes, drafts, askConsent } = loaded;
