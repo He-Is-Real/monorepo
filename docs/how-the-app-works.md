@@ -505,7 +505,10 @@ recording | picture` (worked out from the status history: set while the story's 
   desktop, then 2, then 1). Signed in, it lists the account's hearts; signed out, the hearts kept
   in this browser (Joel, 2026-11-14). After signing in, hearts kept in the browser are still
   offered to the account as before. The switch is kept in the address, so Back and reloads keep
-  it. /favourites and the old /account/favourites show the normal "not found" page.
+  it. It shows from the moment the page appears, for everyone, and works at once (Joel
+  2026-11-21, BS-9), so the filters never move once shown; turned on before the page knows who
+  is looking, the list waits for that, then shows the account's or this browser's hearts (none
+  gives the usual empty list). Without JavaScript there is no switch. /favourites and the old /account/favourites show the normal "not found" page.
 - With "Favourites only" on, browse's search, sort, format and theme filters stay and work on the
   favourites, kept in the address like browse's (Joel, 2026-11-14). The whole list is loaded and
   filtered in the browser (people aren't expected to have more than about 100; optimising comes

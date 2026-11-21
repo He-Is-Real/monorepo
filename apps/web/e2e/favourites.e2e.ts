@@ -891,6 +891,129 @@ async function filtersOverFavourites(page: Page, base: string) {
   await expect(cards).toHaveCount(8);
 }
 
+// BS-9 (Joel, 2026-11-21): "Favourites only" is in the server's page for everyone, so on a
+// computer the filters column never moves once shown (it used to arrive with the session and
+// push the themes down), and it works at once, signed out with this browser's hearts.
+test('the filters column stays put from the first paint, and Favourites only works at once, signed out', async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== 'desktop-1280', 'the column: one computer');
+  await seedDeviceHearts(page, [{ id: 'browse_04' }]);
+  // Every frame from the start, where the first theme is (once it's there).
+  await page.addInitScript(() => {
+    const w = window as unknown as { themeYs: number[] };
+    w.themeYs = [];
+    const look = () => {
+      const a = document.querySelector('[data-filters-column] nav a');
+      if (a) w.themeYs.push(Math.round(a.getBoundingClientRect().y));
+      if (w.themeYs.length < 600) requestAnimationFrame(look);
+    };
+    requestAnimationFrame(look);
+  });
+  await page.goto('/stories');
+  const only = page
+    .getByRole('complementary', { name: 'Filters' })
+    .getByRole('switch', { name: 'Favourites only' });
+  await expect(only).not.toBeChecked();
+  await browseFilters(page);
+  await only.click();
+  await expect(only).toBeChecked();
+  await expect(page).toHaveURL('/stories?favourites=1');
+  await expect(page.locator('[data-favourites] article')).toHaveCount(1);
+  const ys = await page.evaluate(
+    () => (window as unknown as { themeYs: number[] }).themeYs,
+  );
+  expect(ys.length).toBeGreaterThan(0);
+  expect(new Set(ys).size, 'the first theme never moved').toBe(1);
+});
+
+// BS-9: "Favourites only" pressed while the page doesn't yet know who is looking (Clerk still
+// loading; the e2e fixtures hold the session unknown with window.e2eHoldSession,
+// account-control.tsx). The switch acts at once: the address has it and the favourites' loading
+// space shows (never browse's list, never anyone's favourites); once the session is known, the
+// right person's favourites show: the account's signed in, this browser's hearts signed out.
+test.describe('Favourites only pressed before the session is known', () => {
+  // eslint-disable-next-line no-empty-pattern
+  test.beforeEach(({}, info) => {
+    test.skip(
+      !BEHAVIOUR_DEVICES.includes(info.project.name),
+      'behaviour: one phone, one desktop',
+    );
+  });
+
+  /** Holds the session unknown until `release` is called. */
+  async function holdSession(page: Page) {
+    await page.addInitScript(() => {
+      const w = window as unknown as {
+        e2eHoldSession?: Promise<void>;
+        e2eReleaseSession?: () => void;
+      };
+      w.e2eHoldSession = new Promise((done) => {
+        w.e2eReleaseSession = done;
+      });
+    });
+    return () =>
+      page.evaluate(() =>
+        (
+          window as unknown as { e2eReleaseSession: () => void }
+        ).e2eReleaseSession(),
+      );
+  }
+
+  /** Turns Favourites only on and checks it waits for the session. */
+  async function pressWhileUnknown(page: Page, url: RegExp | string) {
+    const filters = await browseFilters(page);
+    const only = filters.getByRole('switch', { name: 'Favourites only' });
+    await only.click();
+    await expect(only).toBeChecked();
+    await expect(page).toHaveURL(url);
+    await closeBrowseFilters(page);
+    await expect(page.locator('[data-favourites-loading]')).toBeVisible();
+    await expect(page.locator('main article')).toHaveCount(0);
+  }
+
+  test('signed in: the account’s favourites show once it is known', async ({
+    page,
+    request,
+  }, info) => {
+    const session = sessionFor(info, 'held-in');
+    await useSession(page, session);
+    await heartAtStub(request, session, ['browse_05']);
+    const lookups: string[] = [];
+    page.on('request', (r) => {
+      if (r.url().startsWith(`${STUB_USER_URL}${FAVOURITES}`))
+        lookups.push(r.url());
+    });
+    const release = await holdSession(page);
+    await page.goto(`${WEB_SIGNED_IN_URL}/stories`);
+    await pressWhileUnknown(page, FAVOURITES_ONLY);
+    expect(
+      lookups,
+      'nothing asked of api-user before sign-in is known',
+    ).toEqual([]);
+
+    await release();
+    await expect(page.locator('[data-favourites] article h2')).toHaveText([
+      'Browse test story 05',
+    ]);
+    await expect(page).toHaveURL(FAVOURITES_ONLY);
+  });
+
+  test('signed out: this browser’s hearts show once it is known', async ({
+    page,
+  }) => {
+    await seedDeviceHearts(page, [{ id: 'browse_04' }]);
+    const release = await holdSession(page);
+    await page.goto('/stories');
+    await pressWhileUnknown(page, '/stories?favourites=1');
+
+    await release();
+    await expect(page.locator('[data-favourites] article h2')).toHaveText([
+      'Browse test story 04',
+    ]);
+  });
+});
+
 test.describe('filters over favourites', () => {
   // eslint-disable-next-line no-empty-pattern
   test.beforeEach(({}, info) => {

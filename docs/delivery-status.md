@@ -112,6 +112,7 @@ Kept basic for now. Joel will decide later how stories are shared out between mo
 - ✅ The site's colours live in the shared set, named by meaning, with one red for delete buttons everywhere
 - ✅ Stories page search and filters take less room: a column beside the stories from small laptops up, a Filters button on portrait tablets and phones, sort as round choice buttons
 - ✅ Stories page on wide screens: three story columns centred like Home's, the filters beside them
+- ✅ Stories page "Favourites only" switch there from the start, so the filters never jump
 - ✅ Choose several themes at once on the Stories page and the moderators' list: only stories with all of them show
 - ✅ One look each for chips, labels, "Are you sure?" steps, delete boxes, check boxes, tabs, switches, open/close sections and text boxes
 - ✅ One look for buttons and links that look like buttons

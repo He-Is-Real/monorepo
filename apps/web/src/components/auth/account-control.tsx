@@ -198,6 +198,32 @@ export const e2eFixtureToken = async (): Promise<string> => {
 };
 
 /**
+ * e2e only: a test can keep the page's session unknown, as while Clerk is still loading, by
+ * giving its browser `window.e2eHoldSession` (a promise) before the page loads; the fixtures say
+ * who is looking once it settles. Without it they say at once. Nothing on screen depends on it, so
+ * the server's page and the browser's first render match.
+ */
+function useE2eSessionHeld(): boolean {
+  const [held, setHeld] = useState(
+    () =>
+      typeof window !== 'undefined' &&
+      (window as { e2eHoldSession?: Promise<unknown> }).e2eHoldSession !==
+        undefined,
+  );
+  useEffect(() => {
+    const hold = (window as { e2eHoldSession?: Promise<unknown> })
+      .e2eHoldSession;
+    if (!hold) return;
+    let live = true;
+    void hold.then(() => live && setHeld(false));
+    return () => {
+      live = false;
+    };
+  }, []);
+  return held;
+}
+
+/**
  * e2e fixture (E2E_FIXTURES): the signed-in header without Clerk. It calls the account bootstrap
  * like the real one, with the fixture token. Sign out signs out on this page without leaving it,
  * as a sign-out in another tab reaches this one (Clerk keeps a browser's tabs in step), so tests
@@ -211,7 +237,8 @@ export function FixtureSignedInAccount({
   apiUserUrl?: string;
 }) {
   const [signedOut, setSignedOut] = useState(false);
-  const userId = signedOut ? null : E2E_FIXTURE_USER_ID;
+  const held = useE2eSessionHeld();
+  const userId = held ? undefined : signedOut ? null : E2E_FIXTURE_USER_ID;
   useAccountBootstrap(userId, apiUserUrl, e2eFixtureToken);
   usePublishPersonalSession(userId, apiUserUrl, e2eFixtureToken);
   if (signedOut) return <SignedOutAccount />;
@@ -230,6 +257,11 @@ export function FixtureSignedInAccount({
 
 /** e2e fixture (E2E_FIXTURES): the signed-out control, without Clerk. */
 export function FixtureSignedOutAccount() {
-  usePublishPersonalSession(null, undefined, e2eFixtureToken);
+  const held = useE2eSessionHeld();
+  usePublishPersonalSession(
+    held ? undefined : null,
+    undefined,
+    e2eFixtureToken,
+  );
   return <SignedOutAccount />;
 }

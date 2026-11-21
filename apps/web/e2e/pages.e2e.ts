@@ -396,8 +396,6 @@ test.describe('behaviour', () => {
     page,
   }, info) => {
     await page.goto('/stories');
-    // The switch shows once the page's JavaScript has run (it's in the order then).
-    await expect(page.locator('[data-favourites-only]')).toBeAttached();
     await page.keyboard.press('Tab');
     await expect(
       page.getByRole('link', { name: 'Skip to content' }),

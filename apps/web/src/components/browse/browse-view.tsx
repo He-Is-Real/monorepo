@@ -13,7 +13,6 @@ import {
   FAVOURITES_PARAM,
   favouritesOn,
 } from '@/lib/browse-query';
-import { usePersonalSession } from '@/lib/personal-session';
 
 // The filters are a column beside the stories (BS-1 C) from 1024 px screens, small laptops and
 // landscape tablets (BS-5 B, Joel 2026-11-21); phones and portrait tablets get the Filters
@@ -62,11 +61,12 @@ type Chosen = { key: string; label: string } & (
  * JavaScript there is no panel, so the column shows above the stories at every width.
  *
  * "Favourites only" shows the person's hearted stories in place of browse's list: signed in, the
- * account's; signed out, the hearts kept in this browser (FV-1, Joel 2026-11-14). Until the
- * browser knows which (or without JavaScript) there is no switch and browse is as it always was.
- * The switch is kept in the URL (`?favourites=1`), so Back from a story and reloads keep it.
- * web's server renders the same page whatever it says (D32: nothing personal on the server); the
- * browser alone reads it. The search, sort, format and theme filters stay and filter the
+ * account's; signed out, the hearts kept in this browser (FV-1, Joel 2026-11-14). The switch
+ * shows from the first moment for everyone and works at once (BS-9, Joel 2026-11-21); turned on
+ * before the browser knows who is looking, the favourites wait (FavouritesList's loading space).
+ * Without JavaScript there is no switch. It is kept in the URL (`?favourites=1`), so Back from a
+ * story and reloads keep it. Nothing personal is on the server (D32): its page has the switch and
+ * the empty loading space, never anyone's favourites. The search, sort, format and theme filters stay and filter the
  * favourites too, in the browser (FV-2 B, Joel 2026-11-14; lib/favourites-filter.ts); every
  * browse address the browser builds keeps the switch (browseHref).
  */
@@ -100,10 +100,8 @@ export function BrowseView({
    */
   results: ReactNode;
 }) {
-  const session = usePersonalSession();
   const params = useSearchParams();
-  const known = session.status !== 'unknown';
-  const on = known && favouritesOn(params);
+  const on = favouritesOn(params);
 
   const set = (next: boolean) => {
     const url = new URL(window.location.href);
@@ -182,13 +180,17 @@ export function BrowseView({
 
   const filters = (
     <div className="space-y-6">
-      {known && (
-        // A switch with its words: the whole row is the target (44 px high). It acts at once
-        // (SW-1 B).
-        <Switch checked={on} onCheckedChange={set} data-favourites-only="">
-          Favourites only
-        </Switch>
-      )}
+      {/* A switch with its words: the whole row is the target (44 px high). It acts at once
+          (SW-1 B). There from the first moment (BS-9), so the filters below never move; it
+          needs JavaScript, so without it there is none. */}
+      <Switch
+        checked={on}
+        onCheckedChange={set}
+        data-favourites-only=""
+        className="noscript:hidden"
+      >
+        Favourites only
+      </Switch>
       {panel}
     </div>
   );

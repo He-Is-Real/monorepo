@@ -239,7 +239,6 @@ test.describe('where the column starts', () => {
   }, info) => {
     const width = info.project.use.viewport?.width ?? 0;
     await page.goto('/stories');
-    await expect(page.locator('[data-favourites-only]')).toBeAttached();
     const column = page.locator('[data-filters-column]');
     if (width >= 1024) {
       await expect(column).toBeVisible();
@@ -277,7 +276,6 @@ test('the column starts at exactly 1024 px', async ({ page }, info) => {
   ] as const) {
     await page.setViewportSize({ width, height: 800 });
     await page.goto('/stories');
-    await expect(page.locator('[data-favourites-only]')).toBeAttached();
     await expect(page.locator('[data-filters-column]'), `${width}`).toBeVisible(
       { visible: column },
     );
@@ -327,7 +325,6 @@ test('wide screens centre the stories, with the filters to their left', async ({
     await page.setViewportSize({ width, height: 900 });
     await textSetting(page, text);
     await page.goto('/stories');
-    await expect(page.locator('[data-favourites-only]')).toBeAttached();
     const cards = page.locator('main ul.masonry > li');
     await expect(cards).toHaveCount(15);
     await expect
@@ -389,7 +386,6 @@ test('a desktop screen keeps the column at Large text, the Filters button from V
     await page.addStyleTag({
       content: `html { font-size: ${percent} !important; }`,
     });
-    await expect(page.locator('[data-favourites-only]')).toBeAttached();
     await expect(page.locator('[data-filters-column]'), percent).toBeVisible({
       visible: column,
     });
@@ -745,6 +741,7 @@ test.describe('computers: sort', () => {
       expect(box?.height ?? 0).toBeGreaterThanOrEqual(44 - 0.01);
     }
 
+    await browseFilters(page);
     await sort.locator('label').filter({ hasText: 'Oldest first' }).click();
     await expect(page).toHaveURL(/[?&]sort=oldest(&|$)/);
     await expect(
@@ -754,7 +751,7 @@ test.describe('computers: sort', () => {
 
     // The keyboard: an arrow key moves the choice, which applies it.
     await page.reload();
-    await expect(page.locator('[data-favourites-only]')).toBeAttached();
+    await browseFilters(page);
     await sort.getByRole('radio', { name: 'Oldest first' }).focus();
     await page.keyboard.press('ArrowUp');
     // Latest first is the usual order, so the address leaves it out.
