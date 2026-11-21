@@ -149,7 +149,7 @@ describe('GET /v1/stories/{slug} on SurrealDB', () => {
        CREATE storyStatusLog CONTENT { story: story:dev_seed, action: 'shownByModerator',
          actor: 'moderator', by: user:dev_seed_moderator };`,
     );
-    passTime(60_000); // the story page read earlier is a minute old (R13)
+    passTime(30_000); // the story page read earlier is 30 seconds old (R13)
     const story = (await (await fetch(`${url}/v1/stories/${SLUG}`)).json()) as {
       image: unknown;
     };

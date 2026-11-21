@@ -1,8 +1,9 @@
-import { connection } from 'next/server';
+import { cacheLife } from 'next/cache';
 import { ButtonLink } from '@/components/page/button-link';
 import { RaisedBand } from '@/components/page/card';
 import { WideColumn, PageHeader } from '@/components/page/page-header';
 import { SiteVideo } from '@/components/page/site-video';
+import { cachedPage, type PageCacheLife } from '@/lib/page-cache';
 import { pageMetadata } from '@/lib/seo';
 
 /** Per request: URLs come from SITE_URL (seo.ts). */
@@ -33,9 +34,8 @@ const VALUES = [
   },
 ];
 
-export default async function AboutPage() {
-  // Per request: the player link is signed and expires (D52), so the page is never prerendered.
-  await connection();
+/** `keep`: rendered for the saved copy (a failed video lookup isn't kept, site-video.tsx). */
+function AboutContent({ keep }: { keep: boolean }) {
   return (
     <main id="main" className="flex-1">
       <section className="py-12 sm:py-20">
@@ -46,6 +46,7 @@ export default async function AboutPage() {
             lead="Hear from our founder, Stephen Linnecar"
           />
           <SiteVideo
+            keep={keep}
             videoKey="founder-intro"
             title="Video: The heart behind He Is Real, from our founder Stephen Linnecar"
             label="Founder’s introduction"
@@ -133,4 +134,15 @@ export default async function AboutPage() {
       </RaisedBand>
     </main>
   );
+}
+
+/** Per request, or this page's saved copy (page-cache.config.ts). */
+export default function AboutPage() {
+  return cachedPage('/about', savedPage, () => <AboutContent keep={false} />);
+}
+
+async function savedPage(life: PageCacheLife) {
+  'use cache';
+  cacheLife(life);
+  return <AboutContent keep />;
 }

@@ -1,8 +1,10 @@
+import { cacheLife } from 'next/cache';
 import { FaqAccordion } from '@/components/faq/faq-accordion';
 import { ButtonLink } from '@/components/page/button-link';
 import { JsonLd } from '@/components/page/json-ld';
 import { NarrowColumn, PageHeader } from '@/components/page/page-header';
 import { FAQ_GROUPS, faqPageJsonLd } from '@/lib/faqs';
+import { cachedPage, type PageCacheLife } from '@/lib/page-cache';
 import { pageMetadata } from '@/lib/seo';
 
 /** Per request: URLs come from SITE_URL (seo.ts). */
@@ -15,7 +17,7 @@ export function generateMetadata() {
   });
 }
 
-export default function FaqsPage() {
+function FaqsContent() {
   return (
     <main id="main" className="flex-1 py-12 sm:py-20">
       <NarrowColumn>
@@ -43,4 +45,15 @@ export default function FaqsPage() {
       <JsonLd data={faqPageJsonLd()} />
     </main>
   );
+}
+
+/** Per request, or this page's saved copy (page-cache.config.ts). */
+export default function FaqsPage() {
+  return cachedPage('/faqs', savedPage, () => <FaqsContent />);
+}
+
+async function savedPage(life: PageCacheLife) {
+  'use cache';
+  cacheLife(life);
+  return <FaqsContent />;
 }

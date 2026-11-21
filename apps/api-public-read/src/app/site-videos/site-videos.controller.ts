@@ -59,7 +59,7 @@ const notFound = () =>
 /**
  * api-public-read.yaml, tag Site: getSiteVideo. A signed, expiring player link for one site
  * video (D52's token auth, the same key and 6–7 hour links as stories). Memory and public
- * caching keep it at most 60 seconds in total (R13), well inside the link's life.
+ * caching keep it at most 30 seconds in total (R13), well inside the link's life.
  */
 @Controller('v1/site-videos')
 export class SiteVideosController {

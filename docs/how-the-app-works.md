@@ -14,7 +14,7 @@ the limits, and what we keep and delete. Progress (what is built and what is nex
 - The bracketed codes, like (D71), point to the decision record in the `project` repo
   (`context/research/*.html`), for anyone who needs the reasoning.
 
-**Last updated:** 2026-11-17
+**Last updated:** 2026-11-21
 
 ## Needs Joel to confirm
 
@@ -597,17 +597,40 @@ recording | picture` (worked out from the status history: set while the story's 
 - A **story page** shows the player, picture or text, and 3 related stories (shared themes first,
   then newest). Long written stories show about the first 600 characters with "Continue reading",
   unless that would hide fewer than 100 characters. (A1)
-- If a story's title changes, its old address redirects to the new one.
+- If a story's title changes, its old address takes the visitor to the new one. The move happens
+  in the page, not as a "moved permanently" (301) answer. (D30; PC-1 A, Joel 2026-11-21)
+- A withdrawn, erased or unknown story, or a legal-text version that doesn't exist, shows the
+  usual "not found" page, which tells search engines not to index it ("noindex"). The server
+  answers "OK" (200), not "not found" (404): Next.js sends a page's start before the page has
+  checked anything. (PC-1 A, Joel 2026-11-21)
 - Sharing links use the site's brand picture, not the story's.
 - Video, audio and pictures load only through signed links that expire (6 to 7 hours on dev).
   (D52, D64)
-- **Public pages may show a change up to 60 seconds late.** The public API keeps recent answers
-  in memory for a minute, so a story that is taken down to edit, deleted or hidden, or a new or edited one,
-  can take up to 60 seconds to disappear or appear. Browsers and any future CDN may keep an
-  answer only for the part of the minute it has left. Nothing personal is kept this way. (R13,
-  Joel 2026-11-05)
+- **The public API may answer up to 30 seconds late.** The public API keeps recent answers
+  in memory for 30 seconds, so a story that is taken down to edit, deleted or hidden, or a new or edited one,
+  can take up to 30 seconds to disappear or appear on a story page. Browsers and any future CDN may
+  keep an answer only for the part of the 30 seconds it has left. Nothing personal is kept this way.
+  (R13, Joel 2026-11-05; 30 seconds, was a minute, PC-2 B, Joel 2026-11-21)
+- **The website keeps finished public pages for a set time (Joel 2026-11-21, page caching + PC-1
+  A).** Each running copy of the website keeps saved pages in its own memory (at most 50 MB), with
+  the time per page and per environment in one file in the code, `apps/web/src/page-cache.config.ts`;
+  changing a time is a reviewed change, used from the next deploy.
+  - Pages that only change with a new release (FAQs, Greatest story, Get ready, Contact, Donate)
+    are kept until the next release, in dev and production.
+  - Home, Stories, About, Next steps, Privacy and Terms (and their earlier versions): not kept in
+    dev, 30 seconds in production. So in production a story that is taken down can show on Home or
+    Stories for up to 30 seconds more, on top of the public API's 30 seconds: up to 60 seconds in
+    total on Home and Stories, and 30 seconds on a story page (PC-2 B, Joel 2026-11-21).
+  - Single story pages are never kept. Signed-in, staff, moderation, account, share, consent and
+    sign-in pages can never be kept: a build check and the server refuse a file that lists one.
+  - A saved page is never shown after its time, even if making a fresh one fails: the visitor
+    gets the normal "try again later" message instead. A page whose stories, texts or founder's
+    video couldn't be read is never saved (the visitor sees the usual message or "Video coming
+    soon", and the next visit tries again). Saved pages hold nothing personal (sign-in
+    runs in the browser), and the "noindex" header still applies to them.
+  - **Built:** production's column is used once production exists.
 - **While the database restarts, public pages keep working from the last copy.** Each running
-  copy of the public API keeps its answers for 30 minutes; past their minute they are used only
+  copy of the public API keeps its answers for 30 minutes; past their 30 seconds they are used only
   when the database can't be reached, instead of the restarting message, and browsers and CDNs
   are told not to keep them. So during a restart a story deleted in the last 30 minutes may still
   show: a rare case, accepted. A copy of the public API that has just started has nothing kept,
@@ -1180,7 +1203,7 @@ For developers. Details are in the linked documents.
 - **No CDN in front of the site or APIs in dev;** browsers and CDNs are told not to keep API
   responses in dev. (D51) api-public-read keeps public answers in its own memory, per running
   copy, with no timers, so Cloud Run still bills only per request and scales to zero: served for
-  60 seconds (R13), and kept up to 30 minutes for when the database is restarting (cache B, Joel
+  30 seconds (R13), and kept up to 30 minutes for when the database is restarting (cache B, Joel
   2026-11-07), within the same 500-answer limit.
 - **The website's building blocks live in one library, `libs/web-ui` (`@heisreal/web-ui`)**
   (Joel, 2026-11-17: "Ensure the styled drop down is part of the site library and default style

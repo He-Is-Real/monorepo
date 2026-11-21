@@ -1,3 +1,4 @@
+import { connection } from 'next/server';
 import { indexingAllowed, siteUrl } from '@/lib/config';
 import { StoriesUnavailableError } from '@/lib/public-stories';
 import {
@@ -5,9 +6,6 @@ import {
   SitemapBudgetError,
   sharedStoryEntries,
 } from '@/lib/sitemap';
-
-// Per request: the switch is the deployment's (OpenTofu), and stories change.
-export const dynamic = 'force-dynamic';
 
 // D51: nothing that lists stories is cached, so a story taken off the site doesn't linger here.
 // Caching at Go live is the front door's question (D56).
@@ -27,6 +25,8 @@ const retryable = (err: unknown) =>
  * used (so a closed request can stop the walk); nothing is read from the request (D32).
  */
 export async function GET(request: Request): Promise<Response> {
+  // Per request, never at build time: the switch is the deployment's (OpenTofu), and stories change.
+  await connection();
   const origin = siteUrl();
   if (!indexingAllowed() || !origin) {
     return new Response('Not found\n', {

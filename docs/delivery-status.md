@@ -57,6 +57,7 @@ This file is for the project owner, who is not technical. Joel asked for it to s
 - ✅ Video, audio and written story pages, with related stories
 - ✅ Information pages (About, FAQs, Contact, Privacy, Terms and the rest)
 - ✅ Cookie notice
+- ✅ Pages kept for a short time so repeat visits are faster
 - ✅ A set of made-up test stories that can be reset at any time
 
 ## M2 Accounts and sharing 🟡

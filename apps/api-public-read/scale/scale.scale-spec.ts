@@ -120,7 +120,7 @@ describe(`scale: ${STORIES} stories`, () => {
 
   /** A public GET, past the answer cache; answers the JSON. */
   async function get(path: string) {
-    passTime(61_000);
+    passTime(31_000);
     const res = await fetch(`${url}${path}`);
     if (!res.ok) throw new Error(`${path} answered ${res.status}`);
     return (await res.json()) as {

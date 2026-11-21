@@ -622,15 +622,12 @@ test.describe('story pages and failures the stub can stage', () => {
     await expectNoHorizontalOverflow(page);
   });
 
-  test('an old slug redirects to the story’s current address (D30)', async ({
+  test('an old slug lands on the story’s current address (D30)', async ({
     page,
   }) => {
-    const response = await page.goto('/stories/old-video-story');
+    // Saved pages (PC-1 A): the move happens in the page, not as an HTTP redirect.
+    await page.goto('/stories/old-video-story');
     await expect(page).toHaveURL(/\/stories\/video-story$/);
-    expect(response?.status()).toBe(200);
-    expect(response?.request().redirectedFrom()?.url()).toMatch(
-      /\/stories\/old-video-story$/,
-    );
     await expect(
       page.getByRole('heading', { level: 1, name: 'Test story: a tall video' }),
     ).toBeVisible();

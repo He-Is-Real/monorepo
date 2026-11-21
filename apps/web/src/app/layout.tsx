@@ -48,6 +48,12 @@ export function generateMetadata(): Metadata {
   };
 }
 
+/**
+ * Cache Components (page caching, Joel 2026-11-21): the layout waits for `connection()`, so no
+ * page has a static shell made at build time; this says that's intended (no "instant" checks).
+ */
+export const instant = false;
+
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
@@ -62,9 +68,9 @@ export const viewport: Viewport = {
 /**
  * Every page, in the site's one ClerkProvider (D115; clerk-browser.tsx). Per request, for the
  * deployment's publishable key (OpenTofu sets it on the Cloud Run service; images are built
- * once for every environment). Every page already rendered per request for the header's
- * account area, so this changes no page's caching; the data caches (browse.ts) are
- * untouched. Without a key, or with the e2e fixtures (no network, T4),
+ * once for every environment). So every page renders per request and nothing is rendered at
+ * build time with the build's settings; a page's own saved copy (page-cache.ts) is made at
+ * request time too, and holds only the page, never this layout or the header's account area. Without a key, or with the e2e fixtures (no network, T4),
  * there's no provider and no page renders anything of Clerk's.
  */
 export default async function RootLayout({

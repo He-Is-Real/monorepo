@@ -3,8 +3,8 @@ import { run, TestDatabase } from '@heisreal/database/integration-testing';
 import { startPublicRead } from './app';
 
 /**
- * R13 (Joel, 2026-11-05): each running api-public-read keeps recent public answers in memory, so
- * the same request is answered without asking the database, for 60 seconds in total, end to end.
+ * R13 (Joel, 2026-11-05; 30 s since 2026-11-21, PC-2 B): each running api-public-read keeps recent public answers in memory, so
+ * the same request is answered without asking the database, for 30 seconds in total, end to end.
  * The clock is the test's: nothing here waits.
  */
 const FIRST = 'test-cache-first';
@@ -15,7 +15,7 @@ const publish = (id: string, slug: string, title: string) => `
   LET $s = (CREATE ONLY type::record('story', '${id}') CONTENT {
     submitter: user:cache_seed, slug: '${slug}', title: '${title}',
     description: 'Placeholder content for a cache test. This is not a real testimony.',
-    body: 'This is test text, written to check that api-public-read answers the same public request from memory for a minute and then asks the database again. Nobody shared this story and nothing in it happened.',
+    body: 'This is test text, written to check that api-public-read answers the same public request from memory for 30 seconds and then asks the database again. Nobody shared this story and nothing in it happened.',
     bylineName: 'Test Person', primaryFormat: 'written', themeRefs: [theme:common]
   });
   FOR $step IN [['sent', 'person'], ['approved', 'moderator']] {
@@ -72,12 +72,12 @@ describe('the public answer cache (R13)', () => {
     await t?.close();
   });
 
-  it('answers the same request from memory for 60 seconds, then asks the database again', async () => {
+  it('answers the same request from memory for 30 seconds, then asks the database again', async () => {
     const { title, passTime } = await start();
     expect(await title(`/v1/stories/${FIRST}`)).toBe('Before');
     await retitle(FIRST, 'After');
     expect(await title(`/v1/stories/${FIRST}`)).toBe('Before');
-    passTime(59_999);
+    passTime(29_999);
     expect(await title(`/v1/stories/${FIRST}`)).toBe('Before');
     passTime(1);
     expect(await title(`/v1/stories/${FIRST}`)).toBe('After');
@@ -156,28 +156,28 @@ describe('the public answer cache (R13)', () => {
     const { get, passTime } = await start();
     const path = '/v1/stories?limit=5';
     const first = await get(path);
-    expect(first.headers.get('cache-control')).toBe('public, max-age=60');
+    expect(first.headers.get('cache-control')).toBe('public, max-age=30');
     const etag = String(first.headers.get('etag'));
-    passTime(25_500);
+    passTime(12_500);
     const hit = await get(path);
     expect(hit.status).toBe(200);
-    expect(hit.headers.get('cache-control')).toBe('public, max-age=34');
-    // A 304 refreshes a browser's copy: it must not stretch the 60 seconds either.
+    expect(hit.headers.get('cache-control')).toBe('public, max-age=17');
+    // A 304 refreshes a browser's copy: it must not stretch the 30 seconds either.
     const conditional = await get(path, { 'if-none-match': etag });
     expect(conditional.status).toBe(304);
     expect(conditional.headers.get('etag')).toBe(etag);
-    expect(conditional.headers.get('cache-control')).toBe('public, max-age=34');
-    passTime(34_500);
+    expect(conditional.headers.get('cache-control')).toBe('public, max-age=17');
+    passTime(17_500);
     const fresh = await get(path, { 'if-none-match': etag });
     expect(fresh.status).toBe(304);
-    expect(fresh.headers.get('cache-control')).toBe('public, max-age=60');
-    // Redirects aren't kept in memory, and never stale-while-revalidate (60 seconds in total).
+    expect(fresh.headers.get('cache-control')).toBe('public, max-age=30');
+    // Redirects aren't kept in memory, and never stale-while-revalidate (30 seconds in total).
     await run(
       await t.migrator(),
       `UPDATE story:cache_first SET slugHistory = ['old-cache-slug']`,
     );
     const moved = await get('/v1/stories/old-cache-slug');
     expect(moved.status).toBe(301);
-    expect(moved.headers.get('cache-control')).toBe('public, max-age=60');
+    expect(moved.headers.get('cache-control')).toBe('public, max-age=30');
   });
 });

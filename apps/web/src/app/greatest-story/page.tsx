@@ -1,3 +1,4 @@
+import { cacheLife } from 'next/cache';
 import { ButtonLink } from '@/components/page/button-link';
 import { Card } from '@heisreal/web-ui';
 import { RaisedBand } from '@/components/page/card';
@@ -9,6 +10,7 @@ import {
   Globe,
   Sunrise,
 } from '@/components/greatest-story/illustrations';
+import { cachedPage, type PageCacheLife } from '@/lib/page-cache';
 import { pageMetadata } from '@/lib/seo';
 
 /** Per request: URLs come from SITE_URL (seo.ts). */
@@ -139,7 +141,7 @@ function PartText({ part, number }: { part: Part; number: number }) {
   );
 }
 
-export default function GreatestStoryPage() {
+function GreatestStoryContent() {
   return (
     <main id="main" className="flex-1">
       <NarrowColumn className="py-14 sm:py-24">
@@ -248,4 +250,17 @@ export default function GreatestStoryPage() {
       </RaisedBand>
     </main>
   );
+}
+
+/** Per request, or this page's saved copy (page-cache.config.ts). */
+export default function GreatestStoryPage() {
+  return cachedPage('/greatest-story', savedPage, () => (
+    <GreatestStoryContent />
+  ));
+}
+
+async function savedPage(life: PageCacheLife) {
+  'use cache';
+  cacheLife(life);
+  return <GreatestStoryContent />;
 }

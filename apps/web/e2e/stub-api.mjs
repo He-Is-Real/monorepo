@@ -9,6 +9,8 @@
 // - STUB_PORT: dev as it is today;
 // - STUB_LIVE_PORT: the same stories, as at Go live (indexing.e2e.ts);
 // - STUB_DOWN_PORT: api-public-read down, every request answers 503;
+// - STUB_CACHED_PORT: dev's stories, for the server that keeps saved pages (page-cache.e2e.ts),
+//   which can be made to fail (`POST /__test/fail`, `/__test/recover`) like api-public-read down;
 // - STUB_SLOW_PORT: dev, but each site video's answer waits until the test releases its key
 //   (`POST /__test/release-site-video/{key}`; site-videos.e2e.ts: the page doesn't wait for it).
 //
@@ -27,6 +29,7 @@ const port = Number(process.env.STUB_PORT ?? 4310);
 const livePort = Number(process.env.STUB_LIVE_PORT ?? 4311);
 const downPort = Number(process.env.STUB_DOWN_PORT ?? 4312);
 const slowPort = Number(process.env.STUB_SLOW_PORT ?? 4314);
+const cachedPort = Number(process.env.STUB_CACHED_PORT ?? 4315);
 const base = {
   bylineName: 'Test Person',
   primaryFormat: 'written',
@@ -280,7 +283,14 @@ for (let i = 0; i < 48; i++) {
 // listed only under `theme=hide_test`, so no two tests (or repeats) ever hide the same one.
 // Nothing else lists them.
 const HIDE_TEST = 'hide_test';
-const hiddenOn = { dev: new Set(), live: new Set(), down: new Set() };
+const hiddenOn = {
+  dev: new Set(),
+  live: new Set(),
+  down: new Set(),
+  cached: new Set(),
+};
+// The ports answering 503 to everything but these hooks until recovered (page-cache.e2e.ts).
+const failing = new Set();
 const hideStory = (slug) => {
   stories[slug] = {
     ...base,
@@ -763,9 +773,12 @@ const SITE_VIDEOS = {
   'next-steps': '7c2e9a14-5b3d-4f6e-a8c1-2d3e4f5a6b7c',
 };
 
-/** `GET /v1/site-videos/{key}`: the founder's videos in dev; none set on the Go live port. */
+/**
+ * `GET /v1/site-videos/{key}`: the founder's videos in dev (and on the page-cache port); none set
+ * on the Go live port.
+ */
 function siteVideo(mode, key, res) {
-  if (mode !== 'dev' || !Object.hasOwn(SITE_VIDEOS, key))
+  if ((mode !== 'dev' && mode !== 'cached') || !Object.hasOwn(SITE_VIDEOS, key))
     return problem(res, 404, 'not_found');
   json(res, 200, {
     key,
@@ -776,6 +789,15 @@ function siteVideo(mode, key, res) {
 
 const handler = (mode) => (req, res) => {
   if (mode === 'down') return problem(res, 503, 'unavailable');
+  const failHook = /^\/__test\/(fail|recover)$/.exec(req.url ?? '');
+  if (failHook && req.method === 'POST') {
+    if (failHook[1] === 'fail') failing.add(mode);
+    else failing.delete(mode);
+    res.writeHead(204);
+    return res.end();
+  }
+  if (failing.has(mode) && !(req.url ?? '').startsWith('/__test/'))
+    return problem(res, 503, 'unavailable');
   if (req.url?.startsWith('/embed/')) {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     return res.end(PLAYER_HTML);
@@ -927,6 +949,7 @@ const handler = (mode) => (req, res) => {
 createServer(handler('dev')).listen(port, '127.0.0.1');
 createServer(handler('live')).listen(livePort, '127.0.0.1');
 createServer(handler('down')).listen(downPort, '127.0.0.1');
+createServer(handler('cached')).listen(cachedPort, '127.0.0.1');
 // The slow port: site-video requests held per key until released; a release with nothing held
 // lets the key's next request through (the order of the two doesn't matter).
 const dev = handler('dev');
