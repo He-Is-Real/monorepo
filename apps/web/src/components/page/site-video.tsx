@@ -4,7 +4,8 @@ import {
   PLAYER_MIN_HEIGHT,
   playerSrc,
 } from '@/components/stories/story-media';
-import { type SiteVideoKey, siteVideoUrl } from '@/lib/site-videos';
+import { notKept } from '@/lib/page-cache';
+import { type SiteVideoKey, siteVideoLink } from '@/lib/site-videos';
 
 type Props = {
   videoKey: SiteVideoKey;
@@ -12,6 +13,8 @@ type Props = {
   title: string;
   /** What the placeholder says the video is. */
   label: string;
+  /** Rendered for the page's saved copy (lib/page-cache.ts). */
+  keep: boolean;
 };
 
 /**
@@ -20,7 +23,10 @@ type Props = {
  * player as a story's. The page doesn't wait for the link (up to 5 s, lib/site-videos.ts): it
  * streams with the placeholder in the video's place, and the server sends the player when the
  * link arrives. If none is set for this environment, or api-public-read fails or is too slow,
- * the placeholder stays. The page must render per request (`connection()`): the link expires.
+ * the placeholder stays. The page renders per request, or comes from a saved copy far younger than
+ * the link (page-cache.config.ts; the link lasts hours, D52). A saved copy is never kept when the
+ * lookup failed (only when none is set): the visitor gets the placeholder, and the next visit asks
+ * again.
  */
 export function SiteVideo(props: Props) {
   return (
@@ -30,9 +36,10 @@ export function SiteVideo(props: Props) {
   );
 }
 
-async function Player({ videoKey, title, label }: Props) {
-  const playbackUrl = await siteVideoUrl(videoKey);
-  const src = playbackUrl ? playerSrc(playbackUrl) : null;
+async function Player({ videoKey, title, label, keep }: Props) {
+  const link = await siteVideoLink(videoKey);
+  if (link === 'unavailable' && keep) notKept();
+  const src = typeof link === 'object' ? playerSrc(link.playbackUrl) : null;
   if (!src) return <Placeholder label={label} />;
   return (
     <div

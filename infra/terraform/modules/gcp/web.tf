@@ -92,6 +92,13 @@ resource "google_cloud_run_v2_service" "web" {
         value = var.web_site_url
       }
 
+      # Which column of apps/web/src/page-cache.config.ts this deployment uses (page caching,
+      # Joel 2026-11-21): how long the server keeps each public page. Unset or unknown = none.
+      env {
+        name  = "SITE_ENVIRONMENT"
+        value = var.environment
+      }
+
       # Donations through Stripe's Buy Buttons on /donate (Joel, 2026-10-29): public values the
       # browser hands to Stripe's script. Empty = the page's placeholder.
       env {

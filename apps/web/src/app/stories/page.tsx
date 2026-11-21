@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { connection } from 'next/server';
+import { cacheLife } from 'next/cache';
 import {
   BrowseChoices,
   BrowseSearch,
@@ -20,6 +20,7 @@ import {
 import { logStoriesUnavailable, whenUnavailable } from '@/lib/log';
 import { StoriesUnavailableError } from '@/lib/public-stories';
 import { RestartingMessage } from '@/components/restarting/restarting-message';
+import { cachedPage, type PageCacheLife } from '@/lib/page-cache';
 import { pageMetadata } from '@/lib/seo';
 import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 import { Notice } from '@heisreal/web-ui';
@@ -59,7 +60,7 @@ function summaryOf(filters: Filters, themeNames: string[]): string | null {
   return null;
 }
 
-async function loadPages(filters: Filters, pages: number) {
+async function loadPages(filters: Filters, pages: number, keep: boolean) {
   const cards: StorySummary[] = [];
   let cursor: string | null = null;
   let loaded = 0;
@@ -72,7 +73,8 @@ async function loadPages(filters: Filters, pages: number) {
       cards.push(...page.data);
       cursor = page.nextCursor;
     } catch (err) {
-      if (!(err instanceof StoriesUnavailableError)) throw err;
+      // A saved copy is never one missing its stories: the failure isn't kept.
+      if (keep || !(err instanceof StoriesUnavailableError)) throw err;
       logStoriesUnavailable('browse', err);
       if (loaded === 0) return err;
       break;
@@ -91,11 +93,34 @@ async function loadPages(filters: Filters, pages: number) {
  * and page count; BrowseResults loads more. BrowseView adds "Favourites only".
  */
 export default async function BrowsePage({ searchParams }: Props) {
-  await connection();
+  // Read here, outside the saved copy: each address's filters have their own copy.
   const { filters, pages } = parseBrowseSearch(await searchParams);
+  return cachedPage(
+    '/stories',
+    (life) => savedPage(life, filters, pages),
+    () => Browse({ filters, pages, keep: false }),
+  );
+}
+
+/** A saved copy of one address's list (page-cache.config.ts), never one missing its stories. */
+async function savedPage(life: PageCacheLife, filters: Filters, pages: number) {
+  'use cache';
+  cacheLife(life);
+  return Browse({ filters, pages, keep: true });
+}
+
+async function Browse({
+  filters,
+  pages,
+  keep,
+}: {
+  filters: Filters;
+  pages: number;
+  keep: boolean;
+}) {
   const [themes, result] = await Promise.all([
-    listThemes().catch(whenUnavailable('browse', null)),
-    loadPages(filters, pages),
+    keep ? listThemes() : listThemes().catch(whenUnavailable('browse', null)),
+    loadPages(filters, pages, keep),
   ]);
   const categories = themes ?? [];
   // A theme that's gone (or never was) filters nothing (A8), so it isn't named either.

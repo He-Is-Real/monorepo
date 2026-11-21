@@ -3,6 +3,7 @@ import { BEHAVIOUR_DEVICES } from './devices';
 import {
   expectAllTargets,
   expectNoHorizontalOverflow,
+  expectNotFoundPage,
   expectTarget,
   shots,
 } from './helpers';
@@ -108,11 +109,8 @@ for (const scheme of ['light', 'dark'] as const) {
     });
 
     test('unknown story: the 404 page', async ({ page }, info) => {
-      const response = await page.goto('/stories/no-such-story');
-      expect(response?.status()).toBe(404);
-      await expect(
-        page.getByRole('heading', { name: 'We couldn’t find that page' }),
-      ).toBeVisible();
+      await page.goto('/stories/no-such-story');
+      await expectNotFoundPage(page);
       await expectNoHorizontalOverflow(page);
       await expectAllTargets(page);
       await shots(page, info.project.name, scheme, '404');

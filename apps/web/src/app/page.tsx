@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
-import { connection } from 'next/server';
+import { cacheLife } from 'next/cache';
 import { IMPACT_FIGURES, ImpactStrip } from '@/components/home/impact-strip';
 import { Logo } from '@/components/logo';
 import { SHARE_HREF } from '@/components/nav/site-nav';
@@ -15,6 +15,7 @@ import {
 import { logStoriesUnavailable, whenUnavailable } from '@/lib/log';
 import { StoriesUnavailableError } from '@/lib/public-stories';
 import { RestartingMessage } from '@/components/restarting/restarting-message';
+import { cachedPage, type PageCacheLife } from '@/lib/page-cache';
 import { pageMetadata } from '@/lib/seo';
 import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 import { Button, Notice } from '@heisreal/web-ui';
@@ -38,17 +39,20 @@ const NEWEST_COUNT = 3;
  * The newest published stories. Never a chosen or pinned one (Joel, 2026-10-23: featuring one
  * person's story above the others is unfair to everyone else).
  */
-/** The newest stories, or why they can't be shown (logged). */
-async function newestStories(): Promise<
-  StorySummary[] | StoriesUnavailableError
-> {
-  return browseStories({ limit: NEWEST_COUNT })
-    .then((p) => p.data)
-    .catch((err: unknown) => {
-      if (!(err instanceof StoriesUnavailableError)) throw err;
-      logStoriesUnavailable('home', err);
-      return err;
-    });
+/**
+ * The newest stories, or why they can't be shown (logged). For a saved copy (`keep`) a failure
+ * throws instead, so that render isn't kept.
+ */
+async function newestStories(
+  keep: boolean,
+): Promise<StorySummary[] | StoriesUnavailableError> {
+  const newest = browseStories({ limit: NEWEST_COUNT }).then((p) => p.data);
+  if (keep) return newest;
+  return newest.catch((err: unknown) => {
+    if (!(err instanceof StoriesUnavailableError)) throw err;
+    logStoriesUnavailable('home', err);
+    return err;
+  });
 }
 
 /** The mockups' section label, as the section's heading. */
@@ -99,11 +103,24 @@ function ThemeTrack({ category }: { category: ThemeCategory }) {
  * ways in by theme, the invitation to share, and giving (/donate, M4: Stripe's Buy Buttons; Give
  * monthly opens its Monthly option).
  */
-export default async function Page() {
-  await connection();
+export default function Page() {
+  return cachedPage('/', savedPage, () => <Home keep={false} />);
+}
+
+/** Home's saved copy (page-cache.config.ts): never one missing its stories or themes. */
+async function savedPage(life: PageCacheLife) {
+  'use cache';
+  cacheLife(life);
+  // Called, not rendered, so a failed read rejects here and nothing is kept.
+  return Home({ keep: true });
+}
+
+async function Home({ keep }: { keep: boolean }) {
   const [stories, categories] = await Promise.all([
-    newestStories(),
-    listThemes().catch(whenUnavailable('home', [] as ThemeCategory[])),
+    newestStories(keep),
+    keep
+      ? listThemes()
+      : listThemes().catch(whenUnavailable('home', [] as ThemeCategory[])),
   ]);
   // One row per category that has highlighted themes (themes plan v3, Q3 B).
   const tracks = categories

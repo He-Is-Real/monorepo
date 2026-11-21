@@ -345,3 +345,17 @@ export async function closeBrowseFilters(page: Page) {
   await panel.getByRole('button', { name: 'Show stories' }).click();
   await expect(panel).toBeHidden();
 }
+
+/**
+ * The "not found" page, told to search engines as not to be indexed. With saved pages on
+ * (Joel, 2026-11-21, PC-1 A) Next.js sends a page's shell before the page decides it doesn't
+ * exist, so the status stays 200: the robots meta tag is what keeps it out of search results.
+ */
+export async function expectNotFoundPage(page: Page) {
+  await expect(
+    page.getByRole('heading', { name: 'We couldn’t find that page' }),
+  ).toBeVisible();
+  await expect(
+    page.locator('meta[name="robots"][content*="noindex"]').first(),
+  ).toBeAttached();
+}

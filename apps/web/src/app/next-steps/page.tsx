@@ -1,4 +1,4 @@
-import { connection } from 'next/server';
+import { cacheLife } from 'next/cache';
 import { ButtonLink } from '@/components/page/button-link';
 import { Card } from '@heisreal/web-ui';
 import {
@@ -7,6 +7,7 @@ import {
   WideColumn,
 } from '@/components/page/page-header';
 import { SiteVideo } from '@/components/page/site-video';
+import { cachedPage, type PageCacheLife } from '@/lib/page-cache';
 import { pageMetadata } from '@/lib/seo';
 
 /** Per request: URLs come from SITE_URL (seo.ts). */
@@ -45,9 +46,8 @@ const STEPS = [
   },
 ];
 
-export default async function NextStepsPage() {
-  // Per request: the player link is signed and expires (D52), so the page is never prerendered.
-  await connection();
+/** `keep`: rendered for the saved copy (a failed video lookup isn't kept, site-video.tsx). */
+function NextStepsContent({ keep }: { keep: boolean }) {
   return (
     <main id="main" className="flex-1 py-12 sm:py-20">
       {/* The header and the founder's video in About's wider column; the steps keep the
@@ -59,6 +59,7 @@ export default async function NextStepsPage() {
           lead="You don’t need to have all the answers to keep exploring. Here are some gentle ways to take the next step."
         />
         <SiteVideo
+          keep={keep}
           videoKey="next-steps"
           title="Video: Next steps with He Is Real, from our founder Stephen Linnecar"
           label="Next steps with our founder"
@@ -98,4 +99,17 @@ export default async function NextStepsPage() {
       </NarrowColumn>
     </main>
   );
+}
+
+/** Per request, or this page's saved copy (page-cache.config.ts). */
+export default function NextStepsPage() {
+  return cachedPage('/next-steps', savedPage, () => (
+    <NextStepsContent keep={false} />
+  ));
+}
+
+async function savedPage(life: PageCacheLife) {
+  'use cache';
+  cacheLife(life);
+  return <NextStepsContent keep />;
 }
