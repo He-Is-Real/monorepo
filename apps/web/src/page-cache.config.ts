@@ -32,7 +32,10 @@ export const PAGE_CACHE = {
   '/privacy/versions/[number]': { dev: 'off', prod: 30 },
   '/terms': { dev: 'off', prod: 30 },
   '/terms/versions/[number]': { dev: 'off', prod: 30 },
-} as const satisfies Record<string, Record<PageCacheEnvironment, PageCacheTime>>;
+} as const satisfies Record<
+  string,
+  Record<PageCacheEnvironment, PageCacheTime>
+>;
 
 export type PageCacheEnvironment = 'dev' | 'prod';
 export type PageCacheTime = number | 'release' | 'off';

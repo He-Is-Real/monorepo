@@ -254,7 +254,9 @@ function GreatestStoryContent() {
 
 /** Per request, or this page's saved copy (page-cache.config.ts). */
 export default function GreatestStoryPage() {
-  return cachedPage('/greatest-story', savedPage, () => <GreatestStoryContent />);
+  return cachedPage('/greatest-story', savedPage, () => (
+    <GreatestStoryContent />
+  ));
 }
 
 async function savedPage(life: PageCacheLife) {
