@@ -6,7 +6,11 @@ import {
   test,
 } from '@playwright/test';
 import { BEHAVIOUR_DEVICES } from './devices';
-import { expectAllTargets, expectNoHorizontalOverflow } from './helpers';
+import {
+  expectAllTargets,
+  expectNoHorizontalOverflow,
+  expectNotFoundPage,
+} from './helpers';
 import { fixtureToken, STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 
 // Plan 4e: agreeing to the terms of use and the testimony consent, and the admins' page that
@@ -224,7 +228,8 @@ test.describe('behaviour', () => {
       'data-legal-version',
       '0',
     );
-    expect((await page.goto('/terms/versions/9'))?.status()).toBe(404);
+    await page.goto('/terms/versions/9');
+    await expectNotFoundPage(page);
   });
 
   test('/admin/consent: edit, see the redline and preview, confirm, and save the next version', async ({
