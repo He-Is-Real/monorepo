@@ -1,11 +1,17 @@
-import { expect, test } from '@playwright/test';
+import {
+  type APIRequestContext,
+  type APIResponse,
+  expect,
+  test,
+} from '@playwright/test';
 import { RATE_LIMITS } from '@heisreal/http/rate-limits';
 import { BEHAVIOUR_DEVICES } from './devices';
 import { WEB_LIMITED_URL } from './servers';
 
 // Rate limits in the website (RL-8 A, Joel 2026-11-21): proxy.ts counts each visitor's page
 // loads and server actions by address. A visitor over the limit gets exactly what a crash gives
-// (RL-5): status 500 and the site's error page (app/error.tsx), with a crash's headers. Runs against the one e2e server with limits on, whose clock stands still
+// (RL-5): a crash's status and headers and the site's error page (app/error.tsx). Runs against the
+// one e2e server with limits on, whose clock stands still
 // (E2E_NOW), so counts never slide away mid-test; each test and device has addresses of its own.
 
 // eslint-disable-next-line no-empty-pattern
@@ -24,6 +30,21 @@ function address(project: string, n: number): string {
 
 /** A real crash: the page that fails to render, on a server with limits off (WEB_URL). */
 const CRASH_URL = '/something-went-wrong';
+
+/**
+ * Whether `res` is what a crash gives: the crash's status, and Next's error document. The status
+ * is whatever a real crash answers (500 before page caching; Cache Components streams the page,
+ * so a crash now answers 200), so a limited answer can never differ from one.
+ */
+async function expectCrash(
+  res: APIResponse,
+  request: APIRequestContext,
+): Promise<void> {
+  const crash = await request.get(CRASH_URL);
+  expect(res.status()).toBe(crash.status());
+  expect(await res.text()).toContain('id="__next_error__"');
+  expect(await crash.text()).toContain('id="__next_error__"');
+}
 
 /**
  * Headers a limited answer must share with a real crash. Next adds one more to a limited one,
@@ -49,9 +70,8 @@ test('a visitor over the page limit gets exactly what a crash gives', async ({
     expect(res.status()).toBe(200);
   }
   const limited = await request.get(`${WEB_LIMITED_URL}/about`, as(visitor));
+  await expectCrash(limited, request);
   const crash = await request.get(CRASH_URL);
-  expect(crash.status()).toBe(500);
-  expect(limited.status()).toBe(crash.status());
   for (const name of SAME_HEADERS) {
     expect(limited.headers()[name], name).toBe(crash.headers()[name]);
   }
@@ -137,9 +157,10 @@ test('the sitemap has its own small allowance', async ({ request }, info) => {
       (await request.get(`${WEB_LIMITED_URL}/sitemap.xml`, as)).status(),
     ).toBe(404);
   }
-  expect(
-    (await request.get(`${WEB_LIMITED_URL}/sitemap.xml`, as)).status(),
-  ).toBe(500);
+  await expectCrash(
+    await request.get(`${WEB_LIMITED_URL}/sitemap.xml`, as),
+    request,
+  );
   // Pages are counted separately.
   expect((await request.get(`${WEB_LIMITED_URL}/about`, as)).status()).toBe(
     200,
@@ -155,7 +176,8 @@ test('a page path ending like a picture is still counted', async ({
       (await request.get(`${WEB_LIMITED_URL}/no-such-page.png`, as)).status(),
     ).toBe(404);
   }
-  expect(
-    (await request.get(`${WEB_LIMITED_URL}/no-such-page.png`, as)).status(),
-  ).toBe(500);
+  await expectCrash(
+    await request.get(`${WEB_LIMITED_URL}/no-such-page.png`, as),
+    request,
+  );
 });

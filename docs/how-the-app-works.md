@@ -1043,9 +1043,23 @@ Planned (M3):
 ## Rate limits
 
 How often one caller may ask the site and its services (Joel 2026-11-21, rate limiting RL-1 to
-RL-9; `project/context/research/rate-limiting.html`). The numbers themselves are **not decided
-yet** (RL-2): the code holds the decision document's proposed starting values until Joel
-chooses.
+RL-10; `project/context/research/rate-limiting.html`).
+
+- **The numbers** (RL-2, Joel 2026-11-21: "dont rate limit moderators or admins themselves when
+  authed but do rate limit unauthenticated requests strictly. General user and public rate limits
+  are fine"), per caller and per running copy:
+  - website pages and actions 600 a minute per visitor; the sitemap 2 a minute;
+  - api-public-read: direct callers 120 a minute; the website's own calls share 3,000 a minute;
+  - api-user: reads 120 a minute, changes 60 a minute, upload links 20 an hour, "Download my
+    data" 2 an hour, deleting 10 a minute;
+  - api-admin: **a signed-in moderator or admin is never limited.** Only requests api-admin
+    refuses for sign-in count (not signed in, a refused or ended sign-in, or signed in without a
+    staff role or before the site knows them), 10 a minute per address; an address over that gets
+    the generic error for its next requests, before sign-in is even checked. A moderator's
+    refusal from an Admin-only page or action is a normal answer and isn't counted. Known side
+    effect, accepted by Joel: a flood from an address a moderator shares (e.g. a church network)
+    blocks that moderator there too, for up to a minute;
+  - every service's health check 60 a minute.
 
 - **Counted in each running copy's memory only** (RL-1 A, RL-6). Nothing goes to the database,
   Redis or an edge service, and no address is written anywhere: a count lives in memory for its
@@ -1059,9 +1073,10 @@ chooses.
 - **Where it counts** (RL-8 A):
   - the website counts each visitor's page loads and actions; the sitemap has its own small
     allowance; images, scripts and other static files aren't counted;
-  - api-user and api-admin count each caller, by groups of routes (reads, ordinary changes,
-    upload requests, "Download my data", deleting, staff decisions, Staff page changes);
-    deleting has its own count, so a busy account can still delete its story or itself;
+  - api-user counts each caller, by groups of routes (reads, ordinary changes, upload requests,
+    "Download my data", deleting); deleting has its own count, so a busy account can still
+    delete its story or itself;
+  - api-admin counts only refused sign-ins, per address (above);
   - api-public-read counts each caller, except the website's own server: its calls carry a
     private key and share one large allowance.
   - Clerk's and Bunny's webhooks have no limit yet: their signatures are checked, and a ceiling
@@ -1070,8 +1085,8 @@ chooses.
   bypassing the rate limiter and being shown their progress via detailed errors"): exactly our
   generic server error. The APIs answer as for any unexpected failure (status 500, the same
   body and headers), with no "too many requests" status, no remaining-count or retry headers and
-  no special wording. The website answers as when a page crashes: status 500 and the site's error
-  page ("Something went wrong. Please try again later.", with "Try again"), for page loads,
+  no special wording. The website answers exactly as when a page crashes (the same status and
+  headers) with the site's error page ("Something went wrong. Please try again later.", with "Try again"), for page loads,
   in-site navigation and server actions alike. Only our private logs say it was a limit: one line when a
   caller first goes over, naming the group, never the address.
 - **Changing a number** is a reviewed change to one table in the shared code and a deploy

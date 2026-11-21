@@ -4,7 +4,11 @@ import {
   type NestModule,
 } from '@nestjs/common';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
-import { ApiAdminAuthenticator, ClerkAuthModule } from '@heisreal/auth';
+import {
+  ApiAdminAuthenticator,
+  ClerkAuthModule,
+  PersonSessions,
+} from '@heisreal/auth';
 import {
   DatabaseAvailabilityInterceptor,
   DatabaseModule,
@@ -34,6 +38,7 @@ import {
   SubmissionSettingsController,
   SubmissionSettingsModule,
 } from './submission-settings/submission-settings.controller';
+import { signInRefusal } from './sign-in-refusal';
 import { ThemesController, ThemesModule } from './themes/themes.controller';
 
 @Module({
@@ -65,25 +70,27 @@ import { ThemesController, ThemesModule } from './themes/themes.controller';
   ],
 })
 export class AppModule implements NestModule {
-  constructor(private readonly rateLimits: RateLimits) {}
+  constructor(
+    private readonly rateLimits: RateLimits,
+    private readonly people: PersonSessions,
+  ) {}
 
-  // Rate limits (Joel 2026-11-21, RL-1..RL-9; groups and numbers in libs/http limits.ts), per
-  // address: reads, decisions and settings, and the Staff page's role changes (Clerk).
+  // Rate limits (Joel 2026-11-21, RL-1..RL-9; groups and numbers in libs/http limits.ts). RL-2:
+  // signed-in staff aren't limited; only requests refused for sign-in count, per address, and an
+  // address over that gets the generic error before sign-in is checked. Health has its own.
   configure(consumer: MiddlewareConsumer) {
     const limits = this.rateLimits;
     consumer
-      .apply(limits.byMethod({ read: 'staffReads', write: 'staffDecisions' }))
+      .apply(limits.refusals('staffRefused', signInRefusal(this.people)))
       .forRoutes(
         AllStoriesController,
         BlockListController,
         LegalDocumentsController,
         ModerationController,
+        StaffController,
         SubmissionSettingsController,
         ThemesController,
       );
-    consumer
-      .apply(limits.byMethod({ read: 'staffReads', write: 'staffRoles' }))
-      .forRoutes(StaffController);
     consumer.apply(limits.for('health')).forRoutes(HealthController);
   }
 }

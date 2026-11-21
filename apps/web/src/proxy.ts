@@ -22,7 +22,7 @@ import { visitorAddress } from '@/lib/visitor-address';
  *    to a page) are counted per visitor address, in this copy's memory, in a sliding window
  *    (groups and numbers: libs/http limits.ts). Static files aren't counted. A visitor over a
  *    limit gets exactly what a crash gives: the request is rewritten to a page that fails to
- *    render, so Next answers with status 500 and the site's error page (app/error.tsx), nothing
+ *    render, so Next answers as for any crash (its status and the site's error page, app/error.tsx), nothing
  *    that says it was a limit (RL-5). Only
  *    the log says so, naming the group, never the address.
  *

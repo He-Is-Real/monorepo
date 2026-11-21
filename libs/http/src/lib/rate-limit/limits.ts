@@ -8,10 +8,13 @@
  * twice a number, and a restart starts the counts again. Counts are a sliding window: a caller's
  * count covers the last `windowMs`, not a clock minute that resets (Joel, 2026-11-21).
  *
- * THE NUMBERS AWAIT JOEL (RL-2, still open): these are the decision document's proposed starting
- * values (`project/context/research/rate-limiting.html`, "Proposed starting limits"), turned into
- * requests per window. Its token bucket for public reading (30 at once, then 2 a second) is 120
- * a minute here.
+ * The numbers (RL-2, Joel 2026-11-21: "dont rate limit moderators or admins themselves when
+ * authed but do rate limit unauthenticated requests strictly. General user and public rate
+ * limits are fine"): the decision document's "recommendation now" column
+ * (`project/context/research/rate-limiting.html`): website pages 600 a minute, everything else
+ * as first proposed. Its token bucket for public reading (30 at once, then 2 a second) is 120 a
+ * minute here. Signed-in staff aren't limited at all; api-admin counts only the requests it
+ * refuses for sign-in (`staffRefused`).
  *
  * No imports: web's proxy reads this file too (`@heisreal/http/rate-limits`).
  */
@@ -37,7 +40,7 @@ export const RATE_LIMITS = {
 
   // web (proxy.ts), per visitor address: page loads and server actions; the sitemap separately.
   // Static files (/_next/static, images, the icon) aren't counted.
-  webPages: { limit: 120, windowMs: MINUTE },
+  webPages: { limit: 600, windowMs: MINUTE },
   webSitemap: { limit: 2, windowMs: MINUTE },
 
   // api-user, per address.
@@ -52,12 +55,10 @@ export const RATE_LIMITS = {
   /** Deleting the account or a story: its own count, so a busy account can still delete. */
   deletion: { limit: 10, windowMs: MINUTE },
 
-  // api-admin, per address.
-  staffReads: { limit: 120, windowMs: MINUTE },
-  /** Moderation decisions and every settings change. */
-  staffDecisions: { limit: 30, windowMs: MINUTE },
-  /** Staff page changes (they change roles at Clerk). */
-  staffRoles: { limit: 10, windowMs: MINUTE },
+  // api-admin, per address: only requests it refuses for sign-in (not signed in, a refused
+  // sign-in, or not staff) count, and an address over the limit gets the generic error before
+  // sign-in is checked. A signed-in moderator or admin is never counted (RL-2).
+  staffRefused: { limit: 10, windowMs: MINUTE },
 } as const satisfies Record<string, RateLimit>;
 
 export type RateLimitGroup = keyof typeof RATE_LIMITS;

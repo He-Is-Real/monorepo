@@ -183,7 +183,7 @@ short-lived upload credentials.
   Contracts list every status an operation can answer, `5XX` included: api-public-read's
   integration tests and web's e2e stub are checked against the contract (`@heisreal/contracts/testing`).
 
-- **Rate limits (Joel 2026-11-21, RL-1..RL-9; rules in `docs/how-the-app-works.md`, "Rate
+- **Rate limits (Joel 2026-11-21, RL-1..RL-10; rules in `docs/how-the-app-works.md`, "Rate
   limits"):** express-rate-limit, set up once in `libs/http` (`RateLimitModule`, the groups and
   numbers in `limits.ts`) and attached to each API's controllers in its app module. **A limited
   caller gets exactly the generic `5XX` (`ServerError`): `500`, the same body
@@ -193,7 +193,10 @@ short-lived upload credentials.
   caller is its address (Express trusts exactly one proxy hop, Google's front end; IPv6 by /56).
   web's server sends api-public-read the website key in `X-Website-Key` (a private header, not
   for other callers); with the right key, its calls share the `website` allowance; a missing or
-  wrong key is an ordinary caller.
+  wrong key is an ordinary caller. api-admin limits only requests it refuses for sign-in (RL-2):
+  `RateLimits.refusals` counts a request once it's answered `401`, or `403` to a caller who isn't
+  staff, and refuses an address over the limit before anything else runs; signed-in staff are
+  never counted.
 - **IDs and slugs:** public queries use the slug (`GET /v1/stories/{slug}`); commands and admin
   routes use the ID. An old slug answers `301` to the current one (through `slugHistory`), so
   shared links survive a title edit.

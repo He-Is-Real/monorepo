@@ -40,14 +40,14 @@ class ProbeModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(
-        this.rateLimits.byMethod({ read: 'staffRoles', delete: 'deletion' }),
+        this.rateLimits.byMethod({ read: 'accountWrites', delete: 'deletion' }),
       )
       .forRoutes(Probe);
   }
 }
 
 const MINUTE = 60_000;
-const READ_LIMIT = RATE_LIMITS.staffRoles.limit;
+const READ_LIMIT = RATE_LIMITS.accountWrites.limit;
 
 describe('rate limits (RL-1..RL-9, Joel 2026-11-21)', () => {
   let app: INestApplication;

@@ -39,7 +39,7 @@ end appended. Lint allows exactly `<request>.headers.get('x-forwarded-for')` the
 every other `.headers` or `.cookies` use; all the other rules stay on. The address is a counter
 key only: never logged, stored or forwarded. A visitor over a limit gets what a crash gives: the proxy
 rewrites the request (same URL) to `src/app/something-went-wrong`, a page that fails to render, so
-Next answers with status 500 and the site's error page (`app/error.tsx`). A limited server action (a POST)
+Next answers as for any crash: its status and headers, and the site's error page (`app/error.tsx`). A limited server action (a POST)
 goes to a route handler there that fails instead (`action/route.ts`): route handlers never run
 server actions, so it doesn't run, and web never has to read the request's headers (D32). Next's proxy calls a 127.x `HOSTNAME` "localhost",
 which turns that rewrite into a loop back through the proxy; the image listens on 0.0.0.0, and so
