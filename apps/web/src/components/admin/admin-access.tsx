@@ -116,9 +116,10 @@ export function AdminNav() {
             <Link
               href={p.href}
               aria-current={here === p.href ? 'page' : undefined}
-              className="group inline-flex min-h-11 min-w-11 items-center text-foreground underline-offset-4 hover:underline"
+              className="group relative inline-flex min-h-11 min-w-11 items-center text-foreground underline-offset-4 after:absolute after:inset-x-0 after:bottom-1 after:h-0.5 after:bg-brand after:opacity-0 hover:underline aria-[current=page]:after:opacity-100 aria-[current=page]:hover:no-underline"
             >
-              {/* Each link is as wide as its bold self (an unseen bold copy after it, with no
+              {/* The current page is bold with the site navigation's teal line under it (Joel,
+                  2026-11-21). Each link is as wide as its bold self (an unseen bold copy after it, with no
                   text for screen readers), so the centred row keeps its width whichever page is
                   current (bold), and nothing moves sideways (OQ-4 D). */}
               <span

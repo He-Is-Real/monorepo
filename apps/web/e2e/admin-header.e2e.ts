@@ -109,4 +109,55 @@ test.describe('admin header', () => {
       );
     }
   });
+
+  test('the current page in the staff menu has the teal line under it, and no other link does', async ({
+    page,
+  }) => {
+    await page.addInitScript(
+      (s) => window.localStorage.setItem('e2e-session', s),
+      `admin-${randomUUID().slice(0, 8)}`,
+    );
+    const brand = await page.goto(`${WEB_SIGNED_IN_URL}/admin`).then(() =>
+      page.evaluate(() => {
+        const probe = document.createElement('span');
+        probe.style.color = 'var(--brand)';
+        document.body.append(probe);
+        const c = getComputedStyle(probe).color;
+        probe.remove();
+        return c;
+      }),
+    );
+    const lineOf = (el: Element) => {
+      const a = getComputedStyle(el, '::after');
+      return {
+        // Drawn at all (generated content, laid out, visible), then opaque and at least 2 px
+        // by something wide: computed opacity, size and colour alone stay set without content.
+        shown:
+          a.content !== 'none' &&
+          a.content !== 'normal' &&
+          a.display !== 'none' &&
+          a.visibility === 'visible' &&
+          a.opacity === '1' &&
+          parseFloat(a.height) >= 2 &&
+          parseFloat(a.width) > 0,
+        colour: a.backgroundColor,
+      };
+    };
+    for (const [path, title] of PAGES.filter(([, t]) => t !== 'Admin')) {
+      await page.goto(`${WEB_SIGNED_IN_URL}${path}`);
+      const nav = page.getByRole('navigation', { name: 'Admin pages' });
+      await expect(nav.getByRole('link', { name: 'Staff' })).toBeVisible();
+      for (const link of await nav.getByRole('link').all()) {
+        const name = (await link.textContent())?.trim();
+        const line = await link.evaluate(lineOf);
+        if (name === title) {
+          await expect(link, path).toHaveAttribute('aria-current', 'page');
+          expect(line.shown, `${path}: ${name} has no line`).toBe(true);
+          expect(line.colour, `${path}: ${name}'s line isn't teal`).toBe(brand);
+        } else {
+          expect(line.shown, `${path}: ${name} has a line`).toBe(false);
+        }
+      }
+    }
+  });
 });
