@@ -130,7 +130,16 @@ test.describe('admin header', () => {
     const lineOf = (el: Element) => {
       const a = getComputedStyle(el, '::after');
       return {
-        shown: a.opacity === '1' && parseFloat(a.height) >= 2,
+        // Drawn at all (generated content, laid out, visible), then opaque and at least 2 px
+        // by something wide: computed opacity, size and colour alone stay set without content.
+        shown:
+          a.content !== 'none' &&
+          a.content !== 'normal' &&
+          a.display !== 'none' &&
+          a.visibility === 'visible' &&
+          a.opacity === '1' &&
+          parseFloat(a.height) >= 2 &&
+          parseFloat(a.width) > 0,
         colour: a.backgroundColor,
       };
     };
