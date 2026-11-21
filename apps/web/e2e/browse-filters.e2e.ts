@@ -317,7 +317,9 @@ test('a desktop screen keeps the column at Large text, the Filters button from V
     await expect(page.locator('[data-filters-column]'), percent).toBeVisible({
       visible: column,
     });
-    await expect(filtersButton(page), percent).toBeVisible({ visible: !column });
+    await expect(filtersButton(page), percent).toBeVisible({
+      visible: !column,
+    });
     await expectNoHorizontalOverflow(page);
   }
 });
