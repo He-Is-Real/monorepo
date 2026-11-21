@@ -1,7 +1,11 @@
 import { createHash } from 'node:crypto';
 import { type BrowserContext, expect, type Page, test } from '@playwright/test';
 import { GLYPH_SOURCE } from '../src/lib/card-glyphs';
-import { expectNoHorizontalOverflow, storiesColumns } from './helpers';
+import {
+  expectNoHorizontalOverflow,
+  storiesColumns,
+  textSetting,
+} from './helpers';
 
 // Browse's masonry (D55, lib/masonry.ts): the first paint is the server's prediction, each card
 // clipped to its predicted rows, and once the page's JavaScript runs, measured heights replace
@@ -130,6 +134,14 @@ function allMeasured(page: Page) {
   });
 }
 
+interface Paint {
+  /** Before the page loads. */
+  before?: (page: Page) => Promise<unknown>;
+  after: (page: Page) => Promise<unknown>;
+  /** Whether the prediction must hold every card (or only nothing may overlap). */
+  spans: boolean;
+}
+
 /**
  * The ways a first paint can differ from the one the bands predict: as served; in a browser
  * without container queries (Codex review of #163: such a browser kept the narrowest band and
@@ -139,20 +151,6 @@ function allMeasured(page: Page) {
  * enlargeText does (only rem grows; that helper needs JavaScript, so the same style is added
  * here).
  */
-async function textSetting(page: Page, px: number) {
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send('Page.setFontSizes', { fontSizes: { standard: px } });
-  await page.evaluate(() => document.fonts.ready);
-}
-
-interface Paint {
-  /** Before the page loads. */
-  before?: (page: Page) => Promise<unknown>;
-  after: (page: Page) => Promise<unknown>;
-  /** Whether the prediction must hold every card (or only nothing may overlap). */
-  spans: boolean;
-}
-
 const PAINTS: Record<string, Paint> = {
   'as served': {
     after: (page) => page.evaluate(() => document.fonts.ready),

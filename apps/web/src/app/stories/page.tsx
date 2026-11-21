@@ -113,20 +113,25 @@ export default async function BrowsePage({ searchParams }: Props) {
   return (
     <main
       id="main"
-      className="mx-auto w-full max-w-site flex-1 px-4 py-10 sm:px-10 sm:py-14"
+      // The screen's full width (BS-8 B, Joel 2026-11-21): BrowseView caps and centres the
+      // heading, filters and stories in it (browse-view.tsx). Uncapped here so its rem thresholds
+      // are reached at any text size (at the browser's Large text, 20 px, a cap of the site's
+      // width plus rem never reached them).
+      className="w-full flex-1 px-4 py-10 sm:px-10 sm:py-14"
     >
-      <header className="mb-8 max-w-measure">
-        <p className="mb-3 text-sm font-semibold tracking-[0.2em] text-link uppercase">
-          Explore
-        </p>
-        <h1 className="text-4xl leading-tight font-normal sm:text-5xl">
-          {TITLE}
-        </h1>
-        <p className="mt-3 text-lg text-secondary-text">{INTRO}</p>
-      </header>
-
       <BrowseChoices filters={filters}>
         <BrowseView
+          heading={
+            <header className="mb-8 max-w-measure">
+              <p className="mb-3 text-sm font-semibold tracking-[0.2em] text-link uppercase">
+                Explore
+              </p>
+              <h1 className="text-4xl leading-tight font-normal sm:text-5xl">
+                {TITLE}
+              </h1>
+              <p className="mt-3 text-lg text-secondary-text">{INTRO}</p>
+            </header>
+          }
           query={filters}
           themeIds={themes && themes.flatMap((c) => c.themes.map((t) => t.id))}
           chosenThemes={chosenThemes}

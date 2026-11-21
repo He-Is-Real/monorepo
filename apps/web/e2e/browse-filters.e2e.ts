@@ -7,6 +7,7 @@ import {
   expectNoHorizontalOverflow,
   shots,
   storiesColumns,
+  textSetting,
 } from './helpers';
 
 // The Stories page's filters (BS-1 C, Joel 2026-11-20: "for compact search implement option
@@ -294,6 +295,81 @@ test('the column starts at exactly 1024 px', async ({ page }, info) => {
         ),
       )
       .toBe(2);
+    await expectNoHorizontalOverflow(page);
+  }
+});
+
+// BS-8 B (Joel 2026-11-21, round 3): from about 1760 px screens the story list (search box and 3
+// story columns) is as wide as Home's content and centred on the screen like every other page,
+// the heading lined up with it, and the filters column to its left, outside the site's width.
+// From about 1480 px the filters and the 3 story columns are centred together (the heading lined
+// up with the filters). Below that, as before: the block is the site's content, centred.
+// The thresholds are in rem, so at the browser's "Large" text (20 px, Joel's own setting) they
+// come at 1.25 times the width: the stories are centred from 2200 px (Codex review of #265).
+test('wide screens centre the stories, with the filters to their left', async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== 'desktop-1280', 'one computer, resized');
+  for (const [width, text, layout] of [
+    [1280, 16, 'site'],
+    [1440, 16, 'site'],
+    [1600, 16, 'together'],
+    [1759, 16, 'together'],
+    [1760, 16, 'stories'],
+    [1920, 16, 'stories'],
+    [2560, 16, 'stories'],
+    [2199, 20, 'together'],
+    [2200, 20, 'stories'],
+    [2560, 20, 'stories'],
+  ] as const) {
+    /** The site's content: 1200 px less 2.5rem of padding a side, as Home's. */
+    const site = 1200 - 5 * text;
+    await page.setViewportSize({ width, height: 900 });
+    await textSetting(page, text);
+    await page.goto('/stories');
+    await expect(page.locator('[data-favourites-only]')).toBeAttached();
+    const cards = page.locator('main ul.masonry > li');
+    await expect(cards).toHaveCount(15);
+    await expect
+      .poll(() =>
+        cards.evaluateAll(
+          (lis) =>
+            new Set(lis.map((li) => Math.round(li.getBoundingClientRect().x)))
+              .size,
+        ),
+      )
+      .toBe(3);
+    const box = async (selector: string) => {
+      const b = await page.locator(selector).first().boundingBox();
+      if (!b) throw new Error(`${selector} isn't shown`);
+      return { left: b.x, right: b.x + b.width, width: b.width };
+    };
+    const side = await box('[data-filters-column]');
+    const list = await box('form[role="search"]');
+    const heading = await box('main h1');
+    const centre = (from: number, to: number) => (from + to) / 2;
+    const at = `${width} px at ${text} px text`;
+    expect(side.right, at).toBeLessThan(list.left);
+    if (layout === 'stories') {
+      expect(list.width, at).toBeCloseTo(site, 0);
+      expect(
+        Math.abs(centre(list.left, list.right) - width / 2),
+        at,
+      ).toBeLessThan(2);
+      expect(Math.abs(heading.left - list.left), at).toBeLessThan(1);
+    } else {
+      // The filters' left edge to the stories' right edge, centred together.
+      expect(
+        Math.abs(centre(side.left, list.right) - width / 2),
+        at,
+      ).toBeLessThan(2);
+      expect(Math.abs(heading.left - side.left), at).toBeLessThan(1);
+      expect(list.right - side.left, at).toBeCloseTo(
+        // The filters column and its gap: 17.5rem.
+        layout === 'together' ? site + 17.5 * text : site,
+        0,
+      );
+    }
     await expectNoHorizontalOverflow(page);
   }
 });

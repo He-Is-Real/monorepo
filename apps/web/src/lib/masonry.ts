@@ -52,8 +52,9 @@ export const ROW_UNIT = 4;
 export const GAP = 24;
 /**
  * The pages around the list (browse, with or without Favourites only): 40 px of padding a side from 640 px
- * (`sm:px-10`), content at most 1200 px wide (`max-w-site`). Only the band ranges come from
- * these: the bands themselves follow the list's real width.
+ * (`sm:px-10`), content at most 1200 px wide (`max-w-site`). On wide screens browse's page is
+ * wider (BS-8 B, browse-view.tsx), but its list is still at most the site's content. Only the band
+ * ranges come from these: the bands themselves follow the list's real width.
  */
 const PAGE = { pad: 40, maxWidth: 1200, scrollbar: 20 } as const;
 /**
@@ -430,8 +431,8 @@ function columnRules(n: ColumnCount): string {
 
 /**
  * Browse beside its filters column (BS-5 B, Joel 2026-11-21; browse-view.tsx): the column shows
- * from 1024 px screens (`lg`, 64rem) while the page's content (the `browse` container) is at
- * least `from` wide, and the stories beside it keep 2 columns until the content is `threeColumns` wide
+ * from 1024 px screens (`lg`, 64rem) while the block holding the filters and stories (the `browse`
+ * container) is at least `from` wide, and the stories beside it keep 2 columns until it is `threeColumns` wide
  * (about 1200 px screens): 3 columns there would be under the 260 px a card needs. In rem, as
  * browse-view's classes, which repeat these numbers.
  */

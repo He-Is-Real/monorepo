@@ -557,7 +557,13 @@ recording | picture` (worked out from the status history: set while the story's 
   wide (64rem) whose page content is at least 50rem wide (Joel 2026-11-21: 57rem hid the
   column at the browser's "Large" text size), so with "Very large" or doubled text the Filters
   button below is used instead. Beside the column the stories take 2 columns until about 1200 px
-  screens (the page's content 70rem wide), then 3, a little narrower than without the column. On
+  screens (the page's content 70rem wide), then 3, a little narrower than without the column.
+  Wider screens (Joel 2026-11-21, BS-8 B: "Option B"): from about 1480 px (the page's content
+  87.5rem) the filters column and 3 story columns as wide as Home's content are centred together,
+  the heading lined up with the filters; from about 1760 px (105rem) the story list (search box
+  and 3 columns) is as wide as Home's content and centred on the screen like every other page, the
+  heading lined up with it, and the filters column sits to its left, outside the site's width.
+  The thresholds are in rem, so larger text keeps the narrower layouts. On
   portrait tablets and phones (below 1024 px) a "Filters" button beside the search box, with a
   count of what's on, opens the same filters in a panel (a sheet from the bottom on phones) with
   "Clear all" and "Show stories"; each choice applies at once, Escape closes it and the focus goes
