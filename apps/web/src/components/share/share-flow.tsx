@@ -2371,7 +2371,7 @@ export function ReviewStep({
             <circle cx="12" cy="12" r="3" />
           </svg>
           <span className="flex flex-col text-left">
-            <span>See your story as others will</span>
+            <span>See your story preview</span>
             <span className="text-xs font-normal text-secondary-text">
               Opens in a new tab
             </span>
