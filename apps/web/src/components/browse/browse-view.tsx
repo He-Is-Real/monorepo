@@ -200,7 +200,7 @@ export function BrowseView({
       <div className="@container/browse-page">
         <div
           ref={page}
-          className="@container/browse mx-auto max-w-[calc(var(--container-site)-5rem)] @min-[87.5rem]/browse-page:max-w-[calc(var(--container-site)+12.5rem)] @min-[105rem]/browse-page:max-w-[calc(var(--container-site)+30rem)]"
+          className="@container/browse mx-auto max-w-[calc(var(--container-site)-2rem)] sm:max-w-[calc(var(--container-site)-5rem)] @min-[87.5rem]/browse-page:max-w-[calc(var(--container-site)+12.5rem)] @min-[105rem]/browse-page:max-w-[calc(var(--container-site)+30rem)]"
         >
           <div className="lg:@min-[50rem]:grid lg:@min-[50rem]:grid-cols-[15rem_minmax(0,1fr)] lg:@min-[50rem]:grid-rows-[auto_auto_1fr] lg:@min-[50rem]:gap-x-10 @min-[105rem]/browse-page:grid-cols-[15rem_minmax(0,1fr)_15rem]">
             <div
