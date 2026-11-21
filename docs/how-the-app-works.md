@@ -554,8 +554,9 @@ recording | picture` (worked out from the status history: set while the story's 
   option C").** From 1024 px wide screens (small laptops, landscape tablets and up; Joel
   2026-11-21, BS-5 B), "Favourites only", sort, format and every theme are a column on the left,
   and only the search box sits above the stories. The column shows on screens at least 1024 px
-  wide (64rem) whose page content is at least 57rem wide, so with larger text the Filters button
-  below is used instead. Beside the column the stories take 2 columns until about 1200 px
+  wide (64rem) whose page content is at least 50rem wide (Joel 2026-11-21: 57rem hid the
+  column at the browser's "Large" text size), so with "Very large" or doubled text the Filters
+  button below is used instead. Beside the column the stories take 2 columns until about 1200 px
   screens (the page's content 70rem wide), then 3, a little narrower than without the column. On
   portrait tablets and phones (below 1024 px) a "Filters" button beside the search box, with a
   count of what's on, opens the same filters in a panel (a sheet from the bottom on phones) with
