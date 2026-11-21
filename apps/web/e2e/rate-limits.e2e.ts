@@ -77,3 +77,17 @@ test('the sitemap has its own small allowance', async ({ request }, info) => {
     200,
   );
 });
+
+test('a page path ending like a picture is still counted', async ({
+  request,
+}, info) => {
+  const as = { headers: { 'x-forwarded-for': address(info.project.name, 4) } };
+  for (let i = 0; i < RATE_LIMITS.webPages.limit; i++) {
+    expect(
+      (await request.get(`${WEB_LIMITED_URL}/no-such-page.png`, as)).status(),
+    ).toBe(404);
+  }
+  expect(
+    (await request.get(`${WEB_LIMITED_URL}/no-such-page.png`, as)).status(),
+  ).toBe(500);
+});
