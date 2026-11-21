@@ -20,7 +20,8 @@ type Props = {
  * player as a story's. The page doesn't wait for the link (up to 5 s, lib/site-videos.ts): it
  * streams with the placeholder in the video's place, and the server sends the player when the
  * link arrives. If none is set for this environment, or api-public-read fails or is too slow,
- * the placeholder stays. The page must render per request (`connection()`): the link expires.
+ * the placeholder stays. The page renders per request, or comes from a saved copy far younger than
+ * the link (page-cache.config.ts; the link lasts hours, D52).
  */
 export function SiteVideo(props: Props) {
   return (

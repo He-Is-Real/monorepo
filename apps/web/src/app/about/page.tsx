@@ -1,8 +1,9 @@
-import { connection } from 'next/server';
+import { cacheLife } from 'next/cache';
 import { ButtonLink } from '@/components/page/button-link';
 import { RaisedBand } from '@/components/page/card';
 import { WideColumn, PageHeader } from '@/components/page/page-header';
 import { SiteVideo } from '@/components/page/site-video';
+import { cachedPage, type PageCacheLife } from '@/lib/page-cache';
 import { pageMetadata } from '@/lib/seo';
 
 /** Per request: URLs come from SITE_URL (seo.ts). */
@@ -33,9 +34,7 @@ const VALUES = [
   },
 ];
 
-export default async function AboutPage() {
-  // Per request: the player link is signed and expires (D52), so the page is never prerendered.
-  await connection();
+function AboutContent() {
   return (
     <main id="main" className="flex-1">
       <section className="py-12 sm:py-20">
@@ -133,4 +132,15 @@ export default async function AboutPage() {
       </RaisedBand>
     </main>
   );
+}
+
+/** Per request, or this page's saved copy (page-cache.config.ts). */
+export default function AboutPage() {
+  return cachedPage('/about', savedPage, () => <AboutContent />);
+}
+
+async function savedPage(life: PageCacheLife) {
+  'use cache';
+  cacheLife(life);
+  return <AboutContent />;
 }

@@ -1,10 +1,11 @@
+import { cacheLife } from 'next/cache';
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { connection } from 'next/server';
 import { DonateChooser } from '@/components/donate/donate-chooser';
 import { StripeBuyButtonScript } from '@/components/donate/stripe-buy-button';
 import { NarrowColumn } from '@/components/page/page-header';
 import { stripeDonations, type StripeDonations } from '@/lib/config';
+import { cachedPage, type PageCacheLife } from '@/lib/page-cache';
 import { pageMetadata } from '@/lib/seo';
 import { Notice } from '@heisreal/web-ui';
 
@@ -24,8 +25,7 @@ export async function generateMetadata(): Promise<Metadata> {
  * Monthly" choice, for whichever OpenTofu has set in this environment (`web_donations`);
  * otherwise the placeholder. Stripe's script loads on this page only.
  */
-export default async function DonatePage() {
-  await connection(); // the Stripe settings are read per request, never at build time
+function DonateContent() {
   const stripe = stripeDonations();
   return (
     <main id="main" className="flex-1 py-16 sm:py-24">
@@ -101,4 +101,15 @@ function Giving({ stripe }: { stripe: StripeDonations }) {
       </p>
     </>
   );
+}
+
+/** Per request, or this page's saved copy (page-cache.config.ts). */
+export default function DonatePage() {
+  return cachedPage('/donate', savedPage, () => <DonateContent />);
+}
+
+async function savedPage(life: PageCacheLife) {
+  'use cache';
+  cacheLife(life);
+  return <DonateContent />;
 }

@@ -1,6 +1,8 @@
+import { cacheLife } from 'next/cache';
 import { ButtonLink } from '@/components/page/button-link';
 import { Card } from '@heisreal/web-ui';
 import { NarrowColumn, PageHeader } from '@/components/page/page-header';
+import { cachedPage, type PageCacheLife } from '@/lib/page-cache';
 import { pageMetadata } from '@/lib/seo';
 
 /** Per request: URLs come from SITE_URL (seo.ts). */
@@ -19,7 +21,7 @@ const EMAIL = 'info@heisreal.today';
  * No form yet: there's no email service until Resend arrives, and we don't collect personal
  * data without a backend and a privacy basis. Email meanwhile.
  */
-export default function ContactPage() {
+function ContactContent() {
   return (
     <main id="main" className="flex-1 py-12 sm:py-20">
       <NarrowColumn>
@@ -43,4 +45,15 @@ export default function ContactPage() {
       </NarrowColumn>
     </main>
   );
+}
+
+/** Per request, or this page's saved copy (page-cache.config.ts). */
+export default function ContactPage() {
+  return cachedPage('/contact', savedPage, () => <ContactContent />);
+}
+
+async function savedPage(life: PageCacheLife) {
+  'use cache';
+  cacheLife(life);
+  return <ContactContent />;
 }
