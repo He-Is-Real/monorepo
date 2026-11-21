@@ -32,6 +32,19 @@ Code that needs api-user goes through this client, never its own `fetch`. Wideni
 (another file, another rule) is a decision for review: record it here and in
 `eslint-token-boundary.test.mjs`.
 
+**The second carve-out (rate limiting, RL-8 A, Joel 2026-11-21): `src/lib/visitor-address.ts`.**
+`proxy.ts` counts each visitor's page loads and server actions in memory, by their IP address, so
+this one file reads one request header: the last `X-Forwarded-For` entry, the one Google's front
+end appended. Lint allows exactly `<request>.headers.get('x-forwarded-for')` there and refuses
+every other `.headers` or `.cookies` use; all the other rules stay on. The address is a counter
+key only: never logged, stored or forwarded. A visitor over a limit gets the generic "Something
+went wrong. Please try again later." page with status 500, nothing that says it was a limit.
+
+web's server also holds one secret now: the website key (`WEBSITE_KEY`, put in the environment by
+Cloud Run from Secret Manager), sent as `X-Website-Key` with its calls to api-public-read so they
+share one large allowance there (`websiteKey()` in `src/lib/config.ts`). It is never logged or
+sent anywhere else.
+
 ## Signing in
 
 - The header's **Sign in** is a link to `/sign-in?redirect_url=<this page>`. The page mounts

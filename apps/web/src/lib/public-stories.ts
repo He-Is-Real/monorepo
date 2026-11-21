@@ -1,5 +1,5 @@
 import { cache } from 'react';
-import { apiPublicReadUrl } from './config';
+import { apiPublicReadUrl, WEBSITE_KEY_HEADER, websiteKey } from './config';
 import { restartingSecondsOf } from './restarting';
 
 // D32: web reads stories from api-public-read only, server-side, with nothing from the
@@ -108,7 +108,11 @@ async function readPublicStory(slug: string): Promise<StoryResult> {
   let res: Response;
   try {
     res = await fetch(`${apiPublicReadUrl()}/v1/stories/${slug}`, {
-      headers: { accept: 'application/json' },
+      headers: {
+        accept: 'application/json',
+        // RL-8 A: web's calls share the website's allowance at api-public-read.
+        [WEBSITE_KEY_HEADER]: websiteKey(),
+      },
       cache: 'no-store',
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });

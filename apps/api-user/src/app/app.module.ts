@@ -1,25 +1,43 @@
-import { Module } from '@nestjs/common';
+import {
+  type MiddlewareConsumer,
+  Module,
+  type NestModule,
+  RequestMethod,
+} from '@nestjs/common';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { ApiUserAuthenticator, ClerkAuthModule } from '@heisreal/auth';
 import {
   DatabaseAvailabilityInterceptor,
   DatabaseModule,
 } from '@heisreal/database';
-import { HealthModule } from '@heisreal/health';
-import { ProblemFilter } from '@heisreal/http';
+import { HealthController, HealthModule } from '@heisreal/health';
+import {
+  ProblemFilter,
+  RateLimitModule,
+  RateLimits,
+  route,
+} from '@heisreal/http';
 import { SecretsModule } from '@heisreal/secrets';
 import { MediaUrlsModule } from '@heisreal/story-cards';
-import { AccountModule } from './account/account.controller';
+import { AccountController, AccountModule } from './account/account.controller';
 import { ErasureModule } from './erasure/erasure.module';
-import { ExportModule } from './export/export.controller';
-import { FavouritesModule } from './favourites/favourites.controller';
+import { ExportController, ExportModule } from './export/export.controller';
+import {
+  FavouritesController,
+  FavouritesModule,
+} from './favourites/favourites.controller';
 import { BunnyWebhookModule } from './media/bunny-webhook';
-import { BunnyStreamModule, StoriesModule } from './stories/stories.controller';
+import {
+  BunnyStreamModule,
+  StoriesController,
+  StoriesModule,
+} from './stories/stories.controller';
 
 @Module({
   imports: [
     SecretsModule,
     DatabaseModule,
+    RateLimitModule.forRoot(),
     // Task 0.5: Clerk session tokens, verified without the network. The person's `user` row
     // is created on first use, on api-user's own login (D13); their queries then run in their
     // own session (D27). Every route declares its minimum role (the contract's x-required-role)
@@ -53,4 +71,31 @@ import { BunnyStreamModule, StoriesModule } from './stories/stories.controller';
     { provide: APP_INTERCEPTOR, useClass: DatabaseAvailabilityInterceptor },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  constructor(private readonly rateLimits: RateLimits) {}
+
+  // Rate limits (Joel 2026-11-21, RL-1..RL-9; groups and numbers in libs/http limits.ts), per
+  // address. The provider webhooks have none yet: their signatures are checked, and a ceiling
+  // waits until their real bursts are known (the decision document's starting table).
+  configure(consumer: MiddlewareConsumer) {
+    const limits = this.rateLimits;
+    consumer
+      .apply(
+        limits.byMethod({
+          read: 'accountReads',
+          write: 'accountWrites',
+          delete: 'deletion',
+        }),
+      )
+      .forRoutes(AccountController, StoriesController);
+    consumer
+      .apply(limits.byMethod({ read: 'accountReads', write: 'accountWrites' }))
+      .forRoutes(FavouritesController);
+    // Upload grants count here as well as in accountWrites.
+    consumer
+      .apply(limits.for('uploadGrants'))
+      .forRoutes(route('v1/stories/:id/upload-url', RequestMethod.POST));
+    consumer.apply(limits.for('dataExport')).forRoutes(ExportController);
+    consumer.apply(limits.for('health')).forRoutes(HealthController);
+  }
+}

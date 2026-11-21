@@ -2,6 +2,11 @@ import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { SURREAL } from '@heisreal/database';
 import type { TestDatabase } from '@heisreal/database/integration-testing';
+import {
+  RATE_LIMIT_CLOCK,
+  RATE_LIMITS_ACTIVE,
+  WEBSITE_KEY,
+} from '@heisreal/http';
 import { SECRET_MANAGER_CLIENT, SECRETS_PROJECT } from '@heisreal/secrets';
 import type { Surreal } from 'surrealdb';
 import { AppModule } from '../src/app/app.module';
@@ -26,6 +31,9 @@ const START = Date.UTC(2026, 10, 5, 12);
  * The in-memory answer cache (R13) runs on a test clock that stands still: `now` if given (e.g.
  * the media signer's), else one the test moves with `passTime`. A test that changes the
  * database after reading it moves the clock past the 60 seconds, as a visitor would wait.
+ *
+ * Rate limits are off, as everywhere off Cloud Run, unless `rateLimits` turns them on: with
+ * that clock, and the website key web's server would send (none if not given).
  */
 export async function startPublicRead(
   t: TestDatabase,
@@ -35,10 +43,12 @@ export async function startPublicRead(
     siteVideos = new Map(),
     now,
     cacheCapacity,
+    rateLimits,
   }: {
     siteVideos?: SiteVideos;
     now?: () => number;
     cacheCapacity?: number;
+    rateLimits?: { now: () => number; websiteKey?: string };
   } = {},
 ): Promise<{
   app: INestApplication;
@@ -61,6 +71,12 @@ export async function startPublicRead(
     .useValue({})
     .overrideProvider(SECRETS_PROJECT)
     .useValue('test-project')
+    .overrideProvider(RATE_LIMITS_ACTIVE)
+    .useValue(!!rateLimits)
+    .overrideProvider(RATE_LIMIT_CLOCK)
+    .useValue(rateLimits?.now ?? Date.now)
+    .overrideProvider(WEBSITE_KEY)
+    .useValue(async () => rateLimits?.websiteKey)
     .compile();
   const app = moduleRef.createNestApplication({ logger: false });
   checkResponsesAgainstContract(app);

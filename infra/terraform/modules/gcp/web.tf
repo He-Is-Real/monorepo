@@ -1,7 +1,8 @@
 # web (Next.js, apps/web) on Cloud Run (D4): same image pattern and scaling as
 # the APIs. It server-renders from api-public-read only (D32), so it has no VPC
-# access, no database login and no secrets: its service account holds no roles
-# (Stripe's publishable key and Buy Button IDs are public by design).
+# access and no database login. Its one secret is the website key for
+# api-public-read's rate limits (RL-8 A, secrets.tf); its service account may read
+# only that (Stripe's publishable key and Buy Button IDs are public by design).
 # Public since the walking-skeleton page (0.9), together with api-public-read
 # (D31; was private, decision 8).
 
@@ -111,6 +112,19 @@ resource "google_cloud_run_v2_service" "web" {
         value = var.web_donations.donor_portal_url
       }
 
+      # Rate limits (RL-8 A, Joel 2026-11-21): the website key, sent with web's calls to
+      # api-public-read so they share one large allowance. Cloud Run reads it from Secret
+      # Manager when a copy starts; the plan and state hold only its name and version.
+      env {
+        name = "WEBSITE_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.website_key.secret_id
+            version = google_secret_manager_secret_version.website_key.version
+          }
+        }
+      }
+
       # As for the APIs: ready = the port is open. GET /health exists for
       # manual checks.
       startup_probe {
@@ -122,6 +136,9 @@ resource "google_cloud_run_v2_service" "web" {
       }
     }
   }
+
+  # A new revision must be able to read the website key when it starts.
+  depends_on = [google_secret_manager_secret_iam_member.website_key]
 }
 
 resource "google_cloud_run_v2_service_iam_member" "web_invokers" {

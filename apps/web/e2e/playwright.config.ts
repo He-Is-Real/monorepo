@@ -12,6 +12,7 @@ import {
   STRIPE_E2E,
   STUB_USER_URL,
   WEB_DOWN_PORT,
+  WEB_LIMITED_PORT,
   WEB_LIVE_PORT,
   WEB_PORT,
   WEB_SIGNED_IN_PORT,
@@ -108,6 +109,11 @@ export default defineConfig({
     }),
     web(WEB_DOWN_PORT, STUB_DOWN_PORT, { E2E_FIXTURES: 'true' }),
     web(WEB_SLOW_PORT, STUB_SLOW_PORT, { E2E_FIXTURES: 'true' }),
+    // Rate limits on (rate-limits.e2e.ts): K_SERVICE as Cloud Run sets it.
+    web(WEB_LIMITED_PORT, STUB_PORT, {
+      E2E_FIXTURES: 'true',
+      K_SERVICE: 'web',
+    }),
     // Signed in: E2E_FIXTURES makes the header show this name instead of Clerk's control, so no
     // Clerk session or secret is needed. Its browser calls the stub api-user.
     web(WEB_SIGNED_IN_PORT, STUB_PORT, {

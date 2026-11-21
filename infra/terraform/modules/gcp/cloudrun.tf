@@ -95,6 +95,12 @@ resource "google_cloud_run_v2_service" "api_public_read" {
         name  = "SURREAL_PASSWORD_SECRET"
         value = "surreal-api-public-read-password"
       }
+      # Rate limits (RL-8 A): the website key's name; the service reads its value through
+      # libs/secrets and gives web's calls one large shared allowance (secrets.tf).
+      env {
+        name  = "WEBSITE_KEY_SECRET"
+        value = google_secret_manager_secret.website_key.secret_id
+      }
       # D31: the browser may call it from web's origins only.
       env {
         name  = "CORS_ALLOWED_ORIGINS"
@@ -124,7 +130,10 @@ resource "google_cloud_run_v2_service" "api_public_read" {
     }
   }
 
-  depends_on = [google_secret_manager_secret_iam_member.api_public_read]
+  depends_on = [
+    google_secret_manager_secret_iam_member.api_public_read,
+    google_secret_manager_secret_iam_member.website_key,
+  ]
 }
 
 resource "google_cloud_run_v2_service_iam_member" "api_public_read_invokers" {

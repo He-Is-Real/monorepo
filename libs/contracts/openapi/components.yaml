@@ -250,6 +250,8 @@ components:
       description: |
         The service couldn't answer (e.g. the database is unreachable). The body never says why:
         details stay in the service's logs. Clients show a friendly error and may retry later.
+        A caller over a rate limit gets exactly this answer too, on purpose (RL-5, Joel
+        2026-11-21): it can't be told apart from any other failure.
       content:
         application/problem+json:
           schema:

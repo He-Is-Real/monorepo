@@ -128,3 +128,48 @@ resource "google_secret_manager_secret_iam_member" "api_admin_clerk_key" {
   role      = "roles/secretmanager.secretAccessor"
   member    = google_service_account.signed_in_api["api-admin"].member
 }
+
+# The website key (rate limiting, RL-8 A, Joel 2026-11-21): web's server sends it to
+# api-public-read, which then counts web's calls in one large shared allowance instead of as one
+# visitor's address. Generated ephemerally and sent write-only, so it never appears in state or
+# plans. web gets it as an environment variable from Secret Manager (pinned to this version, so
+# a rotation gives web a new revision in the same apply); api-public-read reads the latest
+# version through libs/secrets, again every five minutes. Bump var.website_key_rotation to
+# rotate: for up to five minutes a copy of api-public-read may still hold the old key and count
+# web's calls per address.
+resource "google_secret_manager_secret" "website_key" {
+  project   = var.project_id
+  secret_id = "website-key"
+  labels    = merge(local.labels, { component = "rate-limits" })
+
+  replication {
+    user_managed {
+      replicas {
+        location = var.region # GDPR: stays in the UK
+      }
+    }
+  }
+}
+
+ephemeral "random_password" "website_key" {
+  length  = 48
+  special = false
+}
+
+resource "google_secret_manager_secret_version" "website_key" {
+  secret                 = google_secret_manager_secret.website_key.id
+  secret_data_wo         = ephemeral.random_password.website_key.result
+  secret_data_wo_version = var.website_key_rotation
+}
+
+resource "google_secret_manager_secret_iam_member" "website_key" {
+  for_each = {
+    web             = google_service_account.web.member
+    api-public-read = google_service_account.api_public_read.member
+  }
+
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.website_key.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = each.value
+}
