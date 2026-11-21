@@ -4,7 +4,7 @@ import { firstValueFrom, Subject } from 'rxjs';
 import { PublicAnswerCache, PublicCacheInterceptor } from './public-cache';
 
 /**
- * R13's 60 seconds count from when the database was asked, not from when it answered: a slow
+ * R13's 30 seconds count from when the database was asked, not from when it answered: a slow
  * read or a late answer from an overlapping request must never stretch them. The clock and the
  * handlers are the test's, so the reads finish exactly when the test says.
  */
@@ -71,21 +71,21 @@ describe('PublicCacheInterceptor (R13) with slow and overlapping reads', () => {
     return r.answer;
   };
 
-  it('counts a slow read’s 60 seconds from when it started', async () => {
+  it('counts a slow read’s 30 seconds from when it started', async () => {
     const slow = request();
-    clock = 30_000;
+    clock = 15_000;
     slow.finish('slow');
     expect(await slow.answer).toBe('slow');
-    expect(slow.headers['cache-control']).toBe('public, max-age=30');
-    clock = 59_999;
+    expect(slow.headers['cache-control']).toBe('public, max-age=15');
+    clock = 29_999;
     expect(await served()).toBe('slow');
-    clock = 60_000;
+    clock = 30_000;
     expect(await served()).toBe('fresh');
   });
 
-  it('answers with a read that took longer than 60 seconds but does not keep it', async () => {
+  it('answers with a read that took longer than 30 seconds but does not keep it', async () => {
     const slow = request();
-    clock = 61_000;
+    clock = 31_000;
     slow.finish('slow');
     expect(await slow.answer).toBe('slow');
     expect(slow.headers['cache-control']).toBe('no-store');
@@ -101,9 +101,9 @@ describe('PublicCacheInterceptor (R13) with slow and overlapping reads', () => {
     clock = 20_000;
     older.finish('older');
     expect(await older.answer).toBe('older');
-    expect(older.headers['cache-control']).toBe('public, max-age=40');
+    expect(older.headers['cache-control']).toBe('public, max-age=10');
     expect(await served()).toBe('newer');
-    clock = 69_999;
+    clock = 39_999;
     expect(await served()).toBe('newer');
   });
 });

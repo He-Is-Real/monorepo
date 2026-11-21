@@ -19,7 +19,7 @@ const ANSWER_LIFETIME_MS = PUBLIC_MAX_AGE_SECONDS * 1000;
 
 /**
  * How long an answer is kept for when the database is restarting (SurrealDB on Spot; Joel,
- * 2026-11-07, "cache B"): past its minute it's never served normally, only instead of a
+ * 2026-11-07, "cache B"): past its 30 seconds it's never served normally, only instead of a
  * `503 service_restarting`.
  */
 export const FALLBACK_LIFETIME_MS = 30 * 60 * 1000;
@@ -38,7 +38,7 @@ interface Answer {
 }
 
 /**
- * Recent public answers, in memory, per running copy (R13): served for a minute, and kept for
+ * Recent public answers, in memory, per running copy (R13): served for 30 seconds, and kept for
  * 30 minutes as the fallback while the database restarts. No timers: an answer's age is
  * checked only when a request asks for it, so an idle copy costs nothing and its cache dies
  * with it (Cloud Run bills per request and scales to zero). A `Map` keeps insertion order, so
@@ -52,7 +52,7 @@ export class PublicAnswerCache {
     private readonly capacity = ANSWER_CAPACITY,
   ) {}
 
-  /** The answer for `key` while it is younger than a minute. */
+  /** The answer for `key` while it is younger than 30 seconds. */
   get(key: string): Answer | undefined {
     const answer = this.kept(key);
     if (!answer || this.now() - answer.storedAt >= ANSWER_LIFETIME_MS)
@@ -78,9 +78,9 @@ export class PublicAnswerCache {
   }
 
   /**
-   * Keeps the answer a read that started at `storedAt` gave, and returns it. Its minute counts
+   * Keeps the answer a read that started at `storedAt` gave, and returns it. Its 30 seconds count
    * from that start, not from when the read finished, so a slow read can't stretch it. An answer
-   * whose minute is already over, or that started before the one kept for `key` (overlapping
+   * whose 30 seconds are already over, or that started before the one kept for `key` (overlapping
    * reads finishing out of order), is returned but not kept.
    */
   set(key: string, body: unknown, etag: string, storedAt: number): Answer {
@@ -96,7 +96,7 @@ export class PublicAnswerCache {
     return answer;
   }
 
-  /** Whole seconds the answer may still be kept, so the total never passes a minute. */
+  /** Whole seconds the answer may still be kept, so the total never passes 30 seconds. */
   secondsLeft(answer: Answer): number {
     const ms = answer.storedAt + ANSWER_LIFETIME_MS - this.now();
     return Math.max(0, Math.floor(ms / 1000));
@@ -119,7 +119,7 @@ export function answerKey(req: Request): string {
 }
 
 /**
- * R13: answers a GET from memory when it was answered in the last minute, otherwise asks the
+ * R13: answers a GET from memory when it was answered in the last 30 seconds, otherwise asks the
  * handler. If the handler can't reach the database (it's restarting), the newest copy kept in the
  * last 30 minutes is served instead, with `Cache-Control: no-store` so no browser or CDN keeps
  * it; with no copy, the error stands (`503 service_restarting`). Only `200` answers whose handler set an `ETag` (`withETag`: every public query) are

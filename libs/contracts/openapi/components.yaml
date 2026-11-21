@@ -147,12 +147,12 @@ components:
         format: uri-reference
     CacheControlPublic:
       description: |
-        Public queries (D30). The service answers a repeated request from memory for up to 60
-        seconds (R13), so a hidden, edited, deleted or erased story disappears within a minute.
+        Public queries (D30). The service answers a repeated request from memory for up to 30
+        seconds (R13), so a hidden, edited, deleted or erased story disappears within 30 seconds.
         `no-store` unless shared caching is turned on (`PUBLIC_RESPONSE_CACHING=on`; D51: never in
-        dev). When on: `public, max-age=N`, where N is the seconds the answer has left of its 60
+        dev). When on: `public, max-age=N`, where N is the seconds the answer has left of its 30
         (counted from when the database was asked, so a slow read leaves less; `no-store` when none
-        is left), with no `stale-while-revalidate`: 60 seconds in total.
+        is left), with no `stale-while-revalidate`: 30 seconds in total.
       schema:
         type: string
         pattern: '^(no-store|public, max-age=([1-9]|[1-5][0-9]|60))$'

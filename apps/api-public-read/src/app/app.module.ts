@@ -26,7 +26,7 @@ import { PublicAnswerCache, PublicCacheInterceptor } from './public-cache';
     SiteVideosModule,
   ],
   // RFC 9457 errors (D30). api-user and api-admin adopt it with their first M1/M2 commands.
-  // R13: recent public answers from memory, for 60 seconds at most (public-cache.ts).
+  // R13: recent public answers from memory, for 30 seconds at most (public-cache.ts).
   providers: [
     { provide: APP_FILTER, useClass: ProblemFilter },
     { provide: PublicAnswerCache, useFactory: () => new PublicAnswerCache() },

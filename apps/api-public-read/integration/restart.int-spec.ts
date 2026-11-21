@@ -99,14 +99,14 @@ describe('a database restart', () => {
     // The health probe still answers, and says the database is down.
     expect((await get('/health')).status).toBe(503);
 
-    // Cache B (Joel, 2026-11-07): within its minute, an answer is served from memory as usual
-    // (with shared caching on, browsers may keep it for what's left of the minute);
+    // Cache B (Joel, 2026-11-07): within its 30 seconds, an answer is served from memory as usual
+    // (with shared caching on, browsers may keep it for what's left of them);
     process.env['PUBLIC_RESPONSE_CACHING'] = 'on';
     const fresh = await get('/v1/stories?limit=1');
     expect(fresh.status).toBe(200);
-    expect(fresh.headers.get('cache-control')).toBe('public, max-age=60');
+    expect(fresh.headers.get('cache-control')).toBe('public, max-age=30');
     // past it, the copy is served only because the database is away, and kept by nobody else;
-    started.passTime(61_000);
+    started.passTime(31_000);
     const fallback = await get('/v1/stories?limit=1');
     expect(fallback.status).toBe(200);
     expect(fallback.headers.get('cache-control')).toBe('no-store');

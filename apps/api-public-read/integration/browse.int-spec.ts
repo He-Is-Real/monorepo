@@ -389,7 +389,7 @@ describe('browse API over the dev dataset', () => {
         const out: Page[] = [];
         let cursor: string | null = null;
         do {
-          passTime(61_000); // past the answer cache
+          passTime(31_000); // past the answer cache
           const p = await page(
             `/v1/stories?q=test&sort=relevance&limit=3${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
           );
@@ -743,7 +743,7 @@ describe('browse API over the dev dataset', () => {
   });
 
   describe('caching (D51, R13)', () => {
-    it('drops a hidden story from every read once the answers in memory are a minute old', async () => {
+    it('drops a hidden story from every read once the answers in memory are 30 seconds old', async () => {
       // The newest story, on every first page; hidden as a moderator hides it (R6: a hidden
       // status entry).
       const slug = 'test-story-walking-skeleton';
@@ -763,11 +763,11 @@ describe('browse API over the dev dataset', () => {
          }`,
         { id },
       );
-      // R13's one trade-off: the answers read a moment ago still show it, for up to 60 seconds.
+      // R13's one trade-off: the answers read a moment ago still show it, for up to 30 seconds.
       expect(
         (await page('/v1/stories?limit=5')).data.map((c) => c.id),
       ).toContain(id);
-      passTime(60_000);
+      passTime(30_000);
       const list = await get('/v1/stories?limit=5');
       expect(list.headers.get('cache-control')).toBe('no-store');
       expect(((await list.json()) as Page).data.map((c) => c.id)).not.toContain(

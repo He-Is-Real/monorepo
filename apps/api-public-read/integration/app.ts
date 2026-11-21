@@ -25,7 +25,7 @@ const START = Date.UTC(2026, 10, 5, 12);
  *
  * The in-memory answer cache (R13) runs on a test clock that stands still: `now` if given (e.g.
  * the media signer's), else one the test moves with `passTime`. A test that changes the
- * database after reading it moves the clock past the 60 seconds, as a visitor would wait.
+ * database after reading it moves the clock past the 30 seconds, as a visitor would wait.
  */
 export async function startPublicRead(
   t: TestDatabase,
