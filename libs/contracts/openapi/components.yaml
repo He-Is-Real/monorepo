@@ -1333,7 +1333,7 @@ components:
         **Images (M2 plan PR 10; D53):** `format: image`, `contentType: image/webp`, the WebP's exact
         `fileSizeBytes` (at most `SubmissionLimits.uploads.imageMaxBytes`, the admin's setting; the PUT
         binds it exactly, and submit checks it again against the setting in force then), its real
-        `width` and `height` (200 to 4096 pixels each, within 1:3..3:1) and `expectedImage` (the picture the page showed). The browser re-encodes the picture to WebP
+        `width` and `height` (1 to 4096 pixels each, within 1:3..3:1) and `expectedImage` (the picture the page showed). The browser re-encodes the picture to WebP
         without metadata (no EXIF or GPS), at most 2048 pixels on its longer side. No `resume` or
         `durationSeconds`.
       required: [format, contentType, fileSizeBytes]
