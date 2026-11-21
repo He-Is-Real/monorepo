@@ -8,7 +8,6 @@ import {
 } from '@heisreal/http/rate-limits';
 import { writeLog } from '@heisreal/logging';
 import { robotsNoindex, serverNow } from '@/lib/config';
-import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 import { visitorAddress } from '@/lib/visitor-address';
 
 /**
@@ -22,8 +21,9 @@ import { visitorAddress } from '@/lib/visitor-address';
  * 2. Rate limits (RL-8 A, Joel 2026-11-21): page loads and server actions (which arrive as POSTs
  *    to a page) are counted per visitor address, in this copy's memory, in a sliding window
  *    (groups and numbers: libs/http limits.ts). Static files aren't counted. A visitor over a
- *    limit gets the site's generic error, "Something went wrong. Please try again later.", with
- *    status 500 like any other server error, and nothing that says it was a limit (RL-5). Only
+ *    limit gets exactly what a crash gives: the request is rewritten to a page that fails to
+ *    render, so Next answers with status 500 and the site's error page (app/error.tsx), nothing
+ *    that says it was a limit (RL-5). Only
  *    the log says so, naming the group, never the address.
  *
  * The visitor's address (`visitorAddress`, D32's second carve-out) is the one thing read from
@@ -40,14 +40,13 @@ export function proxy(request: NextRequest) {
     ? { 'X-Robots-Tag': 'noindex, nofollow' }
     : {};
   if (limited) {
-    return new NextResponse(GENERIC_ERROR_PAGE, {
-      status: 500,
-      headers: {
-        ...headers,
-        'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'no-store',
-      },
-    });
+    // Rendered by Next as a real crash, at the same URL (something-went-wrong/). Server
+    // actions (the only POSTs our pages take) go to a route handler, which never runs one.
+    const crash = request.nextUrl.clone();
+    crash.pathname =
+      request.method === 'POST' ? `${CRASH_PATH}/action` : CRASH_PATH;
+    crash.search = '';
+    return NextResponse.rewrite(crash, { headers });
   }
   return NextResponse.next({ headers });
 }
@@ -112,15 +111,5 @@ function rateLimited(request: NextRequest): boolean {
   return true;
 }
 
-/**
- * The site's generic error (Joel, 2026-11-09): the words of the error page (app/error.tsx),
- * served by the proxy itself, which can't render the site's pages.
- */
-const [heading, ...rest] = TRY_AGAIN_LATER.split('. ');
-const GENERIC_ERROR_PAGE = `<!doctype html>
-<html lang="en-GB">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>Something went wrong</title>
-<style>:root{color-scheme:light dark}body{margin:0;font-family:system-ui,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:1rem}a{display:inline-flex;min-height:44px;align-items:center}</style>
-</head>
-<body><main id="main"><h1>${heading}</h1><p>${rest.join('. ')}</p><p><a href="/">Go to the home page</a></p></main></body>
-</html>`;
+/** The page that fails like any crash (RL-5). */
+const CRASH_PATH = '/something-went-wrong';

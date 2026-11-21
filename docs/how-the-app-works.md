@@ -1070,8 +1070,9 @@ chooses.
   bypassing the rate limiter and being shown their progress via detailed errors"): exactly our
   generic server error. The APIs answer as for any unexpected failure (status 500, the same
   body and headers), with no "too many requests" status, no remaining-count or retry headers and
-  no special wording. The website shows "Something went wrong. Please try again later." with the
-  status of any other server error. Only our private logs say it was a limit: one line when a
+  no special wording. The website answers as when a page crashes: status 500 and the site's error
+  page ("Something went wrong. Please try again later.", with "Try again"), for page loads,
+  in-site navigation and server actions alike. Only our private logs say it was a limit: one line when a
   caller first goes over, naming the group, never the address.
 - **Changing a number** is a reviewed change to one table in the shared code and a deploy
   (RL-9 A). Limits apply only where Cloud Run runs the service; a local run has none.

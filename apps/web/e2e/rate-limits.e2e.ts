@@ -4,9 +4,8 @@ import { BEHAVIOUR_DEVICES } from './devices';
 import { WEB_LIMITED_URL } from './servers';
 
 // Rate limits in the website (RL-8 A, Joel 2026-11-21): proxy.ts counts each visitor's page
-// loads and server actions by address. A visitor over the limit sees only the site's generic
-// error, "Something went wrong. Please try again later.", with status 500, and nothing that says
-// it was a limit (RL-5). Runs against the one e2e server with limits on, whose clock stands still
+// loads and server actions by address. A visitor over the limit gets exactly what a crash gives
+// (RL-5): status 500 and the site's error page (app/error.tsx), with a crash's headers. Runs against the one e2e server with limits on, whose clock stands still
 // (E2E_NOW), so counts never slide away mid-test; each test and device has addresses of its own.
 
 // eslint-disable-next-line no-empty-pattern
@@ -23,7 +22,22 @@ function address(project: string, n: number): string {
   return `203.0.${device * 10 + n}.1`;
 }
 
-test('a visitor over the page limit sees only the generic error', async ({
+/** A real crash: the page that fails to render, on a server with limits off (WEB_URL). */
+const CRASH_URL = '/something-went-wrong';
+
+/**
+ * Headers a limited answer must share with a real crash. Next adds one more to a limited one,
+ * `x-middleware-rewrite` (it marks every rewrite; the limiter rewrites to the crash page).
+ */
+const SAME_HEADERS = [
+  'content-type',
+  'cache-control',
+  'vary',
+  'link',
+  'x-robots-tag',
+];
+
+test('a visitor over the page limit gets exactly what a crash gives', async ({
   page,
   request,
 }, info) => {
@@ -35,23 +49,46 @@ test('a visitor over the page limit sees only the generic error', async ({
     expect(res.status()).toBe(200);
   }
   const limited = await request.get(`${WEB_LIMITED_URL}/about`, as(visitor));
-  expect(limited.status()).toBe(500);
-  expect(limited.headers()['cache-control']).toBe('no-store');
-  for (const name of Object.keys(limited.headers())) {
-    expect(name).not.toMatch(/ratelimit|retry-after/i);
+  const crash = await request.get(CRASH_URL);
+  expect(crash.status()).toBe(500);
+  expect(limited.status()).toBe(crash.status());
+  for (const name of SAME_HEADERS) {
+    expect(limited.headers()[name], name).toBe(crash.headers()[name]);
   }
+  const extra = Object.keys(limited.headers()).filter(
+    (name) => !(name in crash.headers()),
+  );
+  expect(extra).toEqual(['x-middleware-rewrite']);
   expect(await limited.text()).not.toMatch(/limit|too many|429/i);
 
-  // In the browser: the generic message and a way home.
-  await page.setExtraHTTPHeaders({ 'x-forwarded-for': visitor });
-  await page.goto(`${WEB_LIMITED_URL}/about`);
-  await expect(
-    page.getByRole('heading', { level: 1, name: 'Something went wrong' }),
-  ).toBeVisible();
-  await expect(page.getByRole('main')).toContainText('Please try again later.');
-  await expect(
-    page.getByRole('link', { name: 'Go to the home page' }),
-  ).toBeVisible();
+  // A server action (a POST with Next's action header): a crash's status, and the action never
+  // runs (an unknown action would otherwise be "not found", 404).
+  const action = await request.post(`${WEB_LIMITED_URL}/about`, {
+    headers: {
+      'x-forwarded-for': visitor,
+      'next-action': '00'.repeat(21),
+      'content-type': 'text/plain;charset=UTF-8',
+    },
+    data: '[]',
+  });
+  expect(action.status()).toBe(500);
+  expect(await action.text()).not.toMatch(/limit|too many|429/i);
+
+  // In the browser: the site's error page, as a crash shows it, with its "Try again" button.
+  for (const url of [CRASH_URL, `${WEB_LIMITED_URL}/about`]) {
+    await page.setExtraHTTPHeaders({ 'x-forwarded-for': visitor });
+    await page.goto(url);
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Something went wrong' }),
+    ).toBeVisible();
+    await expect(page.getByRole('main')).toContainText(
+      'Please try again later.',
+    );
+    await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
+    await expect(
+      page.getByRole('link', { name: 'Go to the home page' }),
+    ).toBeVisible();
+  }
 
   // Another visitor is unaffected.
   const other = await request.get(
@@ -59,6 +96,37 @@ test('a visitor over the page limit sees only the generic error', async ({
     as(address(info.project.name, 2)),
   );
   expect(other.status()).toBe(200);
+});
+
+test('a visitor who goes over the limit while on a page sees the crash page on their next click', async ({
+  page,
+  request,
+}, info) => {
+  const visitor = address(info.project.name, 5);
+  const as = { headers: { 'x-forwarded-for': visitor } };
+  for (let i = 0; i < RATE_LIMITS.webPages.limit - 1; i++) {
+    expect((await request.get(`${WEB_LIMITED_URL}/about`, as)).status()).toBe(
+      200,
+    );
+  }
+  // The last page load allowed; the page's own requests from here on (prefetches, the click's
+  // navigation) are over the limit.
+  await page.setExtraHTTPHeaders(as.headers);
+  await page.goto(`${WEB_LIMITED_URL}/about`);
+  await expect(
+    page.getByRole('heading', {
+      level: 1,
+      name: 'The heart behind He Is Real',
+    }),
+  ).toBeVisible();
+  await page
+    .getByRole('contentinfo')
+    .getByRole('link', { name: 'Contact us' })
+    .click();
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Something went wrong' }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
 });
 
 test('the sitemap has its own small allowance', async ({ request }, info) => {
