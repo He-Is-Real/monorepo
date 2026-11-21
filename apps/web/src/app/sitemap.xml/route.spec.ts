@@ -5,6 +5,11 @@ import { StoriesUnavailableError } from '@/lib/public-stories';
 import { SitemapBudgetError, sharedStoryEntries } from '@/lib/sitemap';
 import { GET } from './route';
 
+// connection() needs Next's request scope, which a unit test doesn't have.
+jest.mock('next/server', () => ({
+  ...jest.requireActual('next/server'),
+  connection: jest.fn(async () => undefined),
+}));
 jest.mock('@/lib/sitemap', () => ({
   ...jest.requireActual('@/lib/sitemap'),
   sharedStoryEntries: jest.fn(),
