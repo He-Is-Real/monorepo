@@ -18,11 +18,24 @@ import { usePersonalSession } from '@/lib/personal-session';
 // The filters are a column beside the stories (BS-1 C) from 1024 px screens, small laptops and
 // landscape tablets (BS-5 B, Joel 2026-11-21); phones and portrait tablets get the Filters
 // button. The `lg:@min-[50rem]:` classes below: the screen at least 64rem (1024 px at the usual
-// text size, `lg`) and the page's content (the `browse` container) at least 50rem, so larger text
-// (a browser setting, or the page's root size at 200%) gives the Filters button instead of story
-// columns squeezed beside a wider column. Beside the column the stories take 2 columns until the
-// content is 70rem wide (about 1200 px screens), then 3 as before (lib/masonry.ts,
+// text size, `lg`) and the block holding the filters and stories (the `browse` container) at
+// least 50rem, so larger text (a browser setting, or the page's root size at 200%) gives the
+// Filters button instead of story columns squeezed beside a wider column. Beside the column the stories take 2 columns until the
+// block is 70rem wide (about 1200 px screens), then 3 as before (lib/masonry.ts,
 // BESIDE_FILTERS, which repeats both widths).
+//
+// Wide screens (BS-8 B, Joel 2026-11-21). The page (stories/page.tsx's <main>, the `browse-page`
+// container) may grow past the site's width by two filters columns (15rem + 2.5rem gap each);
+// the block holding the heading, filters and stories (the `browse` container) is centred in it:
+// - below 87.5rem of page (about 1480 px screens): the site's content width, as on every page;
+// - from 87.5rem: the filters column plus a story list as wide as the site's content, centred
+//   together (the heading lines up with the filters);
+// - from 105rem (about 1760 px screens): a third, empty column the filters' width on the right, so
+//   the story list (and the heading above it) is centred exactly like Home's content and the
+//   filters sit to its left, outside the site's width.
+// The thresholds are in rem so larger text keeps the narrower layouts (and its Filters button);
+// the widths are the site's width (1200 px, `--container-site`) plus rem, so the story list is
+// exactly Home's content at any text size.
 
 const SORT_LABELS = {
   latest: 'Latest first',
@@ -57,6 +70,7 @@ type Chosen = { key: string; label: string } & (
  * browse address the browser builds keeps the switch (browseHref).
  */
 export function BrowseView({
+  heading,
   query,
   themeIds,
   chosenThemes,
@@ -65,6 +79,8 @@ export function BrowseView({
   summary,
   results,
 }: {
+  /** The page's heading, above the search box (lined up with the stories on wide screens). */
+  heading: ReactNode;
   /** The address's filters, which favourites are filtered by too. */
   query: BrowseFilters;
   /** The themes browse lists, or null when they couldn't be read (favourites-filter.ts). */
@@ -180,106 +196,117 @@ export function BrowseView({
     <>
       {/* DOM order is search, filters, stories (the keyboard's order); on a computer the
           filters column sits to the left of both. */}
-      <div ref={page} className="@container/browse">
-        <div className="lg:@min-[50rem]:grid lg:@min-[50rem]:grid-cols-[15rem_minmax(0,1fr)] lg:@min-[50rem]:grid-rows-[auto_1fr] lg:@min-[50rem]:gap-x-10">
-          <div className="min-w-0 lg:@min-[50rem]:col-start-2 lg:@min-[50rem]:row-start-1">
-            <div className="flex items-start gap-3">
-              {search}
-              <Button
-                ref={button}
-                type="button"
-                variant="outline"
-                aria-haspopup="dialog"
-                aria-expanded={open}
-                aria-controls={`${id}-panel`}
-                onClick={() => setOpen(true)}
-                data-filters-button=""
-                className="h-11 px-4 lg:@min-[50rem]:hidden noscript:hidden"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  aria-hidden="true"
-                  className="fill-none stroke-current"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                >
-                  <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
-                  <circle cx="16" cy="7" r="2" />
-                  <circle cx="10" cy="17" r="2" />
-                </svg>
-                Filters
-                {chosen.length > 0 && (
-                  <>
-                    <span
-                      aria-hidden="true"
-                      className="inline-grid h-5 min-w-5 place-items-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground"
-                    >
-                      {chosen.length}
-                    </span>
-                    <span className="sr-only">({chosen.length} on)</span>
-                  </>
-                )}
-              </Button>
+      <div className="@container/browse-page">
+        <div
+          ref={page}
+          className="@container/browse mx-auto max-w-[calc(var(--container-site)-5rem)] @min-[87.5rem]/browse-page:max-w-[calc(var(--container-site)+12.5rem)] @min-[105rem]/browse-page:max-w-[calc(var(--container-site)+30rem)]"
+        >
+          <div className="lg:@min-[50rem]:grid lg:@min-[50rem]:grid-cols-[15rem_minmax(0,1fr)] lg:@min-[50rem]:grid-rows-[auto_auto_1fr] lg:@min-[50rem]:gap-x-10 @min-[105rem]/browse-page:grid-cols-[15rem_minmax(0,1fr)_15rem]">
+            <div
+              className="lg:@min-[50rem]:col-span-full lg:@min-[50rem]:row-start-1 @min-[105rem]/browse-page:col-[2]"
+              data-browse-heading=""
+            >
+              {heading}
             </div>
-            {chosen.length > 0 && (
-              <ul
-                aria-label="Chosen filters"
-                className="mt-3 flex flex-wrap items-center gap-2 lg:@min-[50rem]:hidden"
-                data-chosen-filters=""
-              >
-                {chosen.map((c) => (
-                  <li key={c.key}>
-                    {'href' in c ? (
-                      <Link
-                        href={c.href}
-                        scroll={false}
-                        className={`${chipVariants({ chosen: true })} gap-2`}
-                      >
-                        <ChipText label={c.label} />
-                      </Link>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={c.onRemove}
-                        className={`${chipVariants({ chosen: true })} gap-2`}
-                      >
-                        <ChipText label={c.label} />
-                      </button>
-                    )}
-                  </li>
-                ))}
-                <li>
-                  <Link
-                    href={clearAll}
-                    scroll={false}
-                    className="inline-flex min-h-11 items-center px-2 text-sm font-medium"
+            <div className="min-w-0 lg:@min-[50rem]:col-start-2 lg:@min-[50rem]:row-start-2">
+              <div className="flex items-start gap-3">
+                {search}
+                <Button
+                  ref={button}
+                  type="button"
+                  variant="outline"
+                  aria-haspopup="dialog"
+                  aria-expanded={open}
+                  aria-controls={`${id}-panel`}
+                  onClick={() => setOpen(true)}
+                  data-filters-button=""
+                  className="h-11 px-4 lg:@min-[50rem]:hidden noscript:hidden"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                    className="fill-none stroke-current"
+                    strokeWidth="2"
+                    strokeLinecap="round"
                   >
-                    Clear all
-                  </Link>
-                </li>
-              </ul>
-            )}
-          </div>
-
-          <aside
-            aria-label="Filters"
-            className="mt-6 hidden lg:@min-[50rem]:col-start-1 lg:@min-[50rem]:row-span-2 lg:@min-[50rem]:row-start-1 lg:@min-[50rem]:mt-0 lg:@min-[50rem]:block noscript:block"
-            data-filters-column=""
-          >
-            {open && body ? createPortal(filters, body) : !open && filters}
-          </aside>
-
-          <div className="min-w-0 lg:@min-[50rem]:col-start-2 lg:@min-[50rem]:row-start-2">
-            {summary}
-            <div className="mt-8">
-              {on && (
-                <FavouritesList
-                  filters={query}
-                  themeIds={themeIds}
-                  onShowAll={() => set(false)}
-                />
+                    <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
+                    <circle cx="16" cy="7" r="2" />
+                    <circle cx="10" cy="17" r="2" />
+                  </svg>
+                  Filters
+                  {chosen.length > 0 && (
+                    <>
+                      <span
+                        aria-hidden="true"
+                        className="inline-grid h-5 min-w-5 place-items-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground"
+                      >
+                        {chosen.length}
+                      </span>
+                      <span className="sr-only">({chosen.length} on)</span>
+                    </>
+                  )}
+                </Button>
+              </div>
+              {chosen.length > 0 && (
+                <ul
+                  aria-label="Chosen filters"
+                  className="mt-3 flex flex-wrap items-center gap-2 lg:@min-[50rem]:hidden"
+                  data-chosen-filters=""
+                >
+                  {chosen.map((c) => (
+                    <li key={c.key}>
+                      {'href' in c ? (
+                        <Link
+                          href={c.href}
+                          scroll={false}
+                          className={`${chipVariants({ chosen: true })} gap-2`}
+                        >
+                          <ChipText label={c.label} />
+                        </Link>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={c.onRemove}
+                          className={`${chipVariants({ chosen: true })} gap-2`}
+                        >
+                          <ChipText label={c.label} />
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                  <li>
+                    <Link
+                      href={clearAll}
+                      scroll={false}
+                      className="inline-flex min-h-11 items-center px-2 text-sm font-medium"
+                    >
+                      Clear all
+                    </Link>
+                  </li>
+                </ul>
               )}
-              {!on && results}
+            </div>
+
+            <aside
+              aria-label="Filters"
+              className="mt-6 hidden lg:@min-[50rem]:col-start-1 lg:@min-[50rem]:row-span-2 lg:@min-[50rem]:row-start-2 lg:@min-[50rem]:mt-0 lg:@min-[50rem]:block noscript:block"
+              data-filters-column=""
+            >
+              {open && body ? createPortal(filters, body) : !open && filters}
+            </aside>
+
+            <div className="min-w-0 lg:@min-[50rem]:col-start-2 lg:@min-[50rem]:row-start-3">
+              {summary}
+              <div className="mt-8">
+                {on && (
+                  <FavouritesList
+                    filters={query}
+                    themeIds={themeIds}
+                    onShowAll={() => set(false)}
+                  />
+                )}
+                {!on && results}
+              </div>
             </div>
           </div>
         </div>

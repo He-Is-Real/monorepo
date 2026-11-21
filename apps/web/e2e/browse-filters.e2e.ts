@@ -298,6 +298,74 @@ test('the column starts at exactly 1024 px', async ({ page }, info) => {
   }
 });
 
+// BS-8 B (Joel 2026-11-21, round 3): from about 1760 px screens the story list (search box and 3
+// story columns) is as wide as Home's content and centred on the screen like every other page,
+// the heading lined up with it, and the filters column to its left, outside the site's width.
+// From about 1480 px the filters and the 3 story columns are centred together (the heading lined
+// up with the filters). Below that, as before: the block is the site's content, centred.
+test('wide screens centre the stories, with the filters to their left', async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== 'desktop-1280', 'one computer, resized');
+  /** The site's content: 1200 px less 40 px of padding a side, as Home's. */
+  const SITE = 1120;
+  for (const [width, layout] of [
+    [1280, 'site'],
+    [1440, 'site'],
+    [1600, 'together'],
+    [1759, 'together'],
+    [1760, 'stories'],
+    [1920, 'stories'],
+    [2560, 'stories'],
+  ] as const) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/stories');
+    await expect(page.locator('[data-favourites-only]')).toBeAttached();
+    const cards = page.locator('main ul.masonry > li');
+    await expect(cards).toHaveCount(15);
+    await expect
+      .poll(() =>
+        cards.evaluateAll(
+          (lis) =>
+            new Set(lis.map((li) => Math.round(li.getBoundingClientRect().x)))
+              .size,
+        ),
+      )
+      .toBe(3);
+    const box = async (selector: string) => {
+      const b = await page.locator(selector).first().boundingBox();
+      if (!b) throw new Error(`${selector} isn't shown`);
+      return { left: b.x, right: b.x + b.width, width: b.width };
+    };
+    const side = await box('[data-filters-column]');
+    const list = await box('form[role="search"]');
+    const heading = await box('main h1');
+    const centre = (from: number, to: number) => (from + to) / 2;
+    const at = `${width} px`;
+    expect(side.right, at).toBeLessThan(list.left);
+    if (layout === 'stories') {
+      expect(list.width, at).toBeCloseTo(SITE, 0);
+      expect(
+        Math.abs(centre(list.left, list.right) - width / 2),
+        at,
+      ).toBeLessThan(2);
+      expect(Math.abs(heading.left - list.left), at).toBeLessThan(1);
+    } else {
+      // The filters' left edge to the stories' right edge, centred together.
+      expect(
+        Math.abs(centre(side.left, list.right) - width / 2),
+        at,
+      ).toBeLessThan(2);
+      expect(Math.abs(heading.left - side.left), at).toBeLessThan(1);
+      expect(list.right - side.left, at).toBeCloseTo(
+        layout === 'together' ? SITE + 280 : SITE,
+        0,
+      );
+    }
+    await expectNoHorizontalOverflow(page);
+  }
+});
+
 // Joel 2026-11-21: the browser's "Large" text (20 px) keeps the column on a desktop screen; from
 // "Very large" (24 px) the Filters button takes over, so the stories aren't squeezed.
 test('a desktop screen keeps the column at Large text, the Filters button from Very large', async ({

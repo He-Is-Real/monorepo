@@ -324,9 +324,13 @@ export async function browseFilters(page: Page): Promise<Locator> {
 /**
  * How many story columns the Stories page (and Favourites only) shows on this screen: 3 from
  * 1024 px, 2 from 640 px, 1 below, whatever the text size (Joel, 2026-11-07/08); but beside the
- * filters column, 2 until the page's content is 70rem wide (BS-5 B, Joel 2026-11-21). The column
- * shows while the screen is at least 64rem and the content (at most 1200 px, less 2.5rem of
- * padding a side) at least 50rem. `text` is the reader's text setting in px. Playwright's screens have no scrollbar.
+ * filters column, 2 until the block holding the filters and stories is 70rem wide (BS-5 B, Joel
+ * 2026-11-21). The column shows while the screen is at least 64rem and that block at least 50rem.
+ * The block (browse-view.tsx, BS-8 B): the site's content (1200 px less 2.5rem of padding a side)
+ * until the page's content is 87.5rem; then 1200 px + 12.5rem (the filters beside a list as wide as
+ * the site's content); from 105rem, 1200 px + 30rem (a matching empty column on the right). The
+ * page's content is at most 1200 px + 30rem. `text` is the reader's text setting in px.
+ * Playwright's screens have no scrollbar.
  */
 export function storiesColumns(width: number, text = 16): number {
   if (width < 640) return 1;
@@ -334,7 +338,14 @@ export function storiesColumns(width: number, text = 16): number {
   // The column also needs the screen at least 64rem (`lg`), and a reader's text setting scales
   // that too: at 20 px text it starts at 1280 px.
   if (width < 64 * text) return 3;
-  const content = (Math.min(width, 1200) - 5 * text) / text;
+  const page = Math.min(width - 5 * text, 1200 + 30 * text);
+  const block =
+    page >= 105 * text
+      ? Math.min(page, 1200 + 30 * text)
+      : page >= 87.5 * text
+        ? Math.min(page, 1200 + 12.5 * text)
+        : Math.min(page, 1200 - 5 * text);
+  const content = block / text;
   return content >= 50 && content < 70 ? 2 : 3;
 }
 
