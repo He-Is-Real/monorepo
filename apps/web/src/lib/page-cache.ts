@@ -83,10 +83,7 @@ export function pageCacheEnvironment(): PageCacheEnvironment | undefined {
   const env = process.env['SITE_ENVIRONMENT']?.trim();
   if (env === 'dev' || env === 'prod') return env;
   if (env)
-    writeLog(
-      'ERROR',
-      'SITE_ENVIRONMENT is not dev or prod; no page is cached',
-    );
+    writeLog('ERROR', 'SITE_ENVIRONMENT is not dev or prod; no page is cached');
   return undefined;
 }
 
