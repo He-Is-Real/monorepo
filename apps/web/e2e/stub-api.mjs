@@ -773,9 +773,12 @@ const SITE_VIDEOS = {
   'next-steps': '7c2e9a14-5b3d-4f6e-a8c1-2d3e4f5a6b7c',
 };
 
-/** `GET /v1/site-videos/{key}`: the founder's videos in dev; none set on the Go live port. */
+/**
+ * `GET /v1/site-videos/{key}`: the founder's videos in dev (and on the page-cache port); none set
+ * on the Go live port.
+ */
 function siteVideo(mode, key, res) {
-  if (mode !== 'dev' || !Object.hasOwn(SITE_VIDEOS, key))
+  if ((mode !== 'dev' && mode !== 'cached') || !Object.hasOwn(SITE_VIDEOS, key))
     return problem(res, 404, 'not_found');
   json(res, 200, {
     key,
