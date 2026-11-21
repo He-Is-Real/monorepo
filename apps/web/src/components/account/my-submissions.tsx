@@ -9,6 +9,7 @@ import {
   Card,
   Confirm,
   DangerZone,
+  Notice,
   Quiet,
   StatusBadge,
   type StatusTone,
@@ -284,9 +285,14 @@ export function MySubmissions() {
           <Link href="/share">New story</Link>
         </Button>
       </div>
-      <p data-notice="" role="status" className="mb-4 empty:hidden">
-        {notice}
-      </p>
+      {/* The live region stays in the page; the notice appears inside it. */}
+      <div data-notice="" role="status" className="mb-4 empty:hidden">
+        {notice && (
+          <Notice kind="success" as="p">
+            {notice}
+          </Notice>
+        )}
+      </div>
       {body}
     </section>
   );
@@ -349,15 +355,14 @@ function StoryRow({
           {meta.join(' · ')}
         </p>
         {story.rejectionFeedback && (
-          <div
+          <Notice
+            kind="info"
             data-feedback=""
-            className="mb-4 rounded-xl border-l-4 border-link bg-raised p-4 text-[0.9375rem]"
+            className="mb-4 text-[0.9375rem]"
+            title="What our team said"
           >
-            <p className="mb-1 font-semibold">What our team said</p>
-            <p className="whitespace-pre-line [overflow-wrap:anywhere]">
-              {story.rejectionFeedback}
-            </p>
-          </div>
+            <p className="whitespace-pre-line">{story.rejectionFeedback}</p>
+          </Notice>
         )}
         {label === 'draft' && story.deletesAt && (
           <p data-draft-expiry="" className="mb-3 text-sm text-secondary-text">

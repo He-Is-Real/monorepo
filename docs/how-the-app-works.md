@@ -621,6 +621,12 @@ recording | picture` (worked out from the status history: set while the story's 
   like one, is the library's: 44 px tall (48 px for the home page's large calls to action),
   semibold words, the site's keyboard outline and 8 px corners. In the header at 1280 px and wider
   with large text, the main links wrap onto more lines instead of running over the logo.
+- **One look for notices (NT-1 A1, Joel, 21 November 2026):** a message that something happened
+  or needs attention is a tinted box with a coloured bar on the left and the kind's icon, in one
+  of four kinds by meaning: something went wrong (red), needs a second look (amber), done
+  (green), worth knowing (teal), with an optional bold first line ("What our team said"). Each
+  is announced as before: errors at once, news when the screen reader is free. Quiet context
+  (the weekly limit, empty lists) stays the plain grey box.
 - **A greyed-out button says why where the page knows (OT-2 A, Joel, 20 November 2026):** a
   short line under it, such as "Write a reason first." under Take down before a reason is typed
   ("Write a note first." for Send back and Reject).
@@ -1175,7 +1181,8 @@ For developers. Details are in the linked documents.
   format cards (`ChoiceCards`) and donate's switcher (`SegmentedChoice`), the plain grey `Quiet`
   box, a `Button`'s greyed-out reason, and text boxes in two sizes (`compact` beside drop-downs,
   `standard` wherever people type), and the `Disclosure` (DS-1 A+E 4). Dialog backdrops use the
-  `overlay` colour. Still open with Joel: the notice (NT-1).
+  `overlay` colour. The `Notice` (NT-1 A1, Joel, 21 November 2026) in four kinds: `danger`,
+  `warning`, `success`, `info`.
   **LB-1 (Joel, 20 November 2026, A: "the UI component library should be its own section within
   the monorepo in case we build another frontend directory"):** the library at `libs/web-ui` also
   holds the theme (colours light and dark, font, radii, widths, base styles and shared CSS, in

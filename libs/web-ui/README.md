@@ -164,6 +164,12 @@ means. Pages use only these names, as Tailwind classes (`bg-danger`, `text-dange
   words with a solid triangle; open, `variant` `short` (default; the content hangs from a grey
   bar: "See all versions", "How to format it") or `long` (words and content in a light panel:
   "Read the full version 3"). `summary` is the words to press.
+- `Notice`: something that just happened or needs attention (NT-1 A1): a tinted box, the whole
+  box rounded, a 4 px bar on the left and the kind's plain icon. `kind`: `danger` (it went
+  wrong), `warning` (needs a second look), `success` (done), `info` (worth knowing); `title`: a
+  bold first line. It adds no role: pass `role="alert"` or `role="status"` as the page announces
+  it, and for a live region that's in the page before its words, keep the role on a wrapper with
+  the Notice inside. `as="p"` for one line; `ref` and `tabIndex={-1}` to move focus to it.
 - `Quiet`: quiet context that isn't news (NT-2 B): a plain grey box (Share's weekly limit line,
   an empty My submissions).
 - `fieldVariants`: the field look, for a control the library doesn't have yet.

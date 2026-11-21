@@ -21,6 +21,7 @@ import {
   FieldHint,
   FieldLabel,
   Input,
+  Notice,
   Quiet,
   Textarea,
 } from '@heisreal/web-ui';
@@ -1218,10 +1219,7 @@ function SaveState({
         </button>
       )}
       {draft.status === 'conflict' && (
-        <div
-          role="alert"
-          className="rounded-xl border border-danger p-4 text-foreground"
-        >
+        <Notice kind="danger" role="alert">
           <p className="mb-3">
             This story was changed in another tab or window. Your text here is
             kept. Which version do you want to keep?
@@ -1242,7 +1240,7 @@ function SaveState({
               Use the other version
             </button>
           </div>
-        </div>
+        </Notice>
       )}
     </div>
   );
@@ -1583,26 +1581,30 @@ function MediaStep({
               is still sent back for its file) and this tab's upload is done, never for an upload
               this tab kept from before the failure. */}
           {story?.mediaProblem === 'unusable' ? (
-            <p
+            <Notice
+              kind="info"
+              as="p"
               data-media-problem={
                 story.unusableFile === 'picture' ? 'picture' : 'unusable'
               }
-              className="mb-3 rounded-xl border-l-4 border-link bg-raised px-4 py-3"
+              className="mb-3"
             >
               {story.unusableFile === 'picture'
                 ? 'We couldn’t use your picture. Please upload your recording again, and a picture if you like.'
                 : `We couldn’t use your ${format === 'audio' ? 'recording' : 'video'}. Please upload another file.`}
-            </p>
+            </Notice>
           ) : (
             story?.unusableFile &&
             file === 'uploaded' && (
-              <p
+              <Notice
+                kind="success"
+                as="p"
                 role="status"
                 data-media-problem="replaced"
-                className="mb-3 rounded-xl bg-surface px-4 py-3"
+                className="mb-3"
               >
                 Thanks, your new file is in. Send it when you’re ready.
-              </p>
+              </Notice>
             )
           )}
           <UploadPanel
@@ -2519,10 +2521,7 @@ function NotAttached({
   children: React.ReactNode;
 }) {
   return (
-    <p
-      data-not-attached=""
-      className="mt-2 rounded-xl border border-warning/50 bg-warning/10 px-4 py-2 text-foreground"
-    >
+    <Notice kind="warning" as="p" data-not-attached="" className="mt-2">
       {children}{' '}
       <button
         type="button"
@@ -2531,7 +2530,7 @@ function NotAttached({
       >
         {action}
       </button>
-    </p>
+    </Notice>
   );
 }
 

@@ -10,6 +10,7 @@ import {
   FieldHint,
   FieldLabel,
   Input,
+  Notice,
 } from '@heisreal/web-ui';
 import type { ApiUser } from '@/lib/api-user';
 
@@ -142,24 +143,25 @@ function Blocks({
   }
   if (loaded.status === 'failed') {
     return (
-      <Card asChild tone="danger" className="p-6">
-        <p role="alert">{loaded.message}</p>
-      </Card>
+      <Notice kind="danger" as="p" role="alert">
+        {loaded.message}
+      </Notice>
     );
   }
 
   return (
     <section className="space-y-8">
       {note && (
-        <div
+        <Notice
+          kind={note.kind === 'error' ? 'danger' : 'success'}
           ref={noteRef}
           tabIndex={-1}
           role={note.kind === 'error' ? 'alert' : 'status'}
-          className={`rounded-xl border px-4 py-3 [overflow-wrap:anywhere] ${note.kind === 'error' ? 'border-danger' : 'border-primary'}`}
+          className="outline-none"
           data-block-status={note.kind}
         >
           {note.text}
-        </div>
+        </Notice>
       )}
       <BlockPart
         kind="emails"

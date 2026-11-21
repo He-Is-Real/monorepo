@@ -17,9 +17,9 @@ import { LegalMarkdown } from '@/components/legal/legal-markdown';
 import { Redline } from '@/components/legal/redline';
 import {
   Button,
-  Card,
   Confirm,
   Disclosure,
+  Notice,
   Tabs,
   Textarea,
 } from '@heisreal/web-ui';
@@ -284,23 +284,25 @@ function ConsentTexts({ client }: { client: ApiUser }) {
         className="space-y-6"
       >
         {notice !== null && (
-          <p
+          <Notice
+            kind="success"
+            as="p"
             ref={noticeRef}
             tabIndex={-1}
             role="status"
-            className="rounded-xl border border-primary px-4 py-3"
+            className="outline-none"
             data-publish-status="done"
           >
             Saved version {notice}. It’s in force now.
-          </p>
+          </Notice>
         )}
         {loaded.status === 'loading' && (
           <p className="text-secondary-text">Loading the versions…</p>
         )}
         {loaded.status === 'failed' && (
-          <Card asChild tone="danger" className="p-6">
-            <p role="alert">{loaded.message}</p>
-          </Card>
+          <Notice kind="danger" as="p" role="alert">
+            {loaded.message}
+          </Notice>
         )}
         {loaded.status === 'ready' && loaded.list.document === document && (
           <EditVersion
@@ -558,22 +560,24 @@ function EditVersion({
       )}
 
       {status.kind === 'error' && (
-        <div
+        <Notice
+          kind="danger"
           ref={alert}
           tabIndex={-1}
           role="alert"
-          className="rounded-xl border border-danger px-4 py-3 outline-none"
+          className="outline-none"
           data-publish-status="error"
         >
           {status.message}
-        </div>
+        </Notice>
       )}
       {status.kind === 'stale' && (
-        <div
+        <Notice
+          kind="danger"
           ref={alert}
           tabIndex={-1}
           role="alert"
-          className="space-y-3 rounded-xl border border-danger px-4 py-3 outline-none"
+          className="outline-none"
           data-publish-status="stale"
         >
           <p>
@@ -581,10 +585,10 @@ function EditVersion({
             editing, so yours wasn’t saved. Reload to see theirs, then make your
             changes again. Copy your text first if you want to keep it.
           </p>
-          <Button type="button" wrap onClick={reload}>
+          <Button type="button" wrap className="mt-3" onClick={reload}>
             Reload
           </Button>
-        </div>
+        </Notice>
       )}
     </section>
   );

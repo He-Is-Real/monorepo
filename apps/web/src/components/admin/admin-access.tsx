@@ -14,7 +14,7 @@ import {
 } from '@/lib/api-user';
 import { usePersonalSession } from '@/lib/personal-session';
 import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
-import { Card } from '@heisreal/web-ui';
+import { Card, Notice } from '@heisreal/web-ui';
 
 type Role = Account['role'];
 /** D1's order: each role can do what the ones before it can (S-1: Moderator, then Admin). */
@@ -190,9 +190,9 @@ export function AdminAccess({
   if (account.status === 'failed') {
     // The account couldn't be read: that's on our side, not a refusal.
     return (
-      <Card asChild className="p-6">
-        <p role="alert">{TRY_AGAIN_LATER}</p>
-      </Card>
+      <Notice kind="danger" as="p" role="alert">
+        {TRY_AGAIN_LATER}
+      </Notice>
     );
   }
   if (!atLeast(role, min)) {

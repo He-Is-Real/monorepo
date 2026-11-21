@@ -18,6 +18,7 @@ import {
   Field,
   FieldHint,
   FieldLabel,
+  Notice,
   Textarea,
 } from '@heisreal/web-ui';
 import { type ApiUser, ApiUserProblem } from '@/lib/api-user';
@@ -125,11 +126,11 @@ export function ModerationReview({
 }
 
 /** A note above the story: what was done, or why the page refreshed. */
-type Notice = { text: string; tone: 'done' | 'refreshed' } | null;
+type ReviewNotice = { text: string; tone: 'done' | 'refreshed' } | null;
 
 function Review({ id, client }: { id: string; client: ApiUser }) {
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' });
-  const [notice, setNotice] = useState<Notice>(null);
+  const [notice, setNotice] = useState<ReviewNotice>(null);
   // The story changed since the page read it: the page stays as it is until the moderator reloads.
   const [stale, setStale] = useState(false);
   const noticeRef = useRef<HTMLParagraphElement>(null);
@@ -206,7 +207,7 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
 
   /** After a decision, or a refusal because the story moved on: say so and read it again. */
   const settled = useCallback(
-    (next: Notice) => {
+    (next: ReviewNotice) => {
       setStale(false);
       setNotice(next);
       reload();
@@ -215,21 +216,17 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
   );
 
   const noticeLine = notice && (
-    <Card
-      asChild
-      tone="link"
-      className="mx-auto mb-6 max-w-measure p-4 font-semibold outline-none"
+    <Notice
+      kind={notice.tone === 'done' ? 'success' : 'info'}
+      as="p"
+      ref={noticeRef}
+      tabIndex={-1}
+      role="status"
+      className="mx-auto mb-6 max-w-measure font-semibold outline-none"
+      data-review-notice={notice.tone}
     >
-      <p
-        ref={noticeRef}
-        tabIndex={-1}
-        role="status"
-
-        data-review-notice={notice.tone}
-      >
-        {notice.text}
-      </p>
-    </Card>
+      {notice.text}
+    </Notice>
   );
 
   if (loaded.status === 'loading') {
@@ -257,15 +254,9 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
     return (
       <>
         {noticeLine}
-        <Card asChild tone="danger" className="p-6">
-          <p
-            role="alert"
-
-            data-moderation-error=""
-          >
-            {loaded.message}
-          </p>
-        </Card>
+        <Notice kind="danger" as="p" role="alert" data-moderation-error="">
+          {loaded.message}
+        </Notice>
       </>
     );
   }
@@ -274,10 +265,10 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
     <>
       {noticeLine}
       {stale && (
-        <Card
+        <Notice
+          kind="warning"
           role="status"
-          tone="link"
-          className="mx-auto mb-6 max-w-measure p-4"
+          className="mx-auto mb-6 max-w-measure"
           data-review-stale=""
         >
           <p className="mb-3 font-semibold">
@@ -294,7 +285,7 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
           >
             Reload to see it
           </Button>
-        </Card>
+        </Notice>
       )}
       <p
         className="mx-auto mb-8 max-w-measure text-sm font-semibold text-link"
@@ -607,7 +598,7 @@ function Decisions({
   client: ApiUser;
   /** The story changed since the page read it: every button waits for a reload. */
   stale: boolean;
-  onSettled: (notice: Notice) => void;
+  onSettled: (notice: ReviewNotice) => void;
 }) {
   const isAdmin = useRole() === 'Admin';
   const [open, setOpen] = useState<Open>(null);
@@ -749,7 +740,12 @@ function Decisions({
           />
         )}
         {refusal && (
-          <div role="alert" className="mt-4" data-decision-refused="">
+          <Notice
+            kind="warning"
+            role="alert"
+            className="mt-4"
+            data-decision-refused=""
+          >
             <p>{refusal.message}</p>
             {anywayRoute && isAdmin && (
               <Button
@@ -764,7 +760,7 @@ function Decisions({
                 {anywayRoute === 'show' ? 'Show anyway' : 'Approve anyway'}
               </Button>
             )}
-          </div>
+          </Notice>
         )}
         {isAdmin && !open && (
           // DL-1 A (as changed): an Admin's Delete stands apart from Reject, in the Danger zone;

@@ -29,6 +29,7 @@ export {
 } from './choice-cards';
 export { Confirm, type ConfirmProps } from './confirm';
 export { DangerZone } from './danger-zone';
+export { Notice, type NoticeKind } from './notice';
 export { Quiet } from './quiet';
 export { Switch, type SwitchProps } from './switch';
 export { StatusBadge, Tag, type StatusTone } from './tag';
