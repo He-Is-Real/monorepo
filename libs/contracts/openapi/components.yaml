@@ -155,7 +155,7 @@ components:
         is left), with no `stale-while-revalidate`: 30 seconds in total.
       schema:
         type: string
-        pattern: '^(no-store|public, max-age=([1-9]|[1-5][0-9]|60))$'
+        pattern: '^(no-store|public, max-age=([1-9]|[12][0-9]|30))$'
         example: no-store
     CacheControlPrivate:
       description: Personal and admin queries (D30).
