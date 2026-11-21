@@ -407,6 +407,16 @@ test.describe('stacked themes', () => {
       hasText: 'You can choose up to 10 themes.',
     });
     await expect(note).toHaveCount(0);
+    // The empty live region is already in the accessibility tree, so the note is announced.
+    await expect(filters.locator('[data-theme-limit]')).toHaveAttribute(
+      'role',
+      'status',
+    );
+    expect(
+      await filters
+        .locator('[data-theme-limit]')
+        .evaluate((el) => getComputedStyle(el).display),
+    ).not.toBe('none');
     await theme(filters, 'Hope').click();
     await expect(note).toBeVisible();
     await expect(theme(filters, 'Hope')).not.toHaveAttribute('aria-current');
@@ -459,6 +469,50 @@ test.describe('stacked themes', () => {
       await expect(card).toContainText('Healing');
       await expect(card).toContainText('Hope');
     }
+  });
+
+  // Codex, #259 round 2: the choice outlives the panel closing and opening again (which
+  // remounts the filters) while its page is still loading.
+  test('on a phone, a theme chosen, the panel closed and opened, another chosen: both stay', async ({
+    page,
+  }, info) => {
+    test.skip(info.project.name !== 'phone-320', 'the panel is the phone’s');
+    await page.goto('/stories');
+    let release = () => undefined as void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let seen = () => undefined as void;
+    const asked = new Promise<void>((resolve) => (seen = resolve));
+    await page.route(
+      (url) =>
+        url.pathname === '/stories' &&
+        url.searchParams.getAll('theme').join() === 'healing',
+      async (route) => {
+        seen();
+        await held;
+        await route.continue().catch(() => undefined);
+      },
+    );
+    try {
+      let filters = await browseFilters(page);
+      await theme(filters, 'Healing').click();
+      await asked;
+      await closeBrowseFilters(page);
+      filters = await browseFilters(page);
+      await expect(theme(filters, 'Healing')).toHaveAttribute(
+        'aria-current',
+        'true',
+      );
+      await theme(filters, 'Hope').click();
+    } finally {
+      release();
+    }
+    await expect(page).toHaveURL(/\/stories\?theme=healing&theme=hope$/);
+    await closeBrowseFilters(page);
+    await expect(chips(page).getByRole('link')).toHaveText([
+      'Remove Healing',
+      'Remove Hope',
+      'Clear all',
+    ]);
   });
 
   test('on a phone, each chosen theme is its own chip', async ({

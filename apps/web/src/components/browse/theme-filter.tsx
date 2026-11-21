@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { type MouseEvent, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { usePendingThemes } from '@/components/browse/browse-filters';
 import { ThemePicker } from '@/components/themes/theme-picker';
 import { THEMES_MAX } from '@heisreal/story-filters';
 import { Chip, ChipTick } from '@heisreal/web-ui';
@@ -21,9 +22,8 @@ import {
  *
  * Choices made but not yet in the address count, as on the moderators' list (Codex, #259): two
  * themes pressed quickly both stay on, each navigation building on the one before rather than on
- * the address it hasn't reached yet. `path` is the address they started from and each one pushed
- * since; once the address reaches the last, or turns into one not on the path (Back, Forward),
- * the address wins again. A click with a modifier key still just opens the link.
+ * the address it hasn't reached yet (BrowseChoices keeps them, and lets the address win again
+ * once it catches up, or on Back and Forward). A click with a modifier key still just opens the link.
  */
 export function ThemeFilter({
   categories,
@@ -37,13 +37,9 @@ export function ThemeFilter({
   // "Favourites only" stays on: its list is filtered by theme too.
   const favourites = favouritesOn(useSearchParams());
   const router = useRouter();
-  const [pending, setPending] = useState<{
-    themes: string[];
-    path: string[];
-  } | null>(null);
+  // Kept by BrowseChoices, so they survive the panel closing and opening (which remounts this).
+  const [pending, setPending] = usePendingThemes();
   const here = browseHref(filters, { favourites });
-  if (pending && (!pending.path.includes(here) || pending.path.at(-1) === here))
-    setPending(null);
   const view = { ...filters, themes: pending?.themes ?? filters.themes };
   const go = (themes: string[]) => {
     const href = browseHref({ ...filters, themes }, { favourites });
@@ -137,13 +133,16 @@ export function ThemeLinks({
           );
         }}
       />
-      {/* Always in the page, so screen readers announce the note when it appears. */}
+      {/* Always in the page and the accessibility tree (never display: none), so screen readers
+          announce the note when its words appear; the spacing only comes with them. */}
       <p
         role="status"
-        className="mt-2 text-sm text-secondary-text empty:hidden"
+        className="text-sm text-secondary-text"
         data-theme-limit=""
       >
-        {triedMore && full ? THEME_LIMIT_NOTE : ''}
+        {triedMore && full && (
+          <span className="mt-2 block">{THEME_LIMIT_NOTE}</span>
+        )}
       </p>
       {chosen.length > 0 && (
         <Link

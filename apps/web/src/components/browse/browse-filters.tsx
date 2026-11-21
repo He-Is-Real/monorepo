@@ -13,6 +13,7 @@ import { Button, RadioGroup, SearchBox } from '@heisreal/web-ui';
 import { FormatSelect } from '@/components/story-filters/format-select';
 import {
   type BrowseFilters as Filters,
+  browseHref,
   FAVOURITES_PARAM,
   favouritesOn,
 } from '@/lib/browse-query';
@@ -68,12 +69,21 @@ export function BrowseSearch({ filters }: { filters: Filters }) {
   );
 }
 
+/**
+ * Themes chosen but not yet in the address (ThemeFilter): the themes, and `path`, the address
+ * they started from and each one pushed since.
+ */
+export type PendingThemes = { themes: string[]; path: string[] };
+
 /** The sort and format as chosen on this page, which may be ahead of the address. */
 type Choices = {
   sort: string;
   format: string;
   setSort: (sort: string) => void;
   setFormat: (format: string) => void;
+  /** Themes chosen ahead of the address, or null. */
+  pendingThemes: PendingThemes | null;
+  setPendingThemes: (pending: PendingThemes | null) => void;
 };
 const ChoicesContext = createContext<Choices | null>(null);
 
@@ -82,6 +92,11 @@ const ChoicesContext = createContext<Choices | null>(null);
  * between the column and the Filters panel (which remounts them) while a change is still
  * loading: closing the panel then searching sends the new sort, not the address's (Codex, #254).
  * They start from the address's filters, and again whenever those change.
+ *
+ * The themes chosen ahead of the address live here too, for the same reason (Codex, #259: a
+ * theme chosen, the panel closed and opened again, another chosen: both count). They outlive the
+ * addresses on their own path (the first theme's page arriving before the second's) and go once
+ * the address reaches the last one pushed, or turns into one not on the path (Back, Forward).
  */
 export function BrowseChoices({
   filters,
@@ -100,20 +115,40 @@ export function BrowseChoices({
   // while rendering".
   if (state.from !== from)
     setState({ from, sort: filters.sort, format: filters.format ?? '' });
+  const [pendingThemes, setPendingThemes] = useState<PendingThemes | null>(
+    null,
+  );
+  const here = browseHref(filters, {
+    favourites: favouritesOn(useSearchParams()),
+  });
+  if (
+    pendingThemes &&
+    (!pendingThemes.path.includes(here) || pendingThemes.path.at(-1) === here)
+  )
+    setPendingThemes(null);
   const choices = useMemo(
     () => ({
       sort: state.sort,
       format: state.format,
       setSort: (sort: string) => setState((s) => ({ ...s, sort })),
       setFormat: (format: string) => setState((s) => ({ ...s, format })),
+      pendingThemes,
+      setPendingThemes,
     }),
-    [state.sort, state.format],
+    [state.sort, state.format, pendingThemes],
   );
   return (
     <ChoicesContext.Provider value={choices}>
       {children}
     </ChoicesContext.Provider>
   );
+}
+
+/** The themes chosen ahead of the address, kept by BrowseChoices. */
+export function usePendingThemes() {
+  const choices = useContext(ChoicesContext);
+  if (!choices) throw new Error('ThemeFilter needs BrowseChoices');
+  return [choices.pendingThemes, choices.setPendingThemes] as const;
 }
 
 /**
