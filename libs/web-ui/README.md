@@ -173,7 +173,10 @@ means. Pages use only these names, as Tailwind classes (`bg-danger`, `text-dange
   Not for messages drawn on top of a story's picture or video (a card's "Something went wrong"
   while playing): those keep the media overlay (`media`/`on-media`), since a tinted box over a
   picture would clash. Plain one-line messages inside lists and red error words under a field
-  aren't notices either.
+  aren't notices either, and neither is a page whose whole content is that the thing isn't here
+  ("This draft isn't available", a preview or a story under review that's gone): that is the
+  page's state, a plain `Card`. Padding and gap are in px (A1's), so large text grows the
+  words, not the space.
 - `Quiet`: quiet context that isn't news (NT-2 B): a plain grey box (Share's weekly limit line,
   an empty My submissions).
 - `fieldVariants`: the field look, for a control the library doesn't have yet.

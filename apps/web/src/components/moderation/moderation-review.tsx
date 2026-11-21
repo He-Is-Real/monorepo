@@ -802,13 +802,16 @@ function MediaNote({ story }: { story: ModerationStory }) {
   if (!media || media.processing === 'ready') return null;
   const what = media.format === 'audio' ? 'audio file' : 'video';
   return (
-    <Card asChild className="mx-auto mb-6 max-w-measure p-4">
-      <p data-media-note={media.processing ?? 'processing'}>
-        {media.processing === 'failed'
-          ? `This ${what} couldn’t be processed, so it can’t be played.`
-          : `This ${what} is still being processed. Reload the page in a few minutes to watch it.`}
-      </p>
-    </Card>
+    <Notice
+      kind={media.processing === 'failed' ? 'danger' : 'info'}
+      as="p"
+      className="mx-auto mb-6 max-w-measure"
+      data-media-note={media.processing ?? 'processing'}
+    >
+      {media.processing === 'failed'
+        ? `This ${what} couldn’t be processed, so it can’t be played.`
+        : `This ${what} is still being processed. Reload the page in a few minutes to watch it.`}
+    </Notice>
   );
 }
 

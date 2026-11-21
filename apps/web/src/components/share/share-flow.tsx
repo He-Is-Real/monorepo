@@ -532,7 +532,7 @@ function SignedInFlow({
   }
   if (loaded.state === 'failed') {
     return (
-      <Notice kind="danger" className="p-6 sm:p-8">
+      <Notice kind="danger" className="sm:p-8">
         <h2 role="alert" className="mb-3 text-2xl font-normal">
           Something went wrong
         </h2>

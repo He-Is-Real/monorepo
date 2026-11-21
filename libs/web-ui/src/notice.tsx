@@ -50,6 +50,8 @@ function Icon({ kind }: { kind: NoticeKind }) {
  * (it went wrong), `warning` (needs a second look), `success` (done), `info` (worth knowing).
  * A tinted box, the whole box rounded, a 4 px bar on the left in the kind's colour, the kind's
  * plain icon, and an optional bold `title` on its own line. Words stay the page's text colour.
+ * Its padding and gap are A1's pixels, so large text grows the words (and the icon with them),
+ * not the space round them: a button inside keeps room for whole words on a 320 px phone.
  *
  * It adds no live-region role: the page passes `role="alert"` or `role="status"` where it
  * announces today, and for a region that must be in the page before its words arrive, keeps
@@ -82,7 +84,7 @@ function Notice({
       data-slot="notice"
       data-kind={kind}
       className={cn(
-        'flex items-start gap-2.5 rounded-xl border-l-4 px-3.5 py-3 text-foreground [overflow-wrap:anywhere]',
+        'flex items-start gap-[10px] rounded-xl border-l-4 px-[14px] py-[11px] text-foreground [overflow-wrap:anywhere]',
         KIND[kind].box,
         className,
       )}

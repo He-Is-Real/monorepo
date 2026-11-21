@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page, test } from '@playwright/test';
 import { BEHAVIOUR_DEVICES } from './devices';
+import { enlargeText, expectNoHorizontalOverflow } from './helpers';
 import { STUB_USER_URL, WEB_DOWN_URL, WEB_SIGNED_IN_URL } from './servers';
 
 // The site's notices (NT-1 A1, Joel, 21 November 2026) are one library piece in four kinds. What
@@ -130,4 +131,96 @@ test('the owner’s preview: a story that can’t load is an alert', async ({
       .getByRole('alert')
       .filter({ hasText: 'Something went wrong. Please try again later.' }),
   ).toBeVisible();
+});
+
+/** A button's words wrap only between words: never more lines than words (a letter a line). */
+async function expectWholeWords(button: Locator) {
+  await expect(button).toBeVisible();
+  const { lines, words } = await button.evaluate((el) => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const tops = new Set(
+      [...range.getClientRects()]
+        .filter((r) => r.width > 0)
+        .map((r) => Math.round(r.top)),
+    );
+    return {
+      lines: tops.size,
+      words: (el.textContent ?? '').trim().split(/\s+/).length,
+    };
+  });
+  expect(
+    lines,
+    `“${await button.innerText()}” breaks inside a word`,
+  ).toBeLessThanOrEqual(words);
+}
+
+test.describe('at 200% text on a 320 px phone, buttons in notices keep whole words', () => {
+  // eslint-disable-next-line no-empty-pattern
+  test.beforeEach(({}, info) => {
+    test.skip(info.project.name !== 'phone-320', 'the smallest phone');
+  });
+
+  test('Share’s load error', async ({ page, request }) => {
+    await enlargeText(page);
+    const id = randomUUID().replace(/-/g, '');
+    const res = await request.post(`${STUB_USER_URL}/__e2e/sessions/${id}`, {
+      data: { testimony: 3 },
+    });
+    expect(res.status()).toBe(204);
+    await useSession(page, id);
+    await page.route('**/v1/account', (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ status: 500, json: { status: 500 } })
+        : route.continue(),
+    );
+    await page.goto(`${WEB_SIGNED_IN_URL}/share`);
+    await expectWholeWords(
+      page.locator('[data-slot="notice"]').getByRole('button', {
+        name: 'Try again',
+      }),
+    );
+    await expectNoHorizontalOverflow(page);
+  });
+
+  test('the changed testimony consent banner', async ({ page, request }) => {
+    await enlargeText(page);
+    const id = randomUUID().replace(/-/g, '');
+    const res = await request.post(`${STUB_USER_URL}/__e2e/sessions/${id}`, {
+      data: { testimony: 1 },
+    });
+    expect(res.status()).toBe(204);
+    await useSession(page, id);
+    await page.goto(`${WEB_SIGNED_IN_URL}/about`);
+    const banner = page.locator('[data-consent-banner]');
+    await expectWholeWords(
+      banner.getByRole('link', { name: 'Read what’s changed' }),
+    );
+    await expectWholeWords(banner.getByRole('button', { name: 'Not now' }));
+    await expectNoHorizontalOverflow(page);
+  });
+
+  test('a review page that changed while open', async ({ page }) => {
+    await enlargeText(page);
+    await useSession(page, 'moderator-notice-zoom');
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_video`);
+    await expect(page.locator('[data-review-status]')).toBeVisible();
+    await page.route('**/v1/moderation/stories/mod_video', async (route) => {
+      if (route.request().method() !== 'GET') return route.continue();
+      const response = await route.fetch({
+        headers: { ...route.request().headers(), 'if-none-match': '' },
+      });
+      const body = await response.json();
+      body.version += 1;
+      body.status = 'editing';
+      return route.fulfill({ response, json: body });
+    });
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expectWholeWords(
+      page
+        .locator('[data-review-stale]')
+        .getByRole('button', { name: 'Reload to see it' }),
+    );
+    await expectNoHorizontalOverflow(page);
+  });
 });

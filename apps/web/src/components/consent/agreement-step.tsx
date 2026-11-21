@@ -115,16 +115,18 @@ export function AgreementStep({
       <div>
         {heading(title(document, agreed))}
         <div data-agreement-unavailable="">
-          <p role="alert" className="mb-4 text-secondary-text">
-            {TRY_AGAIN_LATER}
-          </p>
-          <Button
-            variant="outline"
-            wrap
-            onClick={() => void load(changedFrom ?? agreed?.version ?? null)}
-          >
-            Try again
-          </Button>
+          <Notice kind="danger">
+            <p role="alert" className="mb-3">
+              {TRY_AGAIN_LATER}
+            </p>
+            <Button
+              variant="outline"
+              wrap
+              onClick={() => void load(changedFrom ?? agreed?.version ?? null)}
+            >
+              Try again
+            </Button>
+          </Notice>
           {after}
         </div>
       </div>
