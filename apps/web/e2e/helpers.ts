@@ -305,14 +305,28 @@ export async function optionLabels(control: Locator) {
 }
 
 /**
+ * Waits until React has taken over an element from the server's page (its props are on the DOM
+ * node), so a press on it acts. For controls that are in the server's page but only work with
+ * JavaScript.
+ */
+export async function hydrated(el: Locator) {
+  await expect
+    .poll(() =>
+      el.evaluate((node) =>
+        Object.keys(node).some((k) => k.startsWith('__reactProps$')),
+      ),
+    )
+    .toBe(true);
+}
+
+/**
  * The Stories page's filters (BS-1 C, Joel 2026-11-20): on a computer, the column beside the
  * stories; on tablets and phones, the Filters panel, opened here. Waits for the page's
- * JavaScript first: the "Favourites only" switch shows once it has run, so the press opens the
- * panel, and on a computer the column's themes have moved down to make room for it (a click
- * aimed before that lands between two themes and does nothing).
+ * JavaScript first: the "Favourites only" switch is in the server's page (BS-9), but a press
+ * before React has taken it over (or the Filters button) does nothing.
  */
 export async function browseFilters(page: Page): Promise<Locator> {
-  await expect(page.locator('[data-favourites-only]')).toBeAttached();
+  await hydrated(page.locator('[data-favourites-only]'));
   const button = page.getByRole('button', { name: /^Filters/ });
   if (!(await button.isVisible()))
     return page.getByRole('complementary', { name: 'Filters' });

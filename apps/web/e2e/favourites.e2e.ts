@@ -17,6 +17,7 @@ import {
   expectNoHorizontalOverflow,
   expectTarget,
   fetchesTakenIn,
+  hydrated,
   storiesColumns,
 } from './helpers';
 import {
@@ -890,6 +891,42 @@ async function filtersOverFavourites(page: Page, base: string) {
   await expect(only).toBeChecked();
   await expect(cards).toHaveCount(8);
 }
+
+// BS-9 (Joel, 2026-11-21): "Favourites only" is in the server's page for everyone, so on a
+// computer the filters column never moves once shown (it used to arrive with the session and
+// push the themes down), and it works at once, signed out with this browser's hearts.
+test('the filters column stays put from the first paint, and Favourites only works at once, signed out', async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== 'desktop-1280', 'the column: one computer');
+  await seedDeviceHearts(page, [{ id: 'browse_04' }]);
+  // Every frame from the start, where the first theme is (once it's there).
+  await page.addInitScript(() => {
+    const w = window as unknown as { themeYs: number[] };
+    w.themeYs = [];
+    const look = () => {
+      const a = document.querySelector('[data-filters-column] nav a');
+      if (a) w.themeYs.push(Math.round(a.getBoundingClientRect().y));
+      if (w.themeYs.length < 600) requestAnimationFrame(look);
+    };
+    requestAnimationFrame(look);
+  });
+  await page.goto('/stories');
+  const only = page
+    .getByRole('complementary', { name: 'Filters' })
+    .getByRole('switch', { name: 'Favourites only' });
+  await expect(only).not.toBeChecked();
+  await hydrated(only);
+  await only.click();
+  await expect(only).toBeChecked();
+  await expect(page).toHaveURL('/stories?favourites=1');
+  await expect(page.locator('[data-favourites] article')).toHaveCount(1);
+  const ys = await page.evaluate(
+    () => (window as unknown as { themeYs: number[] }).themeYs,
+  );
+  expect(ys.length).toBeGreaterThan(0);
+  expect(new Set(ys).size, 'the first theme never moved').toBe(1);
+});
 
 test.describe('filters over favourites', () => {
   // eslint-disable-next-line no-empty-pattern
