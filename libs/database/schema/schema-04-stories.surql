@@ -1414,10 +1414,11 @@ DEFINE FUNCTION OVERWRITE fn::upload::next_allowed_at($user: option<record<user>
     ELSE IF $byHour > $byWeek { $byHour } ELSE { $byWeek };
 };
 -- An image's bounds (M2 plan PR 10): the browser re-encodes it to WebP at most 2048 px on its
--- longer side, so the pixel bounds only stop what no browser of ours sends (mirrored in api-user,
--- uploads.ts). The file's size is the admin's setting (imageMaxBytes, Joel 2026-11-20).
+-- longer side, so the largest only stops what no browser of ours sends (mirrored in api-user,
+-- uploads.ts). No smallest size (Joel 2026-11-21, thumbnail crop TC-7 A): 1 px up. The file's
+-- size is the admin's setting (imageMaxBytes, Joel 2026-11-20).
 DEFINE FUNCTION OVERWRITE fn::upload::image_limits() {
-  RETURN { maxBytes: fn::settings::submission().imageMaxBytes, minSide: 200, maxSide: 4096 };
+  RETURN { maxBytes: fn::settings::submission().imageMaxBytes, maxSide: 4096 };
 };
 -- RequestUpload's write (api-user's login; system users load rows as given): the story must be the
 -- person's and editable at the version they saw, they must have agreed to the latest terms of use
@@ -1450,8 +1451,8 @@ DEFINE EVENT OVERWRITE storyFile_attach ON storyFile
       IF $after.sizeBytes > $il.maxBytes {
         THROW 'limit_upload_size: the image is bigger than the setting allows (imageMaxBytes)';
       };
+      -- No smallest size (TC-7 A): the fields themselves take any width and height over 0.
       IF $after.width = NONE OR $after.height = NONE
-        OR $after.width < $il.minSide OR $after.height < $il.minSide
         OR $after.width > $il.maxSide OR $after.height > $il.maxSide
         OR !fn::shape::allowed($after.width, $after.height) {
         THROW 'upload_refused: an image’s pixel size or shape is outside what we take (D53)';

@@ -95,11 +95,13 @@ export type UploadTarget =
 
 /**
  * An image's pixel bounds, as the database's fn::upload::image_limits: the browser sends at most
- * 2048 px on the longer side, so these only stop what no browser of ours sends. Its file's size is
- * the admin's setting, `imageMaxBytes` (Joel, 2026-11-20), read for each request and send.
+ * 2048 px on the longer side, so the largest only stops what no browser of ours sends. There is no
+ * smallest size beyond 1 px (Joel 2026-11-21, thumbnail crop TC-7 A: pixel art is welcome; the
+ * browser enlarges small pictures with hard edges before upload). Its file's size is the admin's
+ * setting, `imageMaxBytes` (Joel, 2026-11-20), read for each request and send.
  */
 export const IMAGE_LIMITS = {
-  minSide: 200,
+  minSide: 1,
   maxSide: 4096,
 };
 
