@@ -194,9 +194,10 @@ short-lived upload credentials.
   web's server sends api-public-read the website key in `X-Website-Key` (a private header, not
   for other callers); with the right key, its calls share the `website` allowance; a missing or
   wrong key is an ordinary caller. api-admin limits only requests it refuses for sign-in (RL-2):
-  `RateLimits.refusals` counts a request once it's answered `401`, or `403` to a caller who isn't
-  staff, and refuses an address over the limit before anything else runs; signed-in staff are
-  never counted.
+  `RateLimits.refusals` counts a request with no sign-in as it arrives, and any other once it
+  ends, if it was answered `401`, or `403` to a caller who isn't staff (or the caller hung up and
+  isn't staff); an address over the limit is refused before anything else runs. Signed-in staff
+  are never counted.
 - **IDs and slugs:** public queries use the slug (`GET /v1/stories/{slug}`); commands and admin
   routes use the ID. An old slug answers `301` to the current one (through `slugHistory`), so
   shared links survive a title edit.

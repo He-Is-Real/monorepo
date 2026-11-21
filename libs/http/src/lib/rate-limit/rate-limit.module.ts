@@ -181,43 +181,57 @@ export class RateLimits implements OnModuleInit {
   }
 
   /**
-   * A limit that counts only the requests `isRefusal` picks once they're answered (api-admin's
-   * sign-in refusals, RL-2), and refuses an address over it before anything else runs. Every
-   * other request passes and isn't counted, so it never counts in flight either: a busy signed-in
-   * moderator's requests can't add up, however many run at once.
+   * A limit that counts only refused requests (api-admin's sign-in refusals, RL-2), and refuses
+   * an address over it before anything else runs. Other requests pass and aren't counted, so a
+   * busy signed-in moderator's requests can't add up, however many run at once.
+   *
+   * - `refusedOnArrival`: requests sure to be refused (no sign-in at all) count as they arrive,
+   *   so a burst of them sent at once is cut off at the limit, not after it.
+   * - `isRefusal`: every other request is judged when it ends (answered, or the caller hung up;
+   *   `res.writableFinished` tells which). It may answer a promise; a rejection counts as no.
    *
    * Our own small middleware on the same counter and generic error as the other groups, not an
    * express-rate-limit option: its `requestWasSuccessful` counts every request first and takes
    * back the good ones only when they finish, so a moderator's parallel requests would count
-   * while they run, and a request that finishes in the next window would be taken back from the
-   * wrong one.
-   *
-   * `isRefusal` may answer a promise (it's given the finished request); a rejection counts as no.
+   * while they run, and one that finishes in the next window would be taken back from the wrong
+   * one.
    */
   refusals(
     group: RateLimitGroup,
-    isRefusal: (req: Request, res: Response) => boolean | Promise<boolean>,
+    {
+      refusedOnArrival,
+      isRefusal,
+    }: {
+      refusedOnArrival: (req: Request) => boolean;
+      isRefusal: (req: Request, res: Response) => boolean | Promise<boolean>;
+    },
   ): RequestHandler {
     if (!this.active) return (_req, _res, next) => next();
     const { limit, windowMs } = RATE_LIMITS[group];
     const counter = new SlidingWindowCounter({ windowMs, now: this.now });
+    const count = (key: string) => {
+      const total = counter.hit(key);
+      // One line as the caller reaches the limit, never the address or the path.
+      if (total >= limit && total - 1 < limit) {
+        writeLog('WARNING', 'Rate limit reached', {
+          event: 'rate_limited',
+          group,
+        });
+      }
+    };
     return (req: Request, res: Response, next: NextFunction) => {
       const key = callerKey(req.ip ?? 'unknown');
       if (counter.peek(key) >= limit) return sendServerError(res);
-      res.once('finish', () => {
+      if (refusedOnArrival(req)) {
+        count(key);
+        return next();
+      }
+      res.once('close', () => {
         Promise.resolve()
           .then(() => isRefusal(req, res))
           .then(
             (refused) => {
-              if (!refused) return;
-              const count = counter.hit(key);
-              // One line as the caller reaches the limit, never the address or the path.
-              if (count >= limit && count - 1 < limit) {
-                writeLog('WARNING', 'Rate limit reached', {
-                  event: 'rate_limited',
-                  group,
-                });
-              }
+              if (refused) count(key);
             },
             () => undefined,
           );

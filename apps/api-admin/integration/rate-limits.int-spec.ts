@@ -122,6 +122,18 @@ describe('api-admin rate limits', () => {
     expect((await send(ip)).status).toBe(401);
   });
 
+  it('cuts off a burst sent all at once at the limit', async () => {
+    const ip = '203.0.113.45';
+    const burst = await Promise.all(
+      Array.from({ length: 2 * LIMIT }, () => send(ip)),
+    );
+    const statuses = burst.map((r) => r.status).sort();
+    expect(statuses).toEqual([
+      ...Array(LIMIT).fill(401),
+      ...Array(LIMIT).fill(500),
+    ]);
+  });
+
   it('counts a signed-in person who isn’t staff, and someone the database doesn’t know', async () => {
     const ip = '203.0.113.50';
     const member = as('user_member', 'User');
