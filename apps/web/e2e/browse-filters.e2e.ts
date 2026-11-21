@@ -298,6 +298,32 @@ test('the column starts at exactly 1024 px', async ({ page }, info) => {
   }
 });
 
+// Joel 2026-11-21: the browser's "Large" text (20 px) keeps the column on a desktop screen; from
+// "Very large" (24 px) the Filters button takes over, so the stories aren't squeezed.
+test('a desktop screen keeps the column at Large text, the Filters button from Very large', async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== 'desktop-1280', 'one computer, resized');
+  await page.setViewportSize({ width: 1920, height: 1000 });
+  for (const [percent, column] of [
+    ['125%', true],
+    ['150%', false],
+  ] as const) {
+    await page.goto('/stories');
+    await page.addStyleTag({
+      content: `html { font-size: ${percent} !important; }`,
+    });
+    await expect(page.locator('[data-favourites-only]')).toBeAttached();
+    await expect(page.locator('[data-filters-column]'), percent).toBeVisible({
+      visible: column,
+    });
+    await expect(filtersButton(page), percent).toBeVisible({
+      visible: !column,
+    });
+    await expectNoHorizontalOverflow(page);
+  }
+});
+
 // BS-6 B (Joel, 2026-11-21): themes stack, and a story shows only if it has every chosen theme.
 test.describe('stacked themes', () => {
   // eslint-disable-next-line no-empty-pattern

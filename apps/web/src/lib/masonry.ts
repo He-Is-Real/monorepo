@@ -435,7 +435,7 @@ function columnRules(n: ColumnCount): string {
  * (about 1200 px screens): 3 columns there would be under the 260 px a card needs. In rem, as
  * browse-view's classes, which repeat these numbers.
  */
-export const BESIDE_FILTERS = { from: 57, threeColumns: 70 } as const;
+export const BESIDE_FILTERS = { from: 50, threeColumns: 70 } as const;
 
 /**
  * The masonry's stylesheet (story-masonry.tsx renders it once per page), in rem so it scales with
@@ -463,6 +463,6 @@ export const MASONRY_CSS = [
     (n) => `@media (min-width:${BREAKPOINTS[n]}px){${columnRules(n)}}`,
   ),
   // After the 3 columns' rules, so these win where both apply.
-  // The column's own condition (browse-view.tsx's `lg:@min-[57rem]:`), below 3 columns' width.
+  // The column's own condition (browse-view.tsx's `lg:@min-[50rem]:`), below 3 columns' width.
   `@media (min-width:${BREAKPOINTS[3]}px){@media (min-width:64rem){@container browse (min-width:${BESIDE_FILTERS.from}rem) and (width < ${BESIDE_FILTERS.threeColumns}rem){${columnRules(2)}}}}`,
 ].join('\n');

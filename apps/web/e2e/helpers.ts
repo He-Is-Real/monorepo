@@ -325,14 +325,17 @@ export async function browseFilters(page: Page): Promise<Locator> {
  * How many story columns the Stories page (and Favourites only) shows on this screen: 3 from
  * 1024 px, 2 from 640 px, 1 below, whatever the text size (Joel, 2026-11-07/08); but beside the
  * filters column, 2 until the page's content is 70rem wide (BS-5 B, Joel 2026-11-21). The column
- * shows while the content (at most 1200 px, less 2.5rem of padding a side) is at least 57rem.
- * `text` is the root text size in px. Playwright's screens have no scrollbar.
+ * shows while the screen is at least 64rem and the content (at most 1200 px, less 2.5rem of
+ * padding a side) at least 50rem. `text` is the reader's text setting in px. Playwright's screens have no scrollbar.
  */
 export function storiesColumns(width: number, text = 16): number {
   if (width < 640) return 1;
   if (width < 1024) return 2;
+  // The column also needs the screen at least 64rem (`lg`), and a reader's text setting scales
+  // that too: at 20 px text it starts at 1280 px.
+  if (width < 64 * text) return 3;
   const content = (Math.min(width, 1200) - 5 * text) / text;
-  return content >= 57 && content < 70 ? 2 : 3;
+  return content >= 50 && content < 70 ? 2 : 3;
 }
 
 /** Closes the Stories page's Filters panel with "Show stories", if it's open. */
