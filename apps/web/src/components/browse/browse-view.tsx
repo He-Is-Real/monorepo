@@ -335,11 +335,7 @@ export function BrowseView({
             ) : (
               <span />
             )}
-            <Button
-              type="button"
-              onClick={() => dialog.current?.close()}
-              className="h-11 px-5"
-            >
+            <Button type="button" onClick={() => dialog.current?.close()}>
               Show stories
             </Button>
           </div>

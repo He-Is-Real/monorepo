@@ -6,7 +6,7 @@ import { StoryHeart } from './heart-button';
 import { ShareMenu } from './share-menu';
 import { StoryMedia } from './story-media';
 import { StoryText } from './story-text';
-import { Card, Chip } from '@heisreal/web-ui';
+import { Button, Card, Chip } from '@heisreal/web-ui';
 
 /** The reading column (Joel's R1): at most 80 characters a line, centred. */
 const COLUMN = 'mx-auto w-full max-w-measure min-w-0';
@@ -65,12 +65,9 @@ function KeepExploring({ related }: { related: StorySummary[] }) {
           <p className="mb-4 text-sm text-muted-foreground">
             If this story has touched you, there are ways to keep exploring.
           </p>
-          <Link
-            href="/next-steps"
-            className="flex min-h-11 items-center justify-center rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
-          >
-            Next steps
-          </Link>
+          <Button asChild className="w-full">
+            <Link href="/next-steps">Next steps</Link>
+          </Button>
         </section>
       </Card>
     </aside>

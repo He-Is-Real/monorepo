@@ -139,7 +139,7 @@ export function SignedInAccount({
           My profile
         </a>
         {signOut(
-          <Button variant="outline" className="h-11 w-full">
+          <Button variant="outline" className="w-full">
             Sign out
           </Button>,
         )}
@@ -167,7 +167,7 @@ export function SignInLink() {
   const pathname = usePathname();
   const search = useSearchParams().toString();
   return (
-    <Button asChild className="h-11 px-4">
+    <Button asChild className="px-4">
       <a href={signInHref(`${pathname}${search ? `?${search}` : ''}`)}>
         Sign in
       </a>

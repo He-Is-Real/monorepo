@@ -13,6 +13,7 @@ import {
 import { apiAdminUrl } from '@/lib/config';
 import { logStoriesUnavailable } from '@/lib/log';
 import { jsonLdScript, pageMetadata } from '@/lib/seo';
+import { Button } from '@heisreal/web-ui';
 
 type Props = { params: Promise<{ slug: string }> };
 
@@ -58,12 +59,9 @@ function StoryUnavailable({ slug }: { slug: string }) {
       <h1 className="text-3xl font-semibold">Something went wrong</h1>
       <p className="text-secondary-text">Please try again later.</p>
       <div className="flex flex-wrap justify-center gap-3">
-        <a
-          href={`/stories/${slug}`}
-          className="inline-flex min-h-11 items-center rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
-        >
-          Try again
-        </a>
+        <Button asChild>
+          <a href={`/stories/${slug}`}>Try again</a>
+        </Button>
         <Link
           href="/stories"
           className="inline-flex min-h-11 items-center px-2"

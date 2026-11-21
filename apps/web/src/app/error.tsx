@@ -22,9 +22,7 @@ export default function ErrorPage({
       <h1 className="text-3xl font-semibold">Something went wrong</h1>
       <p className="text-secondary-text">Please try again later.</p>
       <div className="flex flex-wrap justify-center gap-3">
-        <Button className="h-11 px-4" onClick={() => reset()}>
-          Try again
-        </Button>
+        <Button onClick={() => reset()}>Try again</Button>
         <Link href="/" className="inline-flex min-h-11 items-center px-2">
           Go to the home page
         </Link>

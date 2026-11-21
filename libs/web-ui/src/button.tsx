@@ -3,25 +3,31 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from './cn';
 import { Slot } from 'radix-ui';
 
-const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-all outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-danger aria-invalid:ring-danger/20 dark:aria-invalid:ring-danger/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+const variants = cva(
+  // BT-1 A (Joel, 20 November 2026): 44 px tall by default, semibold words, 8 px corners and the
+  // site's keyboard focus (a 2 px outline with a gap, theme.css), the same on every variant.
+  "inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-semibold whitespace-nowrap transition-all disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-danger [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground hover:bg-primary/90',
+        default:
+          'bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground',
         /**
          * Can't be undone (delete, reject): moderation's checked red (OT-1, Joel, 20 November
          * 2026). White on the red 5.6:1 in light; in dark the red at 80% over the card, 5.6:1.
          */
         danger:
-          'bg-danger text-danger-foreground hover:bg-danger/90 focus-visible:ring-danger/20 dark:bg-danger/80 dark:hover:bg-danger/70 dark:focus-visible:ring-danger/40',
+          'bg-danger text-danger-foreground hover:bg-danger/90 hover:text-danger-foreground dark:bg-danger/80 dark:hover:bg-danger/70',
         /**
          * Needs a second look rather than an end (moderation's Send back, OT-1): the warning
          * amber, white text 5.9:1 in light, near-black 8.6:1 in dark.
          */
-        caution: 'bg-warning text-warning-foreground hover:bg-warning/90',
+        caution:
+          'bg-warning text-warning-foreground hover:bg-warning/90 hover:text-warning-foreground',
         outline:
-          'border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50',
+          // One outlined look for buttons and button-links (BT-1 A): the stronger edge, teal on
+          // hover, as Share's and the page links' outlined buttons were.
+          'border border-border-hover bg-background text-foreground hover:border-brand hover:bg-accent hover:text-foreground dark:bg-input/30',
         secondary:
           'bg-secondary text-secondary-foreground hover:bg-secondary/80',
         ghost:
@@ -29,24 +35,23 @@ const buttonVariants = cva(
         link: 'text-primary underline-offset-4 hover:underline',
       },
       size: {
-        default: 'h-9 px-4 py-2 has-[>svg]:px-3',
-        xs: "h-6 gap-1 rounded-md px-2 text-xs has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: 'h-8 gap-1.5 rounded-md px-3 has-[>svg]:px-2.5',
-        lg: 'h-10 rounded-md px-6 has-[>svg]:px-4',
-        icon: 'size-9',
-        'icon-xs': "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3",
-        'icon-sm': 'size-8',
-        'icon-lg': 'size-10',
+        /** 44 px, a fingertip. */
+        default: 'h-11 px-5 has-[>svg]:px-4',
+        /** 48 px: the home page's large calls to action. */
+        lg: 'h-12 px-7 text-[0.9375rem] has-[>svg]:px-5',
+        /** A square 44 px icon button. */
+        icon: 'size-11',
       },
       /**
        * Text that may wrap (admin and moderation pages): at least 44 px tall, full width on
        * phones, its own width from 640 px.
        */
       wrap: {
-        true: 'h-auto min-h-11 w-full px-5 py-2 whitespace-normal sm:w-auto',
+        true: 'h-auto min-h-11 w-full py-2 text-center whitespace-normal sm:w-auto',
         false: '',
       },
     },
+    compoundVariants: [{ size: 'lg', wrap: true, class: 'min-h-12' }],
     defaultVariants: {
       variant: 'default',
       size: 'default',
@@ -54,6 +59,17 @@ const buttonVariants = cva(
     },
   },
 );
+
+/**
+ * The button's classes, merged (tailwind-merge), so a variant's class replaces the base one it
+ * overrides (`wrap`'s `whitespace-normal` and `h-auto` over `whitespace-nowrap` and `h-11`):
+ * for plain buttons and links that can't use `Button`.
+ */
+function buttonVariants(
+  props?: Parameters<typeof variants>[0] & { className?: string },
+) {
+  return cn(variants(props));
+}
 
 function Button({
   className,
@@ -64,7 +80,7 @@ function Button({
   disabledReason,
   ...props
 }: React.ComponentProps<'button'> &
-  VariantProps<typeof buttonVariants> & {
+  VariantProps<typeof variants> & {
     asChild?: boolean;
     /**
      * Why the button is greyed out (OT-2 A, Joel, 20 November 2026: "Write a reason first."):
@@ -82,7 +98,7 @@ function Button({
       data-slot="button"
       data-variant={variant}
       data-size={size}
-      className={cn(buttonVariants({ variant, size, wrap, className }))}
+      className={buttonVariants({ variant, size, wrap, className })}
       {...props}
       aria-describedby={
         why

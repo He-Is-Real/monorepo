@@ -191,7 +191,7 @@ export function FavouritesList({
         </p>
         <Button
           variant="outline"
-          className="h-11 px-5"
+
           onClick={() => start(list.owner)}
         >
           Try again
@@ -206,9 +206,7 @@ export function FavouritesList({
           You haven’t hearted any stories yet. Press the heart on a story you
           want to find again, and it will be here.
         </p>
-        <Button className="h-11 px-5" onClick={onShowAll}>
-          Show all stories
-        </Button>
+        <Button onClick={onShowAll}>Show all stories</Button>
       </Notice>
     );
 

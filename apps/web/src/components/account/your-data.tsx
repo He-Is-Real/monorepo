@@ -165,7 +165,7 @@ function DownloadMyData() {
         </p>
         <Button
           variant="outline"
-          className="h-auto min-h-11 px-5 py-2 whitespace-normal"
+          wrap
           disabled={busy || !owner}
           aria-busy={busy}
           onClick={() => void download()}

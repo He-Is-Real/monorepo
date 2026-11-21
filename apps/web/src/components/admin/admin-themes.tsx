@@ -977,7 +977,7 @@ function SaveBar({
           <Button
             type="button"
             variant="outline"
-            className="min-h-11"
+
             disabled={busy}
             onClick={onDiscard}
           >
@@ -986,7 +986,7 @@ function SaveBar({
         )}
         <Button
           type="button"
-          className="min-h-11"
+
           disabled={n === 0 || busy || stale}
           onClick={onSave}
         >

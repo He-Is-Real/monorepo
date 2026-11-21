@@ -146,7 +146,7 @@ export function DeviceHeartsPrompt() {
         <div className="mt-3 flex flex-wrap justify-end gap-2">
           <Button
             variant="outline"
-            className="h-11 px-4"
+
             onClick={() => {
               if (userId) notNow.add(userId);
               showingResultFor.current = null;
@@ -155,11 +155,7 @@ export function DeviceHeartsPrompt() {
           >
             Not now
           </Button>
-          <Button
-            className="h-11 px-4"
-            onClick={add}
-            disabled={adding === 'adding'}
-          >
+          <Button onClick={add} disabled={adding === 'adding'}>
             {adding === 'adding'
               ? 'Adding…'
               : adding === 'failed'

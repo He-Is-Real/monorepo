@@ -29,6 +29,7 @@ import {
   useRuns,
   useUploadRequest,
 } from './upload-request';
+import { buttonVariants } from '@heisreal/web-ui';
 
 /**
  * A video or audio story's file (M2 plan PR 7; D68, D80, D113): drag and drop or choose a file,
@@ -113,11 +114,10 @@ const KINDS: Record<UploadFormat, string> = {
 /** A link with less left than this is renewed before carrying on. */
 const RENEW_MS = 5 * 60_000;
 
-// The same button looks as share-flow.tsx.
-const button =
-  'inline-flex min-h-11 items-center justify-center rounded-md px-5 text-sm font-semibold transition-colors disabled:opacity-60';
-const primary = `${button} bg-primary text-primary-foreground hover:bg-primary/90`;
-const secondary = `${button} border border-border-hover text-secondary-text hover:border-brand hover:bg-accent hover:text-foreground`;
+// The library's button looks (BT-1 A), on plain buttons and links; their words wrap at large
+// text sizes rather than widening the page.
+const primary = buttonVariants({ wrap: true });
+const secondary = buttonVariants({ variant: 'outline', wrap: true });
 
 export function formatBytes(n: number): string {
   const units = ['bytes', 'KB', 'MB', 'GB'];

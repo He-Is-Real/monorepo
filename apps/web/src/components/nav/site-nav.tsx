@@ -11,6 +11,7 @@ import {
   useState,
 } from 'react';
 import { isStaffPath, useStaffNavLinks } from '@/components/admin/admin-access';
+import { Button } from '@heisreal/web-ui';
 
 // The site's sections (mockups' nav). The static pages are M1 step 6b-2; Donate shows Stripe's
 // Buy Buttons where they're set (M4), otherwise a placeholder. "Impact" from the mockups waits
@@ -48,7 +49,9 @@ export function NavLinks({ className = '' }: { className?: string }) {
       data-role-known={known ? '' : undefined}
     >
       <ul
-        className={`flex flex-wrap items-center gap-x-5 gap-y-0 lg:gap-x-7 ${staff.length ? 'xl:justify-end' : 'xl:flex-nowrap'}`}
+        // Beside the logo (site-header.tsx), the links line up at its end; they wrap rather than
+        // run over it.
+        className="flex flex-wrap items-center gap-x-5 gap-y-0 lg:gap-x-7 xl:@min-[78rem]:justify-end"
       >
         {NAV_LINKS.map((l) => (
           <li key={l.href}>
@@ -147,13 +150,11 @@ function MenuLinks({
           ))}
         </ul>
       </nav>
-      <Link
-        href={SHARE_HREF}
-        onClick={onLink}
-        className="mt-6 flex min-h-11 items-center justify-center rounded-md bg-primary px-6 font-semibold text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
-      >
-        Share your story
-      </Link>
+      <Button asChild className="mt-6 w-full">
+        <Link href={SHARE_HREF} onClick={onLink}>
+          Share your story
+        </Link>
+      </Button>
     </>
   );
 }
