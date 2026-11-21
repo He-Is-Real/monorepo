@@ -4,9 +4,11 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   type MouseEvent,
+  startTransition,
   useCallback,
   useEffect,
   useId,
+  useOptimistic,
   useRef,
   useState,
 } from 'react';
@@ -105,42 +107,26 @@ function Filtered({
 
   // The choices made but not yet in the address: two quick choices both count, each navigation
   // building on the one before rather than on the address it hasn't reached yet (Codex round 1).
-  // `path` is the address they started from and each one pushed since: once the address reaches
-  // the last, or turns into one not on the path (Back, Forward), the
-  // address wins again.
+  // React's optimistic state, tied to each navigation's transition: shown while it is under way,
+  // gone once it ends or a newer navigation takes over (Back, Forward), when the address wins
+  // again (Codex, #259 round 3).
   const router = useRouter();
-  const [pending, setPending] = useState<{
-    filters: ListFilters;
-    path: string[];
-  } | null>(null);
-  const here = moderationHref(filters);
-  if (
-    pending &&
-    (!pending.path.includes(here) ||
-      pending.path[pending.path.length - 1] === here)
-  )
-    setPending(null);
-  const view = pending?.filters ?? filters;
+  const [view, setView] = useOptimistic(filters);
   const go = (next: Partial<ListFilters>) => {
     const f = { ...view, ...next };
-    const href = moderationHref(f);
-    setPending({ filters: f, path: [...(pending?.path ?? [here]), href] });
-    router.push(href, { scroll: false });
+    startTransition(() => {
+      setView(f);
+      router.push(moderationHref(f), { scroll: false });
+    });
   };
-  // A state tab or Clear filters link is a choice too, its link doing the navigating: it becomes
-  // the pending choice, so a filter or sort chosen before its page loads builds on it (Codex
-  // round 2). When it leads back to the address the choices started from, that address is
-  // already on the path, so the pending choices are dropped instead of outliving it. A click
-  // that opens a new browser tab changes nothing here.
+  // A state tab or Clear filters link is a choice too (Codex round 2): a plain click goes the
+  // same way, so a filter or sort chosen before its page loads builds on it. A click that opens
+  // a new browser tab just follows the link.
   const follow = (f: ListFilters, e: MouseEvent<HTMLAnchorElement>) => {
     if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)
       return;
-    const href = moderationHref(f);
-    setPending(
-      href === here
-        ? null
-        : { filters: f, path: [...(pending?.path ?? [here]), href] },
-    );
+    e.preventDefault();
+    go(f);
   };
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' });
   // The counts stay as last read until the next answer (OQ-2: they change when the list reloads).

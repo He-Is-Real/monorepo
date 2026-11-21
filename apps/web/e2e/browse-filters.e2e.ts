@@ -515,6 +515,86 @@ test.describe('stacked themes', () => {
     ]);
   });
 
+  /** Holds the page load for exactly these themes (and no search) until released. */
+  async function holdThemes(page: Page, themes: string) {
+    let release = () => undefined as void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let seen = () => undefined as void;
+    const asked = new Promise<void>((resolve) => (seen = resolve));
+    await page.route(
+      (url) =>
+        url.pathname === '/stories' &&
+        !url.searchParams.get('q') &&
+        url.searchParams.getAll('theme').join() === themes,
+      async (route) => {
+        seen();
+        await held;
+        await route.continue().catch(() => undefined);
+      },
+    );
+    return { asked, release };
+  }
+
+  // Codex, #259 round 3: a newer navigation takes over from a theme still loading; what's chosen
+  // then follows the address it reaches, and the next theme builds on that address.
+  test('a search sent while a theme is still loading: the chosen themes follow the address', async ({
+    page,
+  }) => {
+    await page.goto('/stories');
+    const { asked, release } = await holdThemes(page, 'healing');
+    try {
+      const filters = await browseFilters(page);
+      await theme(filters, 'Healing').click();
+      await asked;
+      await closeBrowseFilters(page);
+      const box = page.getByLabel('Search stories');
+      await box.fill('test');
+      await box.press('Enter');
+      // The search carries the themes as chosen.
+      await expect(page).toHaveURL(
+        /\/stories\?q=test&theme=healing(&sort=latest)?$/,
+      );
+    } finally {
+      release();
+    }
+    await expect(page).toHaveURL(
+      /\/stories\?q=test&theme=healing(&sort=latest)?$/,
+    );
+    const filters = await browseFilters(page);
+    await expect(theme(filters, 'Healing')).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+    await theme(filters, 'Hope').click();
+    await expect(page).toHaveURL(
+      /\/stories\?q=test&theme=healing&theme=hope(&sort=latest)?$/,
+    );
+  });
+
+  test('Back while a theme is still loading, to an address with the same filters: no theme stays chosen', async ({
+    page,
+  }) => {
+    await page.goto('/stories');
+    // The same filters written another way: a second history entry.
+    await page.goto('/stories?sort=latest');
+    const { asked, release } = await holdThemes(page, 'healing');
+    try {
+      const filters = await browseFilters(page);
+      await theme(filters, 'Healing').click();
+      await asked;
+      await page.goBack();
+      await expect(page).toHaveURL(/\/stories$/);
+    } finally {
+      release();
+    }
+    await expect(page).toHaveURL(/\/stories$/);
+    const filters = await browseFilters(page);
+    await expect(theme(filters, 'Healing')).not.toHaveAttribute('aria-current');
+    await theme(filters, 'Hope').click();
+    await expect(page).toHaveURL(/\/stories\?theme=hope$/);
+    await expect(theme(filters, 'Healing')).not.toHaveAttribute('aria-current');
+  });
+
   test('on a phone, each chosen theme is its own chip', async ({
     page,
   }, info) => {
@@ -575,7 +655,8 @@ test.describe('computers: sort', () => {
     await expect(page.locator('[data-favourites-only]')).toBeAttached();
     await sort.getByRole('radio', { name: 'Oldest first' }).focus();
     await page.keyboard.press('ArrowUp');
-    await expect(page).toHaveURL(/[?&]sort=latest(&|$)/);
+    // Latest first is the usual order, so the address leaves it out.
+    await expect(page).toHaveURL(/\/stories$/);
     await expect(titles.first()).toHaveText(latestFirst[0]);
 
     // With a search, Best match joins them (and is the first choice).

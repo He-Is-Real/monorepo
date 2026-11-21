@@ -2,8 +2,8 @@
 
 import Link from 'next/link';
 import { type MouseEvent, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { usePendingThemes } from '@/components/browse/browse-filters';
+import { useSearchParams } from 'next/navigation';
+import { useThemeChoices } from '@/components/browse/browse-filters';
 import { ThemePicker } from '@/components/themes/theme-picker';
 import { THEMES_MAX } from '@heisreal/story-filters';
 import { Chip, ChipTick } from '@heisreal/web-ui';
@@ -18,12 +18,9 @@ import {
 /**
  * Browse by theme (themes plan v3, mockup 3; BS-6 B, Joel 2026-11-21): the shared picker, each
  * theme a link that turns it on or off (`?theme=` once per chosen theme); only stories with every
- * chosen theme show. With "Favourites only" on, it filters the favourites.
- *
- * Choices made but not yet in the address count, as on the moderators' list (Codex, #259): two
- * themes pressed quickly both stay on, each navigation building on the one before rather than on
- * the address it hasn't reached yet (BrowseChoices keeps them, and lets the address win again
- * once it catches up, or on Back and Forward). A click with a modifier key still just opens the link.
+ * chosen theme show. With "Favourites only" on, it filters the favourites. A plain click is one of
+ * BrowseChoices' navigations, so two themes pressed quickly both count (Codex, #259); a click
+ * with a modifier key still just opens the link.
  */
 export function ThemeFilter({
   categories,
@@ -36,24 +33,16 @@ export function ThemeFilter({
 }) {
   // "Favourites only" stays on: its list is filtered by theme too.
   const favourites = favouritesOn(useSearchParams());
-  const router = useRouter();
-  // Kept by BrowseChoices, so they survive the panel closing and opening (which remounts this).
-  const [pending, setPending] = usePendingThemes();
-  const here = browseHref(filters, { favourites });
-  const view = { ...filters, themes: pending?.themes ?? filters.themes };
-  const go = (themes: string[]) => {
-    const href = browseHref({ ...filters, themes }, { favourites });
-    setPending({ themes, path: [...(pending?.path ?? [here]), href] });
-    router.push(href, { scroll: false });
-  };
+  const { themes, sort, format, chooseThemes } = useThemeChoices();
+  const view = { ...filters, sort, format, themes };
   return (
     <ThemeLinks
       categories={categories}
-      chosen={view.themes}
+      chosen={themes}
       hrefOf={(id) => browseHref(toggleTheme(view, id), { favourites })}
-      onChoose={(id) => go(toggleTheme(view, id).themes)}
-      clearHref={browseHref({ ...filters, themes: [] }, { favourites })}
-      onClear={() => go([])}
+      onChoose={(id) => chooseThemes(toggleTheme(view, id).themes)}
+      clearHref={browseHref({ ...view, themes: [] }, { favourites })}
+      onClear={() => chooseThemes([])}
       className={className}
     />
   );

@@ -1,14 +1,16 @@
 'use client';
 
 import Form from 'next/form';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   createContext,
   type ReactNode,
+  startTransition,
   useContext,
   useMemo,
-  useState,
+  useOptimistic,
 } from 'react';
+import type { StoryFormat } from '@heisreal/story-filters';
 import { Button, RadioGroup, SearchBox } from '@heisreal/web-ui';
 import { FormatSelect } from '@/components/story-filters/format-select';
 import {
@@ -33,12 +35,14 @@ export const BROWSE_FORM = 'browse-form';
 
 /**
  * The search box above the stories (BS-1 C; BS-2 A: a magnifier inside it, Enter searches too).
- * A plain GET form to /stories, so it works without JavaScript; with it, Next navigates without
- * a full reload. The themes and "Favourites only" ride along as hidden fields. Changing a filter
- * starts again from the first page.
+ * A plain GET form to /stories, so it works without JavaScript; with it, sending it is one of
+ * BrowseChoices' navigations (the typed search with the filters as chosen). The themes and
+ * "Favourites only" ride along as hidden fields for the form without JavaScript. Changing a
+ * filter starts again from the first page.
  */
 export function BrowseSearch({ filters }: { filters: Filters }) {
   const favourites = favouritesOn(useSearchParams());
+  const { view, navigate } = useChoices();
   return (
     <Form
       // The box starts from the URL's search; when that changes without a new page (Back,
@@ -49,8 +53,12 @@ export function BrowseSearch({ filters }: { filters: Filters }) {
       role="search"
       aria-label="Stories"
       className="min-w-0 flex-1"
+      onSubmit={(e) => {
+        e.preventDefault();
+        navigate({});
+      }}
     >
-      {filters.themes.map((id) => (
+      {view.themes.map((id) => (
         <input key={id} type="hidden" name="theme" value={id} />
       ))}
       {favourites && <input type="hidden" name={FAVOURITES_PARAM} value="1" />}
@@ -69,34 +77,37 @@ export function BrowseSearch({ filters }: { filters: Filters }) {
   );
 }
 
-/**
- * Themes chosen but not yet in the address (ThemeFilter): the themes, and `path`, the address
- * they started from and each one pushed since.
- */
-export type PendingThemes = { themes: string[]; path: string[] };
+/** The sort, format and themes as shown: the address's, or the choices on their way to it. */
+type View = {
+  sort: Filters['sort'];
+  format: StoryFormat | null;
+  themes: string[];
+};
 
-/** The sort and format as chosen on this page, which may be ahead of the address. */
 type Choices = {
-  sort: string;
-  format: string;
-  setSort: (sort: string) => void;
-  setFormat: (format: string) => void;
-  /** Themes chosen ahead of the address, or null. */
-  pendingThemes: PendingThemes | null;
-  setPendingThemes: (pending: PendingThemes | null) => void;
+  view: View;
+  /** Goes to the address for these choices (with the typed search), showing them meanwhile. */
+  navigate: (patch: Partial<View>) => void;
 };
 const ChoicesContext = createContext<Choices | null>(null);
 
+function useChoices(): Choices {
+  const choices = useContext(ChoicesContext);
+  if (!choices) throw new Error('The browse filters need BrowseChoices');
+  return choices;
+}
+
 /**
- * Keeps the sort and format choices above the filters, so they survive the filters moving
- * between the column and the Filters panel (which remounts them) while a change is still
- * loading: closing the panel then searching sends the new sort, not the address's (Codex, #254).
- * They start from the address's filters, and again whenever those change.
+ * The browse filters' choices, above the filters so they survive the filters moving between the
+ * column and the Filters panel (which remounts them).
  *
- * The themes chosen ahead of the address live here too, for the same reason (Codex, #259: a
- * theme chosen, the panel closed and opened again, another chosen: both count). They outlive the
- * addresses on their own path (the first theme's page arriving before the second's) and go once
- * the address reaches the last one pushed, or turns into one not on the path (Back, Forward).
+ * A choice (sort, format, a theme, the search sent) is a navigation to its address, in a React
+ * transition, with the choice shown at once as optimistic state (`useOptimistic`). Two quick
+ * choices both count: each builds on what's shown, not on the address it hasn't reached yet
+ * (Codex, #254 and #259). The optimistic choices last only as long as their navigation: once it
+ * ends, or another takes over (a link, Back, Forward), the page shows the address's filters
+ * again (Codex, #259 round 3). Every navigation carries the typed search (the search box and
+ * the filters are one form, Codex #254) and keeps "Favourites only".
  */
 export function BrowseChoices({
   filters,
@@ -105,37 +116,30 @@ export function BrowseChoices({
   filters: Filters;
   children: ReactNode;
 }) {
-  const from = JSON.stringify(filters);
-  const [state, setState] = useState({
-    from,
-    sort: filters.sort as string,
-    format: filters.format ?? '',
-  });
-  // A new address (a change applied, Back, a link): start again from it. React's "adjust state
-  // while rendering".
-  if (state.from !== from)
-    setState({ from, sort: filters.sort, format: filters.format ?? '' });
-  const [pendingThemes, setPendingThemes] = useState<PendingThemes | null>(
-    null,
+  const router = useRouter();
+  const favourites = favouritesOn(useSearchParams());
+  const [view, setView] = useOptimistic<View, Partial<View>>(
+    { sort: filters.sort, format: filters.format, themes: filters.themes },
+    (shown, patch) => ({ ...shown, ...patch }),
   );
-  const here = browseHref(filters, {
-    favourites: favouritesOn(useSearchParams()),
-  });
-  if (
-    pendingThemes &&
-    (!pendingThemes.path.includes(here) || pendingThemes.path.at(-1) === here)
-  )
-    setPendingThemes(null);
-  const choices = useMemo(
+  const choices = useMemo<Choices>(
     () => ({
-      sort: state.sort,
-      format: state.format,
-      setSort: (sort: string) => setState((s) => ({ ...s, sort })),
-      setFormat: (format: string) => setState((s) => ({ ...s, format })),
-      pendingThemes,
-      setPendingThemes,
+      view,
+      navigate: (patch) => {
+        const next = { ...view, ...patch };
+        const box = document.getElementById(BROWSE_FORM);
+        const typed =
+          box instanceof HTMLFormElement ? new FormData(box).get('q') : null;
+        const q = typeof typed === 'string' ? typed.trim() : filters.q;
+        startTransition(() => {
+          setView(patch);
+          router.push(browseHref({ q, ...next }, { favourites }), {
+            scroll: false,
+          });
+        });
+      },
     }),
-    [state.sort, state.format, pendingThemes],
+    [view, setView, router, favourites, filters.q],
   );
   return (
     <ChoicesContext.Provider value={choices}>
@@ -144,11 +148,15 @@ export function BrowseChoices({
   );
 }
 
-/** The themes chosen ahead of the address, kept by BrowseChoices. */
-export function usePendingThemes() {
-  const choices = useContext(ChoicesContext);
-  if (!choices) throw new Error('ThemeFilter needs BrowseChoices');
-  return [choices.pendingThemes, choices.setPendingThemes] as const;
+/** The themes as shown, and choosing them (ThemeFilter): BrowseChoices'. */
+export function useThemeChoices() {
+  const { view, navigate } = useChoices();
+  return {
+    themes: view.themes,
+    sort: view.sort,
+    format: view.format,
+    chooseThemes: (themes: string[]) => navigate({ themes }),
+  };
 }
 
 /**
@@ -158,8 +166,7 @@ export function usePendingThemes() {
  * values are BrowseChoices'.
  */
 export function BrowseSortFormat({ filters }: { filters: Filters }) {
-  const choices = useContext(ChoicesContext);
-  if (!choices) throw new Error('BrowseSortFormat needs BrowseChoices');
+  const { view, navigate } = useChoices();
   return (
     <div className="space-y-5">
       {/* Radio buttons, as the moderators' list's sort (Joel, 2026-11-20). */}
@@ -167,24 +174,24 @@ export function BrowseSortFormat({ filters }: { filters: Filters }) {
         legend="Sort"
         name="sort"
         form={BROWSE_FORM}
-        value={choices.sort}
-        onValueChange={choices.setSort}
+        value={view.sort}
+        onValueChange={(sort) => navigate({ sort: sort as Filters['sort'] })}
         options={[
           ...(filters.q ? [{ value: 'relevance', label: 'Best match' }] : []),
           { value: 'latest', label: 'Latest first' },
           { value: 'oldest', label: 'Oldest first' },
         ]}
-        submitOnChange
       />
       <div>
         <FormatSelect
           id="browse-format"
           name="format"
           form={BROWSE_FORM}
-          value={choices.format}
-          onValueChange={choices.setFormat}
+          value={view.format ?? ''}
+          onValueChange={(format) =>
+            navigate({ format: (format || null) as StoryFormat | null })
+          }
           labelClassName={FILTER_HEADING}
-          submitOnChange
           wrapperClassName="w-full"
           className="w-full"
         />
