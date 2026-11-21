@@ -33,9 +33,21 @@ test('a story page shows its title', async ({ page }) => {
   ).toBeVisible();
 });
 
-test('a story that isn’t approved is a 404', async ({ page }) => {
-  const res = await page.goto(`/stories/${story('seed_w09').slug}`);
-  expect(res?.status()).toBe(404);
+// PC-1 A (Joel, 2026-11-21): with page caching, a page that isn't there is answered 200 with the
+// usual "not found" page and a "don't index" tag, not a 404.
+test('a story that isn’t approved shows the not-found page, kept out of search engines', async ({
+  page,
+}) => {
+  await page.goto(`/stories/${story('seed_w09').slug}`);
+  await expect(
+    page.getByRole('heading', { name: 'We couldn’t find that page' }),
+  ).toBeVisible();
+  await expect(
+    page.locator('meta[name="robots"][content*="noindex"]').first(),
+  ).toBeAttached();
+  await expect(
+    page.getByRole('heading', { name: story('seed_w09').title }),
+  ).toHaveCount(0);
 });
 
 // M1 step 6b-1: browse, search and related stories on dev, over the D47 dataset.
