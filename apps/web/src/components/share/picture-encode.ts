@@ -18,7 +18,11 @@ export const MAX_ASPECT = 3;
 export const clampAspect = (aspect: number) =>
   Math.min(MAX_ASPECT, Math.max(MIN_ASPECT, aspect));
 
-/** The size a crop of `width` × `height` source pixels is uploaded at, and how it's drawn. */
+/**
+ * The size a crop of `width` × `height` source pixels is uploaded at, and how it's drawn. A crop
+ * may be in fractions of a pixel (a tiny picture cut to a video's shape): it's rounded only at
+ * the size it's uploaded at, so it keeps its shape.
+ */
 export function outputSize(
   width: number,
   height: number,
@@ -35,9 +39,17 @@ export function outputSize(
   if (longer < ENLARGE_TO) {
     // A whole number, so every source pixel becomes the same square block.
     const k = Math.ceil(ENLARGE_TO / longer);
-    return { width: width * k, height: height * k, smooth: false };
+    return {
+      width: Math.max(1, Math.round(width * k)),
+      height: Math.max(1, Math.round(height * k)),
+      smooth: false,
+    };
   }
-  return { width, height, smooth: true };
+  return {
+    width: Math.max(1, Math.round(width)),
+    height: Math.max(1, Math.round(height)),
+    smooth: true,
+  };
 }
 
 export interface Encoded {
@@ -47,7 +59,7 @@ export interface Encoded {
 }
 
 /**
- * Draws `rect` of `source` (in its own pixels) as a WebP; a plain reason when this browser can't.
+ * Draws `rect` of `source` (in its own pixels, fractions allowed) as a WebP; a plain reason when this browser can't.
  * The size against the largest picture file is the caller's check.
  */
 export async function encodeWebp(

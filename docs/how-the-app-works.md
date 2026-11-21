@@ -409,7 +409,8 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
     video host reports the shape (usually a few minutes); the person can carry on and come back.
   - **A new video takes the thumbnail off** (TC-3 B), whatever its shape, and says so: "We've
     taken your thumbnail off because you changed your video. Choose one again if you still want
-    it."
+    it." If taking it off fails, the old thumbnail stays shown with the site's usual generic error
+    and one "Try again" button, and Continue waits until it's off (or another thumbnail replaces it).
   - Audio and written stories' pictures are not cropped (TC-5 A): they keep their own shape.
 - **A picture has no description** (Joel, 2026-11-14, having weighed accessibility and search):
   there is no "describe the picture" box, and none is stored or sent anywhere. Readers' pages give

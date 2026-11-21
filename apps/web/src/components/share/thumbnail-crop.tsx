@@ -49,6 +49,17 @@ export function describeCrop(zoom: number, area: Area): string {
   return `Zoom ${z} times. Showing ${where(fx, fy)} of your picture.`;
 }
 
+/** A crop in percentages, in the picture's own pixels: unrounded (a tiny picture's pixels count). */
+const sourceRect = (
+  area: Area,
+  natural: { width: number; height: number },
+): Area => ({
+  x: (area.x / 100) * natural.width,
+  y: (area.y / 100) * natural.height,
+  width: (area.width / 100) * natural.width,
+  height: (area.height / 100) * natural.height,
+});
+
 /** The chosen part of the picture in a box of `aspect`, cut around its middle if the shapes differ. */
 function Framed({
   src,
@@ -67,12 +78,7 @@ function Framed({
   style?: React.CSSProperties;
   children?: React.ReactNode;
 }) {
-  const px = {
-    x: (area.x / 100) * natural.width,
-    y: (area.y / 100) * natural.height,
-    width: (area.width / 100) * natural.width,
-    height: (area.height / 100) * natural.height,
-  };
+  const px = sourceRect(area, natural);
   // Cut around its middle to the box's shape (no rounding: a tiny picture's pixels count).
   const box =
     px.width / px.height > aspect
@@ -137,13 +143,13 @@ export function ThumbnailCropper({
   /** "landscape", "portrait" or "square". */
   shapeName: string;
   busy: boolean;
-  /** The chosen part, in the photo's own pixels. */
+  /** The chosen part, in the photo's own pixels (unrounded, so a tiny photo keeps the shape). */
   onUse: (pixels: Area) => void;
   onCancel: () => void;
 }) {
   const [crop, setCrop] = useState<Point>({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
-  const [area, setArea] = useState<{ pct: Area; px: Area } | null>(null);
+  const [area, setArea] = useState<Area | null>(null);
   const [natural, setNatural] = useState<{
     width: number;
     height: number;
@@ -156,7 +162,7 @@ export function ThumbnailCropper({
 
   useEffect(() => {
     if (!moved.current || !area) return;
-    const t = setTimeout(() => setSpoken(describeCrop(zoom, area.pct)), 250);
+    const t = setTimeout(() => setSpoken(describeCrop(zoom, area)), 250);
     return () => clearTimeout(t);
   }, [area, zoom]);
 
@@ -225,7 +231,7 @@ export function ThumbnailCropper({
           onInteractionStart={() => {
             moved.current = true;
           }}
-          onCropComplete={(pct, px) => setArea({ pct, px })}
+          onCropComplete={(pct) => setArea(pct)}
           onMediaLoaded={(m) =>
             setNatural({ width: m.naturalWidth, height: m.naturalHeight })
           }
@@ -292,7 +298,7 @@ export function ThumbnailCropper({
             <Framed
               src={src}
               natural={natural}
-              area={area.pct}
+              area={area}
               aspect={cardAspect}
               style={{ width: `${Math.min(10, 10 * cardAspect)}rem` }}
             />
@@ -304,7 +310,7 @@ export function ThumbnailCropper({
             <Framed
               src={src}
               natural={natural}
-              area={area.pct}
+              area={area}
               aspect={aspect}
               style={{ width: `${Math.min(14, 9 * aspect)}rem` }}
             >
@@ -323,8 +329,8 @@ export function ThumbnailCropper({
         <button
           type="button"
           className={primary}
-          disabled={busy || !area}
-          onClick={() => area && onUse(area.px)}
+          disabled={busy || !area || !natural}
+          onClick={() => area && natural && onUse(sourceRect(area, natural))}
         >
           Use this thumbnail
         </button>

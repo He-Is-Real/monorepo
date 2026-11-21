@@ -79,10 +79,11 @@ const tooLarge = (size: number | null, maxBytes: number | null) =>
 
 /**
  * `uploading`: being prepared or sent now; `unfinished`: chosen or on the story, its file not
- * there; `cropping`: a video's thumbnail being cut, not yet used (nothing uploaded).
+ * there; `cropping`: a video's thumbnail being cut, not yet used (nothing uploaded); `stale`: a
+ * new video's old thumbnail that couldn't be taken off yet (TC-3 B), with "Try again".
  */
 export type PictureState =
-  'none' | 'uploading' | 'unfinished' | 'cropping' | 'done';
+  'none' | 'uploading' | 'unfinished' | 'cropping' | 'stale' | 'done';
 
 /** The video a thumbnail is cut for (thumbnail crop TC-2, TC-3, TC-4; Joel 2026-11-21). */
 export interface ThumbnailVideo {
@@ -350,11 +351,30 @@ export function ImagePanel({
   const phaseRef = useRef<Phase>(phase);
   const onStateRef = useRef(onState);
   onStateRef.current = onState;
+  /**
+   * A new video's old thumbnail still to come off (TC-3 B): set until a removal or another
+   * thumbnail takes it off, and the step is held back meanwhile.
+   */
+  const [stale, setStaleState] = useState(false);
+  const staleRef = useRef(false);
+  const showsOld = (p: Phase) => p.at === 'done' || p.at === 'preview';
+  /** What the step is told: the phase's state, or `stale` while the old thumbnail is still on. */
+  const tell = () =>
+    onStateRef.current?.(
+      staleRef.current && showsOld(phaseRef.current)
+        ? 'stale'
+        : stateOf(phaseRef.current),
+    );
+  const setStale = (next: boolean) => {
+    staleRef.current = next;
+    setStaleState(next);
+    tell();
+  };
   /** The step hears of each phase as it's set, not a render later: its Continue checks it after waiting. */
   const setPhase = (next: Phase) => {
     phaseRef.current = next;
     setPhaseState(next);
-    onStateRef.current?.(stateOf(next));
+    tell();
   };
   /** The picture on the draft at the server, as last known: what a removal takes off. */
   const [attached, setAttachedState] = useState<Shown | null>(null);
@@ -377,7 +397,7 @@ export function ImagePanel({
   useEffect(() => {
     alive.current = true;
     // A panel mounted afresh tells the step where it starts: an earlier panel's state isn't its own (Codex #211).
-    onStateRef.current?.(stateOf(phaseRef.current));
+    tell();
     return () => {
       alive.current = false;
       sending.current?.abort();
@@ -613,6 +633,8 @@ export function ImagePanel({
     const under = was.at === 'cropping' ? was.before : was;
     if (was.at === 'cropping') setPhase(under);
     if (attachedRef.current || under.at === 'done' || under.at === 'preview') {
+      // Held until it's off: a failed removal keeps "Try again" and the step waits.
+      setStale(true);
       void remove(TAKEN_OFF);
     } else if (was.at === 'cropping') {
       setNotice(TAKEN_OFF);
@@ -678,6 +700,8 @@ export function ImagePanel({
         });
       }
       setAttached(shown);
+      // The new thumbnail replaced the old one on the story.
+      if (staleRef.current) setStale(false);
       held.current = { picture, path: shown.path };
       const controller = new AbortController();
       sending.current = controller;
@@ -812,6 +836,7 @@ export function ImagePanel({
     setPending(null);
     if (fileInput.current) fileInput.current.value = '';
     const cleared = (notice: string) => {
+      setStale(false);
       setPhase({ at: 'idle' });
       setNotice(why ?? notice);
     };
@@ -1017,11 +1042,21 @@ export function ImagePanel({
       )}
       {shown && (
         <div className="flex flex-wrap gap-3">
-          {phase.at === 'preview' && (
+          {phase.at === 'preview' && !stale && (
             <button
               type="button"
               className={primary}
               onClick={() => void add(phase.picture, phase.granted)}
+            >
+              Try again
+            </button>
+          )}
+          {showsOld(phase) && stale && !pending && (
+            <button
+              type="button"
+              className={primary}
+              disabled={busy}
+              onClick={() => void remove(TAKEN_OFF)}
             >
               Try again
             </button>
@@ -1035,7 +1070,7 @@ export function ImagePanel({
               Replace with my {noun}
             </button>
           )}
-          {recrop && !pending && !waiting && (
+          {recrop && !pending && !waiting && !stale && (
             <button
               type="button"
               className={secondary}
@@ -1075,14 +1110,14 @@ export function ImagePanel({
           Uploading your {noun}…
         </p>
       )}
-      {phase.at === 'done' && !pending && phase.arrived && (
+      {phase.at === 'done' && !pending && !stale && phase.arrived && (
         <p className="text-sm font-semibold" role="status">
           <span aria-hidden="true">✓ </span>
           {noun[0].toUpperCase()}
           {noun.slice(1)} added. You can continue.
         </p>
       )}
-      {phase.at === 'done' && !pending && !phase.arrived && (
+      {phase.at === 'done' && !pending && !stale && !phase.arrived && (
         <p className="text-sm font-semibold" role="status">
           Your story has this {noun}, but it didn’t finish uploading. Choose it
           again, or remove it.

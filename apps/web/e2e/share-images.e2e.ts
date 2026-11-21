@@ -962,6 +962,77 @@ test.describe('behaviour', () => {
     expect((await me.uploads()).images).toHaveLength(1);
   });
 
+  test('a new video’s old thumbnail that couldn’t be taken off holds the step until “Try again” takes it off (TC-3 B)', async ({
+    page,
+    request,
+  }, info) => {
+    const me = await person(page, request);
+    await toVideo(page);
+    await page
+      .getByLabel('Choose a file')
+      .setInputFiles(videoFile(info, 'portrait.mp4', 'clip.mp4'));
+    await expect(page.getByText(/^Uploaded: clip\.mp4/)).toBeVisible();
+    await page.getByLabel('Choose a thumbnail').setInputFiles({
+      name: 'thumb.png',
+      mimeType: 'image/png',
+      buffer: await drawn(page, 1200, 1200, 'image/png'),
+    });
+    await page.getByRole('button', { name: 'Use this thumbnail' }).click();
+    await expect(page.getByText('Thumbnail added.')).toBeVisible();
+
+    // The first removal of the thumbnail fails (our service is unavailable).
+    let failed = 0;
+    await page.route('**/v1/stories/*', async (route) => {
+      const req = route.request();
+      if (
+        failed === 0 &&
+        req.method() === 'PATCH' &&
+        req.postDataJSON()?.image === null
+      ) {
+        failed += 1;
+        return route.fulfill({ status: 500, body: '' });
+      }
+      return route.fallback();
+    });
+    await page
+      .getByLabel('Choose another file')
+      .setInputFiles(videoFile(info, 'landscape.webm', 'walk.webm'));
+    await expect(page.getByText(/^Uploaded: walk\.webm/)).toBeVisible();
+    await expect(
+      alert(page, 'Something went wrong. Please try again later.'),
+    ).toBeVisible();
+    await expect(page.locator('[data-picture-preview]')).toBeVisible();
+    await expect(page.getByText('Thumbnail added.')).toHaveCount(0);
+    expect(failed).toBe(1);
+
+    // Continue waits while the old thumbnail is still on the story.
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(
+      alert(
+        page,
+        'We couldn’t take your old thumbnail off. Try again before you continue.',
+      ),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('heading', { level: 2, name: 'Upload your video' }),
+    ).toBeVisible();
+
+    await page.getByRole('button', { name: 'Try again' }).click();
+    await expect(
+      page.getByText(
+        'We’ve taken your thumbnail off because you changed your video. Choose one again if you still want it.',
+      ),
+    ).toBeVisible();
+    await expect(page.locator('[data-picture-preview]')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Add some details');
+    await page.getByText('Hope', { exact: true }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Review and submit');
+    await expect(page.locator('[data-review-picture]')).toHaveCount(0);
+    expect((await me.uploads()).images).toHaveLength(1);
+  });
+
   test('a video whose shape this browser can’t read waits for our video host before a thumbnail is chosen (TC-4)', async ({
     page,
     request,
@@ -1019,6 +1090,34 @@ test.describe('behaviour', () => {
     expect(sent.red[0]).toBeLessThan(40);
     expect(sent.red[1]).toBeGreaterThan(215);
   });
+
+  // A tiny thumbnail keeps the video's shape through its enlargement: the crop is rounded only at
+  // the size it's uploaded at, not in the photo's few pixels (8 × 8 → 4.5 × 8 for 9:16).
+  for (const side of [8, 1]) {
+    test(`a tiny ${side} × ${side} thumbnail is enlarged to the video’s shape (TC-7 A, TC-2 A)`, async ({
+      page,
+      request,
+    }, info) => {
+      const me = await person(page, request);
+      await toVideo(page);
+      await page
+        .getByLabel('Choose a file')
+        .setInputFiles(videoFile(info, 'portrait.mp4', 'clip.mp4'));
+      await expect(page.getByText(/^Uploaded: clip\.mp4/)).toBeVisible();
+      await page.getByLabel('Choose a thumbnail').setInputFiles({
+        name: 'tiny.png',
+        mimeType: 'image/png',
+        buffer: await drawn(page, side, side, 'image/png'),
+      });
+      await page.getByRole('button', { name: 'Use this thumbnail' }).click();
+      await expect(page.getByText('Thumbnail added.')).toBeVisible();
+      const { images } = await me.uploads();
+      expect(images).toHaveLength(1);
+      const sent = await decoded(page, images[0].bytes ?? '');
+      expect(sent.height).toBe(1000);
+      expect(sent.width / sent.height).toBeCloseTo(9 / 16, 2);
+    });
+  }
 
   // Plan 4e: a newer testimony consent or terms of use saved while the person was writing makes
   // api-user refuse the picture's upload request (403): the same agree-again screen a refused save

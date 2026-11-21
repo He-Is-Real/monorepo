@@ -1311,12 +1311,20 @@ function usePictureGate(noun: string) {
   const pending = () =>
     state.current === 'uploading' ||
     state.current === 'unfinished' ||
-    state.current === 'cropping';
+    state.current === 'cropping' ||
+    state.current === 'stale';
   /** Whether the picture holds the step back, saying why. */
   const blocked = () => {
     if (state.current === 'cropping') {
       // A thumbnail being cut is only on this device until it's used (thumbnail crop TC-6 A).
       setProblem('Use this thumbnail, or cancel it, before you go on.');
+      return true;
+    }
+    if (state.current === 'stale') {
+      // A new video's old thumbnail is still on the story (TC-3 B).
+      setProblem(
+        `We couldn’t take your old ${noun} off. Try again before you continue.`,
+      );
       return true;
     }
     if (state.current === 'uploading') {
