@@ -69,8 +69,8 @@ export type Sort = (typeof SORTS)[number]['sort'];
 
 /**
  * What the list shows (MQ-1 E): every filter and the sort live in the address. The theme and
- * format are browse's own filter (libs/story-filters; revised OQ-2, Joel 2026-11-19): one of
- * each at a time.
+ * format are browse's own filter (libs/story-filters; revised OQ-2, Joel 2026-11-19): one format,
+ * and themes stacked, a story carrying every one (BS-7, Joel 2026-11-21).
  */
 export interface ListFilters extends StoryFilters {
   state: ListState;
@@ -97,7 +97,7 @@ export function listFilters(
   return {
     state: isListState(state) ? state : 'pending',
     q: q === '' ? null : [...q].slice(0, MAX_SEARCH).join(''),
-    // As browse reads its address: a repeated or unknown one is left out.
+    // As browse reads its address: an unknown or repeated one is left out (themes stack, BS-7).
     ...sanitizeStoryFilters({ theme: sp['theme'], format: sp['format'] }),
     sort: SORTS.some((s) => s.sort === sort) ? (sort as Sort) : 'oldest',
   };
@@ -109,7 +109,7 @@ export function listQuery(f: ListFilters): URLSearchParams {
   if (f.state !== 'pending') sp.set('state', f.state);
   if (f.q) sp.set('q', f.q);
   if (f.format) sp.set('format', f.format);
-  if (f.theme) sp.set('theme', f.theme);
+  for (const id of f.themes) sp.append('theme', id);
   if (f.sort !== 'oldest') sp.set('sort', f.sort);
   return sp;
 }
@@ -122,7 +122,7 @@ export function moderationHref(f: ListFilters): string {
 
 /** How many filters are on (the phone's "Filters and sort (N)"): the sort isn't one. */
 export const activeFilters = (f: ListFilters) =>
-  (f.q ? 1 : 0) + (f.format ? 1 : 0) + (f.theme ? 1 : 0);
+  (f.q ? 1 : 0) + (f.format ? 1 : 0) + f.themes.length;
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;

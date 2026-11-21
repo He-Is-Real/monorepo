@@ -218,7 +218,7 @@ export function FavouritesList({
         </p>
         <Link
           href={browseHref(
-            { q: '', theme: null, format: null, sort: 'latest' },
+            { q: '', themes: [], format: null, sort: 'latest' },
             { favourites: true },
           )}
           className="inline-flex min-h-11 items-center font-medium"

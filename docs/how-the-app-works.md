@@ -512,7 +512,9 @@ recording | picture` (worked out from the status history: set while the story's 
   later). The filters mean what they mean on browse. Format as browse. A theme in the address
   applies only if browse lists that theme, one of the favourites carries it, or the theme list
   couldn't be read; otherwise it filters nothing, as browse does for a theme that doesn't exist
-  or was deleted. A theme that applies but none of the favourites has shows none. Known
+  or was deleted. Stacked themes mean what they mean on browse: a favourite shows only if it has
+  every chosen theme that applies (Joel 2026-11-21, BS-6 B). A theme that applies but none of the
+  favourites has shows none. Known
   exception: a real theme that isn't highlighted and that no published story uses filters nothing
   on favourites, while browse shows no stories for it. "Latest first" and "Oldest first" by when the story was published, not when it was
   hearted (Joel, 2026-11-14); search finds stories with every word of the search in the title,
@@ -534,21 +536,32 @@ recording | picture` (worked out from the status history: set while the story's 
   there is no personalised home or "New for you". (D72) On a written card without a picture too
   narrow for the badge beside the heart (narrow columns with large text), the card's top line
   moves below the heart and the card grows a little (Joel, 2026-11-08).
-- **Browse** has search, sort, format and theme filters (one format and one theme at a time). The
-  moderators' list filters by format and theme the same way, through the same shared definition,
-  so changing one changes both (revised OQ-2, Joel 2026-11-19). Cards are laid out in balanced columns
+- **Browse** has search, sort, format and theme filters: one format at a time, and themes stacked
+  (Joel 2026-11-21, BS-6 B). Each theme turns on and off on its own and shows ✓ when chosen; a
+  story shows only if it has **every** chosen theme. A "Clear themes" link appears once any theme
+  is chosen. The address repeats `theme` once per theme (`/stories?theme=a&theme=b`); the order
+  doesn't matter, a repeat counts once, and an old single-theme link still works. A theme that
+  doesn't exist (deleted, or never was) filters nothing; the other chosen themes still do. At most
+  10 themes at once (the API refuses more). With 10 chosen, another stays unchosen and a short
+  note near the themes says "You can choose up to 10 themes.", read out by screen readers; it goes
+  once a theme is taken off (Joel 2026-11-21). The moderators' list does the same. The moderators' list
+  filters by format and theme the same way, through the same shared definition, so changing one
+  changes both (revised OQ-2, Joel 2026-11-19; Joel 2026-11-21, BS-7). Cards are laid out in balanced columns
   at each picture's own shape (limited between tall 9:16 and wide 2:1) and never move once shown.
   More stories load on their own as the reader nears the end, to the end of the list, with an end
   message. Without JavaScript there is a link to the next page. (D55)
 - **Browse's filters take little room (BS-1 C, Joel 2026-11-20: "for compact search implement
-  option C").** On a computer, "Favourites only", sort, format and every theme are a column on
-  the left, and only the search box sits above the stories (the three story columns stay, a little
-  narrower). The column shows while the page's content is at least 70rem wide: screens from about
-  1200 px at the usual text size; with larger text the Filters button below is used instead. On tablets and phones a "Filters" button beside the search box, with a
+  option C").** From 1024 px wide screens (small laptops, landscape tablets and up; Joel
+  2026-11-21, BS-5 B), "Favourites only", sort, format and every theme are a column on the left,
+  and only the search box sits above the stories. The column shows on screens at least 1024 px
+  wide (64rem) whose page content is at least 57rem wide, so with larger text the Filters button
+  below is used instead. Beside the column the stories take 2 columns until about 1200 px
+  screens (the page's content 70rem wide), then 3, a little narrower than without the column. On
+  portrait tablets and phones (below 1024 px) a "Filters" button beside the search box, with a
   count of what's on, opens the same filters in a panel (a sheet from the bottom on phones) with
   "Clear all" and "Show stories"; each choice applies at once, Escape closes it and the focus goes
-  back to the button. What's chosen (theme, format, a sort other than the usual one, Favourites
-  only) shows under the search box as chips, each removed with one tap, plus "Clear all", which
+  back to the button. What's chosen (each theme, format, a sort other than the usual one,
+  Favourites only) shows under the search box as chips, each removed with one tap, plus "Clear all", which
   keeps the search. The search box has a magnifier button inside it; Enter searches too (BS-2 A,
   the recommendation, as Joel didn't answer). Sort is radio buttons, as on the moderators' list
   (Joel, 2026-11-20: "can we set sort to be radio buttons for sorting on the public search instead
@@ -558,7 +571,8 @@ recording | picture` (worked out from the status history: set while the story's 
   buttons (BS-4 B, the recommendation).
 - **Story grids** (browse, with or without Favourites only): 3 columns from 1024 px wide, 2 from 640 px, 1
   below, whatever the text size (Joel, 2026-11-07/08). The column count follows the screen's width
-  only; larger text makes the cards narrower, never fewer columns.
+  only; larger text makes the cards narrower, never fewer columns. One exception: beside browse's
+  filters column, 2 columns until about 1200 px screens (Joel 2026-11-21, BS-5 B).
 - **Search looks at published stories only.** Its "best match" order compares each story only
   with the other published stories, so drafts and unpublished stories can never change a score,
   the order or where "load more" carries on. The database keeps the published stories' words in
@@ -770,15 +784,16 @@ Built (M3 plan, pull requests 1 and 6; Joel, 2026-11-09 and 2026-11-11):
     Taken down, Rejected, and (Admins only) Drafts never sent. Each tab shows how many stories
     that state holds, whatever the filters; a Moderator is never told how many drafts there are.
     It opens on "Waiting for review". Each tab is a link in the address (`?state=`).
-  - **Side panel:** a title search (ignoring capitals), the sort, the format and the theme.
+  - **Side panel:** a title search (ignoring capitals), the sort, the format and the themes.
     **The format and theme filter exactly as browse's do, with browse's own controls (revised
     OQ-2, Joel 2026-11-19):** one format at a time (All formats, Video, Audio or Written; here
     each shows how many of this tab's stories it holds, with the search and theme applied) and
-    one theme at a time from browse's theme picker (the chosen one, pressed again, clears it; a
-    theme that no longer exists filters nothing). They and the search together narrow the list.
+    themes stacked from browse's theme picker, exactly as browse (Joel 2026-11-21, BS-7): each
+    turns on and off on its own with a ✓, a story shows only if it has every chosen theme, and
+    "Clear themes" appears once one is chosen; a theme that no longer exists filters nothing. They and the search together narrow the list.
     Browse and the moderation list share one definition of these filters, so a change to how
     browse filters changes the moderation list too. "Clear filters" takes off the search, format
-    and theme (the tab and the sort stay). Every filter and the sort are in the address, so a
+    and themes (the tab and the sort stay). Every filter and the sort are in the address, so a
     link or Back shows the same list, and choices made quickly one after another all count.
   - **Sorts:** Oldest first (the default: by when the story entered its state, so on "Waiting
     for review" the one sent longest ago, and a story sent again after changes goes to the back),

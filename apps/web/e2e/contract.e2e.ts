@@ -41,6 +41,7 @@ test('every list page, filter and search the stub serves fits the contract', asy
     '',
     '?limit=15',
     '?theme=healing&format=video',
+    '?theme=healing&theme=hope',
     '?theme=no_such_theme',
     '?format=audio&sort=oldest',
     '?q=placeholder',

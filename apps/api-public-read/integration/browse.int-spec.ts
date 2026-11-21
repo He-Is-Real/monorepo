@@ -473,6 +473,43 @@ describe('browse API over the dev dataset', () => {
       );
     });
 
+    // BS-6 B (Joel, 2026-11-21): themes stack, and a story must carry every chosen one.
+    it('?theme= repeated lists only the stories with every theme, in any order; a repeat or an unknown id changes nothing', async () => {
+      const both = latestFirst.filter((id) => {
+        const themes = approved.find((s) => s.id === id)?.themes ?? [];
+        return themes.includes('hope') && themes.includes('healing');
+      });
+      const hope = (await walk(`theme=${themeId('hope')}`)).ids;
+      const { ids } = await walk(
+        `theme=${themeId('hope')}&theme=${themeId('healing')}`,
+      );
+      expect(ids).toEqual(both);
+      expect(ids.length).toBeGreaterThan(0);
+      expect(ids.length).toBeLessThan(hope.length);
+      for (const query of [
+        `theme=${themeId('healing')}&theme=${themeId('hope')}`,
+        `theme=${themeId('hope')}&theme=${themeId('healing')}&theme=${themeId('hope')}`,
+        `theme=${themeId('hope')}&theme=01JBNOSUCHTHEME00000000000&theme=${themeId('healing')}`,
+      ])
+        expect((await walk(query)).ids, query).toEqual(both);
+    });
+
+    it('takes at most 10 different themes', async () => {
+      const ten = Array.from({ length: 10 }, (_, i) => `theme=t${i}`);
+      expect((await get(`/v1/stories?${ten.join('&')}`)).status).toBe(200);
+      // A repeat counts once.
+      expect(
+        (await get(`/v1/stories?${[...ten, 'theme=t0'].join('&')}`)).status,
+      ).toBe(200);
+      const res = await get(`/v1/stories?${[...ten, 'theme=t10'].join('&')}`);
+      expect(res.status).toBe(400);
+      expect(
+        ((await res.json()) as { errors: { pointer: string }[] }).errors.map(
+          (e) => e.pointer,
+        ),
+      ).toEqual(['/theme']);
+    });
+
     it('lists highlighted themes always, others once a published story uses them, by category with Other last', async () => {
       const res = await get('/v1/themes');
       expect(res.status).toBe(200);

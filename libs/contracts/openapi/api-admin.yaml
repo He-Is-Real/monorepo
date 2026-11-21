@@ -90,9 +90,10 @@ paths:
           or other malicious activities"); a Moderator gets `403` `role_required`.
 
         MQ-1 E (Joel, 2026-11-17) and the revised OQ-2 (Joel, 2026-11-19): the list narrows by a
-        title search (`q`) and by one format (`format`) and one theme (`theme`), taken and applied
-        exactly as the public browse list takes them (`browseStories`); together they narrow it
-        further (a story must pass each). `sort` orders it: `oldest` (the default) by when the
+        title search (`q`), by one format (`format`) and by themes (`theme`, repeated, at most 10:
+        a story must carry every one; BS-7, Joel 2026-11-21), taken and applied exactly as the
+        public browse list takes them (`browseStories`); together they narrow it further (a story
+        must pass each). `sort` orders it: `oldest` (the default) by when the
         story entered its state, oldest first (for `pending`: when it was sent, the old queue's
         order); `newest` the same, newest first; `changed` by when the story last changed, newest
         first. Each breaks ties by the row's id, and a cursor pages only the sort it came from.

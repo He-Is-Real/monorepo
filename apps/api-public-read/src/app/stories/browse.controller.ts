@@ -45,7 +45,7 @@ const PREAMBLE = `
   ${STORY_FILTERS_LET}
   LET $at = IF $after != NONE AND $sort != 'relevance' { <datetime> $after.key };
   LET $afterId = IF $after != NONE { type::record('story', $after.id) };`;
-// An unknown theme id ($th NONE) filters nothing (themes plan v3, A8).
+// A theme id that isn't a theme is left out of $ths, so it filters nothing (themes plan v3, A8).
 
 /**
  * Newest or oldest first by publish date; the story's id breaks ties, so the order is total,
@@ -212,7 +212,7 @@ export class BrowseController {
     }
     const results = await runQuery(this.db, queryFor(browse), {
       q: browse.q ?? undefined,
-      theme: browse.theme ?? undefined,
+      themes: browse.themes,
       format: browse.format ?? undefined,
       sort: browse.sort,
       after: browse.after ?? undefined,

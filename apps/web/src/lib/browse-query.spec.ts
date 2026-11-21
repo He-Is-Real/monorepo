@@ -6,7 +6,7 @@ import {
 
 const none: BrowseFilters = {
   q: '',
-  theme: null,
+  themes: [],
   format: null,
   sort: 'latest',
 };
@@ -67,7 +67,7 @@ describe('browseHref', () => {
   it('round-trips through parseBrowseSearch', () => {
     const f: BrowseFilters = {
       q: 'a b',
-      theme: 'TOPIC_1',
+      themes: ['TOPIC_1', 'TOPIC_2'],
       format: 'audio',
       sort: 'oldest',
     };

@@ -10,7 +10,7 @@ const loadMore = loadMoreStories as jest.Mock;
 
 const filters: BrowseFilters = {
   q: '',
-  theme: 'hope',
+  themes: ['hope'],
   format: null,
   sort: 'latest',
 };

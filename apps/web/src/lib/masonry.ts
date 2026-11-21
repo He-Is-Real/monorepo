@@ -411,6 +411,32 @@ export function layoutStyle(layout: CardLayout): Record<string, number> {
   return style;
 }
 
+/** One column count's rules: its grid and each card's column and span, per band. */
+function columnRules(n: ColumnCount): string {
+  return BANDS.flatMap((band, i) => {
+    if (band.columns !== n) return [];
+    const first = BANDS.findIndex((b) => b.columns === n) === i;
+    const grid = first
+      ? n === 2
+        ? `.masonry{max-width:none;grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:${rem(ROW_UNIT)};grid-auto-flow:row dense;gap:0 ${rem(GAP)}}.masonry>li{overflow-x:visible;overflow-y:clip;margin-top:-.25rem;padding-top:.25rem}.masonry>li>*{height:auto}`
+        : `.masonry{grid-template-columns:repeat(${n},minmax(0,1fr))}`
+      : '';
+    const column = first ? `grid-column:var(--c${n});` : '';
+    return [
+      `@container masonry (min-width:${first ? 0 : rem(band.minWidth)}){${grid}.masonry>li{${column}grid-row-end:span var(--m,var(--s${i}))}}`,
+    ];
+  }).join('');
+}
+
+/**
+ * Browse beside its filters column (BS-5 B, Joel 2026-11-21; browse-view.tsx): the column shows
+ * from 1024 px screens (`lg`, 64rem) while the page's content (the `browse` container) is at
+ * least `from` wide, and the stories beside it keep 2 columns until the content is `threeColumns` wide
+ * (about 1200 px screens): 3 columns there would be under the 260 px a card needs. In rem, as
+ * browse-view's classes, which repeat these numbers.
+ */
+export const BESIDE_FILTERS = { from: 57, threeColumns: 70 } as const;
+
 /**
  * The masonry's stylesheet (story-masonry.tsx renders it once per page), in rem so it scales with
  * the reader's text size. One column in normal flow, as on a phone, until the viewport reaches a
@@ -433,20 +459,10 @@ export const MASONRY_CSS = [
   // page (browse's filters column, BS-1 C), even when the list's own is off (no JavaScript).
   `.masonry-box{container:masonry/inline-size}`,
   `.masonry{display:grid;grid-template-columns:minmax(0,1fr);gap:${rem(GAP)};max-width:30rem;margin-inline:auto}`,
-  ...COLUMN_COUNTS.map((n) => {
-    const rules = BANDS.flatMap((band, i) => {
-      if (band.columns !== n) return [];
-      const first = BANDS.findIndex((b) => b.columns === n) === i;
-      const grid = first
-        ? n === 2
-          ? `.masonry{max-width:none;grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:${rem(ROW_UNIT)};grid-auto-flow:row dense;gap:0 ${rem(GAP)}}.masonry>li{overflow-x:visible;overflow-y:clip;margin-top:-.25rem;padding-top:.25rem}.masonry>li>*{height:auto}`
-          : `.masonry{grid-template-columns:repeat(${n},minmax(0,1fr))}`
-        : '';
-      const column = first ? `grid-column:var(--c${n});` : '';
-      return [
-        `@container masonry (min-width:${first ? 0 : rem(band.minWidth)}){${grid}.masonry>li{${column}grid-row-end:span var(--m,var(--s${i}))}}`,
-      ];
-    });
-    return `@media (min-width:${BREAKPOINTS[n]}px){${rules.join('')}}`;
-  }),
+  ...COLUMN_COUNTS.map(
+    (n) => `@media (min-width:${BREAKPOINTS[n]}px){${columnRules(n)}}`,
+  ),
+  // After the 3 columns' rules, so these win where both apply.
+  // The column's own condition (browse-view.tsx's `lg:@min-[57rem]:`), below 3 columns' width.
+  `@media (min-width:${BREAKPOINTS[3]}px){@media (min-width:64rem){@container browse (min-width:${BESIDE_FILTERS.from}rem) and (width < ${BESIDE_FILTERS.threeColumns}rem){${columnRules(2)}}}}`,
 ].join('\n');

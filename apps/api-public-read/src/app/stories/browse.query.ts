@@ -23,10 +23,11 @@ export interface BrowseQuery {
   /** Full-text search, trimmed; `null` = no search. */
   q: string | null;
   /**
-   * A theme's id: only stories that carry it. `null` = any. An id that isn't a theme is ignored
-   * by the query (themes plan v3, A8: a link to a deleted theme shows every story).
+   * Themes' ids, unique and sorted: only stories that carry every one (BS-6 B). Empty = any. An
+   * id that isn't a theme is ignored by the query (themes plan v3, A8: a link to a deleted theme
+   * shows every story).
    */
-  theme: string | null;
+  themes: string[];
   format: StoryFormat | null;
   sort: Sort;
   limit: number;
@@ -127,12 +128,24 @@ export function parseBrowseQuery(query: Record<string, unknown>): BrowseQuery {
   }
 
   // The theme and format: the filter every story list shares (libs/story-filters).
+  // `theme` repeats, one value per theme (BS-6 B).
+  const rawThemes = query['theme'];
+  let themes: string[] = [];
+  if (
+    rawThemes !== undefined &&
+    (typeof rawThemes === 'string' ||
+      (Array.isArray(rawThemes) &&
+        rawThemes.every((v) => typeof v === 'string')))
+  )
+    themes = typeof rawThemes === 'string' ? [rawThemes] : rawThemes;
+  else if (rawThemes !== undefined)
+    fail('theme', 'invalid', 'A theme id: letters, digits and underscores.');
   const { filters, errors: filterErrors } = checkStoryFilters({
-    theme: single('theme'),
+    themes,
     format: single('format'),
   });
   errors.push(...filterErrors);
-  const { theme, format } = filters;
+  const { format } = filters;
 
   const sort = single('sort') ?? (q ? 'relevance' : 'latest');
   if (!SORTS.includes(sort as Sort))
@@ -176,7 +189,7 @@ export function parseBrowseQuery(query: Record<string, unknown>): BrowseQuery {
   if (errors.length > 0) throw invalid(errors);
   const parsed: BrowseQuery = {
     q,
-    theme,
+    themes: filters.themes,
     format,
     sort: sort as Sort,
     limit,
@@ -267,7 +280,7 @@ function isDateTime(text: string): boolean {
 /** What the cursor is bound to: the filters and the sort (not the page size). */
 function fingerprint(query: BrowseQuery): string {
   return createHash('sha256')
-    .update(JSON.stringify([query.q, query.theme, query.format, query.sort]))
+    .update(JSON.stringify([query.q, query.themes, query.format, query.sort]))
     .digest('base64url')
     .slice(0, 16);
 }

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { type BrowserContext, expect, type Page, test } from '@playwright/test';
 import { GLYPH_SOURCE } from '../src/lib/card-glyphs';
-import { expectNoHorizontalOverflow } from './helpers';
+import { expectNoHorizontalOverflow, storiesColumns } from './helpers';
 
 // Browse's masonry (D55, lib/masonry.ts): the first paint is the server's prediction, each card
 // clipped to its predicted rows, and once the page's JavaScript runs, measured heights replace
@@ -266,7 +266,8 @@ test.describe('first paint, before any script runs', () => {
 });
 
 // Joel, 2026-11-07/08: story grids show 3 columns from 1024 px wide, 2 from 640 px, 1 below,
-// whatever the text size. #163's breakpoints in em and bands at the default text size had dropped
+// whatever the text size; beside the Stories page's filters column, 2 until about 1200 px
+// (BS-5 B, Joel 2026-11-21). #163's breakpoints in em and bands at the default text size had dropped
 // desktops to 2 columns with a reader's text set to 20 px (Chrome's "Large"). Every device, at
 // the default text, at 20 px and at 200% (WCAG 1.4.4), with no sideways scroll.
 for (const text of [16, 20, 32])
@@ -283,9 +284,8 @@ for (const text of [16, 20, 32])
       ),
     ).toBe(text);
     const width = info.project.use.viewport?.width ?? 0;
-    expect(await columnCount(page)).toBe(
-      width >= 1024 ? 3 : width >= 640 ? 2 : 1,
-    );
+    // Beside the filters column (BS-5 B), 2 until about 1200 px screens.
+    expect(await columnCount(page)).toBe(storiesColumns(width, text));
     await expectNoHorizontalOverflow(page);
   });
 
@@ -386,13 +386,16 @@ test('the site serves the DM Sans the card widths were measured from', async ({
  * counts (the cards that start less than a screen below its top): nothing further down can be
  * tapped, or seen to move, before a person scrolls, and the measuring is long done by then. Each
  * card's place is measured from the list's top, so only the masonry's own movement counts. One device per layout: a phone (one column, no predicted
- * spans), the two-column band at 768 px and an unfolded foldable, and desktop's three columns.
+ * spans), the two-column band at 768 px and an unfolded foldable, two beside the filters column at 1024 px,
+ * and desktop's three columns.
  */
 const MOST_MOVEMENT = 20;
 const SHIFT_DEVICES = [
   'phone-320',
   'ipad-mini-portrait',
   'galaxy-z-fold5-unfolded',
+  // Two columns beside the filters column (BS-5 B).
+  'ipad-pro-12.9-portrait',
   'desktop-1280',
 ];
 

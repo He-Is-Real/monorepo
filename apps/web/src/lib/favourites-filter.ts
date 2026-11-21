@@ -6,8 +6,8 @@ import type { BrowseFilters } from './browse-query';
 // browser holds the person's whole favourites list and filters it here, with browse's meanings:
 //
 // - **format**: the story's main format, as browse.
-// - **theme**: stories carrying that theme, as browse. A theme that doesn't exist (or was deleted)
-//   filters nothing, as browse (Codex, #223). It exists if browse lists it or a favourite carries
+// - **themes**: stories carrying every chosen theme, as browse (BS-6 B). A theme that doesn't
+//   exist (or was deleted) filters nothing, as browse (Codex, #223). It exists if browse lists it or a favourite carries
 //   it; while the themes can't be read, every theme is taken to exist. (A real theme browse
 //   doesn't list, used by no published story, then filters nothing where browse finds none.)
 // - **search**: every word of the search appears in the card's title, description or the names
@@ -51,18 +51,17 @@ export function filterFavourites(
   /** The themes browse lists, or null when they couldn't be read. */
   themeIds: readonly string[] | null = null,
 ): StorySummary[] {
-  const theme =
-    filters.theme &&
-    (themeIds === null ||
-      themeIds.includes(filters.theme) ||
-      cards.some((c) => c.themes.some((t) => t.id === filters.theme)))
-      ? filters.theme
-      : null;
+  const themes = filters.themes.filter(
+    (id) =>
+      themeIds === null ||
+      themeIds.includes(id) ||
+      cards.some((c) => c.themes.some((t) => t.id === id)),
+  );
   const words = wordsOf(filters.q);
   const kept: { card: StorySummary; score: number }[] = [];
   for (const card of cards) {
     if (filters.format && card.primaryFormat !== filters.format) continue;
-    if (theme && !card.themes.some((t) => t.id === theme)) continue;
+    if (!themes.every((id) => card.themes.some((t) => t.id === id))) continue;
     let score = 0;
     if (words.length) {
       const text = searchText(card);

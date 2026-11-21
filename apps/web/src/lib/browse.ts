@@ -91,8 +91,8 @@ export interface StoryPage {
 export interface BrowseParams {
   /** A visitor's search; trimmed, and cut to the API's 200 characters. */
   q?: string;
-  /** A theme id: only stories with it. */
-  theme?: string;
+  /** Theme ids: only stories with every one (BS-6 B). */
+  themes?: string[];
   format?: StoryFormat;
   sort?: BrowseSort;
   /** 1 to 50 (the API's default is 20). */
@@ -121,8 +121,8 @@ export async function browseStories(
   const query = new URLSearchParams();
   const q = [...(params.q?.trim() ?? '')].slice(0, Q_MAX_CHARS).join('');
   if (q) query.set('q', q);
-  if (params.theme && THEME_ID.test(params.theme))
-    query.set('theme', params.theme);
+  for (const id of params.themes ?? [])
+    if (THEME_ID.test(id)) query.append('theme', id);
   if (params.format) query.set('format', params.format);
   if (params.sort) query.set('sort', params.sort);
   if (params.limit !== undefined) query.set('limit', String(params.limit));

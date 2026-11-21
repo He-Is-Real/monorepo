@@ -1125,7 +1125,7 @@ const SORTS = ['oldest', 'newest', 'changed'];
 
 /**
  * `GET /v1/moderation/stories` (listModerationStories): one state, narrowed by a title search,
- * one format and one theme (as browse; revised OQ-2), sorted, in pages, with the counts (MQ-1 E).
+ * one format and stacked themes (as browse; revised OQ-2, BS-7), sorted, in pages, with the counts (MQ-1 E).
  */
 function sendList(req, res, url, token) {
   const sp = url.searchParams;
@@ -1133,11 +1133,11 @@ function sendList(req, res, url, token) {
   const state = states[0] ?? 'pending';
   if (states.length > 1 || !LIST_STATES.includes(state))
     return invalid(res, '/state', 'validation_failed');
-  const themes = sp.getAll('theme');
-  const theme = themes[0];
+  // Themes stack (BS-7): every one must be on the story; at most 10 different ones.
+  const themes = [...new Set(sp.getAll('theme'))];
   if (
-    themes.length > 1 ||
-    (theme !== undefined && !/^[0-9A-Za-z_]{1,40}$/.test(theme))
+    themes.length > 10 ||
+    !themes.every((id) => /^[0-9A-Za-z_]{1,40}$/.test(id))
   )
     return invalid(res, '/theme', 'validation_failed');
   const formats = sp.getAll('format');
@@ -1166,7 +1166,7 @@ function sendList(req, res, url, token) {
       : s.statusLog.length > 0 && s.status === st;
   const searched = stories
     .filter((s) => inState(s, state))
-    .filter((s) => !theme || s.themes.some((x) => x.id === theme))
+    .filter((s) => themes.every((id) => s.themes.some((x) => x.id === id)))
     .filter((s) => !q || s.title.toLowerCase().includes(q.toLowerCase()));
   const rows = searched
     .filter((s) => !format || s.primaryFormat === format)

@@ -88,7 +88,7 @@ const LIST_FIELDS = (
 
 /**
  * The filters a row of state `$state` must pass (revised OQ-2, Joel 2026-11-19): browse's own
- * theme and format filter (libs/story-filters: one of each, `$theme` and `$format`, after
+ * theme and format filter (libs/story-filters: stacked themes and one format, `$themes` and `$format`, after
  * `STORY_FILTERS_LET`), and the title containing `$q`, ignoring capitals. `s` names the story;
  * `format` false leaves the format filter out (the format counts).
  */
@@ -355,7 +355,8 @@ function parseFilters(query: {
     return values[0];
   };
   const { filters, errors } = checkStoryFilters({
-    theme: once(query.theme, '/theme'),
+    // Themes stack (BS-7): `theme` repeats, one value per theme.
+    themes: many(query.theme, '/theme'),
     format: once(query.format, '/format'),
   });
   if (errors[0]) throw invalid(errors[0].pointer, errors[0].message);
@@ -616,7 +617,7 @@ export class ModerationController {
     if (!LIST_STATES.includes(state)) {
       throw invalid('/state', `state is one of ${LIST_STATES.join(', ')}`);
     }
-    const { theme, format, sort, q } = parseFilters(req.query);
+    const { themes, format, sort, q } = parseFilters(req.query);
     const take = parseLimit(limit);
     const after = decodeCursor(cursor, sort);
     // MD-3: drafts never sent, and how many there are, are for Admins only.
@@ -629,7 +630,7 @@ export class ModerationController {
       formatCountsSql(state);
     const results = await runQuery(this.db, sql, {
       state,
-      theme: theme ?? undefined,
+      themes,
       format: format ?? undefined,
       q,
       after,

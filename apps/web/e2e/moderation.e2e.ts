@@ -597,8 +597,8 @@ test.describe('moderation', () => {
     await expect(page).toHaveURL(/\/moderation$/);
     await expect(listItems(page)).toHaveCount(20);
 
-    // One theme at a time, with browse's own picker: the folded ones open in place, another
-    // replaces the chosen one, and the chosen one pressed again clears it.
+    // Themes stack, as browse (BS-7, Joel 2026-11-21), with browse's own picker: the folded ones
+    // open in place, each turns on and off on its own, and a story must carry every chosen one.
     const theme = (p: Locator, name: string) =>
       p.getByRole('link', { name, exact: true });
     panel = await filters(page);
@@ -608,15 +608,46 @@ test.describe('moderation', () => {
     await expect(titles(page)).toHaveText(['A habit that became a faith']);
     panel = await filters(page);
     await theme(panel, 'Healing').click();
-    await expect(page).toHaveURL(/\?theme=healing$/);
-    await expect(theme(panel, 'Healing')).toHaveAttribute(
-      'aria-current',
-      'true',
+    await expect(page).toHaveURL(/\?theme=doubt&theme=healing$/);
+    for (const name of ['Doubt', 'Healing'])
+      await expect(theme(panel, name)).toHaveAttribute('aria-current', 'true');
+    // No story here is about both.
+    await expect(page.locator('[data-list-empty]')).toContainText(
+      'No stories match these filters.',
     );
+    panel = await filters(page);
+    await theme(panel, 'Doubt').click();
+    await expect(page).toHaveURL(/\?theme=healing$/);
     await expect(titles(page)).toContainText(['The night I stopped running']);
-    await theme(panel, 'Healing').click();
+    panel = await filters(page);
+    await panel.getByRole('link', { name: 'Clear themes' }).click();
     await expect(page).toHaveURL(/\/moderation$/);
     await expect(listItems(page)).toHaveCount(20);
+    // At most 10, as browse (Joel 2026-11-21): an 11th stays unchosen, with a note.
+    const ten = [
+      'answered_prayers',
+      'doubt',
+      'faith',
+      'forgiveness',
+      'grief',
+      'joy',
+      'peace',
+      'salvation',
+      'waiting',
+      'healing',
+    ].sort();
+    await page.goto(
+      `${WEB_SIGNED_IN_URL}/moderation?${ten.map((id) => `theme=${id}`).join('&')}`,
+    );
+    panel = await filters(page);
+    await theme(panel, 'Hope').click();
+    await expect(
+      panel.getByRole('status').filter({
+        hasText: 'You can choose up to 10 themes.',
+      }),
+    ).toBeVisible();
+    await expect(theme(panel, 'Hope')).not.toHaveAttribute('aria-current');
+    await expect(page).not.toHaveURL(/theme=hope/);
     // The format and theme together: both must match.
     await page.goto(`${WEB_SIGNED_IN_URL}/moderation?format=audio&theme=doubt`);
     await expect(page.locator('[data-list-empty]')).toContainText(
@@ -1185,11 +1216,12 @@ test('the stub api-admin’s moderation answers fit the contract', async ({
     (await check('/v1/moderation/stories/mod_draft', fresh('admin-contract')))
       .status,
   ).toBe(200);
-  // MQ-1 E: filtered (one format and one theme, as browse), sorted and paged; the counts (an
-  // Admin's with drafts). A repeated format or theme is refused, as browse refuses it.
+  // MQ-1 E: filtered (one format and stacked themes, as browse), sorted and paged; the counts (an
+  // Admin's with drafts). A repeated format, or more than 10 themes, is refused, as browse
+  // refuses it.
   for (const sort of ['oldest', 'newest', 'changed']) {
     const filtered = await check(
-      `/v1/moderation/stories?q=story&format=written&theme=doubt&sort=${sort}`,
+      `/v1/moderation/stories?q=story&format=written&theme=doubt&theme=healing&sort=${sort}`,
     );
     expect(filtered.status).toBe(200);
     const paged = await check(`/v1/moderation/stories?sort=${sort}`);
@@ -1210,7 +1242,7 @@ test('the stub api-admin’s moderation answers fit the contract', async ({
     'q=',
     'format=film',
     'format=video&format=audio',
-    'theme=doubt&theme=healing',
+    Array.from({ length: 11 }, (_, i) => `theme=t${i}`).join('&'),
     'sort=random',
     'limit=0',
   ]) {
