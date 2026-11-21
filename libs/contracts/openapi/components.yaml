@@ -34,12 +34,20 @@ components:
       name: theme
       in: query
       description: |
-        A theme's id: only stories that carry it. One at a time. An id that isn't a theme (deleted,
-        or never was) is ignored, so the link shows every story (themes plan v3, A8).
+        Themes' ids: only stories that carry every one of them (BS-6 B and BS-7, Joel 2026-11-21).
+        Repeat it for each theme (`?theme=a&theme=b`), at most 10 different ones (more is `400`).
+        Their order doesn't matter and a repeat counts once. An id that isn't a theme (deleted,
+        or never was) is ignored (themes plan v3, A8): with no other theme, the link shows every
+        story.
+      style: form
+      explode: true
       schema:
-        type: string
-        maxLength: 40
-        pattern: '^[0-9A-Za-z_]+$'
+        type: array
+        maxItems: 10
+        items:
+          type: string
+          maxLength: 40
+          pattern: '^[0-9A-Za-z_]+$'
     storyFilterFormat:
       name: format
       in: query

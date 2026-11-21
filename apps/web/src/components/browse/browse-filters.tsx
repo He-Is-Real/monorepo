@@ -33,7 +33,7 @@ export const BROWSE_FORM = 'browse-form';
 /**
  * The search box above the stories (BS-1 C; BS-2 A: a magnifier inside it, Enter searches too).
  * A plain GET form to /stories, so it works without JavaScript; with it, Next navigates without
- * a full reload. The theme and "Favourites only" ride along as hidden fields. Changing a filter
+ * a full reload. The themes and "Favourites only" ride along as hidden fields. Changing a filter
  * starts again from the first page.
  */
 export function BrowseSearch({ filters }: { filters: Filters }) {
@@ -49,9 +49,9 @@ export function BrowseSearch({ filters }: { filters: Filters }) {
       aria-label="Stories"
       className="min-w-0 flex-1"
     >
-      {filters.theme && (
-        <input type="hidden" name="theme" value={filters.theme} />
-      )}
+      {filters.themes.map((id) => (
+        <input key={id} type="hidden" name="theme" value={id} />
+      ))}
       {favourites && <input type="hidden" name={FAVOURITES_PARAM} value="1" />}
       <label htmlFor="browse-q" className="sr-only">
         Search stories

@@ -17,6 +17,7 @@ import {
   expectNoHorizontalOverflow,
   expectTarget,
   fetchesTakenIn,
+  storiesColumns,
 } from './helpers';
 import {
   fixtureToken,
@@ -90,7 +91,7 @@ async function masonryBoxes(list: Locator): Promise<Box[]> {
  */
 function expectStaggered(boxes: Box[], width: number) {
   const columns = new Set(boxes.map((b) => b.x));
-  expect(columns.size).toBe(width >= 1024 ? 3 : width >= 640 ? 2 : 1);
+  expect(columns.size).toBe(storiesColumns(width));
   for (const x of columns) {
     const column = boxes.filter((b) => b.x === x).sort((a, b) => a.top - b.top);
     for (let i = 1; i < column.length; i++) {

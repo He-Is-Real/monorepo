@@ -1,14 +1,15 @@
 import { sanitizeStoryFilters, toggleTheme } from '@heisreal/story-filters';
 import type { BrowseParams, BrowseSort, StoryFormat } from './browse';
 
-// The browse page's state lives in its URL (`/stories?q=&theme=&format=&sort=&pages=`), so links,
+// The browse page's state lives in its URL (`/stories?q=&theme=&theme=&format=&sort=&pages=`; `theme`
+// once per chosen theme, BS-6 B), so links,
 // Back and reloads show the same stories (D55: "the position is kept in the URL"). Anything the
 // API would refuse is dropped here rather than turned into an error page.
 
 export interface BrowseFilters {
   q: string;
-  /** One theme's id, or none (themes plan v3). */
-  theme: string | null;
+  /** The chosen themes' ids, sorted: stories with every one (BS-6 B, Joel 2026-11-21). */
+  themes: string[];
   format: StoryFormat | null;
   sort: BrowseSort;
 }
@@ -41,7 +42,10 @@ const one = (v: unknown): string | undefined =>
 /** Filters from untrusted input (the URL, or what the browser sends the server action). */
 export function sanitizeFilters(input: {
   q?: unknown;
+  /** From the URL: `theme` once or repeated. */
   theme?: unknown;
+  /** From the browser (the server action): BrowseFilters' list. */
+  themes?: unknown;
   format?: unknown;
   sort?: unknown;
 }): BrowseFilters {
@@ -50,7 +54,10 @@ export function sanitizeFilters(input: {
   return {
     q,
     // The theme and format filter every story list shares (libs/story-filters).
-    ...sanitizeStoryFilters(input),
+    ...sanitizeStoryFilters({
+      theme: input.themes ?? input.theme,
+      format: input.format,
+    }),
     sort:
       sort && SORTS.includes(sort) && (sort !== 'relevance' || q)
         ? sort
@@ -85,7 +92,7 @@ export function browseHref(
 ): string {
   const sp = new URLSearchParams();
   if (filters.q) sp.set('q', filters.q);
-  if (filters.theme) sp.set('theme', filters.theme);
+  for (const id of filters.themes) sp.append('theme', id);
   if (filters.format) sp.set('format', filters.format);
   const defaultSort = filters.q ? 'relevance' : 'latest';
   if (filters.sort !== defaultSort) sp.set('sort', filters.sort);
@@ -94,7 +101,7 @@ export function browseHref(
   return sp.size ? `/stories?${sp}` : '/stories';
 }
 
-/** Choosing the theme that's chosen clears it; another replaces it. */
+/** Each theme turns on and off on its own (BS-6 B). */
 export { toggleTheme };
 
 /** The API call for these filters (`lib/browse.ts`). */
@@ -104,7 +111,7 @@ export function toBrowseParams(
 ): BrowseParams {
   return {
     q: filters.q || undefined,
-    theme: filters.theme ?? undefined,
+    themes: filters.themes,
     format: filters.format ?? undefined,
     sort: filters.sort,
     limit: PAGE_SIZE,

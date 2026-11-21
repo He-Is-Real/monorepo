@@ -15,10 +15,14 @@ import {
 } from '@/lib/browse-query';
 import { usePersonalSession } from '@/lib/personal-session';
 
-// The filters are a column beside the stories (BS-1 C) while the page's content is at least 70rem
-// wide (the `@min-[70rem]:` classes below, a container query): from about 1200 px screens at the
-// usual text size. In rem, so larger text (a browser setting, or the page's root size at 200%)
-// gives the Filters button instead of three story columns squeezed beside a wider column.
+// The filters are a column beside the stories (BS-1 C) while the page's content is at least 57rem
+// wide (the `@min-[57rem]:` classes below, a container query on the `browse` container): from
+// 1024 px screens at the usual text size, small laptops and landscape tablets (BS-5 B, Joel
+// 2026-11-21); phones and portrait tablets get the Filters button. In rem, so larger text (a
+// browser setting, or the page's root size at 200%) gives the Filters button instead of story
+// columns squeezed beside a wider column. Beside the column the stories take 2 columns until the
+// content is 70rem wide (about 1200 px screens), then 3 as before (lib/masonry.ts,
+// BESIDE_FILTERS, which repeats both widths).
 
 const SORT_LABELS = {
   latest: 'Latest first',
@@ -35,8 +39,9 @@ type Chosen = { key: string; label: string } & (
  * Browse's layout (BS-1 C, Joel 2026-11-20) and "Favourites only" (Joel, 2026-11-14; it replaces
  * the My favourites page).
  *
- * On a computer (while the page's content is at least 70rem wide: about 1200 px screens) "Favourites only", sort, format and every theme are a column on
- * the left and only the search box sits above the stories. On tablets and phones a "Filters"
+ * From 1024 px screens (while the page's content is at least 57rem wide; BS-5 B) "Favourites
+ * only", sort, format and every theme are a column on the left and only the search box sits above
+ * the stories. On portrait tablets and phones a "Filters"
  * button beside the search box (with a count of what's on) opens the same filters in a modal
  * panel, and what's chosen shows under the search box as chips, each removable, with "Clear
  * all". The filters are rendered once: in the column, or moved into the open panel. Without
@@ -54,7 +59,7 @@ type Chosen = { key: string; label: string } & (
 export function BrowseView({
   query,
   themeIds,
-  themeName,
+  chosenThemes,
   search,
   panel,
   summary,
@@ -64,8 +69,8 @@ export function BrowseView({
   query: BrowseFilters;
   /** The themes browse lists, or null when they couldn't be read (favourites-filter.ts). */
   themeIds: readonly string[] | null;
-  /** The chosen theme's name, if it's one browse lists. */
-  themeName: string | null;
+  /** The chosen themes browse lists, with their names. */
+  chosenThemes: { id: string; name: string }[];
   /** The search box. */
   search: ReactNode;
   /** Sort, format and the themes. */
@@ -114,15 +119,15 @@ export function BrowseView({
   const defaultSort = query.q ? 'relevance' : 'latest';
   const keep = { favourites: on };
   const chosen: Chosen[] = [
-    ...(themeName
-      ? [
-          {
-            key: 'theme',
-            label: themeName,
-            href: browseHref({ ...query, theme: null }, keep),
-          },
-        ]
-      : []),
+    // One chip per chosen theme (BS-6 B), each taking only that theme off.
+    ...chosenThemes.map((t) => ({
+      key: `theme-${t.id}`,
+      label: t.name,
+      href: browseHref(
+        { ...query, themes: query.themes.filter((id) => id !== t.id) },
+        keep,
+      ),
+    })),
     ...(query.format
       ? [
           {
@@ -153,7 +158,7 @@ export function BrowseView({
   ];
   const clearAll = browseHref({
     q: query.q,
-    theme: null,
+    themes: [],
     format: null,
     sort: defaultSort,
   });
@@ -175,9 +180,9 @@ export function BrowseView({
     <>
       {/* DOM order is search, filters, stories (the keyboard's order); on a computer the
           filters column sits to the left of both. */}
-      <div ref={page} className="@container">
-        <div className="@min-[70rem]:grid @min-[70rem]:grid-cols-[15rem_minmax(0,1fr)] @min-[70rem]:grid-rows-[auto_1fr] @min-[70rem]:gap-x-10">
-          <div className="min-w-0 @min-[70rem]:col-start-2 @min-[70rem]:row-start-1">
+      <div ref={page} className="@container/browse">
+        <div className="@min-[57rem]:grid @min-[57rem]:grid-cols-[15rem_minmax(0,1fr)] @min-[57rem]:grid-rows-[auto_1fr] @min-[57rem]:gap-x-10">
+          <div className="min-w-0 @min-[57rem]:col-start-2 @min-[57rem]:row-start-1">
             <div className="flex items-start gap-3">
               {search}
               <Button
@@ -189,7 +194,7 @@ export function BrowseView({
                 aria-controls={`${id}-panel`}
                 onClick={() => setOpen(true)}
                 data-filters-button=""
-                className="h-11 px-4 @min-[70rem]:hidden noscript:hidden"
+                className="h-11 px-4 @min-[57rem]:hidden noscript:hidden"
               >
                 <svg
                   viewBox="0 0 24 24"
@@ -219,7 +224,7 @@ export function BrowseView({
             {chosen.length > 0 && (
               <ul
                 aria-label="Chosen filters"
-                className="mt-3 flex flex-wrap items-center gap-2 @min-[70rem]:hidden"
+                className="mt-3 flex flex-wrap items-center gap-2 @min-[57rem]:hidden"
                 data-chosen-filters=""
               >
                 {chosen.map((c) => (
@@ -258,13 +263,13 @@ export function BrowseView({
 
           <aside
             aria-label="Filters"
-            className="mt-6 hidden @min-[70rem]:col-start-1 @min-[70rem]:row-span-2 @min-[70rem]:row-start-1 @min-[70rem]:mt-0 @min-[70rem]:block noscript:block"
+            className="mt-6 hidden @min-[57rem]:col-start-1 @min-[57rem]:row-span-2 @min-[57rem]:row-start-1 @min-[57rem]:mt-0 @min-[57rem]:block noscript:block"
             data-filters-column=""
           >
             {open && body ? createPortal(filters, body) : !open && filters}
           </aside>
 
-          <div className="min-w-0 @min-[70rem]:col-start-2 @min-[70rem]:row-start-2">
+          <div className="min-w-0 @min-[57rem]:col-start-2 @min-[57rem]:row-start-2">
             {summary}
             <div className="mt-8">
               {on && (

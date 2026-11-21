@@ -361,12 +361,14 @@ function SidePanel({
 
         {categories.length > 0 && (
           <div>
-            <h2 className={SECTION_HEADING}>Theme</h2>
+            <h2 className={SECTION_HEADING}>Themes</h2>
             <ThemeLinks
               categories={categories}
-              chosen={filters.theme}
+              chosen={filters.themes}
               hrefOf={(t) => moderationHref(toggleTheme(filters, t))}
               onChoose={(t) => go(toggleTheme(filters, t))}
+              clearHref={moderationHref({ ...filters, themes: [] })}
+              onClear={() => go({ themes: [] })}
             />
           </div>
         )}
@@ -391,7 +393,7 @@ const cleared = (f: ListFilters): ListFilters => ({
   ...f,
   q: null,
   format: null,
-  theme: null,
+  themes: [],
 });
 
 /** A title search: sent with Enter or the magnifier; an empty one clears it. */

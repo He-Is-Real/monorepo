@@ -274,7 +274,7 @@ describe('moderation, the read side (api-admin)', () => {
   });
 
   // MQ-1 E (Joel, 2026-11-17): search, three sorts, and the counts on the tabs and formats; the
-  // revised OQ-2 (Joel, 2026-11-19): one format and one theme, filtered as browse filters them.
+  // revised OQ-2 (Joel, 2026-11-19): one format and themes, filtered as browse filters them.
   describe('filters, sorts and counts (MQ-1 E)', () => {
     const ids = async (query: string, role = 'Moderator') =>
       (await get(`/v1/moderation/stories?${query}`, { role })).body.data.map(
@@ -313,7 +313,7 @@ describe('moderation, the read side (api-admin)', () => {
       expect(await ids('q=nothing%20like%20it')).toEqual([]);
     });
 
-    it('one format and one theme, as browse: with the search, each must pass', async () => {
+    it('one format and a theme, as browse: with the search, each must pass', async () => {
       expect(await ids('format=video')).toEqual(['ann_video']);
       expect(await ids('format=written')).toEqual([
         'ann_pending',
@@ -328,6 +328,24 @@ describe('moderation, the read side (api-admin)', () => {
       expect(await ids('theme=common&format=video')).toEqual(['ann_video']);
       expect(await ids('theme=doubt&q=story')).toEqual(['ann_doubt']);
       expect(await ids('theme=doubt&format=video')).toEqual([]);
+    });
+
+    // BS-7 (Joel, 2026-11-21): themes stack as on browse, a story carrying every one.
+    it('stacked themes, as browse: only the stories with every chosen theme, at most 10', async () => {
+      expect(await ids('theme=common')).toContain('ann_both');
+      expect(await ids('theme=doubt&theme=common')).toEqual(['ann_both']);
+      expect(await ids('theme=common&theme=doubt')).toEqual(['ann_both']);
+      expect(await ids('theme=doubt&theme=no_such_theme')).toEqual(
+        await ids('theme=doubt'),
+      );
+      const ten = Array.from({ length: 10 }, (_, i) => `theme=t${i}`);
+      expect(
+        (await get(`/v1/moderation/stories?${ten.join('&')}`)).status,
+      ).toBe(200);
+      expect(
+        (await get(`/v1/moderation/stories?${[...ten, 'theme=t10'].join('&')}`))
+          .status,
+      ).toBe(400);
     });
 
     it('sorts oldest (the default) or newest by when it entered its state, or by when it last changed', async () => {
@@ -449,9 +467,8 @@ describe('moderation, the read side (api-admin)', () => {
         `q=${'a'.repeat(101)}`,
         'q=a&q=b',
         'format=film',
-        // One format and one theme at a time, as browse.
+        // One format at a time, as browse (themes stack, BS-7).
         'format=video&format=audio',
-        'theme=doubt&theme=common',
         'theme=no%20spaces',
         `theme=${'t'.repeat(41)}`,
         'sort=random',

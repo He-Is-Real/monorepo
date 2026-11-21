@@ -1,4 +1,4 @@
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page, test } from '@playwright/test';
 import {
   browseFilters,
   chooseOption,
@@ -6,13 +6,15 @@ import {
   expectAllTargets,
   expectNoHorizontalOverflow,
   shots,
+  storiesColumns,
 } from './helpers';
 
 // The Stories page's filters (BS-1 C, Joel 2026-11-20: "for compact search implement option
-// C"). On a computer (content 70rem wide or more) "Favourites only", sort, format and every theme are a
-// column beside the stories, and only the search box sits above them. On tablets and phones a
-// "Filters" button beside the search box opens them in a panel, and what's chosen shows under
-// the search box as removable chips, with a count on the button. Everything stays in the address.
+// C"). From 1024 px screens (BS-5 B, Joel 2026-11-21) "Favourites only", sort, format and every
+// theme are a column beside the stories, and only the search box sits above them. On portrait
+// tablets and phones a "Filters" button beside the search box opens them in a panel, and what's
+// chosen shows under the search box as removable chips, with a count on the button. Themes stack
+// (BS-6 B): a story shows only if it has every chosen theme. Everything stays in the address.
 
 /** One phone and one tablet: the panel. */
 const PANEL_DEVICES = ['phone-320', 'ipad-mini-portrait'];
@@ -209,6 +211,157 @@ test.describe('computers: the filters column', () => {
     expect(side.x + side.width).toBeLessThan(search.x);
     expect(side.x + side.width).toBeLessThan(first.x);
     expect(search.y + search.height).toBeLessThan(first.y);
+  });
+});
+
+// BS-5 B (Joel, 2026-11-21): the column from 1024 px screens (small laptops, landscape tablets);
+// the Filters button below that (portrait tablets, phones). Beside the column the stories take 2
+// columns until about 1200 px, then 3.
+test.describe('where the column starts', () => {
+  const AROUND_1024 = [
+    'ipad-mini-portrait',
+    'galaxy-z-fold5-unfolded',
+    'ipad-pro-12.9-portrait',
+    'ipad-air-landscape',
+    'desktop-1280',
+  ];
+  // eslint-disable-next-line no-empty-pattern
+  test.beforeEach(({}, info) => {
+    test.skip(
+      !AROUND_1024.includes(info.project.name),
+      'the screens either side of 1024 px',
+    );
+  });
+
+  test('a column from 1024 px, the Filters button below it, and the stories’ columns beside it', async ({
+    page,
+  }, info) => {
+    const width = info.project.use.viewport?.width ?? 0;
+    await page.goto('/stories');
+    await expect(page.locator('[data-favourites-only]')).toBeAttached();
+    const column = page.locator('[data-filters-column]');
+    if (width >= 1024) {
+      await expect(column).toBeVisible();
+      await expect(filtersButton(page)).toBeHidden();
+    } else {
+      await expect(column).toBeHidden();
+      await expect(filtersButton(page)).toBeVisible();
+    }
+    const cards = page.locator('main ul.masonry > li');
+    await expect(cards).toHaveCount(15);
+    await expect
+      .poll(() =>
+        cards.evaluateAll(
+          (lis) =>
+            new Set(lis.map((li) => Math.round(li.getBoundingClientRect().x)))
+              .size,
+        ),
+      )
+      .toBe(storiesColumns(width));
+    expect(storiesColumns(width)).toBe(
+      width >= 1280 ? 3 : width >= 640 ? 2 : 1,
+    );
+    await expectNoHorizontalOverflow(page);
+    await expectAllTargets(page);
+  });
+});
+
+// BS-6 B (Joel, 2026-11-21): themes stack, and a story shows only if it has every chosen theme.
+test.describe('stacked themes', () => {
+  // eslint-disable-next-line no-empty-pattern
+  test.beforeEach(({}, info) => {
+    test.skip(
+      !['phone-320', 'desktop-1280'].includes(info.project.name),
+      'one phone (the panel) and one computer (the column)',
+    );
+  });
+
+  const cards = (page: Page) => page.locator('main article');
+  const theme = (filters: Locator, name: string) =>
+    filters
+      .getByRole('navigation', { name: 'Themes' })
+      .getByRole('link', { name, exact: true });
+
+  test('each theme turns on and off on its own, only stories with every one show, and Clear themes clears them', async ({
+    page,
+  }) => {
+    await page.goto('/stories');
+    let filters = await browseFilters(page);
+    await theme(filters, 'Healing').click();
+    await expect(page).toHaveURL(/\/stories\?theme=healing$/);
+    await expect(cards(page).first()).toContainText('Healing');
+    const healing = await cards(page).count();
+    filters = await browseFilters(page);
+    await theme(filters, 'Hope').click();
+    // Both in the address, each chosen with its ✓.
+    await expect(page).toHaveURL(/\/stories\?theme=healing&theme=hope$/);
+    for (const name of ['Healing', 'Hope'])
+      await expect(theme(filters, name)).toHaveAttribute(
+        'aria-current',
+        'true',
+      );
+    // Fewer stories: each about both.
+    await expect.poll(() => cards(page).count()).toBeLessThan(healing);
+    await expect(cards(page)).not.toHaveCount(0);
+    for (const card of await cards(page).all()) {
+      await expect(card).toContainText('Healing');
+      await expect(card).toContainText('Hope');
+    }
+    // Pressing one again takes only that one off.
+    await theme(filters, 'Healing').click();
+    await expect(page).toHaveURL(/\/stories\?theme=hope$/);
+    await expect(theme(filters, 'Hope')).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+    await expect(theme(filters, 'Healing')).not.toHaveAttribute('aria-current');
+    await theme(filters, 'Healing').click();
+    await expect(page).toHaveURL(/\/stories\?theme=healing&theme=hope$/);
+
+    await filters.getByRole('link', { name: 'Clear themes' }).click();
+    await expect(page).toHaveURL(/\/stories$/);
+    await expect(
+      filters.getByRole('link', { name: 'Clear themes' }),
+    ).toHaveCount(0);
+    await expect(cards(page)).toHaveCount(15);
+  });
+
+  test('an address with themes in any order, repeated, or the old single theme shows the same stories', async ({
+    page,
+  }) => {
+    // Hope and Faith share one story only.
+    for (const address of [
+      '/stories?theme=hope&theme=faith',
+      '/stories?theme=faith&theme=hope&theme=hope',
+      // An id that isn't a theme filters nothing (A8).
+      '/stories?theme=faith&theme=no_such_theme&theme=hope',
+    ]) {
+      await page.goto(address);
+      await expect(cards(page), address).toHaveCount(1);
+      await expect(cards(page)).toContainText('Browse test story 01');
+    }
+    // The old single-theme link still works.
+    await page.goto('/stories?theme=faith');
+    await expect(cards(page)).toHaveCount(4);
+    await expect(theme(await browseFilters(page), 'Faith')).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+  });
+
+  test('on a phone, each chosen theme is its own chip', async ({
+    page,
+  }, info) => {
+    test.skip(info.project.name !== 'phone-320', 'the chips are the panel’s');
+    await page.goto('/stories?theme=hope&theme=healing');
+    await expect(chips(page).getByRole('link')).toHaveText([
+      'Remove Healing',
+      'Remove Hope',
+      'Clear all',
+    ]);
+    await expect(filtersButton(page)).toHaveAccessibleName('Filters (2 on)');
+    await chips(page).getByRole('link', { name: 'Remove Hope' }).click();
+    await expect(page).toHaveURL(/\/stories\?theme=healing$/);
   });
 });
 

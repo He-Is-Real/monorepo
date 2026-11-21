@@ -1,6 +1,6 @@
 # Delivery status
 
-Where the build is, in plain words. **Last updated:** 2026-11-20
+Where the build is, in plain words. **Last updated:** 2026-11-21
 
 Everything here runs on the **dev** test site only, with made-up stories. Nothing reaches the
 public until the "Go live" milestone. The old prototype and the Squarespace site keep running until
@@ -109,7 +109,8 @@ Kept basic for now. Joel will decide later how stories are shared out between mo
 - ✅ Every drop-down on the site uses the same styled list, in every browser
 - ✅ Text boxes, panels, menus and buttons come from one shared set, so pages don't restyle them
 - ✅ The site's colours live in the shared set, named by meaning, with one red for delete buttons everywhere
-- ✅ Stories page search and filters take less room: a column beside the stories on computers, a Filters button on tablets and phones, sort as round choice buttons
+- ✅ Stories page search and filters take less room: a column beside the stories from small laptops up, a Filters button on portrait tablets and phones, sort as round choice buttons
+- ✅ Choose several themes at once on the Stories page and the moderators' list: only stories with all of them show
 - ✅ One look each for chips, labels, "Are you sure?" steps, delete boxes, check boxes, tabs, switches, open/close sections and text boxes
 - ✅ One look for buttons and links that look like buttons
 - ⏸ One look for notices: waits for Joel's choice

@@ -72,7 +72,7 @@ paths:
         works only with the same `q`, `theme`, `format` and `sort` (any `limit`); a cursor used with
         others is `400 invalid_cursor`, and so is any changed cursor (every field is checked). Ties
         in the sort are broken by ID, so pages never overlap.
-        Unknown or repeated parameters are `400`. No totals (D30). Browse loads at most two more
+        Unknown parameters are `400`, and so is a repeat of any but `theme` and `id`. No totals (D30). Browse loads at most two more
         pages on its own, then shows a button (D55).
 
         **Cards by id** (M2): with `id` (1 to 50, on its own), the cards of the stories among them

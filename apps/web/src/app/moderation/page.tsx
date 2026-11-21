@@ -37,7 +37,7 @@ async function themes(): Promise<ThemeCategory[]> {
 /**
  * /moderation (MD-3, MD-4: Joel 2026-11-14; it replaces the queue; MQ-1 E, Joel 2026-11-17): every
  * story that isn't on the site, one state at a time (`?state=`), narrowed by a title search
- * (`?q=`), one format (`?format=`) and one theme (`?theme=`), filtered as browse filters (revised
+ * (`?q=`), one format (`?format=`) and stacked themes (`?theme=`, repeated; BS-7), filtered as browse filters (revised
  * OQ-2, Joel 2026-11-19), and sorted (`?sort=`), for Moderators and Admins (Admins also see
  * drafts never sent). Wider than the site on big screens (OQ-3 A), centred (OQ-4 D). The page
  * asks api-admin from the browser with the person's own token (D31), and api-admin refuses anyone else; web's server renders the same shell

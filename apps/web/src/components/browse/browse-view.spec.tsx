@@ -61,7 +61,7 @@ jest.mock('@/lib/api-user', () => {
 
 const filters: BrowseFilters = {
   q: '',
-  theme: null,
+  themes: [],
   format: null,
   sort: 'latest',
 };
@@ -83,7 +83,7 @@ function Page({ signedIn }: { signedIn: boolean }) {
       <BrowseView
         query={filters}
         themeIds={[]}
-        themeName={null}
+        chosenThemes={[]}
         search={null}
         panel={null}
         summary={null}

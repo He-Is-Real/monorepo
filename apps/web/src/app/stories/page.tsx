@@ -41,8 +41,12 @@ const KINDS = {
   written: 'written stories',
 } as const;
 
+/** The chosen themes' names: "Hope", "Hope and Healing", "Faith, Hope and Healing". */
+const AND = new Intl.ListFormat('en-GB', { type: 'conjunction' });
+
 /** What the list shows, in words (never a count: api-conventions has no totals). */
-function summaryOf(filters: Filters, theme: string | undefined): string | null {
+function summaryOf(filters: Filters, themeNames: string[]): string | null {
+  const theme = themeNames.length ? AND.format(themeNames) : undefined;
   const kind = filters.format ? KINDS[filters.format] : 'stories';
   const about = theme ? ` about ${theme}` : '';
   if (filters.q)
@@ -81,7 +85,7 @@ async function loadPages(filters: Filters, pages: number) {
 }
 
 /**
- * Browse (plan 1.2): every published story, newest first, with search, sort, format and a theme,
+ * Browse (plan 1.2): every published story, newest first, with search, sort, format and themes,
  * in a balanced masonry (D55). Server-rendered from api-public-read (D32) for the URL's filters
  * and page count; BrowseResults loads more. BrowseView adds "Favourites only".
  */
@@ -94,10 +98,15 @@ export default async function BrowsePage({ searchParams }: Props) {
   ]);
   const categories = themes ?? [];
   // A theme that's gone (or never was) filters nothing (A8), so it isn't named either.
-  const themeName = categories
-    .flatMap((c) => c.themes)
-    .find((t) => t.id === filters.theme)?.name;
-  const summary = summaryOf(filters, themeName);
+  // In the address's order.
+  const listed = categories.flatMap((c) => c.themes);
+  const chosenThemes = filters.themes.flatMap((id) =>
+    listed.filter((t) => t.id === id).map((t) => ({ id: t.id, name: t.name })),
+  );
+  const summary = summaryOf(
+    filters,
+    chosenThemes.map((t) => t.name),
+  );
   const filtered = summary !== null;
 
   return (
@@ -119,7 +128,7 @@ export default async function BrowsePage({ searchParams }: Props) {
         <BrowseView
           query={filters}
           themeIds={themes && themes.flatMap((c) => c.themes.map((t) => t.id))}
-          themeName={themeName ?? null}
+          chosenThemes={chosenThemes}
           search={<BrowseSearch filters={filters} />}
           panel={
             <>
@@ -164,8 +173,9 @@ export default async function BrowsePage({ searchParams }: Props) {
             ) : result.cards.length === 0 ? (
               <div className="mx-auto max-w-measure rounded-xl bg-raised px-4 py-10 text-center">
                 <p className="text-lg">
-                  {/* A highlighted theme no story uses yet says so plainly (A14). */}
-                  {filters.q || filters.format
+                  {/* A highlighted theme no story uses yet says so plainly (A14); stacked
+                      themes that no story carries together are filters that match nothing. */}
+                  {filters.q || filters.format || chosenThemes.length > 1
                     ? 'No stories match these filters yet.'
                     : 'No stories yet.'}
                 </p>

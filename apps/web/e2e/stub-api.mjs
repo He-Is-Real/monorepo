@@ -632,7 +632,7 @@ function legal(url, res) {
 const onPort = (mode, s) =>
   (s.slug !== WITHDRAWN || mode === 'live') && !hiddenOn[mode].has(s.slug);
 
-/** GET /v1/stories: theme, format, q, sort, limit, cursor (bound to the filters). */
+/** GET /v1/stories: theme (repeated), format, q, sort, limit, cursor (bound to the filters). */
 function listStories(mode, url, res) {
   const p = url.searchParams;
   // Cards by id (hearts kept on a device, M2): the public stories among them, newest first,
@@ -654,12 +654,13 @@ function listStories(mode, url, res) {
     });
   }
   const q = p.get('q')?.toLowerCase() ?? '';
-  // An id that isn't a theme shows every story (A8).
-  const asked = p.get('theme');
-  const theme =
-    THEMES.some((t) => t.id === asked) || TEST_THEMES.includes(asked)
-      ? asked
-      : null;
+  // Themes stack (BS-6 B): a story must carry every one; at most 10, order and repeats don't
+  // matter. An id that isn't a theme filters nothing (A8).
+  const asked = [...new Set(p.getAll('theme'))].sort();
+  if (asked.length > 10) return problem(res, 400, 'validation_failed');
+  const themes = asked.filter(
+    (id) => THEMES.some((t) => t.id === id) || TEST_THEMES.includes(id),
+  );
   const format = p.get('format');
   const sort = p.get('sort') ?? (q ? 'relevance' : 'latest');
   const limit = Number(p.get('limit') ?? 20);
@@ -679,8 +680,8 @@ function listStories(mode, url, res) {
   let list = published(mode).filter(
     (s) =>
       s.slug !== RELATED_DOWN &&
-      (testThemeOf(s) === null || testThemeOf(s) === theme) &&
-      (!theme || s.themes.some((x) => x.id === theme)) &&
+      (testThemeOf(s) === null || themes.includes(testThemeOf(s))) &&
+      themes.every((id) => s.themes.some((x) => x.id === id)) &&
       (!format || s.primaryFormat === format) &&
       (!q ||
         `${s.title} ${s.description} ${s.body ?? ''}`
