@@ -192,7 +192,6 @@ describe('images: server-assigned, in the story’s own folder, only through a g
       [{ contentType: 'image/jpeg' }, /an image is a WebP/],
       [{ sizeBytes: 3_145_729 }, /limit_upload_size:/], // over the default 3 MiB
       [{ width: 3700, height: 1200 }, /pixel size or shape/], // wider than 3:1
-      [{ width: 150, height: 300 }, /pixel size or shape/],
       [{ width: 4097, height: 4000 }, /pixel size or shape/],
     ];
     for (const [g, refused] of cases) {
@@ -208,6 +207,36 @@ describe('images: server-assigned, in the story’s own folder, only through a g
       ).toMatch(refused);
     }
     expect((await image('dan_w')).image).toBeUndefined();
+  });
+
+  it('takes a picture of any size from 1 pixel up (Joel 2026-11-21, thumbnail crop TC-7 A: no smallest size)', async () => {
+    const sam = await person('sam');
+    await draft(sam, 'sam_w');
+    expect(
+      await grantImage(apiUser, {
+        story: 'sam_w',
+        person: 'sam',
+        version: 1,
+        width: 16,
+        height: 16,
+      }),
+    ).toMatchObject({ ok: true });
+    expect((await image('sam_w')).image).toMatchObject({
+      width: 16,
+      height: 16,
+    });
+    expect(
+      await grantImage(apiUser, {
+        story: 'sam_w',
+        person: 'sam',
+        version: 2,
+        name: 'b'.repeat(32),
+        width: 1,
+        height: 1,
+        expectedImage: `stories/sam_w/${'a'.repeat(32)}.webp`,
+      }),
+    ).toMatchObject({ ok: true });
+    expect((await image('sam_w')).image).toMatchObject({ width: 1, height: 1 });
   });
 
   it('the largest picture file is the admin’s setting: 3 MiB to start, 200 KiB to 20 MiB, for everyone (Joel, 2026-11-20)', async () => {

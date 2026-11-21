@@ -70,7 +70,13 @@ import {
 import { ThemePicker } from '@/components/themes/theme-picker';
 import { canCreate, type SubmitAttempt, useDraft } from './use-draft';
 import { useRouter } from 'next/navigation';
-import { ImagePanel, type PictureState, pictureName } from './image-panel';
+import {
+  ImagePanel,
+  type PictureState,
+  pictureName,
+  type ThumbnailVideo,
+} from './image-panel';
+import type { MediaFacts } from '@/lib/video-shape';
 import {
   fileLimits,
   type FileState,
@@ -1302,9 +1308,24 @@ function usePictureGate(noun: string) {
   );
   /** Whether the picture still holds the step back, now (nothing shown). */
   const pending = () =>
-    state.current === 'uploading' || state.current === 'unfinished';
+    state.current === 'uploading' ||
+    state.current === 'unfinished' ||
+    state.current === 'cropping' ||
+    state.current === 'stale';
   /** Whether the picture holds the step back, saying why. */
   const blocked = () => {
+    if (state.current === 'cropping') {
+      // A thumbnail being cut is only on this device until it's used (thumbnail crop TC-6 A).
+      setProblem('Use this thumbnail, or cancel it, before you go on.');
+      return true;
+    }
+    if (state.current === 'stale') {
+      // A new video's old thumbnail is still on the story (TC-3 B).
+      setProblem(
+        `We couldn’t take your old ${noun} off. Try again before you continue.`,
+      );
+      return true;
+    }
     if (state.current === 'uploading') {
       setProblem(
         `Your ${noun} is still uploading. Wait for it to finish, then continue.`,
@@ -1534,6 +1555,32 @@ function MediaStep({
   // once this tab's upload is done (Part 1a: whether it replaced a file that couldn't be used).
   const story = useEarlierPicture(calls, draftId, file === 'uploaded');
   const earlier = (story?.media.length ?? 0) > 0;
+  // The video a thumbnail is cut to (thumbnail crop, Joel 2026-11-21): this tab's file as the
+  // browser read it, else (a draft carried on elsewhere) the shape our video host reports. A file
+  // chosen here whose shape can't be read waits for our video host too (TC-4).
+  const [chosen, setChosen] = useState<{
+    file: File;
+    facts: MediaFacts;
+  } | null>(null);
+  const [replaced, setReplaced] = useState(0);
+  const onVideo = useCallback(
+    (f: File, facts: MediaFacts) => setChosen({ file: f, facts }),
+    [],
+  );
+  const onReplaced = useCallback(() => setReplaced((n) => n + 1), []);
+  const hosted = story?.media[0];
+  const thumbnailVideo: ThumbnailVideo = {
+    shape: chosen
+      ? chosen.facts.width && chosen.facts.height
+        ? { width: chosen.facts.width, height: chosen.facts.height }
+        : null
+      : hosted?.width && hosted.height
+        ? { width: hosted.width, height: hosted.height }
+        : null,
+    inTab: !!chosen,
+    playable: chosen?.facts.playable ? chosen.file : null,
+    replaced,
+  };
 
   const prepare = async () => {
     if (!draft.fields.title.trim()) {
@@ -1619,6 +1666,8 @@ function MediaStep({
             reload={draft.load}
             onState={setFile}
             onCounted={refreshLimits}
+            onVideo={format === 'video' ? onVideo : undefined}
+            onReplaced={format === 'video' ? onReplaced : undefined}
           />
         </div>
         {/* An audio story's picture, or (Joel, 2026-10-30) a video's own thumbnail once the
@@ -1632,7 +1681,7 @@ function MediaStep({
             </p>
             <p className="mb-3 text-sm text-secondary-text">
               {format === 'video'
-                ? 'The picture shown before your video plays. Without one, our video host picks a frame.'
+                ? 'The picture shown before your video plays, cut to your video’s shape. Without one, our video host picks a frame.'
                 : 'The picture shown while people listen. Without one, we show our own.'}
             </p>
             <ImagePanel
@@ -1647,6 +1696,7 @@ function MediaStep({
               reload={draft.load}
               onState={picture.onState}
               maxBytes={limits.uploads.imageMaxBytes}
+              video={format === 'video' ? thumbnailVideo : undefined}
             />
           </div>
         )}

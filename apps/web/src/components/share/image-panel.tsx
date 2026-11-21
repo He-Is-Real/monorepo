@@ -24,19 +24,26 @@ import {
   useRuns,
   useUploadRequest,
 } from './upload-request';
-import { buttonVariants } from '@heisreal/web-ui';
+import { buttonVariants, Tabs, tabId } from '@heisreal/web-ui';
+import { clampAspect, encodeWebp, type Encoded } from './picture-encode';
+import { ThumbnailCropper, VideoMoment } from './thumbnail-crop';
 
 /**
  * A story's picture (M2 plan PR 10; D53, D65, D80): a written story's image, an audio story's
  * picture, or a video's own thumbnail (Joel, 2026-10-30), shown in place of Bunny's.
  *
- * The browser re-encodes the chosen photo to WebP on a canvas, at most 2048 px on its longer side.
- * A canvas carries no metadata, so EXIF (the camera, the time, GPS) never leaves the device; the
- * photo's own orientation is applied first. It checks the shape (1:3..3:1) and size (D53) and
- * shows the result at its real shape, with the chosen file's name. It has no description (Joel,
- * 2026-11-14): readers show a neutral alt text.
+ * The browser re-encodes the chosen photo to WebP on a canvas (picture-encode.ts), at most 2048 px
+ * on its longer side, and a small one enlarged with hard pixel edges to about 1,000 px (TC-7 A,
+ * Joel 2026-11-21: no smallest size). A canvas carries no metadata, so EXIF (the camera, the time,
+ * GPS) never leaves the device; the photo's own orientation is applied first. It checks the shape
+ * (1:3..3:1) and the file's size (D53) and shows the result at its real shape, with the chosen
+ * file's name. It has no description (Joel, 2026-11-14): readers show a neutral alt text.
  * Choosing a picture adds it straight away, as a video or audio file uploads once chosen (Joel,
- * 2026-11-09): the panel asks api-user for the upload (RequestUpload with `format: image`, the
+ * 2026-11-09), except a video's thumbnail (thumbnail crop, Joel 2026-11-21): it's cut to the
+ * video's shape first (TC-1 A + D, TC-2 A), and nothing is uploaded or saved until "Use this
+ * thumbnail" or "Use this moment" (TC-6 A). The video's shape comes from the step (`video`); until
+ * it's known the chooser waits with a plain line (TC-4). A new video takes the thumbnail off
+ * (TC-3 B). Then the panel asks api-user for the upload (RequestUpload with `format: image`, the
  * same idempotent request as a video's: upload-request.ts), which puts the picture on the draft,
  * then PUTs the WebP straight to Bunny's storage with the presigned link. A line says whether it's
  * being prepared, uploading or added; one that failed keeps "Try again". Replacing or removing
@@ -64,22 +71,43 @@ import { buttonVariants } from '@heisreal/web-ui';
  * for again, and if they go back it stays to add, with the reason.
  */
 
-/**
- * The longer side the browser re-encodes to, and the bounds api-user and the database check. The
- * largest file is the admin's setting (`imageMaxBytes`, Joel 2026-11-20), passed in from the limits.
- */
-const MAX_SIDE = 2048;
-const MIN_SIDE = 200;
-const QUALITY = 0.85;
-
 /** What the person reads when their prepared picture is over the largest picture file. */
 const tooLarge = (size: number | null, maxBytes: number | null) =>
   size !== null && maxBytes !== null
     ? `This picture is too large: ${formatBytes(size)} once prepared, and the most we can take is ${formatBytes(maxBytes)}. Please choose a smaller one.`
     : 'This picture is too large. Please choose a smaller one.';
 
-/** `uploading`: being prepared or sent now; `unfinished`: chosen or on the story, its file not there. */
-export type PictureState = 'none' | 'uploading' | 'unfinished' | 'done';
+/**
+ * `uploading`: being prepared or sent now; `unfinished`: chosen or on the story, its file not
+ * there; `cropping`: a video's thumbnail being cut, not yet used (nothing uploaded); `stale`: a
+ * new video's old thumbnail that couldn't be taken off yet (TC-3 B), with "Try again".
+ */
+export type PictureState =
+  'none' | 'uploading' | 'unfinished' | 'cropping' | 'stale' | 'done';
+
+/** The video a thumbnail is cut for (thumbnail crop TC-2, TC-3, TC-4; Joel 2026-11-21). */
+export interface ThumbnailVideo {
+  /** Its shape as shown, or null until it's known (then the chooser waits). */
+  shape: { width: number; height: number } | null;
+  /** Whether this tab has the video's file (else it's carried on from elsewhere). */
+  inTab: boolean;
+  /** This tab's video when this browser can play it: "A moment from your video". */
+  playable: File | null;
+  /** Steps each time a new video replaces the story's: the thumbnail comes off (TC-3 B). */
+  replaced: number;
+}
+
+/** A photo chosen for a video's thumbnail, the right way up, kept in this tab only (TC-6 A). */
+interface Photo {
+  /** A blob: link to the chosen file, for the cropper. */
+  url: string;
+  bitmap: ImageBitmap;
+  file: { name: string; size: number; lastModified: number };
+}
+const release = (photo: Photo) => {
+  photo.bitmap.close();
+  URL.revokeObjectURL(photo.url);
+};
 
 interface Prepared {
   blob: Blob;
@@ -88,6 +116,8 @@ interface Prepared {
   height: number;
   /** The chosen file, as upload-request.ts knows it again. */
   file: { name: string; size: number; lastModified: number };
+  /** The photo it was cut from (a video's thumbnail): "Change how it's cropped". */
+  photo?: Photo;
 }
 
 /** A picture on the story: its link (none until it can be read back), size and path, and whether its file arrived. */
@@ -147,9 +177,11 @@ const stateOf = (phase: Phase): PictureState =>
     ? 'done'
     : phase.at === 'idle'
       ? 'none'
-      : phase.at === 'reading' || phase.at === 'sending'
-        ? 'uploading'
-        : 'unfinished';
+      : phase.at === 'cropping'
+        ? 'cropping'
+        : phase.at === 'reading' || phase.at === 'sending'
+          ? 'uploading'
+          : 'unfinished';
 
 const shownOf = (
   p: StoryPicture | null,
@@ -173,6 +205,8 @@ type Phase =
   /** `granted`: its grant went through (or may have), so it's on the draft. */
   | { at: 'preview'; picture: Prepared; granted: boolean }
   | { at: 'sending'; picture: Prepared }
+  /** A video's thumbnail being cut; `before` is what Cancel goes back to. */
+  | { at: 'cropping'; photo: Photo; before: Phase }
   | ({ at: 'done' } & Shown);
 
 const NOUN: Record<StoryFormat, string> = {
@@ -186,20 +220,41 @@ const NOUN: Record<StoryFormat, string> = {
 const primary = buttonVariants({ wrap: true });
 const secondary = buttonVariants({ variant: 'outline', wrap: true });
 
-/** Re-encodes the photo to WebP (no metadata), or answers a plain reason it can't be used. */
+/** The chosen photo the right way up, or a plain reason it can't be read. */
+async function decode(file: File): Promise<ImageBitmap | string> {
+  try {
+    return await createImageBitmap(file, { imageOrientation: 'from-image' });
+  } catch {
+    return 'We can’t read that file as a picture. Choose a JPEG, PNG or WebP photo.';
+  }
+}
+
+/** The encoded picture, ready to add, or a plain reason (over the largest picture file). */
+function ready(
+  encoded: Encoded | string,
+  file: Prepared['file'],
+  maxBytes: number,
+): Prepared | string {
+  if (typeof encoded === 'string') return encoded;
+  if (encoded.blob.size > maxBytes)
+    return tooLarge(encoded.blob.size, maxBytes);
+  return {
+    blob: encoded.blob,
+    url: URL.createObjectURL(encoded.blob),
+    width: encoded.width,
+    height: encoded.height,
+    file,
+  };
+}
+
+/** Re-encodes the whole photo to WebP (no metadata), or answers a plain reason it can't be used. */
 async function prepare(
   file: File,
   maxBytes: number,
 ): Promise<Prepared | string> {
-  let bitmap: ImageBitmap;
-  try {
-    bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
-  } catch {
-    return 'We can’t read that file as a picture. Choose a JPEG, PNG or WebP photo.';
-  }
-  const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height));
-  const width = Math.max(1, Math.round(bitmap.width * scale));
-  const height = Math.max(1, Math.round(bitmap.height * scale));
+  const bitmap = await decode(file);
+  if (typeof bitmap === 'string') return bitmap;
+  const { width, height } = bitmap;
   if (width > height * 3) {
     bitmap.close();
     return 'That picture is too wide. Choose one no more than 3 times as wide as it is tall, or crop it first.';
@@ -208,34 +263,22 @@ async function prepare(
     bitmap.close();
     return 'That picture is too tall. Choose one no more than 3 times as tall as it is wide, or crop it first.';
   }
-  if (width < MIN_SIDE || height < MIN_SIDE) {
-    bitmap.close();
-    return `That picture is too small. Choose one at least ${MIN_SIDE} pixels on each side.`;
-  }
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  canvas.getContext('2d')?.drawImage(bitmap, 0, 0, width, height);
+  const encoded = await encodeWebp(bitmap, { x: 0, y: 0, width, height });
   bitmap.close();
-  const blob = await new Promise<Blob | null>((resolve) =>
-    canvas.toBlob(resolve, 'image/webp', QUALITY),
+  return ready(
+    encoded,
+    { name: file.name, size: file.size, lastModified: file.lastModified },
+    maxBytes,
   );
-  if (!blob || blob.type !== 'image/webp') {
-    return 'This browser can’t prepare pictures for upload. Please try another browser.';
-  }
-  if (blob.size > maxBytes) return tooLarge(blob.size, maxBytes);
-  return {
-    blob,
-    url: URL.createObjectURL(blob),
-    width,
-    height,
-    file: {
-      name: file.name,
-      size: file.size,
-      lastModified: file.lastModified,
-    },
-  };
 }
+
+/** The video's shape in words. */
+const shapeName = (aspect: number) =>
+  aspect > 1.01 ? 'landscape' : aspect < 0.99 ? 'portrait' : 'square';
+
+/** Why a thumbnail came off when the video changed (TC-3 B). */
+const TAKEN_OFF =
+  'We’ve taken your thumbnail off because you changed your video. Choose one again if you still want it.';
 
 /** The picture at its real shape, never wider than the panel or taller than most of the screen. */
 function Picture({
@@ -284,6 +327,7 @@ export function ImagePanel({
   reload,
   onState,
   maxBytes,
+  video,
 }: {
   calls: ShareApi;
   owner: string;
@@ -299,17 +343,38 @@ export function ImagePanel({
   onState?: (state: PictureState) => void;
   /** The largest picture file (the limits' `uploads.imageMaxBytes`): checked before anything is sent. */
   maxBytes: number;
+  /** A video story's video, which its thumbnail is cut to. */
+  video?: ThumbnailVideo;
 }) {
   const noun = NOUN[format];
   const [phase, setPhaseState] = useState<Phase>({ at: 'idle' });
   const phaseRef = useRef<Phase>(phase);
   const onStateRef = useRef(onState);
   onStateRef.current = onState;
+  /**
+   * A new video's old thumbnail still to come off (TC-3 B): set until a removal or another
+   * thumbnail takes it off, and the step is held back meanwhile.
+   */
+  const [stale, setStaleState] = useState(false);
+  const staleRef = useRef(false);
+  const showsOld = (p: Phase) => p.at === 'done' || p.at === 'preview';
+  /** What the step is told: the phase's state, or `stale` while the old thumbnail is still on. */
+  const tell = () =>
+    onStateRef.current?.(
+      staleRef.current && showsOld(phaseRef.current)
+        ? 'stale'
+        : stateOf(phaseRef.current),
+    );
+  const setStale = (next: boolean) => {
+    staleRef.current = next;
+    setStaleState(next);
+    tell();
+  };
   /** The step hears of each phase as it's set, not a render later: its Continue checks it after waiting. */
   const setPhase = (next: Phase) => {
     phaseRef.current = next;
     setPhaseState(next);
-    onStateRef.current?.(stateOf(next));
+    tell();
   };
   /** The picture on the draft at the server, as last known: what a removal takes off. */
   const [attached, setAttachedState] = useState<Shown | null>(null);
@@ -332,7 +397,7 @@ export function ImagePanel({
   useEffect(() => {
     alive.current = true;
     // A panel mounted afresh tells the step where it starts: an earlier panel's state isn't its own (Codex #211).
-    onStateRef.current?.(stateOf(phaseRef.current));
+    tell();
     return () => {
       alive.current = false;
       sending.current?.abort();
@@ -345,6 +410,33 @@ export function ImagePanel({
   /** The blob: links this panel made, freed once nothing shows them and the draft hasn't them. */
   const blobs = useRef(new Set<string>());
   const fileInput = useRef<HTMLInputElement>(null);
+  /** The photos this tab has for the thumbnail (TC-6 A: never uploaded), freed once unused. */
+  const photos = useRef(new Set<Photo>());
+  /** The thumbnail on the story that was cut here, and from what: "Change how it's cropped". */
+  const [cutFrom, setCutFrom] = useState<{ photo: Photo; path: string } | null>(
+    null,
+  );
+  const cutFromRef = useRef(cutFrom);
+  cutFromRef.current = cutFrom;
+  /** Frees the photos nothing uses any more (the one being cut, or the one the thumbnail came from). */
+  const tidy = (keep: (Photo | undefined)[]) => {
+    for (const p of photos.current) {
+      if (keep.includes(p)) continue;
+      photos.current.delete(p);
+      release(p);
+    }
+  };
+  useEffect(() => {
+    const made = photos.current;
+    return () => {
+      for (const p of made) release(p);
+      made.clear();
+    };
+  }, []);
+  const [tab, setTab] = useState<'picture' | 'moment'>('picture');
+  const aspect = video?.shape
+    ? clampAspect(video.shape.width / video.shape.height)
+    : null;
 
   // The picture the story already has (another tab, or before a reload).
   useEffect(() => {
@@ -419,6 +511,7 @@ export function ImagePanel({
 
   async function choose(file: File | undefined) {
     if (!file) return;
+    if (format === 'video') return cut(file);
     setProblem(null);
     setNotice(null);
     setPending(null);
@@ -436,6 +529,118 @@ export function ImagePanel({
     // Added at once, no click needed (Joel, 2026-11-09); a failure stops at the preview.
     await add(prepared, false);
   }
+
+  /** A video's thumbnail: the photo opens in the cropper, at the video's shape (nothing sent). */
+  async function cut(file: File) {
+    if (!aspect) return;
+    setProblem(null);
+    setNotice(null);
+    setPending(null);
+    const now = phaseRef.current;
+    const before = now.at === 'cropping' ? now.before : now;
+    setPhase({ at: 'reading' });
+    const gone = begin();
+    const bitmap = await decode(file);
+    if (gone()) {
+      if (typeof bitmap !== 'string') bitmap.close();
+      return;
+    }
+    if (typeof bitmap === 'string') {
+      setPhase(before);
+      setProblem(bitmap);
+      return;
+    }
+    const photo: Photo = {
+      url: URL.createObjectURL(file),
+      bitmap,
+      file: {
+        name: file.name,
+        size: file.size,
+        lastModified: file.lastModified,
+      },
+    };
+    photos.current.add(photo);
+    tidy([photo, cutFromRef.current?.photo]);
+    setPhase({ at: 'cropping', photo, before });
+  }
+
+  /** "Use this thumbnail": the chosen part, redrawn and added. */
+  async function applyCut(
+    photo: Photo,
+    before: Phase,
+    pixels: { x: number; y: number; width: number; height: number },
+  ) {
+    setProblem(null);
+    const gone = begin();
+    setPhase({ at: 'reading' });
+    const prepared = ready(
+      await encodeWebp(photo.bitmap, pixels),
+      photo.file,
+      maxBytes,
+    );
+    if (gone()) return;
+    if (typeof prepared === 'string') {
+      setPhase({ at: 'cropping', photo, before });
+      setProblem(prepared);
+      return;
+    }
+    blobs.current.add(prepared.url);
+    await add({ ...prepared, photo }, false);
+  }
+
+  /** "Use this moment": the video's frame, redrawn and added. */
+  async function applyMoment(
+    frame: HTMLVideoElement,
+    rect: { x: number; y: number; width: number; height: number },
+    name: string,
+  ) {
+    setProblem(null);
+    setNotice(null);
+    setPending(null);
+    const before = phaseRef.current;
+    const gone = begin();
+    setPhase({ at: 'reading' });
+    const encoded = await encodeWebp(frame, rect);
+    const prepared = ready(
+      encoded,
+      {
+        name,
+        size: typeof encoded === 'string' ? 0 : encoded.blob.size,
+        lastModified: Date.now(),
+      },
+      maxBytes,
+    );
+    if (gone()) return;
+    if (typeof prepared === 'string') {
+      setPhase(before);
+      setProblem(prepared);
+      return;
+    }
+    blobs.current.add(prepared.url);
+    await add(prepared, false);
+  }
+
+  // A new video takes the thumbnail off, whatever its shape (TC-3 B), and says so; a crop not yet
+  // used is dropped (nothing of it was sent).
+  const replaced = video?.replaced ?? 0;
+  const seenReplaced = useRef(replaced);
+  useEffect(() => {
+    if (replaced === seenReplaced.current) return;
+    seenReplaced.current = replaced;
+    setCutFrom(null);
+    tidy([]);
+    const was = phaseRef.current;
+    const under = was.at === 'cropping' ? was.before : was;
+    if (was.at === 'cropping') setPhase(under);
+    if (attachedRef.current || under.at === 'done' || under.at === 'preview') {
+      // Held until it's off: a failed removal keeps "Try again" and the step waits.
+      setStale(true);
+      void remove(TAKEN_OFF);
+    } else if (was.at === 'cropping') {
+      setNotice(TAKEN_OFF);
+    }
+    // Only when the step says the video was replaced.
+  }, [replaced]);
 
   async function add(
     picture: Prepared,
@@ -495,6 +700,8 @@ export function ImagePanel({
         });
       }
       setAttached(shown);
+      // The new thumbnail replaced the old one on the story.
+      if (staleRef.current) setStale(false);
       held.current = { picture, path: shown.path };
       const controller = new AbortController();
       sending.current = controller;
@@ -522,6 +729,10 @@ export function ImagePanel({
       held.current = null;
       const arrived = { ...shown, arrived: true };
       setAttached(arrived);
+      setCutFrom(
+        picture.photo ? { photo: picture.photo, path: shown.path } : null,
+      );
+      if (picture.photo) tidy([picture.photo]);
       setPhase({ at: 'done', ...arrived });
     } catch (err) {
       if (left()) return;
@@ -617,15 +828,17 @@ export function ImagePanel({
     }
   }
 
-  async function remove() {
+  /** Takes the picture off; `why` is said instead of the usual line (a new video, TC-3 B). */
+  async function remove(why?: string) {
     const gone = begin();
     setProblem(null);
     setNotice(null);
     setPending(null);
     if (fileInput.current) fileInput.current.value = '';
     const cleared = (notice: string) => {
+      setStale(false);
       setPhase({ at: 'idle' });
-      setNotice(notice);
+      setNotice(why ?? notice);
     };
     const removed =
       format === 'video'
@@ -681,6 +894,7 @@ export function ImagePanel({
       keepPictureName(owner, edited, null);
       held.current = null;
       setAttached(null);
+      setCutFrom(null);
     }
     cleared(removed);
   }
@@ -702,6 +916,53 @@ export function ImagePanel({
           }
         : null;
   const busy = phase.at === 'reading' || phase.at === 'sending';
+  /** A video's thumbnail waits until the video's shape is known (TC-4). */
+  const waiting = format === 'video' && !aspect;
+  const cropping = phase.at === 'cropping' ? phase : null;
+  /** "A moment from your video" only when this browser can play this tab's video (TC-1 D). */
+  const moment = format === 'video' && !waiting && !cropping && video?.playable;
+  const chosenTab = moment ? tab : 'picture';
+  const recrop =
+    phase.at === 'done' && cutFrom?.path === phase.path ? cutFrom : null;
+
+  const chooser = (
+    <DropZone
+      // Like the chooser, which is off while a picture is prepared or sent.
+      onFile={(file) => {
+        if (!busy) void choose(file);
+      }}
+    >
+      <p className="text-secondary-text">
+        {shown || cropping
+          ? `Want to use a different ${noun}? Drag it here, or`
+          : 'Drag it here, or'}
+      </p>
+      <label
+        className={`${shown || cropping ? secondary : primary} cursor-pointer has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 ${busy ? 'pointer-events-none opacity-60' : ''}`}
+      >
+        {shown || cropping ? `Choose another ${noun}` : `Choose a ${noun}`}
+        <input
+          ref={fileInput}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
+          className="sr-only"
+          disabled={busy}
+          onChange={(e) => {
+            const chosen = e.target.files?.[0];
+            e.target.value = '';
+            void choose(chosen);
+          }}
+        />
+      </label>
+      {!shown && !cropping && phase.at === 'idle' && (
+        <p className="text-sm text-secondary-text">
+          {format === 'video'
+            ? 'A JPEG, PNG or WebP photo. We cut it to your video’s shape, and remove the photo’s hidden details, such as where it was taken, before it leaves your device.'
+            : 'A JPEG, PNG or WebP photo, no more than 3 times as wide as it is tall (or as tall as it is wide). We remove the photo’s hidden details, such as where it was taken, before it leaves your device.'}
+        </p>
+      )}
+    </DropZone>
+  );
 
   return (
     <div data-picture-phase={phase.at} className="flex flex-col gap-3">
@@ -713,54 +974,89 @@ export function ImagePanel({
           alt={`Your ${noun}`}
         />
       )}
-      {shown?.name && (
+      {(shown?.name || cropping) && (
         <p data-attached-name="" className="[overflow-wrap:anywhere]">
-          <span className="font-semibold">Attached:</span> {shown.name}
+          <span className="font-semibold">
+            {cropping ? 'Chosen:' : 'Attached:'}
+          </span>{' '}
+          {cropping ? cropping.photo.file.name : shown?.name}
         </p>
       )}
-      <DropZone
-        // Like the chooser, which is off while a picture is prepared or sent.
-        onFile={(file) => {
-          if (!busy) void choose(file);
-        }}
-      >
-        <p className="text-secondary-text">
-          {shown
-            ? `Want to use a different ${noun}? Drag it here, or`
-            : 'Drag it here, or'}
+      {cropping && aspect && (
+        <ThumbnailCropper
+          // A new photo or shape starts centred again.
+          key={`${cropping.photo.url} ${aspect}`}
+          src={cropping.photo.url}
+          aspect={aspect}
+          shapeName={shapeName(aspect)}
+          busy={busy}
+          onUse={(pixels) =>
+            void applyCut(cropping.photo, cropping.before, pixels)
+          }
+          onCancel={() => {
+            setProblem(null);
+            setPhase(cropping.before);
+          }}
+        />
+      )}
+      {waiting ? (
+        <p data-thumbnail-waiting="" className="text-secondary-text">
+          {video?.inTab
+            ? 'We can’t read your video’s shape in this browser, so we’ll ask for your thumbnail once our video host has it ready (usually a few minutes). You can carry on with your story and come back to this step.'
+            : 'We’ll ask for your thumbnail once our video host has your video ready (usually a few minutes), so it can be cut to your video’s shape. You can carry on with your story and come back to this step.'}
         </p>
-        <label
-          className={`${shown ? secondary : primary} cursor-pointer has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 ${busy ? 'pointer-events-none opacity-60' : ''}`}
-        >
-          {shown ? `Choose another ${noun}` : `Choose a ${noun}`}
-          <input
-            ref={fileInput}
-            type="file"
-            accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
-            className="sr-only"
-            disabled={busy}
-            onChange={(e) => {
-              const chosen = e.target.files?.[0];
-              e.target.value = '';
-              void choose(chosen);
-            }}
+      ) : moment ? (
+        <div>
+          <Tabs
+            label="Thumbnail from"
+            idBase="thumbnail"
+            panelId="thumbnail-panel"
+            value={chosenTab}
+            onValueChange={setTab}
+            items={[
+              { value: 'picture', label: 'A picture' },
+              { value: 'moment', label: 'A moment from your video' },
+            ]}
           />
-        </label>
-        {!shown && phase.at === 'idle' && (
-          <p className="text-sm text-secondary-text">
-            A JPEG, PNG or WebP photo, no more than 3 times as wide as it is
-            tall (or as tall as it is wide). We remove the photo’s hidden
-            details, such as where it was taken, before it leaves your device.
-          </p>
-        )}
-      </DropZone>
+          <div
+            id="thumbnail-panel"
+            role="tabpanel"
+            aria-labelledby={tabId('thumbnail', chosenTab)}
+            className="pt-4"
+          >
+            {chosenTab === 'moment' ? (
+              <VideoMoment
+                file={moment}
+                busy={busy}
+                onUse={(frame, rect, name) =>
+                  void applyMoment(frame, rect, name)
+                }
+              />
+            ) : (
+              chooser
+            )}
+          </div>
+        </div>
+      ) : (
+        chooser
+      )}
       {shown && (
         <div className="flex flex-wrap gap-3">
-          {phase.at === 'preview' && (
+          {phase.at === 'preview' && !stale && (
             <button
               type="button"
               className={primary}
               onClick={() => void add(phase.picture, phase.granted)}
+            >
+              Try again
+            </button>
+          )}
+          {showsOld(phase) && stale && !pending && (
+            <button
+              type="button"
+              className={primary}
+              disabled={busy}
+              onClick={() => void remove(TAKEN_OFF)}
             >
               Try again
             </button>
@@ -772,6 +1068,24 @@ export function ImagePanel({
               onClick={() => void add(pending, false)}
             >
               Replace with my {noun}
+            </button>
+          )}
+          {recrop && !pending && !waiting && !stale && (
+            <button
+              type="button"
+              className={secondary}
+              disabled={busy}
+              onClick={() => {
+                setProblem(null);
+                setNotice(null);
+                setPhase({
+                  at: 'cropping',
+                  photo: recrop.photo,
+                  before: phase,
+                });
+              }}
+            >
+              Change how it’s cropped
             </button>
           )}
           <button
@@ -796,14 +1110,14 @@ export function ImagePanel({
           Uploading your {noun}…
         </p>
       )}
-      {phase.at === 'done' && !pending && phase.arrived && (
+      {phase.at === 'done' && !pending && !stale && phase.arrived && (
         <p className="text-sm font-semibold" role="status">
           <span aria-hidden="true">✓ </span>
           {noun[0].toUpperCase()}
           {noun.slice(1)} added. You can continue.
         </p>
       )}
-      {phase.at === 'done' && !pending && !phase.arrived && (
+      {phase.at === 'done' && !pending && !stale && !phase.arrived && (
         <p className="text-sm font-semibold" role="status">
           Your story has this {noun}, but it didn’t finish uploading. Choose it
           again, or remove it.
