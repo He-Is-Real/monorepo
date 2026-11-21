@@ -17,7 +17,6 @@ import {
   expectNoHorizontalOverflow,
   expectTarget,
   fetchesTakenIn,
-  hydrated,
   storiesColumns,
 } from './helpers';
 import {
@@ -916,7 +915,7 @@ test('the filters column stays put from the first paint, and Favourites only wor
     .getByRole('complementary', { name: 'Filters' })
     .getByRole('switch', { name: 'Favourites only' });
   await expect(only).not.toBeChecked();
-  await hydrated(only);
+  await browseFilters(page);
   await only.click();
   await expect(only).toBeChecked();
   await expect(page).toHaveURL('/stories?favourites=1');
@@ -926,6 +925,93 @@ test('the filters column stays put from the first paint, and Favourites only wor
   );
   expect(ys.length).toBeGreaterThan(0);
   expect(new Set(ys).size, 'the first theme never moved').toBe(1);
+});
+
+// BS-9: "Favourites only" pressed while the page doesn't yet know who is looking (Clerk still
+// loading; the e2e fixtures hold the session unknown with window.e2eHoldSession,
+// account-control.tsx). The switch acts at once: the address has it and the favourites' loading
+// space shows (never browse's list, never anyone's favourites); once the session is known, the
+// right person's favourites show: the account's signed in, this browser's hearts signed out.
+test.describe('Favourites only pressed before the session is known', () => {
+  // eslint-disable-next-line no-empty-pattern
+  test.beforeEach(({}, info) => {
+    test.skip(
+      !BEHAVIOUR_DEVICES.includes(info.project.name),
+      'behaviour: one phone, one desktop',
+    );
+  });
+
+  /** Holds the session unknown until `release` is called. */
+  async function holdSession(page: Page) {
+    await page.addInitScript(() => {
+      const w = window as unknown as {
+        e2eHoldSession?: Promise<void>;
+        e2eReleaseSession?: () => void;
+      };
+      w.e2eHoldSession = new Promise((done) => {
+        w.e2eReleaseSession = done;
+      });
+    });
+    return () =>
+      page.evaluate(() =>
+        (
+          window as unknown as { e2eReleaseSession: () => void }
+        ).e2eReleaseSession(),
+      );
+  }
+
+  /** Turns Favourites only on and checks it waits for the session. */
+  async function pressWhileUnknown(page: Page, url: RegExp | string) {
+    const filters = await browseFilters(page);
+    const only = filters.getByRole('switch', { name: 'Favourites only' });
+    await only.click();
+    await expect(only).toBeChecked();
+    await expect(page).toHaveURL(url);
+    await closeBrowseFilters(page);
+    await expect(page.locator('[data-favourites-loading]')).toBeVisible();
+    await expect(page.locator('main article')).toHaveCount(0);
+  }
+
+  test('signed in: the account’s favourites show once it is known', async ({
+    page,
+    request,
+  }, info) => {
+    const session = sessionFor(info, 'held-in');
+    await useSession(page, session);
+    await heartAtStub(request, session, ['browse_05']);
+    const lookups: string[] = [];
+    page.on('request', (r) => {
+      if (r.url().startsWith(`${STUB_USER_URL}${FAVOURITES}`))
+        lookups.push(r.url());
+    });
+    const release = await holdSession(page);
+    await page.goto(`${WEB_SIGNED_IN_URL}/stories`);
+    await pressWhileUnknown(page, FAVOURITES_ONLY);
+    expect(
+      lookups,
+      'nothing asked of api-user before sign-in is known',
+    ).toEqual([]);
+
+    await release();
+    await expect(page.locator('[data-favourites] article h2')).toHaveText([
+      'Browse test story 05',
+    ]);
+    await expect(page).toHaveURL(FAVOURITES_ONLY);
+  });
+
+  test('signed out: this browser’s hearts show once it is known', async ({
+    page,
+  }) => {
+    await seedDeviceHearts(page, [{ id: 'browse_04' }]);
+    const release = await holdSession(page);
+    await page.goto('/stories');
+    await pressWhileUnknown(page, '/stories?favourites=1');
+
+    await release();
+    await expect(page.locator('[data-favourites] article h2')).toHaveText([
+      'Browse test story 04',
+    ]);
+  });
 });
 
 test.describe('filters over favourites', () => {

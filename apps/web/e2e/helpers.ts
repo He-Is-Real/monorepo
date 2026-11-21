@@ -305,35 +305,33 @@ export async function optionLabels(control: Locator) {
 }
 
 /**
- * Waits until React has taken over an element from the server's page (its props are on the DOM
- * node), so a press on it acts. For controls that are in the server's page but only work with
- * JavaScript.
- */
-export async function hydrated(el: Locator) {
-  await expect
-    .poll(() =>
-      el.evaluate((node) =>
-        Object.keys(node).some((k) => k.startsWith('__reactProps$')),
-      ),
-    )
-    .toBe(true);
-}
-
-/**
  * The Stories page's filters (BS-1 C, Joel 2026-11-20): on a computer, the column beside the
- * stories; on tablets and phones, the Filters panel, opened here. Waits for the page's
- * JavaScript first: the "Favourites only" switch is in the server's page (BS-9), but a press
- * before React has taken it over (or the Filters button) does nothing.
+ * stories; on tablets and phones, the Filters panel, opened here. The controls are in the
+ * server's page (the "Favourites only" switch too, BS-9), but a press before the page's
+ * JavaScript has taken them over does nothing, so this waits for something that shows it has:
+ * - the panel: the Filters button opens it (pressed again, if the first press came too early);
+ * - the column, on a mouse or trackpad: Format's library Select has turned into its themed list
+ *   (the server's page has the plain one). Touch screens keep the plain one, so with the column
+ *   (landscape tablets) there is nothing to wait for; tests press filters on desktop-1280 only.
  */
 export async function browseFilters(page: Page): Promise<Locator> {
-  await hydrated(page.locator('[data-favourites-only]'));
   const button = page.getByRole('button', { name: /^Filters/ });
-  if (!(await button.isVisible()))
-    return page.getByRole('complementary', { name: 'Filters' });
+  if (!(await button.isVisible())) {
+    const column = page.getByRole('complementary', { name: 'Filters' });
+    const touch = await page.evaluate(
+      () => matchMedia('(hover: none), (pointer: coarse)').matches,
+    );
+    if (!touch)
+      await expect(
+        column.getByLabel('Format', { exact: true }),
+      ).toHaveAttribute('data-slot', 'select-trigger');
+    return column;
+  }
   const panel = page.getByRole('dialog', { name: 'Filters' });
-  if (await panel.isVisible()) return panel;
-  await button.click();
-  await expect(panel).toBeVisible();
+  await expect(async () => {
+    if (!(await panel.isVisible())) await button.click({ timeout: 1000 });
+    await expect(panel).toBeVisible({ timeout: 1000 });
+  }).toPass();
   return panel;
 }
 

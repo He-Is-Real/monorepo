@@ -5,7 +5,6 @@ import {
   closeBrowseFilters,
   expectAllTargets,
   expectNoHorizontalOverflow,
-  hydrated,
   shots,
   storiesColumns,
   textSetting,
@@ -742,6 +741,7 @@ test.describe('computers: sort', () => {
       expect(box?.height ?? 0).toBeGreaterThanOrEqual(44 - 0.01);
     }
 
+    await browseFilters(page);
     await sort.locator('label').filter({ hasText: 'Oldest first' }).click();
     await expect(page).toHaveURL(/[?&]sort=oldest(&|$)/);
     await expect(
@@ -751,7 +751,7 @@ test.describe('computers: sort', () => {
 
     // The keyboard: an arrow key moves the choice, which applies it.
     await page.reload();
-    await hydrated(sort.getByRole('radio', { name: 'Oldest first' }));
+    await browseFilters(page);
     await sort.getByRole('radio', { name: 'Oldest first' }).focus();
     await page.keyboard.press('ArrowUp');
     // Latest first is the usual order, so the address leaves it out.
