@@ -14,7 +14,7 @@ import { Card, Notice } from '@heisreal/web-ui';
 type Read = { story: MyStory } | { gone: true };
 
 /**
- * "See your story as others will" (M3 plan PR 2, part 1b B; Joel, 2026-11-10, P1b-1 C): the
+ * "See your story preview" (M3 plan PR 2, part 1b B; Joel, 2026-11-10, P1b-1 C): the
  * person's own story through the public story page's parts (`StoryArticle`), with a banner that
  * only they can see it, and no heart, share or related stories. Read from api-user in the browser
  * (D83) with their own token: GetStory answers only the owner (404 for anyone else), with their

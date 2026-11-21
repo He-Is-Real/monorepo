@@ -109,7 +109,7 @@ async function drawn(page: Page, width: number, height: number) {
   return Buffer.from(bytes);
 }
 const preview = (page: Page) =>
-  page.getByRole('link', { name: /See your story as others will/ });
+  page.getByRole('link', { name: /See your story preview/ });
 
 test.describe('the preview page fits every screen', () => {
   for (const ready of [true, false]) {
