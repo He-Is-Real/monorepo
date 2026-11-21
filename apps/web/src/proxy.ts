@@ -71,12 +71,22 @@ function counter(group: RateLimitGroup): SlidingWindowCounter {
   return c;
 }
 
-/** Files Next serves as they are: not counted. */
-const STATIC_FILE =
-  /^\/_next\/(?:static|image)\/|\.(?:ico|png|jpe?g|webp|avif|gif|svg|woff2?|css|js|map)$/;
+/**
+ * Files Next serves as they are, not counted: its build output and our own public files, named
+ * exactly (a file-like ending on any other path is still counted, so `/stories/x.png` can't skip
+ * the count).
+ */
+const STATIC_PREFIX = /^\/_next\/(?:static|image)\//;
+const PUBLIC_FILES = new Set([
+  '/favicon.ico',
+  '/logo.png',
+  '/og-default.png',
+  '/hero-backdrop.webp',
+]);
 
 function groupOf(pathname: string): RateLimitGroup | undefined {
-  if (STATIC_FILE.test(pathname)) return undefined;
+  if (STATIC_PREFIX.test(pathname) || PUBLIC_FILES.has(pathname))
+    return undefined;
   if (pathname === '/health') return 'health';
   if (pathname === '/sitemap.xml') return 'webSitemap';
   return 'webPages';
