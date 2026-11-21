@@ -14,7 +14,7 @@ the limits, and what we keep and delete. Progress (what is built and what is nex
 - The bracketed codes, like (D71), point to the decision record in the `project` repo
   (`context/research/*.html`), for anyone who needs the reasoning.
 
-**Last updated:** 2026-11-17
+**Last updated:** 2026-11-21
 
 ## Needs Joel to confirm
 
@@ -1006,6 +1006,42 @@ Planned (M3):
 - **Where data lives:** in the UK wherever possible (London), declared in our infrastructure
   code. Exceptions: video and audio files at Bunny in Frankfurt (D89); Clerk in the US (D6);
   Bunny's delivery network serves files worldwide.
+
+## Rate limits
+
+How often one caller may ask the site and its services (Joel 2026-11-21, rate limiting RL-1 to
+RL-9; `project/context/research/rate-limiting.html`). The numbers themselves are **not decided
+yet** (RL-2): the code holds the decision document's proposed starting values until Joel
+chooses.
+
+- **Counted in each running copy's memory only** (RL-1 A, RL-6). Nothing goes to the database,
+  Redis or an edge service, and no address is written anywhere: a count lives in memory for its
+  window, then goes (RL-3). With two copies a caller can get up to twice a limit, and a copy that
+  restarts starts its counts again. That's fine for a guardrail; no number is a site-wide promise.
+- **Sliding window** (Joel): a caller's count covers the last full window (for example the last
+  60 seconds), not a clock minute that resets, so waiting for a reset and bursting doesn't work.
+- **Who counts as one caller:** the caller's IP address as Google's front end saw it. An IPv6
+  address counts as its /56 network, so one home or phone can't get a fresh allowance by changing
+  address inside its block.
+- **Where it counts** (RL-8 A):
+  - the website counts each visitor's page loads and actions; the sitemap has its own small
+    allowance; images, scripts and other static files aren't counted;
+  - api-user and api-admin count each caller, by groups of routes (reads, ordinary changes,
+    upload requests, "Download my data", deleting, staff decisions, Staff page changes);
+    deleting has its own count, so a busy account can still delete its story or itself;
+  - api-public-read counts each caller, except the website's own server: its calls carry a
+    private key and share one large allowance.
+  - Clerk's and Bunny's webhooks have no limit yet: their signatures are checked, and a ceiling
+    waits until their real bursts are known.
+- **What a limited caller sees** (RL-5, Joel: "we dont want people experimenting with breaking or
+  bypassing the rate limiter and being shown their progress via detailed errors"): exactly our
+  generic server error. The APIs answer as for any unexpected failure (status 500, the same
+  body and headers), with no "too many requests" status, no remaining-count or retry headers and
+  no special wording. The website shows "Something went wrong. Please try again later." with the
+  status of any other server error. Only our private logs say it was a limit: one line when a
+  caller first goes over, naming the group, never the address.
+- **Changing a number** is a reviewed change to one table in the shared code and a deploy
+  (RL-9 A). Limits apply only where Cloud Run runs the service; a local run has none.
 
 ## When something goes wrong on our side
 

@@ -39,6 +39,13 @@ export const WEB_SLOW_URL = `http://localhost:${WEB_SLOW_PORT}`;
  */
 export const WEB_SIGNED_IN_PORT = base + 3;
 export const WEB_SIGNED_IN_URL = `http://localhost:${WEB_SIGNED_IN_PORT}`;
+/**
+ * Rate limits on (rate-limits.e2e.ts): `K_SERVICE` set, as Cloud Run sets it, so this one
+ * server counts visitors (RL-8 A); every other server leaves limits off, so the suite's many
+ * requests from one address never trip them. Its clock is E2E_NOW, which stands still.
+ */
+export const WEB_LIMITED_PORT = base + 5;
+export const WEB_LIMITED_URL = `http://localhost:${WEB_LIMITED_PORT}`;
 /** 40 characters: long names must truncate before anything in the header wraps. */
 export const SIGNED_IN_NAME = 'Bartholomew Montgomery-Fitzwilliam Smith';
 

@@ -1,5 +1,10 @@
 import { type StoryFormat, THEME_ID } from '@heisreal/story-filters';
-import { apiPublicReadUrl, serverNow } from './config';
+import {
+  apiPublicReadUrl,
+  serverNow,
+  WEBSITE_KEY_HEADER,
+  websiteKey,
+} from './config';
 import {
   type StoryImage,
   StoriesUnavailableError,
@@ -201,12 +206,20 @@ async function get(
       : timeout;
     res = opts.cached
       ? await fetch(url, {
-          headers: { accept: 'application/json' },
+          headers: {
+            accept: 'application/json',
+            // RL-8 A: web's calls share the website's allowance at api-public-read.
+            [WEBSITE_KEY_HEADER]: websiteKey(),
+          },
           next: { revalidate: REVALIDATE_SECONDS },
           signal,
         })
       : await fetch(url, {
-          headers: { accept: 'application/json' },
+          headers: {
+            accept: 'application/json',
+            // RL-8 A: web's calls share the website's allowance at api-public-read.
+            [WEBSITE_KEY_HEADER]: websiteKey(),
+          },
           cache: 'no-store',
           signal,
         });

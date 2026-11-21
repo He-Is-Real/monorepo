@@ -1,5 +1,5 @@
 import { writeLog } from '@heisreal/logging';
-import { apiPublicReadUrl } from './config';
+import { apiPublicReadUrl, WEBSITE_KEY_HEADER, websiteKey } from './config';
 import type { LegalDocumentName } from './legal-text';
 
 // Plan 4e: the four legal texts are public, so web's server reads them from api-public-read like a
@@ -36,7 +36,11 @@ const TIMEOUT_MS = 10_000;
 
 async function read(path: string): Promise<unknown> {
   const res = await fetch(`${apiPublicReadUrl()}${path}`, {
-    headers: { accept: 'application/json' },
+    headers: {
+      accept: 'application/json',
+      // RL-8 A: web's calls share the website's allowance at api-public-read.
+      [WEBSITE_KEY_HEADER]: websiteKey(),
+    },
     // Read fresh each time: a new version is in force the moment it's saved.
     cache: 'no-store',
     signal: AbortSignal.timeout(TIMEOUT_MS),
