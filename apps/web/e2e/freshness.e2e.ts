@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { expectNotFoundPage } from './helpers';
 import { STUB_LIVE_PORT, WEB_LIVE_URL } from './servers';
 
 // D51 (and GDPR Art 9): once a story is withdrawn or erased, the next request for anything that
@@ -55,8 +56,10 @@ test('a withdrawn story is gone from every page that showed it, on the next requ
 
   await request.post(`${stub}/hide?slug=${SLUG}`);
   try {
-    // Withdrawn: the story page is a 404 without its text, title or share preview.
-    expect((await page.goto(`/stories/${SLUG}`))?.status()).toBe(404);
+    // Withdrawn: the story page is the "not found" page, without its text, title or share
+    // preview. (Saved pages, PC-1 A: the status is no longer 404; noindex keeps it out of search.)
+    await page.goto(`/stories/${SLUG}`);
+    await expectNotFoundPage(page);
     await expect(page.getByText(TEXT)).toHaveCount(0);
     await expect(page).not.toHaveTitle(new RegExp(TITLE));
     await expect(

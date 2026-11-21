@@ -111,3 +111,13 @@ stub session (localStorage `e2e-session`), so parallel tests never share hearts.
   with the values in force; Save lists the changes and asks to confirm. If another admin saved
   meanwhile, api-admin answers `412` and the page asks to reload. The admin pages share one
   gate and link each other (`src/components/admin/admin-access.tsx`).
+
+## Saved pages (page caching)
+
+Cache Components is on (`next.config.js`). Public pages listed in `src/page-cache.config.ts` are
+kept in each server's memory for their environment's time (`SITE_ENVIRONMENT`, set by OpenTofu;
+unset means nothing is kept); `src/lib/page-cache.ts` refuses personal, staff and single-story
+pages and never serves a copy past its time. Because Next.js streams a page's shell first,
+request-time `notFound()` answers 200 with a `noindex` robots tag, and `redirect()` (an old story
+slug) moves the browser in the page rather than with a 301 (Joel, 2026-11-21, PC-1 A). Rules:
+`docs/how-the-app-works.md`.
