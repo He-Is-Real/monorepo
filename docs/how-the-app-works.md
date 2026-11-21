@@ -864,7 +864,9 @@ Planned (M3):
 - **One steady header, centred** (Joel, 2026-11-17; centred, OQ-4 D, Joel 2026-11-19): on every
   admin and moderation page, the staff menu, the page's title and its description are centred in
   the site's standard 1200-pixel container (the same as the site's header and footer), so they
-  stay in exactly the same place when switching pages, on every screen size. The content below
+  stay in exactly the same place when switching pages, on every screen size. In the staff menu the
+  current page is bold with a teal line under it, like the site navigation's current page (Joel,
+  2026-11-21). The content below
   keeps its own width, centred under them: the standard 800-pixel column for Staff, Themes, Block
   list and a story under review; the full 1200 pixels for Limits; wider on big screens for
   Consent texts and the moderation list, with no single column over 1200 pixels. Text inside
