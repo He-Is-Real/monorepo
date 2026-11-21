@@ -24,8 +24,14 @@ export type ConfirmProps = {
   /** While the action runs: both buttons wait. */
   busy?: boolean;
   /**
-   * Where focus goes after the way out (or Escape), once the step has gone: usually the button
-   * that opened it, which the page shows again in its place.
+   * The action can't go ahead now (the page is out of date, another action is running): its
+   * button waits, the way out still works.
+   */
+  disabled?: boolean;
+  /**
+   * Where focus goes after the way out (or Escape), once the step has gone: the button that
+   * opened it, which the page shows again in its place. Without it, focus goes back to whatever
+   * had it when the step opened, if that is still on the page.
    */
   returnFocus?: React.RefObject<HTMLElement | null>;
   className?: string;
@@ -51,6 +57,7 @@ function Confirm({
   onCancel,
   danger = false,
   busy = false,
+  disabled = false,
   returnFocus,
   className,
   onKeyDown,
@@ -59,15 +66,22 @@ function Confirm({
   const id = React.useId();
   const questionRef = React.useRef<HTMLParagraphElement>(null);
   const cancelled = React.useRef(false);
+  // What had focus when the step opened (the button that opened it), for when the page passes
+  // no `returnFocus`.
+  const opener = React.useRef<HTMLElement | null>(null);
 
   React.useEffect(() => {
+    if (document.activeElement instanceof HTMLElement)
+      opener.current = document.activeElement;
     questionRef.current?.focus();
   }, []);
   // After the way out the page shows its buttons again; by the time this cleanup runs they are
   // in the document, so focus can go back to the one that opened the step.
   React.useEffect(
     () => () => {
-      if (cancelled.current) returnFocus?.current?.focus();
+      if (!cancelled.current) return;
+      const target = returnFocus?.current ?? opener.current;
+      if (target?.isConnected) target.focus();
     },
     [returnFocus],
   );
@@ -119,7 +133,7 @@ function Confirm({
           type="button"
           wrap
           variant={danger ? 'danger' : 'default'}
-          disabled={busy}
+          disabled={busy || disabled}
           onClick={onConfirm}
         >
           {confirmLabel}

@@ -359,6 +359,8 @@ function EditVersion({
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const alert = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
+  /** The Save button: focus goes back to it after "Cancel" (CD-1 A). */
+  const saveButton = useRef<HTMLButtonElement>(null);
   useFullHeight(box, text);
   const content = text.replace(/\r\n?/g, '\n');
   const whoSees = WHO_SEES[document]?.(current.version);
@@ -528,6 +530,7 @@ function EditVersion({
           )}
           {status.kind !== 'confirm' && (
             <Button
+              ref={saveButton}
               type="submit"
               wrap
               disabled={status.kind === 'busy' || status.kind === 'stale'}
@@ -545,6 +548,7 @@ function EditVersion({
           confirmLabel="Save"
           onConfirm={doSave}
           onCancel={() => setStatus({ kind: 'idle' })}
+          returnFocus={saveButton}
         >
           <p>
             It can’t be changed or deleted after saving. It takes effect as soon

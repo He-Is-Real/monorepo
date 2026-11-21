@@ -230,6 +230,8 @@ test.describe('/admin/limits', () => {
     await page.keyboard.press('Escape');
     await expect(confirm).toHaveCount(0);
     await expect(saveBar(page)).toContainText('3 changes not saved yet');
+    // Focus goes back to Save, where the step was opened.
+    await expect(saveButton(page)).toBeFocused();
     await saveButton(page).click();
     await expect(confirm).toContainText('apply to everyone');
     await expect(confirm).toContainText(

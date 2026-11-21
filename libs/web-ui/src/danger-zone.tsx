@@ -44,7 +44,10 @@ function DangerZone({
   confirmLabel?: React.ReactNode;
   onConfirm?: () => void;
   busy?: boolean;
-  /** The Delete button waits (a stale page, another action running). */
+  /**
+   * The delete can't go ahead now (a stale page, another action running): the Delete button
+   * and the step's action button both wait.
+   */
   disabled?: boolean;
   /** Controlled: whether the step is showing (the page shows its own form there instead). */
   open?: boolean;
@@ -106,6 +109,7 @@ function DangerZone({
             question={question}
             confirmLabel={confirmLabel}
             busy={busy}
+            disabled={disabled}
             onConfirm={() => onConfirm?.()}
             onCancel={() => setOpen(false)}
           >

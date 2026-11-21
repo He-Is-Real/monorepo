@@ -128,16 +128,20 @@ means. Pages use only these names, as Tailwind classes (`bg-danger`, `text-dange
   opened it: a bold `question`, the detail (children: a line, a list), the action
   (`confirmLabel`, `onConfirm`) and the way out (`onCancel`; "Keep it" for `danger`, "Cancel"
   otherwise). Focus lands on the question, never the action; Escape is the way out; it's an
-  `alertdialog` named by the question and described by the detail; `returnFocus` is where focus
-  goes after the way out. `danger`: a danger outline and button. Used for Limits save, Consent &
-  legal save, removing staff, and My submissions' Edit.
+  `alertdialog` named by the question and described by the detail; after the way out focus goes
+  back to `returnFocus` (pass the opening button; the step usually replaces it, so the page's new
+  one), or else to whatever had focus when the step opened, if it's still there. `disabled`: the
+  action can't go ahead now (a stale page), so its button waits while the way out still works.
+  `danger`: a danger outline and button. Used for Limits save, Consent & legal save, removing
+  staff, and My submissions' Edit.
 - `DangerZone`: every delete that can't be undone (DL-1 A as changed, DL-2 A): a red-outlined,
   faintly red box with a warning sign in its title ("Danger zone", "Danger zone (Admins)") and a
   solid danger button with a bin ("Delete"). Pressing it shows a danger `Confirm` in its place
   (`question`, `detail`, `confirmLabel`, `onConfirm`), or the page's own step (`children`, with
   `open`/`onOpenChange`: "Delete my account" asks for a word typed first). Focus comes back to the
-  button when the step closes. An Admin's Delete in moderation, "Delete my account", and Delete on
-  My submissions.
+  button when the step closes. `disabled` (a stale page, another action running) holds both the
+  Delete button and the step's action button. An Admin's Delete in moderation, "Delete my
+  account", and Delete on My submissions.
 - `Checkbox`: the site's check box (CB-1 A): a 22 px box with the field edge, dark brand when
   ticked, the whole line pressable. `card` puts the line in a pale brand box (the agreement step,
   Share's sharing box; its edge turns danger with `aria-invalid`); `boxAfter` puts the box at the

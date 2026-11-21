@@ -278,6 +278,10 @@ test.describe('behaviour', () => {
     );
     await confirm.getByRole('button', { name: 'Cancel' }).click();
     await expect(confirm).toHaveCount(0);
+    // Focus goes back to the Save button that opened the step (CD-1 A).
+    await expect(
+      page.getByRole('button', { name: 'Save as version 2…' }),
+    ).toBeFocused();
     await page.getByRole('button', { name: 'Save as version 2…' }).click();
     await confirm.getByRole('button', { name: 'Save' }).click();
     await expect(page.locator('[data-publish-status="done"]')).toHaveText(

@@ -71,6 +71,8 @@ function Staff({ client }: { client: ApiUser }) {
   const [emailError, setEmailError] = useState<string | null>(null);
   const load = useRef(0);
   const noteRef = useRef<HTMLDivElement>(null);
+  /** The Remove button that opened the step: focus goes back to it after "Cancel" (CD-1 A). */
+  const removeButton = useRef<HTMLButtonElement | null>(null);
 
   const refresh = useCallback(() => {
     const mine = ++load.current;
@@ -257,7 +259,10 @@ function Staff({ client }: { client: ApiUser }) {
                     wrap
                     disabled={busy}
                     aria-label={`Remove ${m.email}`}
-                    onClick={() => setRemoving(m.email)}
+                    onClick={(e) => {
+                      removeButton.current = e.currentTarget;
+                      setRemoving(m.email);
+                    }}
                   >
                     Remove
                   </Button>
@@ -281,6 +286,7 @@ function Staff({ client }: { client: ApiUser }) {
             );
           }}
           onCancel={() => setRemoving(null)}
+          returnFocus={removeButton}
         >
           <p>They become a User.</p>
         </Confirm>

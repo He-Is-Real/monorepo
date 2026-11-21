@@ -298,6 +298,8 @@ function LimitsForm({
   const [group, setGroup] = useState(0);
   const alert = useRef<HTMLDivElement>(null);
   const done = useRef<HTMLParagraphElement>(null);
+  /** The save bar's Save button: focus goes back to it after "Cancel" (CD-1 A). */
+  const saveButton = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (status.kind === 'error' && status.field)
@@ -569,6 +571,7 @@ function LimitsForm({
             confirmLabel="Yes, save"
             onConfirm={() => doSave(status.values)}
             onCancel={() => setStatus({ kind: 'idle' })}
+            returnFocus={saveButton}
           >
             <p>
               They apply to everyone from their next step, including stories
@@ -594,6 +597,7 @@ function LimitsForm({
             busy={status.kind === 'busy'}
             stale={status.kind === 'stale'}
             onUndo={undo}
+            saveRef={saveButton}
           />
         )}
       </form>
@@ -616,11 +620,13 @@ function SaveBar({
   busy,
   stale,
   onUndo,
+  saveRef,
 }: {
   changes: { field: Field; text: string }[];
   busy: boolean;
   stale: boolean;
   onUndo: () => void;
+  saveRef: React.Ref<HTMLButtonElement>;
 }) {
   const id = useId();
   const bar = useRef<HTMLDivElement>(null);
@@ -728,7 +734,12 @@ function SaveBar({
           >
             Undo
           </Button>
-          <Button type="submit" className={control} disabled={busy || stale}>
+          <Button
+            ref={saveRef}
+            type="submit"
+            className={control}
+            disabled={busy || stale}
+          >
             {busy ? 'Saving…' : 'Save'}
           </Button>
         </div>
