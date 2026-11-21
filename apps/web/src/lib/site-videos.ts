@@ -1,5 +1,5 @@
 import { writeLog } from '@heisreal/logging';
-import { apiPublicReadUrl } from './config';
+import { apiPublicReadUrl, WEBSITE_KEY_HEADER, websiteKey } from './config';
 
 // D32: a site video's player link comes from api-public-read, read on the server with nothing
 // from the visitor's request, like a story's. The link is signed and expires (D52, 6–7 hours),
@@ -23,7 +23,11 @@ export type SiteVideoLink = { playbackUrl: string } | 'none' | 'unavailable';
 export async function siteVideoLink(key: SiteVideoKey): Promise<SiteVideoLink> {
   try {
     const res = await fetch(`${apiPublicReadUrl()}/v1/site-videos/${key}`, {
-      headers: { accept: 'application/json' },
+      headers: {
+        accept: 'application/json',
+        // RL-8 A: web's calls share the website's allowance at api-public-read.
+        [WEBSITE_KEY_HEADER]: websiteKey(),
+      },
       cache: 'no-store',
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });

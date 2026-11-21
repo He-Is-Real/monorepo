@@ -153,6 +153,7 @@ Bring in the 24 existing testimonies. Before that:
 ## Go live ⚪
 
 - ✅ UK-only settings for the whole Google organisation
+- 🟡 Limits on how often one visitor can ask the site and its services: built; the numbers wait for Joel
 - ⚪ The heisreal.today domain and the real sign-in service
 - ⚪ Stripe switched from test mode to real payments (after a Stripe tool fix)
 - ⚪ Church hardware secured before it holds real data

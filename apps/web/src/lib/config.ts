@@ -2,8 +2,10 @@
 // Terraform sets on the Cloud Run service (never baked into the image).
 //
 // D32: web server-renders from api-public-read only. It never calls api-user
-// or api-admin, and holds no database access, secrets or tokens. api-user's
-// address (apiUserUrl) is only handed to the browser, which calls it itself.
+// or api-admin, and holds no database access or user tokens. Its one secret is
+// the website key for api-public-read's rate limits (RL-8 A, websiteKey below).
+// api-user's address (apiUserUrl) is only handed to the browser, which calls it
+// itself.
 
 import { writeLog } from '@heisreal/logging';
 
@@ -15,6 +17,19 @@ export function apiPublicReadUrl(): string {
     );
   }
   return url.replace(/\/+$/, '');
+}
+
+/** The header web's server sends the website key in (libs/http `WEBSITE_KEY_HEADER`). */
+export const WEBSITE_KEY_HEADER = 'x-website-key';
+
+/**
+ * The website key (RL-8 A, Joel 2026-11-21), sent with web's server calls to api-public-read so
+ * they share the website's one large allowance there instead of being counted as one address.
+ * Cloud Run puts it in `WEBSITE_KEY` from Secret Manager (OpenTofu: `website-key`); it is never
+ * logged or sent anywhere else. Unset (local runs, e2e) = '' (an ordinary caller).
+ */
+export function websiteKey(): string {
+  return process.env['WEBSITE_KEY']?.trim() ?? '';
 }
 
 /**
