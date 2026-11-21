@@ -3,7 +3,7 @@
 import { useClerk } from '@clerk/react';
 import { useRouter } from 'next/navigation';
 import { useId, useRef, useState } from 'react';
-import { Button, Card } from '@heisreal/web-ui';
+import { Button, Card, DangerZone, Input } from '@heisreal/web-ui';
 import {
   type ApiUser,
   ApiUserProblem,
@@ -252,77 +252,79 @@ function DeleteAccount({ afterDeletion }: { afterDeletion: AfterDeletion }) {
           <p role="status" data-deleted="">
             Your account is deleted. Signing you out…
           </p>
-        ) : open ? (
-          <div className="rounded-xl border border-border-hover p-4">
-            <p className="mb-2 font-semibold">This deletes, for good:</p>
-            <ul className="mb-3 list-disc pl-5">
-              <li>your account and your sign-in;</li>
-              <li>
-                every story you’ve shared or started, with its video, audio and
-                pictures, wherever it is;
-              </li>
-              <li>your favourites.</li>
-            </ul>
-            <p className="mb-3">
-              It can’t be undone. It withdraws your consent: we stop keeping and
-              publishing your stories, and make no new use of any you let us
-              share on social media (copies already shared can’t be recalled).
-              We keep a fingerprint of your sign-in’s id, so the deleted sign-in
-              can’t make a new account here. It isn’t your name or email, but it
-              isn’t anonymous: it can be matched to that id.
-            </p>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                void remove();
-              }}
-            >
-              <label htmlFor={inputId} className="mb-1 block font-medium">
-                Type <span className="font-bold">{CONFIRM_WORD}</span> to
-                confirm
-              </label>
-              <input
-                id={inputId}
-                autoFocus
-                autoComplete="off"
-                autoCapitalize="none"
-                spellCheck={false}
-                value={typed}
-                onChange={(e) => setTyped(e.target.value)}
-                className="mb-4 block min-h-11 w-full max-w-xs rounded-lg border border-border bg-background px-3 py-2"
-              />
-              <div className="flex flex-wrap gap-3">
-                <Button
-                  type="submit"
-                  variant="danger"
-                  className="h-auto min-h-11 px-5 py-2 whitespace-normal"
-                  disabled={!ready || busy}
-                >
-                  {busy ? 'Deleting…' : 'Delete my account for good'}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-auto min-h-11 px-5 py-2 whitespace-normal"
-                  disabled={busy}
-                  onClick={() => {
-                    setOpen(false);
-                    setTyped('');
-                  }}
-                >
-                  Keep my account
-                </Button>
-              </div>
-            </form>
-          </div>
         ) : (
-          <Button
-            variant="outline"
-            className="h-auto min-h-11 px-5 py-2 whitespace-normal"
-            onClick={() => setOpen(true)}
+          // DL-2 A: the Danger zone look of every delete that can't be undone. Its step asks for
+          // the word typed first, so it brings its own form instead of the plain question.
+          <DangerZone
+            open={open}
+            onOpenChange={setOpen}
+            actionLabel="Delete my account"
           >
-            Delete my account
-          </Button>
+            <div>
+              <p className="mb-2 font-semibold">This deletes, for good:</p>
+              <ul className="mb-3 list-disc pl-5">
+                <li>your account and your sign-in;</li>
+                <li>
+                  every story you’ve shared or started, with its video, audio
+                  and pictures, wherever it is;
+                </li>
+                <li>your favourites.</li>
+              </ul>
+              <p className="mb-3">
+                It can’t be undone. It withdraws your consent: we stop keeping
+                and publishing your stories, and make no new use of any you let
+                us share on social media (copies already shared can’t be
+                recalled). We keep a fingerprint of your sign-in’s id, so the
+                deleted sign-in can’t make a new account here. It isn’t your
+                name or email, but it isn’t anonymous: it can be matched to that
+                id.
+              </p>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void remove();
+                }}
+              >
+                <label htmlFor={inputId} className="mb-1 block font-medium">
+                  Type <span className="font-bold">{CONFIRM_WORD}</span> to
+                  confirm
+                </label>
+                <Input
+                  id={inputId}
+                  size="standard"
+                  autoFocus
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  value={typed}
+                  onChange={(e) => setTyped(e.target.value)}
+                  className="mb-4 block max-w-xs"
+                />
+                <div className="flex flex-wrap gap-3">
+                  <Button
+                    type="submit"
+                    variant="danger"
+                    wrap
+                    disabled={!ready || busy}
+                  >
+                    {busy ? 'Deleting…' : 'Delete my account for good'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    wrap
+                    disabled={busy}
+                    onClick={() => {
+                      setOpen(false);
+                      setTyped('');
+                    }}
+                  >
+                    Keep my account
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </DangerZone>
         )}
         {error && (
           <p role="alert" className="mt-3 text-sm text-danger-text">

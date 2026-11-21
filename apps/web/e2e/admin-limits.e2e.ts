@@ -221,7 +221,18 @@ test.describe('/admin/limits', () => {
     await expect(saveBar(page)).toContainText('3 changes not saved yet');
 
     await saveButton(page).click();
-    const confirm = page.getByRole('alertdialog');
+    // The "Are you sure?" step (CD-1 A): focus on its question, not on Yes, save; Escape is
+    // "no" and keeps the changes waiting.
+    const confirm = page.getByRole('alertdialog', {
+      name: 'Save these changes?',
+    });
+    await expect(confirm.getByText('Save these changes?')).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(confirm).toHaveCount(0);
+    await expect(saveBar(page)).toContainText('3 changes not saved yet');
+    // Focus goes back to Save, where the step was opened.
+    await expect(saveButton(page)).toBeFocused();
+    await saveButton(page).click();
     await expect(confirm).toContainText('apply to everyone');
     await expect(confirm).toContainText(
       'Keep a story we didn’t accept for: 90 days after the decision → 60 days after the decision',

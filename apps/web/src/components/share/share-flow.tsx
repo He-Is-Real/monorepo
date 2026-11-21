@@ -11,11 +11,16 @@ import {
 } from 'react';
 import {
   Card,
+  Checkbox,
+  Chip,
+  ChipTick,
+  ChoiceCards,
   Field,
   FieldError,
   FieldHint,
   FieldLabel,
   Input,
+  Quiet,
   Textarea,
 } from '@heisreal/web-ui';
 import { agreementTexts } from '@/app/consent/actions';
@@ -880,58 +885,6 @@ function SignedInFlow({
   );
 }
 
-/**
- * A consent box: the whole label is the 44 px target (AGENTS.md); the native checkbox stays
- * for keyboards and screen readers, and the box shown is drawn from its state. The box, the gap
- * and the padding around it are px, not rem, so at 200% text on a 320 px phone the wording keeps
- * a readable column (rem would double them and leave a few letters a line).
- */
-function Checkbox({
-  checked,
-  onChange,
-  describedBy,
-  disabled = false,
-  children,
-  className = '',
-}: {
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-  describedBy?: string;
-  disabled?: boolean;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <label
-      className={`flex min-h-11 items-start gap-[12px] has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 ${disabled ? 'opacity-70' : 'cursor-pointer'} ${className}`}
-    >
-      <input
-        type="checkbox"
-        checked={checked}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.checked)}
-        aria-describedby={describedBy}
-        className="peer sr-only"
-      />
-      <span
-        aria-hidden="true"
-        className="mt-0.5 flex size-[20px] shrink-0 items-center justify-center rounded border-2 border-border-hover text-primary-foreground peer-checked:border-brand peer-checked:bg-brand [&>svg]:invisible peer-checked:[&>svg]:visible"
-      >
-        <svg
-          viewBox="0 0 24 24"
-          className="size-[16px] fill-none stroke-current"
-          strokeWidth="3"
-        >
-          <path d="M5 12l5 5 9-10" />
-        </svg>
-      </span>
-      <span data-box-label="" className="min-w-0 flex-1">
-        {children}
-      </span>
-    </label>
-  );
-}
-
 type HeadingRef = React.RefObject<HTMLHeadingElement | null>;
 type DraftState = ReturnType<typeof useDraft>;
 
@@ -984,9 +937,9 @@ function ChooseStep({
     format !== 'written' && !!uploadsState(limits.uploads).until;
   const held = draftsFull || uploadsHeld;
   const options = [
-    { id: 'written', label: 'Written', note: 'Write it here' },
-    { id: 'video', label: 'Video', note: 'Upload a video file' },
-    { id: 'audio', label: 'Audio', note: 'Upload an audio file' },
+    { value: 'written', label: 'Written', note: 'Write it here' },
+    { value: 'video', label: 'Video', note: 'Upload a video file' },
+    { value: 'audio', label: 'Audio', note: 'Upload an audio file' },
   ] as const;
   const start: Record<StoryFormat, string> = {
     written: 'Write my story',
@@ -996,41 +949,21 @@ function ChooseStep({
   return (
     <div>
       <StepHeading heading={heading}>How would you like to share?</StepHeading>
-      <fieldset>
-        <legend className="sr-only">Choose how to share</legend>
-        <div className="grid gap-3 sm:grid-cols-3">
-          {options.map((o) => (
-            <label
-              key={o.id}
-              className={`flex min-h-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl p-4 text-center has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 ${
-                format === o.id
-                  ? 'border-2 border-brand bg-accent font-semibold'
-                  : 'border border-border text-secondary-text'
-              }`}
-            >
-              <input
-                type="radio"
-                name="format"
-                value={o.id}
-                checked={format === o.id}
-                onChange={() => setFormat(o.id)}
-                className="sr-only"
-              />
-              <span>{o.label}</span>
-              <span className="text-xs font-normal text-secondary-text">
-                {o.note}
-              </span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      <ChoiceCards
+        legend="Choose how to share"
+        name="format"
+        options={options}
+        value={format}
+        onValueChange={setFormat}
+      />
       <p className="mt-4 text-sm text-secondary-text">
         Recorded a video or a voice note already? Upload the file. Recording
         straight from this page comes later.
       </p>
-      <section
+      <Quiet
+        as="section"
         aria-label="What you can share this week"
-        className="mt-4 flex flex-col gap-2 rounded-xl bg-surface px-4 py-3 text-sm text-secondary-text"
+        className="mt-4 flex flex-col gap-2"
       >
         <SubmissionsLeft limits={limits} />
         {format !== 'written' && (
@@ -1057,7 +990,7 @@ function ChooseStep({
             delete one from your account page to start a new one.
           </p>
         )}
-      </section>
+      </Quiet>
       {drafts.length > 0 && (
         <section aria-labelledby="your-drafts" className="mt-8">
           <h3 id="your-drafts" className="mb-3 font-semibold">
@@ -1483,7 +1416,7 @@ function WriteStep({
           <div>
             <FieldLabel size="writing">Title</FieldLabel>
             <Input
-              size="writing"
+              size="standard"
               maxLength={140}
               value={draft.fields.title}
               onChange={(e) => draft.update({ title: e.target.value })}
@@ -1632,7 +1565,7 @@ function MediaStep({
           <div>
             <FieldLabel size="writing">Title</FieldLabel>
             <Input
-              size="writing"
+              size="standard"
               maxLength={140}
               value={draft.fields.title}
               onChange={(e) => draft.update({ title: e.target.value })}
@@ -1788,7 +1721,7 @@ function DetailsStep({
             </FieldLabel>
             {/* "Anonymous" is the name it shows when left empty, so it reads as text, not a faint example. */}
             <Input
-              size="writing"
+              size="standard"
               className="placeholder:text-secondary-text focus:placeholder:text-transparent"
               placeholder="Anonymous"
               maxLength={80}
@@ -1839,28 +1772,25 @@ function DetailsStep({
             renderTheme={(t) => {
               const on = chosen.includes(t.id);
               return (
-                <label
-                  className={`inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center gap-2 rounded-full border px-4 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60 has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 ${
-                    on
-                      ? 'border-brand bg-accent font-semibold text-foreground'
-                      : 'border-border text-secondary-text'
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    className="sr-only"
-                    checked={on}
-                    disabled={!on && chosen.length >= max}
-                    onChange={() =>
-                      draft.update({
-                        themeIds: on
-                          ? chosen.filter((id) => id !== t.id)
-                          : [...chosen, t.id],
-                      })
-                    }
-                  />
-                  {t.name}
-                </label>
+                <Chip asChild chosen={on}>
+                  <label className="cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="sr-only"
+                      checked={on}
+                      disabled={!on && chosen.length >= max}
+                      onChange={() =>
+                        draft.update({
+                          themeIds: on
+                            ? chosen.filter((id) => id !== t.id)
+                            : [...chosen, t.id],
+                        })
+                      }
+                    />
+                    {on && <ChipTick />}
+                    {t.name}
+                  </label>
+                </Chip>
               );
             }}
           />
@@ -2481,11 +2411,11 @@ export function ReviewStep({
               <LegalHtml html={sharing.html} />
             </section>
             <Checkbox
+              card
               checked={social}
-              onChange={setSocial}
+              onChange={(e) => setSocial(e.target.checked)}
               disabled={!!kept}
-              describedBy={kept ? 'social-kept' : undefined}
-              className="rounded-xl border border-border bg-accent p-[12px] text-foreground sm:p-4"
+              aria-describedby={kept ? 'social-kept' : undefined}
             >
               I agree to He Is Real Today sharing this story on social media, as
               set out above.{' '}
@@ -2504,9 +2434,9 @@ export function ReviewStep({
         )}
       </div>
       {waiting && (
-        <div className="mt-4 rounded-xl bg-surface px-4 py-3">
+        <Quiet className="mt-4">
           <SubmissionsLeft limits={limits} id="submit-waiting" />
-        </div>
+        </Quiet>
       )}
       {problem && (
         <p role="alert" className="mt-4 text-danger-text">

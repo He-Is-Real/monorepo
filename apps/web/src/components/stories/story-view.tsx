@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import { THEME_CHIP } from '@/components/themes/theme-chip';
 import type { StorySummary } from '@/lib/browse';
 import type { PublicStory } from '@/lib/public-stories';
 import { RelatedStories } from './related-stories';
@@ -7,7 +6,7 @@ import { StoryHeart } from './heart-button';
 import { ShareMenu } from './share-menu';
 import { StoryMedia } from './story-media';
 import { StoryText } from './story-text';
-import { Card } from '@heisreal/web-ui';
+import { Card, Chip } from '@heisreal/web-ui';
 
 /** The reading column (Joel's R1): at most 80 characters a line, centred. */
 const COLUMN = 'mx-auto w-full max-w-measure min-w-0';
@@ -39,9 +38,9 @@ function Meta({
         >
           {story.themes.map((t) => (
             <li key={t.id}>
-              <Link href={`/stories?theme=${t.id}`} className={THEME_CHIP}>
-                {t.name}
-              </Link>
+              <Chip asChild>
+                <Link href={`/stories?theme=${t.id}`}>{t.name}</Link>
+              </Chip>
             </li>
           ))}
         </ul>

@@ -5,9 +5,8 @@ import { useSearchParams } from 'next/navigation';
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { FORMAT_LABELS } from '@heisreal/story-filters';
-import { Button } from '@heisreal/web-ui';
+import { Button, chipVariants, Switch } from '@heisreal/web-ui';
 import { FavouritesList } from '@/components/favourites/favourites-list';
-import { THEME_CHIP_ON } from '@/components/themes/theme-chip';
 import {
   type BrowseFilters,
   browseHref,
@@ -162,23 +161,11 @@ export function BrowseView({
   const filters = (
     <div className="space-y-6">
       {known && (
-        // A switch with its words: the whole row is the target (44 px high).
-        <button
-          type="button"
-          role="switch"
-          aria-checked={on}
-          onClick={() => set(!on)}
-          data-favourites-only=""
-          className="group inline-flex min-h-11 items-center gap-3 rounded-lg pr-2 font-medium text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-        >
-          <span
-            aria-hidden="true"
-            className="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-border-hover bg-input-background transition-colors group-aria-checked:border-brand group-aria-checked:bg-brand motion-reduce:transition-none"
-          >
-            <span className="ml-0.5 size-5 rounded-full bg-secondary-text shadow transition-transform group-aria-checked:translate-x-5 group-aria-checked:bg-on-media motion-reduce:transition-none" />
-          </span>
+        // A switch with its words: the whole row is the target (44 px high). It acts at once
+        // (SW-1 B).
+        <Switch checked={on} onCheckedChange={set} data-favourites-only="">
           Favourites only
-        </button>
+        </Switch>
       )}
       {panel}
     </div>
@@ -241,7 +228,7 @@ export function BrowseView({
                       <Link
                         href={c.href}
                         scroll={false}
-                        className={`${THEME_CHIP_ON} gap-2`}
+                        className={`${chipVariants({ chosen: true })} gap-2`}
                       >
                         <ChipText label={c.label} />
                       </Link>
@@ -249,7 +236,7 @@ export function BrowseView({
                       <button
                         type="button"
                         onClick={c.onRemove}
-                        className={`${THEME_CHIP_ON} gap-2`}
+                        className={`${chipVariants({ chosen: true })} gap-2`}
                       >
                         <ChipText label={c.label} />
                       </button>
@@ -307,7 +294,7 @@ export function BrowseView({
           // A click on the backdrop (the dialog itself, outside its box) closes it.
           if (e.target === e.currentTarget) e.currentTarget.close();
         }}
-        className="mx-0 mt-auto mb-0 w-full max-w-full rounded-t-2xl border border-border-hover bg-card p-0 text-foreground backdrop:bg-media/50 sm:m-auto sm:w-[min(100%-4rem,40rem)] sm:rounded-2xl"
+        className="mx-0 mt-auto mb-0 w-full max-w-full rounded-t-2xl border border-border-hover bg-card p-0 text-foreground backdrop:bg-overlay sm:m-auto sm:w-[min(100%-4rem,40rem)] sm:rounded-2xl"
         data-filters-panel=""
       >
         <div className="flex max-h-[85svh] flex-col">

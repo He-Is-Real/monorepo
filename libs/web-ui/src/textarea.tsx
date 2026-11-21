@@ -2,30 +2,23 @@
 
 import * as React from 'react';
 import { cn } from './cn';
-import { fieldVariants, type FieldSize } from './field-style';
+import { fieldVariants } from './field-style';
 import { useFieldControl } from './field';
 
-export type TextareaProps = React.ComponentProps<'textarea'> & {
-  /** `writing` (default): sharing a story, moderators' notes. `form`: admin forms. */
-  size?: Exclude<FieldSize, 'compact'>;
-};
+export type TextareaProps = React.ComponentProps<'textarea'>;
 
 /**
- * The site's text area: the text box's look, taller (set its height with a `min-h-*` class).
+ * The site's text area: the standard text box (TF-1 B), taller (set its height with a `min-h-*` class).
  * Inside a `Field` it takes the field's id, hint and error wiring.
  */
-export function Textarea({
-  className,
-  size = 'writing',
-  ...props
-}: TextareaProps) {
+export function Textarea({ className, ...props }: TextareaProps) {
   const control = useFieldControl(props);
   return (
     <textarea
       data-slot="textarea"
       {...props}
       {...control}
-      className={cn(fieldVariants({ size }), className)}
+      className={cn(fieldVariants({ size: 'standard' }), className)}
     />
   );
 }

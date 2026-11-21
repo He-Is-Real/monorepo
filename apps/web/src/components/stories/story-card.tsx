@@ -7,6 +7,7 @@ import { CARD_TOP_CSS } from '@/lib/masonry';
 import { audioSize, cardAspect } from '@/lib/shape';
 import { CardPlayer } from './card-player';
 import { CardHeart } from './heart-button';
+import { Tag } from '@heisreal/web-ui';
 
 // A story's card (browse, home, related). Its sizes come from lib/card-metrics.ts (custom
 // properties, `--card-…`), which lib/masonry.ts predicts its height from (D55); its parts mirror
@@ -250,11 +251,10 @@ export function StoryCard({
             aria-label="Themes"
           >
             {story.themes.map((t) => (
-              <li
-                key={t.id}
-                className="h-(--card-themes-row) truncate rounded-full bg-surface px-(--card-themes-pad) text-(length:--card-themes-font) leading-(--card-themes-row) text-muted-foreground"
-              >
-                {t.name}
+              <li key={t.id} className="min-w-0">
+                <Tag className="block h-(--card-themes-row) truncate px-(--card-themes-pad) py-0 text-(length:--card-themes-font) leading-(--card-themes-row) font-normal">
+                  {t.name}
+                </Tag>
               </li>
             ))}
           </ul>

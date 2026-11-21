@@ -12,6 +12,7 @@ import { AdminAccess, problemText } from '@/components/admin/admin-access';
 import {
   Button,
   Card,
+  Confirm,
   Field,
   FieldError,
   FieldHint,
@@ -296,15 +297,15 @@ function LimitsForm({
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const [group, setGroup] = useState(0);
   const alert = useRef<HTMLDivElement>(null);
-  const confirm = useRef<HTMLDivElement>(null);
   const done = useRef<HTMLParagraphElement>(null);
+  /** The save bar's Save button: focus goes back to it after "Cancel" (CD-1 A). */
+  const saveButton = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (status.kind === 'error' && status.field)
       document.getElementById(`${id}-${status.field}`)?.focus();
     else if (status.kind === 'error' || status.kind === 'stale')
       alert.current?.focus();
-    if (status.kind === 'confirm') confirm.current?.focus();
   }, [status, id]);
   useEffect(() => {
     if (saved) done.current?.focus();
@@ -498,7 +499,7 @@ function LimitsForm({
                           </div>
                           <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 @lg:contents">
                             <Input
-                              size="form"
+                              size="standard"
                               name={field}
                               type="text"
                               inputMode="numeric"
@@ -564,20 +565,19 @@ function LimitsForm({
         )}
 
         {status.kind === 'confirm' && (
-          <Card
-            ref={confirm}
-            tabIndex={-1}
-            role="alertdialog"
-            aria-labelledby={`${id}-confirm`}
-            tone="primary"
-            className="space-y-4 p-4 sm:p-6"
+          <Confirm
             data-confirm=""
+            question="Save these changes?"
+            confirmLabel="Yes, save"
+            onConfirm={() => doSave(status.values)}
+            onCancel={() => setStatus({ kind: 'idle' })}
+            returnFocus={saveButton}
           >
-            <p id={`${id}-confirm`} className="text-foreground">
-              Save these changes? They apply to everyone from their next step,
-              including stories already started.
+            <p>
+              They apply to everyone from their next step, including stories
+              already started.
             </p>
-            <ul className="list-disc space-y-1 pl-5 [overflow-wrap:anywhere]">
+            <ul className="[overflow-wrap:anywhere]">
               {status.changes.map((f) => (
                 <li key={f}>
                   {LABEL[f].label}: {describe(f, settings.settings[f])} →{' '}
@@ -585,20 +585,7 @@ function LimitsForm({
                 </li>
               ))}
             </ul>
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <Button type="button" wrap onClick={() => doSave(status.values)}>
-                Yes, save
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                wrap
-                onClick={() => setStatus({ kind: 'idle' })}
-              >
-                Cancel
-              </Button>
-            </div>
-          </Card>
+          </Confirm>
         )}
 
         {edited.length > 0 && status.kind !== 'confirm' && (
@@ -610,6 +597,7 @@ function LimitsForm({
             busy={status.kind === 'busy'}
             stale={status.kind === 'stale'}
             onUndo={undo}
+            saveRef={saveButton}
           />
         )}
       </form>
@@ -632,11 +620,13 @@ function SaveBar({
   busy,
   stale,
   onUndo,
+  saveRef,
 }: {
   changes: { field: Field; text: string }[];
   busy: boolean;
   stale: boolean;
   onUndo: () => void;
+  saveRef: React.Ref<HTMLButtonElement>;
 }) {
   const id = useId();
   const bar = useRef<HTMLDivElement>(null);
@@ -744,7 +734,12 @@ function SaveBar({
           >
             Undo
           </Button>
-          <Button type="submit" className={control} disabled={busy || stale}>
+          <Button
+            ref={saveRef}
+            type="submit"
+            className={control}
+            disabled={busy || stale}
+          >
             {busy ? 'Saving…' : 'Save'}
           </Button>
         </div>

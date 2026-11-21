@@ -15,7 +15,14 @@ import {
   type StoryFormat as Format,
   toggleTheme,
 } from '@heisreal/story-filters';
-import { Button, Card, RadioGroup, SearchBox } from '@heisreal/web-ui';
+import {
+  Button,
+  Card,
+  RadioGroup,
+  SearchBox,
+  StatusBadge,
+  Tag,
+} from '@heisreal/web-ui';
 import { ThemeLinks } from '@/components/browse/theme-filter';
 import { FormatSelect } from '@/components/story-filters/format-select';
 import type { ApiUser } from '@/lib/api-user';
@@ -34,6 +41,7 @@ import {
   moderationProblem,
   SORTS,
   stateLabel,
+  stateTone,
   waitingAlert,
   waitingFor,
 } from './moderation-api';
@@ -575,9 +583,12 @@ function List({
                   className={`${s.mediaProblem === 'ours' ? '' : 'hidden'} col-span-2 ${cell} xl:w-44 2xl:w-52`}
                   data-list-state=""
                 >
-                  <span className="hidden rounded-full border border-brand/40 bg-accent px-2.5 py-0.5 text-sm font-medium text-foreground xl:inline-block">
+                  <StatusBadge
+                    tone={stateTone(s.state, s.action)}
+                    className="hidden xl:inline-flex"
+                  >
                     {stateLabel(s.state, s.action)}
-                  </span>
+                  </StatusBadge>
                   {s.mediaProblem === 'ours' && (
                     // Part 1a (P1-5, P1-9): our own give-ups, never the person's file.
                     <span
@@ -594,11 +605,8 @@ function List({
                   {s.themes.length > 0 ? (
                     <ul className="flex flex-wrap gap-1" aria-label="Themes">
                       {s.themes.map((t) => (
-                        <li
-                          key={t.id}
-                          className="max-w-full rounded-full border border-border px-2 py-0.5 text-sm [overflow-wrap:anywhere] text-secondary-text"
-                        >
-                          {t.name}
+                        <li key={t.id} className="max-w-full">
+                          <Tag>{t.name}</Tag>
                         </li>
                       ))}
                     </ul>

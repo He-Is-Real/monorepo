@@ -462,6 +462,42 @@ test.describe('moderation', () => {
     );
   });
 
+  test('an Admin’s open delete step waits once the story changes underneath', async ({
+    page,
+  }) => {
+    await useSession(page, fresh('admin-stale-delete'));
+    await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_video`);
+    await decisions(page).getByRole('button', { name: 'Delete' }).click();
+    const confirm = page.locator('[data-confirm-delete]');
+    await expect(
+      confirm.getByRole('button', { name: 'Delete story' }),
+    ).toBeEnabled();
+    // Sent back while open: the page checks again when the tab is back in view.
+    await page.route('**/v1/moderation/stories/mod_video', async (route) => {
+      if (route.request().method() !== 'GET') return route.continue();
+      const response = await route.fetch({
+        headers: { ...route.request().headers(), 'if-none-match': '' },
+      });
+      const body = await response.json();
+      body.version += 1;
+      body.status = 'editing';
+      return route.fulfill({ response, json: body });
+    });
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect(page.locator('[data-review-stale]')).toContainText(
+      'This story changed while you had it open.',
+    );
+    // It can't delete what the Admin hasn't seen; "Keep it" still closes the step.
+    await expect(
+      confirm.getByRole('button', { name: 'Delete story' }),
+    ).toBeDisabled();
+    await confirm.getByRole('button', { name: 'Keep it' }).click();
+    await expect(confirm).toHaveCount(0);
+    await expect(
+      decisions(page).getByRole('button', { name: 'Delete' }),
+    ).toBeDisabled();
+  });
+
   test('a story that’s gone says so', async ({ page }) => {
     await useSession(page, 'moderator-gone');
     await page.goto(`${WEB_SIGNED_IN_URL}/moderation/no_such_story`);
@@ -825,9 +861,13 @@ test.describe('moderation', () => {
     await expect(confirm).toHaveCount(0);
     await expect(page.locator('[data-review-status]')).toHaveText('Published');
     await decisions(page).getByRole('button', { name: 'Delete' }).click();
+    // Focus lands on the question, never on the danger button (CD-1 A).
+    await expect(
+      confirm.getByText('Delete this story for good?'),
+    ).toBeFocused();
     await expect(
       confirm.getByRole('button', { name: 'Delete story' }),
-    ).toBeFocused();
+    ).not.toBeFocused();
     await confirm.getByRole('button', { name: 'Delete story' }).click();
     await expect(notice(page)).toHaveText(
       'Deleted. The story and its files are gone.',
@@ -947,7 +987,10 @@ test.describe('moderation', () => {
     await expect(takeDown).toContainText('The person can read this');
     const confirm = takeDown.getByRole('button', { name: 'Take down' });
     await expect(confirm).toBeDisabled();
+    // OT-2 A: why it's greyed out, under it and read with it.
+    await expect(confirm).toHaveAccessibleDescription('Write a reason first.');
     await reason.fill('Someone named in it asked us to check it first.');
+    await expect(takeDown.getByText('Write a reason first.')).toHaveCount(0);
     await expectNoHorizontalOverflow(page);
     await confirm.click();
     await expect(page.locator('[data-take-down-notice]')).toHaveText(

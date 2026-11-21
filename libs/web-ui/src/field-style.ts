@@ -11,18 +11,18 @@ export const FIELD_BASE =
 export const COMPACT_FIELD = `${FIELD_BASE} h-11 min-w-0 text-sm focus-visible:border-ring focus-visible:ring-ring/30`;
 
 /**
- * Text boxes and text areas. Three sizes, as the pages had them before the library (WL-1 moved
- * them here unchanged; one look is a later choice):
- * - `compact`: the drop-down's field (search boxes, filters).
- * - `form`: admin forms, at least 44 px, the surrounding text size.
- * - `writing`: where people write (sharing a story, moderators' notes): larger text and padding.
+ * Text boxes and text areas (TF-1 B, Joel, 20 November 2026): one look, the drop-down's corners,
+ * edge and teal focus ring, in two sizes:
+ * - `compact`: small text, 44 px tall, for a search box beside drop-downs (Stories, the
+ *   moderators' list, the theme picker's search).
+ * - `standard`: normal text, at least 44 px, everywhere people type (sharing a story, admin
+ *   forms, moderators' notes, "Delete my account").
  */
 export const fieldVariants = cva('', {
   variants: {
     size: {
       compact: `${COMPACT_FIELD} px-3 placeholder:text-faint aria-[invalid=true]:border-danger`,
-      form: `${FIELD_BASE} min-h-11 px-3 py-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-danger`,
-      writing: `${FIELD_BASE} rounded-md px-3 py-2.5 text-base focus-visible:border-ring focus-visible:ring-ring/50`,
+      standard: `${FIELD_BASE} min-h-11 px-3 py-2.5 text-base placeholder:text-faint focus-visible:border-ring focus-visible:ring-ring/30 aria-[invalid=true]:border-danger`,
     },
   },
   defaultVariants: { size: 'compact' },

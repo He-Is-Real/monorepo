@@ -1,5 +1,5 @@
 import { ButtonLink } from '@/components/page/button-link';
-import { Card } from '@heisreal/web-ui';
+import { Card, Tag } from '@heisreal/web-ui';
 import { NarrowColumn, PageHeader } from '@/components/page/page-header';
 import { pageMetadata } from '@/lib/seo';
 
@@ -47,9 +47,6 @@ const TIPS = [
   },
 ];
 
-const comingSoon =
-  'inline-flex rounded-full bg-surface px-3 py-1 text-xs font-medium text-secondary-text';
-
 export default function GetReadyPage() {
   return (
     <main id="main" className="flex-1 py-12 sm:py-20">
@@ -74,7 +71,9 @@ export default function GetReadyPage() {
                   <p className="mb-4 text-[0.9375rem] text-secondary-text">
                     {r.text}
                   </p>
-                  <p className={comingSoon}>PDF and audio coming soon</p>
+                  <p>
+                    <Tag className="py-1">PDF and audio coming soon</Tag>
+                  </p>
                 </Card>
               </li>
             ))}
@@ -91,7 +90,9 @@ export default function GetReadyPage() {
             </svg>
           </div>
           <div>
-            <p className={`${comingSoon} mb-3`}>Coming soon</p>
+            <p className="mb-3">
+              <Tag className="py-1">Coming soon</Tag>
+            </p>
             <h2 className="mb-2 text-xl font-normal sm:text-[1.375rem]">
               Watch: how to share your story
             </h2>

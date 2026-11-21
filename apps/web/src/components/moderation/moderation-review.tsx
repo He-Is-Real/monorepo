@@ -14,6 +14,7 @@ import { StoryArticle } from '@/components/stories/story-view';
 import {
   Button,
   Card,
+  DangerZone,
   Field,
   FieldHint,
   FieldLabel,
@@ -497,6 +498,8 @@ const NOTED: Record<
     confirm: string;
     confirmVariant: 'default' | 'caution' | 'danger';
     field: string;
+    /** Why the button is greyed out before anything is typed (OT-2 A). */
+    empty: string;
   }
 > = {
   'request-changes': {
@@ -505,6 +508,7 @@ const NOTED: Record<
     confirm: 'Send back',
     confirmVariant: 'caution',
     field: 'feedbackToSubmitter',
+    empty: 'Write a note first.',
   },
   reject: {
     label: 'Your note to the person',
@@ -512,6 +516,7 @@ const NOTED: Record<
     confirm: 'Reject',
     confirmVariant: 'danger',
     field: 'feedbackToSubmitter',
+    empty: 'Write a note first.',
   },
   hide: {
     label: 'Why it’s being taken down',
@@ -519,6 +524,7 @@ const NOTED: Record<
     confirm: 'Take down',
     confirmVariant: 'default',
     field: 'reason',
+    empty: 'Write a reason first.',
   },
 };
 
@@ -576,6 +582,7 @@ export function NoteForm({
           variant={noted.confirmVariant}
           className={SITE_FOCUS}
           disabled={busy || noteLength === 0}
+          disabledReason={!busy && noteLength === 0 ? noted.empty : undefined}
         >
           {noted.confirm}
         </Button>
@@ -682,43 +689,7 @@ function Decisions({
                 ? 'On the site'
                 : 'Admin'}
         </h2>
-        {confirmDelete && (
-          <div
-            data-confirm-delete=""
-            className="rounded-xl border border-border-hover p-4"
-          >
-            <p className="mb-3">
-              Delete this story for good? Its text and any video or audio go too
-              {story.status === 'approved' ? ', and it comes off the site' : ''}
-              . The person isn’t told, beyond it leaving their submissions. This
-              can’t be undone.
-            </p>
-            <div className="flex flex-wrap gap-3">
-              <Button
-                autoFocus
-                wrap
-                variant="danger"
-                className={SITE_FOCUS}
-                disabled={busy}
-                onClick={() => void remove()}
-              >
-                {sending ? 'Deleting…' : 'Delete story'}
-              </Button>
-              <Button
-                variant="outline"
-                wrap
-                disabled={busy}
-                onClick={() => {
-                  setConfirmDelete(false);
-                  setRefusal(null);
-                }}
-              >
-                Keep it
-              </Button>
-            </div>
-          </div>
-        )}
-        {!open && !confirmDelete && (
+        {!open && decidable && (
           <div className="flex flex-wrap gap-3">
             {story.status === 'hidden' && (
               <Button wrap disabled={busy} onClick={() => void decide('show')}>
@@ -775,17 +746,6 @@ function Decisions({
                 Take down
               </Button>
             )}
-            {isAdmin && (
-              <Button
-                wrap
-                variant="danger"
-                className={SITE_FOCUS}
-                disabled={busy}
-                onClick={() => setConfirmDelete(true)}
-              >
-                Delete
-              </Button>
-            )}
           </div>
         )}
         {open && (
@@ -816,6 +776,35 @@ function Decisions({
               </Button>
             )}
           </div>
+        )}
+        {isAdmin && !open && (
+          // DL-1 A (as changed): an Admin's Delete stands apart from Reject, in the Danger zone;
+          // its "Are you sure?" step sits in place of the button.
+          <DangerZone
+            title="Danger zone (Admins)"
+            className={decidable ? 'mt-6' : undefined}
+            open={confirmDelete}
+            onOpenChange={(next) => {
+              setConfirmDelete(next);
+              setRefusal(null);
+            }}
+            disabled={busy}
+            busy={sending}
+            confirmProps={{ 'data-confirm-delete': '' }}
+            question="Delete this story for good?"
+            detail={
+              <p>
+                Its text and any video or audio go too
+                {story.status === 'approved'
+                  ? ', and it comes off the site'
+                  : ''}
+                . The person isn’t told, beyond it leaving their submissions.
+                This can’t be undone.
+              </p>
+            }
+            confirmLabel={sending ? 'Deleting…' : 'Delete story'}
+            onConfirm={() => void remove()}
+          />
         )}
       </section>
     </Card>

@@ -97,13 +97,22 @@ test.describe('/admin/staff', () => {
     await page.reload();
     await expectChosen(page.getByLabel('Role for ann@heisreal.today'), 'Admin');
 
-    await page
-      .getByRole('button', { name: 'Remove ann@heisreal.today' })
-      .click();
+    // From the keyboard: Escape closes the step and focus goes back to Remove (CD-1 A).
+    const removeAnn = page.getByRole('button', {
+      name: 'Remove ann@heisreal.today',
+    });
+    await removeAnn.focus();
+    await page.keyboard.press('Enter');
     const confirm = page.getByRole('alertdialog');
-    await expect(confirm).toContainText(
-      'Remove ann@heisreal.today from the staff? They become a User.',
+    await expect(confirm).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(confirm).toHaveCount(0);
+    await expect(removeAnn).toBeFocused();
+    await removeAnn.click();
+    await expect(confirm).toHaveAccessibleName(
+      'Remove ann@heisreal.today from the staff?',
     );
+    await expect(confirm).toHaveAccessibleDescription('They become a User.');
     await confirm.getByRole('button', { name: 'Yes, remove' }).click();
     await expect(page.locator('[data-staff-status="done"]')).toHaveText(
       'ann@heisreal.today is no longer staff.',

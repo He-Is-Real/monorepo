@@ -241,7 +241,7 @@ function BlockPart({
               <div className="min-w-0 flex-1">
                 <FieldLabel>{label}</FieldLabel>
                 <Input
-                  size="form"
+                  size="standard"
                   type={kind === 'emails' ? 'email' : 'text'}
                   inputMode={kind === 'emails' ? 'email' : 'text'}
                   autoComplete="off"

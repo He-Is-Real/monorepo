@@ -250,6 +250,16 @@ test.describe('behaviour', () => {
     );
     await page.getByText('See all versions').click();
     await expect(page.locator('[data-versions] [data-version]')).toHaveCount(2);
+    // An open/close section (DS-1 A+E 4) opens and closes from the keyboard: Enter, then Space.
+    const howTo = page.locator('summary', { hasText: 'How to format it' });
+    const cheatSheet = page.locator('[data-cheat-sheet]');
+    await expect(cheatSheet).toBeHidden();
+    await howTo.focus();
+    await page.keyboard.press('Enter');
+    await expect(cheatSheet).toBeVisible();
+    await expect(howTo.locator('..')).toHaveAttribute('open', '');
+    await page.keyboard.press('Space');
+    await expect(cheatSheet).toBeHidden();
     const text = page.getByLabel('New text (version 2) · Markdown');
     await text.fill(`${await text.inputValue()}\n\nOne more paragraph.`);
     await expect(page.locator('[data-redline] ins')).toHaveText(
@@ -260,11 +270,18 @@ test.describe('behaviour', () => {
     );
     await page.getByRole('button', { name: 'Save as version 2…' }).click();
     const confirm = page.getByRole('alertdialog');
+    await expect(confirm).toHaveAccessibleName(
+      'Save version 2 of privacy notice?',
+    );
     await expect(confirm).toContainText(
-      'Save version 2 of privacy notice? It can’t be changed or deleted after saving.',
+      'It can’t be changed or deleted after saving.',
     );
     await confirm.getByRole('button', { name: 'Cancel' }).click();
     await expect(confirm).toHaveCount(0);
+    // Focus goes back to the Save button that opened the step (CD-1 A).
+    await expect(
+      page.getByRole('button', { name: 'Save as version 2…' }),
+    ).toBeFocused();
     await page.getByRole('button', { name: 'Save as version 2…' }).click();
     await confirm.getByRole('button', { name: 'Save' }).click();
     await expect(page.locator('[data-publish-status="done"]')).toHaveText(

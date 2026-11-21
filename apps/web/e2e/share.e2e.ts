@@ -1368,7 +1368,14 @@ test.describe('behaviour', () => {
     request,
   }) => {
     const me = await atReview(page, request, 'shared');
-    await tick(page, /sharing this story on social media/);
+    // The whole line is pressable (CB-1 A): pressing the words ticks the box.
+    const box = page.locator('[data-sharing-box]').getByRole('checkbox');
+    await page
+      .getByText(
+        'I agree to He Is Real Today sharing this story on social media',
+      )
+      .click();
+    await expect(box).toBeChecked();
     await page.getByRole('button', { name: 'Submit for review' }).click();
     await step(page, 'Thank you for sharing your story');
     expect(await me.stories()).toMatchObject([

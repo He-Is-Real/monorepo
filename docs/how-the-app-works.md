@@ -594,6 +594,32 @@ recording | picture` (worked out from the status history: set while the story's 
 - Every page works from 320-pixel phones to large desktops, in light or dark (following the
   device, with a switch), with text enlarged to 200%. Body text sits in a reading column of at
   most about 80 characters a line.
+- **"Are you sure?" steps (CD-1 A and CD-2 B, Joel, 20 November 2026)** work the same everywhere
+  (saving the submission limits, saving a legal text, removing a staff member, an Admin's Delete in
+  moderation, and Delete and Edit on My submissions): the step sits in place of the button that
+  opened it, with a bold question, what will happen, the action button named for what it does and
+  the way out ("Keep it" when deleting, "Cancel" for saves and edits), side by side, stacked full
+  width on phones. Keyboard focus lands on the question, never on the action button, so a second
+  Enter does nothing; Escape means no and puts focus back on the button that opened it. Screen
+  readers hear it as a question (an alert dialog named by the question).
+- **Deleting for good always looks the same (DL-1 A as changed and DL-2 A, Joel, 20 November
+  2026):** an Admin's Delete on the moderation review page, "Delete my account" on Your data and
+  Delete on My submissions sit in a red-outlined "Danger zone" box with a warning sign, and the
+  button is the solid danger red with a bin icon ("Delete", or "Delete my account"). Reject stays a
+  plain red button among the decisions.
+- **A switch acts at once (SW-1 B, Joel, 20 November 2026):** a switch is used only where pressing
+  it changes the page straight away ("Favourites only" on Stories); its knob shows a ✓ when on. A
+  choice saved later is a check box (the Themes panel's "★ Highlighted"). Check boxes are one
+  22-pixel box, and pressing the words ticks it too (CB-1 A).
+- **Open/close sections look the same everywhere (DS-1 A+E 4, Joel, 20 November 2026):**
+  closed, link-coloured underlined words with a small triangle before them that turns down when
+  open. Open, a short helper ("See all versions", "How to format it") hangs from a grey bar on its
+  left, and long reading ("Read the full version 3") sits in a light panel with a fine edge. They
+  are the browser's own open/close element: they work before the page's JavaScript loads, and the
+  keyboard opens and closes them with Enter or Space.
+- **A greyed-out button says why where the page knows (OT-2 A, Joel, 20 November 2026):** a
+  short line under it, such as "Write a reason first." under Take down before a reason is typed
+  ("Write a note first." for Send back and Reject).
 - **Wide pages with columns** (Joel, 2026-11-17): a page laid out in columns may be wider than
   the site's 1200-pixel content width, as long as no single column is wider than 1200 pixels.
 - The About and Next Steps pages play the founder's videos.
@@ -1138,10 +1164,14 @@ For developers. Details are in the linked documents.
   pop-up menu panels its `PopoverPanel`, and buttons whose words may wrap `Button wrap`. Search
   boxes are its `SearchBox` (a magnifier button inside; BS-2 A) and radio buttons its `RadioGroup`
   (Joel, 2026-11-20). Pages add
-  layout classes only. These moved with their looks unchanged; where pages had slightly different
-  looks (three text box sizes, two label weights), the library keeps them as named sizes until
-  Joel picks one (WL-2, with chips, notices, open/close sections, confirm boxes, check boxes,
-  radio buttons, tabs and switches).
+  layout classes only. **WL-2 (Joel, 20 November 2026; `web-library-looks.html` and
+  `delete-button-looks.html`):** one look each, as library pieces: the pressable `Chip` (the browse
+  chip, ✓ when chosen), the grey `Tag` and the `StatusBadge` (a dot and a word coloured by
+  meaning), the `Confirm` step, the `DangerZone`, the `Checkbox`, the `Switch`, the `Tabs`, Share's
+  format cards (`ChoiceCards`) and donate's switcher (`SegmentedChoice`), the plain grey `Quiet`
+  box, a `Button`'s greyed-out reason, and text boxes in two sizes (`compact` beside drop-downs,
+  `standard` wherever people type), and the `Disclosure` (DS-1 A+E 4). Dialog backdrops use the
+  `overlay` colour. Still open with Joel: the notice (NT-1).
   **LB-1 (Joel, 20 November 2026, A: "the UI component library should be its own section within
   the monorepo in case we build another frontend directory"):** the library at `libs/web-ui` also
   holds the theme (colours light and dark, font, radii, widths, base styles and shared CSS, in

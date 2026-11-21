@@ -99,6 +99,8 @@
   --warning-foreground: #ffffff;
   /* Success: done, added (a legal text's added words) */
   --success: #1e7e45;
+  /* Success words on a success tint (the Published badge): 5.6:1 on its tint over white */
+  --success-text: #186a3a;
   /* Information: a neutral note (the link colour) */
   --info: var(--link);
 
@@ -108,6 +110,8 @@
   --on-media: #ffffff;
   /* The home page's hero, always dark in both themes */
   --hero: #111113;
+  /* The veil behind a dialog (a modal panel's backdrop), both themes */
+  --overlay: rgb(0 0 0 / 0.5);
 
   /* A story card without a picture: five quiet artworks (the mockups'), picked per story */
   --art-1-from: #1a3a3d;
@@ -169,6 +173,7 @@
   --warning: #e6a23c;
   --warning-foreground: #111113;
   --success: #27ae60;
+  --success-text: var(--success);
 }
 
 @theme inline {
@@ -196,6 +201,7 @@
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
   --color-success: var(--success);
+  --color-success-text: var(--success-text);
   --color-info: var(--info);
   --color-border: var(--border);
   --color-border-hover: var(--border-hover);
@@ -213,6 +219,7 @@
   --color-media: var(--media);
   --color-on-media: var(--on-media);
   --color-hero: var(--hero);
+  --color-overlay: var(--overlay);
 
   --shadow-popover: var(--popover-shadow);
 

@@ -289,9 +289,13 @@ test.describe('behaviour', () => {
     // Chosen, so it's shown first now, and pressing it again shows every story.
     const chosen = themes.getByRole('link', { name: 'Grief' });
     await expect(chosen).toHaveAttribute('aria-current', 'true');
+    // Chosen: the ✓ (CH-1 A), which no other chip has.
+    await expect(chosen.locator('[data-chip-tick]')).toBeVisible();
+    await expect(themes.locator('[data-chip-tick]')).toHaveCount(1);
     await expect(page.locator('main article').first()).toBeVisible();
     await chosen.click();
     await expect(page).toHaveURL(/\/stories$/);
+    await expect(themes.locator('[data-chip-tick]')).toHaveCount(0);
   });
 
   test('a highlighted theme with no stories says so, and an unknown theme shows every story (A8, A14)', async ({

@@ -61,21 +61,51 @@ function Button({
   size = 'default',
   wrap = false,
   asChild = false,
+  disabledReason,
   ...props
 }: React.ComponentProps<'button'> &
   VariantProps<typeof buttonVariants> & {
     asChild?: boolean;
+    /**
+     * Why the button is greyed out (OT-2 A, Joel, 20 November 2026: "Write a reason first."):
+     * a short line under it while it's disabled, read with it (`aria-describedby`). Only where
+     * the page has a reason.
+     */
+    disabledReason?: React.ReactNode;
   }) {
   const Comp = asChild ? Slot.Root : 'button';
+  const reasonId = React.useId();
+  const why = props.disabled && disabledReason ? disabledReason : null;
 
-  return (
+  const button = (
     <Comp
       data-slot="button"
       data-variant={variant}
       data-size={size}
       className={cn(buttonVariants({ variant, size, wrap, className }))}
       {...props}
+      aria-describedby={
+        why
+          ? [props['aria-describedby'], reasonId].filter(Boolean).join(' ')
+          : props['aria-describedby']
+      }
     />
+  );
+  if (!why) return button;
+  return (
+    <span
+      data-slot="button-with-reason"
+      className={cn('inline-flex flex-col gap-1', wrap && 'w-full sm:w-auto')}
+    >
+      {button}
+      <span
+        id={reasonId}
+        data-disabled-reason=""
+        className="text-[0.8125rem] text-secondary-text"
+      >
+        {why}
+      </span>
+    </span>
   );
 }
 

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { ThemePicker } from '@/components/themes/theme-picker';
-import { THEME_CHIP, THEME_CHIP_ON } from '@/components/themes/theme-chip';
+import { Chip, ChipTick } from '@heisreal/web-ui';
 import type { ThemeCategory } from '@/lib/browse';
 import {
   type BrowseFilters,
@@ -70,39 +70,31 @@ export function ThemeLinks({
         renderTheme={(t) => {
           const on = chosen === t.id;
           return (
-            <Link
-              href={hrefOf(t.id)}
-              className={on ? THEME_CHIP_ON : THEME_CHIP}
-              aria-current={on ? 'true' : undefined}
-              scroll={false}
-              onClick={
-                onChoose &&
-                ((e) => {
-                  if (
-                    e.button !== 0 ||
-                    e.metaKey ||
-                    e.ctrlKey ||
-                    e.shiftKey ||
-                    e.altKey
-                  )
-                    return;
-                  e.preventDefault();
-                  onChoose(t.id);
-                })
-              }
-            >
-              {on && (
-                <svg
-                  viewBox="0 0 24 24"
-                  aria-hidden="true"
-                  className="mr-1.5 size-4 fill-none stroke-brand"
-                  strokeWidth="2.5"
-                >
-                  <path d="M5 12l5 5L19 7" />
-                </svg>
-              )}
-              {t.name}
-            </Link>
+            <Chip asChild chosen={on}>
+              <Link
+                href={hrefOf(t.id)}
+                aria-current={on ? 'true' : undefined}
+                scroll={false}
+                onClick={
+                  onChoose &&
+                  ((e) => {
+                    if (
+                      e.button !== 0 ||
+                      e.metaKey ||
+                      e.ctrlKey ||
+                      e.shiftKey ||
+                      e.altKey
+                    )
+                      return;
+                    e.preventDefault();
+                    onChoose(t.id);
+                  })
+                }
+              >
+                {on && <ChipTick />}
+                {t.name}
+              </Link>
+            </Chip>
           );
         }}
       />
