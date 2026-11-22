@@ -306,17 +306,37 @@ export function rawColour(text, key) {
 /** `text-*` utilities that place or wrap text rather than style it: layout, allowed. */
 const TEXT_LAYOUT =
   /^text-(?:left|right|center|justify|start|end|balance|pretty|wrap|nowrap|ellipsis|clip)$/;
-/** A text look, after its variants (`sm:`, `hover:`, `group-open:`) and `!`. */
+/**
+ * A text look, after its variants (`sm:`, `hover:`, `group-open:`) and `!`: a text, font, leading
+ * or tracking utility (negative tracking and leading too), capitals or italics, or an arbitrary
+ * property that sets one (`[font-size:40px]`, `[color:var(--danger)]`).
+ */
 const TEXT_LOOK =
-  /^(?:text-.+|font-(?:thin|extralight|light|normal|medium|semibold|bold|extrabold|black|mono|serif|sans|\[.+\]|\(.+\))|leading-.+|tracking-.+|uppercase|lowercase|capitalize|normal-case|italic|not-italic)$/;
+  /^(?:text-.+|font-(?:thin|extralight|light|normal|medium|semibold|bold|extrabold|black|mono|serif|sans|\[.+\]|\(.+\))|-?leading-.+|-?tracking-.+|uppercase|lowercase|capitalize|normal-case|italic|not-italic|\[(?:color|font|font-size|font-weight|font-style|font-family|line-height|letter-spacing|text-transform)\s*:.+\])$/;
 /** One word as a Tailwind class could be written: no capitals, no sentence punctuation. */
 const CLASS_LIKE = /^[a-z0-9!@:\-[\]()/&_.%,#'*>=+~]+$/;
 
-/** The first text-look class in a class list, or null (null too for text that isn't one). */
-export function textLook(text) {
+/**
+ * Whether a word could be a class, judged without what's inside its brackets and its group or
+ * peer name: `[&[data-state="open"]]:block` and `group-hover/Story:underline` are classes.
+ */
+function classLike(word) {
+  let w = word.replace(/\/[A-Za-z][\w-]*/g, '/x');
+  for (let before = ''; before !== w;) {
+    before = w;
+    w = w.replace(/\[[^[\]]*\]|\([^()]*\)/g, 'x');
+  }
+  return CLASS_LIKE.test(w);
+}
+
+/**
+ * The first text-look class in a class list, or null. With `classes` (a class attribute, a
+ * `className` key or a class helper's argument) every word is checked on its own; otherwise the
+ * text must look like a class list throughout, so a sentence that names a look isn't one.
+ */
+export function textLook(text, classes = false) {
   const words = text.split(/\s+/).filter(Boolean);
-  if (words.length === 0 || !words.every((w) => CLASS_LIKE.test(w)))
-    return null;
+  if (words.length === 0 || (!classes && !words.every(classLike))) return null;
   for (const word of words) {
     // Variants end at the last `:` outside brackets: `sm:text-lg`, `[&_p]:italic`.
     let depth = 0;
@@ -332,6 +352,48 @@ export function textLook(text) {
     if (TEXT_LOOK.test(base)) return word;
   }
   return null;
+}
+
+/** Functions whose string arguments are class lists. */
+const CLASS_HELPER = /^(?:cn|cva|cx|clsx|classNames|twMerge|twJoin|tv)$/;
+/** Attribute and object keys whose value is a class list. */
+const CLASS_KEY = /^(?:className|class)$/;
+
+/**
+ * Whether a string is (part of) a class list: a `className` attribute or key, or an argument of
+ * a class helper, through conditionals, `&&`, arrays and template literals.
+ */
+function inClasses(node) {
+  const key = keyOf(node);
+  if (key !== undefined) return CLASS_KEY.test(key);
+  let n = node.type === 'TemplateElement' ? node.parent : node;
+  for (;;) {
+    const p = n.parent;
+    if (!p) return false;
+    if (
+      p.type === 'ConditionalExpression' ||
+      p.type === 'LogicalExpression' ||
+      p.type === 'ArrayExpression' ||
+      p.type === 'TemplateLiteral' ||
+      p.type === 'JSXExpressionContainer'
+    ) {
+      if (p.type === 'ConditionalExpression' && p.test === n) return false;
+      n = p;
+      continue;
+    }
+    if (p.type === 'JSXAttribute')
+      return p.name.type === 'JSXIdentifier' && CLASS_KEY.test(p.name.name);
+    if (p.type === 'Property' && p.value === n && !p.computed)
+      return (
+        (p.key.type === 'Identifier' && CLASS_KEY.test(p.key.name)) ||
+        (p.key.type === 'Literal' && CLASS_KEY.test(String(p.key.value)))
+      );
+    if (p.type === 'CallExpression' && p.arguments.includes(n)) {
+      const callee = p.callee;
+      return callee.type === 'Identifier' && CLASS_HELPER.test(callee.name);
+    }
+    return false;
+  }
 }
 
 /** The attribute or object key a string is the value of (`href="…"`, `{ color: '…' }`). */
@@ -406,7 +468,7 @@ const plugin = {
             return;
           const key = keyOf(node);
           if (key !== undefined && NOT_A_COLOUR_KEY.test(key)) return;
-          const word = textLook(text);
+          const word = textLook(text, inClasses(node));
           if (word) context.report({ node, messageId: 'look', data: { word } });
         }),
     },

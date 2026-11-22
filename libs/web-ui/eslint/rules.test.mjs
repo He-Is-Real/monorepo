@@ -205,6 +205,25 @@ describe('no-text-look', () => {
     ['a size from a variable', '"text-(length:--card-font)"'],
     ['a constant', "{'block text-xs'}"],
     ['a template literal', '{`p-2 ${"x"} font-medium`}'],
+    ['a look beside a named group', '"group/Story text-lg"'],
+    [
+      'a look beside a quoted attribute selector',
+      `'[&[data-state="open"]]:block font-bold'`,
+    ],
+    [
+      'a look in a class helper beside a named group',
+      `{cn('group/Story italic')}`,
+    ],
+    ['negative tracking', '"-tracking-[0.05em]"'],
+    ['negative tracking with a variant', '"sm:-tracking-wide"'],
+    ['negative leading', '"-leading-1"'],
+    ['an arbitrary colour property', '"[color:var(--danger)]"'],
+    ['an arbitrary font size', '"[font-size:40px]"'],
+    ['an arbitrary weight', '"[font-weight:600]"'],
+    ['an arbitrary line height', '"[line-height:1.1]"'],
+    ['an arbitrary letter spacing', '"[letter-spacing:0.1em]"'],
+    ['an arbitrary text transform', '"[text-transform:uppercase]"'],
+    ['an arbitrary font style', '"hover:[font-style:italic]"'],
   ])
     it(`fails on ${what}`, async () =>
       assert.deepEqual(await rules(page(cls)), [
@@ -213,12 +232,40 @@ describe('no-text-look', () => {
 
   for (const [what, cls] of [
     ['layout only', '"mx-auto mt-3 max-w-measure text-center text-balance"'],
-    ['a sentence that names a look', '"Use italic sparingly."'],
     ['a single word of text', '"Bold"'],
     ['wrapping and clamps', '"line-clamp-2 truncate text-pretty"'],
+    [
+      'a named group and a quoted selector, layout only',
+      `'group/Story [&[data-state="open"]]:block mt-2'`,
+    ],
+    [
+      'an arbitrary layout property',
+      '"[grid-area:main] [mask-type:luminance]"',
+    ],
   ])
     it(`passes ${what}`, async () =>
       assert.deepEqual(await rules(page(cls)), []));
+
+  it('fails on a look in a class constant beside a quoted selector and a named group', async () =>
+    assert.deepEqual(
+      await rules(
+        `export const look = 'group/Story [&[data-state="open"]]:block text-sm';`,
+      ),
+      ['@heisreal/web-ui/no-text-look'],
+    ));
+
+  it('passes a sentence that names a look, outside a class list', async () => {
+    assert.deepEqual(
+      await rules(`export const hint = 'Make it italic or bold';`),
+      [],
+    );
+    assert.deepEqual(
+      await rules(
+        `export const P = () => <p title="Use italic sparingly.">x</p>;`,
+      ),
+      [],
+    );
+  });
 
   it('passes a link to an id', async () =>
     assert.deepEqual(

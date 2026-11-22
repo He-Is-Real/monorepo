@@ -221,8 +221,10 @@ export function MySubmissions() {
   if (state.status === 'signed-out') {
     body = (
       <Text size="inherit" tone="quiet">
-        <TextLink href={signInHref('/account')}>Sign in</TextLink> to see the
-        stories you’ve shared.
+        <TextLink href={signInHref('/account')} touch>
+          Sign in
+        </TextLink>{' '}
+        to see the stories you’ve shared.
       </Text>
     );
   } else if (state.status === 'loading') {

@@ -64,10 +64,7 @@ export function LegalDocumentPage({
               <Notice kind="info" as="p" role="note" className="mb-8">
                 <Text as="span" size="small">
                   This is an earlier version, kept so you can see what it said.{' '}
-                  <TextLink
-                    href={documentHref(document)}
-                    className="inline-flex min-h-11 items-center"
-                  >
+                  <TextLink href={documentHref(document)} touch>
                     Read the latest {title.toLowerCase()} (version {inForce})
                   </TextLink>
                 </Text>

@@ -14,10 +14,7 @@ export function PrivacyNoticeLink({ className = '' }: { className?: string }) {
       className={className || undefined}
     >
       How we use your data:{' '}
-      <TextLink
-        href={documentHref('privacy-notice')}
-        className="inline-flex min-h-11 items-center"
-      >
+      <TextLink href={documentHref('privacy-notice')} touch>
         privacy notice
       </TextLink>
     </Text>

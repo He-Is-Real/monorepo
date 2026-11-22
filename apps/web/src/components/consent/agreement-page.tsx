@@ -67,10 +67,7 @@ export function AgreementPage({
       <Card asChild className="p-6">
         <p>
           You’re signed out.{' '}
-          <TextLink
-            href={signInHref(here)}
-            className="inline-flex min-h-11 items-center"
-          >
+          <TextLink href={signInHref(here)} touch>
             Sign in to continue
           </TextLink>
         </p>

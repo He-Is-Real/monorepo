@@ -88,10 +88,7 @@ function Giving({ stripe }: { stripe: StripeDonations }) {
       >
         Stripe, our payment provider, takes your payment on its own secure page
         and emails your receipt; we never see your card details. See our{' '}
-        <TextLink
-          href="/privacy#donations"
-          className="inline-flex min-h-11 items-center"
-        >
+        <TextLink href="/privacy#donations" touch>
           privacy notice
         </TextLink>
         .

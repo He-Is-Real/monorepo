@@ -50,6 +50,7 @@ export function OwnStoryPreview({ id }: { id: string }) {
       <Card asChild className="p-6">
         <p>
           <LibraryTextLink
+            touch
             href={signInHref(
               `/account/stories/${encodeURIComponent(id)}/preview`,
             )}
@@ -83,7 +84,9 @@ export function OwnStoryPreview({ id }: { id: string }) {
         <p data-preview-gone="">
           This story isn’t available. It may have been deleted, or it belongs to
           another account.{' '}
-          <TextLink href="/account">Back to your profile</TextLink>
+          <TextLink href="/account" touch>
+            Back to your profile
+          </TextLink>
         </p>
       </Card>
     );

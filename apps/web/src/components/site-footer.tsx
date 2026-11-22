@@ -84,10 +84,7 @@ export function SiteFooter() {
           <p>&copy; 2026 He Is Real Today.</p>
           <p>
             We only use essential cookies and storage.{' '}
-            <TextLink
-              href="/privacy#cookies"
-              className="inline-flex min-h-11 items-center"
-            >
+            <TextLink href="/privacy#cookies" touch>
               How we use cookies
             </TextLink>
           </p>

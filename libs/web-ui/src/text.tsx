@@ -186,18 +186,26 @@ const textLinkVariants = cva(
         standalone:
           'inline-flex min-h-11 min-w-11 items-center font-semibold hover:underline',
       },
+      /**
+       * An underlined link that is its own short line's tap target ("Sign in to see…", "Back
+       * to your profile" after a sentence): still underlined, and at least 44 px to press.
+       * Not for links inside running text, where it would stretch the line.
+       */
+      touch: { true: 'inline-flex min-h-11 items-center', false: '' },
     },
-    defaultVariants: { kind: 'inline' },
+    defaultVariants: { kind: 'inline', touch: false },
   },
 );
 
 /**
  * A link that looks like a link (TX-6 A): `kind` `inline` (in a sentence, underlined) or
- * `standalone` (on its own, semibold, underlined on hover, at least 44 px). An `<a>`, or with
+ * `standalone` (on its own, semibold, underlined on hover, at least 44 px). `touch` makes an
+ * inline link 44 px tall too, for one that is a short line's only tap target. An `<a>`, or with
  * `asChild` the look on its child (a router's link; `apps/web`'s `TextLink` does this).
  */
 function TextLink({
   kind,
+  touch,
   asChild = false,
   className,
   ...props
@@ -207,7 +215,7 @@ function TextLink({
   return (
     <Comp
       data-slot="text-link"
-      className={cn(textLinkVariants({ kind }), className)}
+      className={cn(textLinkVariants({ kind, touch }), className)}
       {...props}
     />
   );

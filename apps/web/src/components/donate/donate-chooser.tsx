@@ -81,20 +81,14 @@ export function DonateChooser({ stripe }: { stripe: StripeDonations }) {
             You can change or stop it at any time:{' '}
             {stripe.donorPortalUrl ? (
               <>
-                <TextLink
-                  href={stripe.donorPortalUrl}
-                  className="inline-flex min-h-11 items-center"
-                >
+                <TextLink href={stripe.donorPortalUrl} touch>
                   manage your monthly gift
                 </TextLink>{' '}
                 (Stripe emails you a sign-in link).
               </>
             ) : (
               <>
-                <TextLink
-                  href="/contact"
-                  className="inline-flex min-h-11 items-center"
-                >
+                <TextLink href="/contact" touch>
                   contact us
                 </TextLink>
                 .

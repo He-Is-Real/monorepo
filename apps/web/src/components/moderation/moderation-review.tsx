@@ -253,7 +253,9 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
         <Card asChild className="p-6">
           <p data-review-gone="">
             This story isn’t here any more. It may have been deleted.{' '}
-            <TextLink href="/moderation">Back to the list</TextLink>
+            <TextLink href="/moderation" touch>
+              Back to the list
+            </TextLink>
           </p>
         </Card>
       </>
