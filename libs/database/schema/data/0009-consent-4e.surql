@@ -21,7 +21,8 @@
 -- super admins are now admins; and for the block list and AI tools (Joel 2026-11-11, LT-1 and
 -- G18; m3-plan-and-m2-extras.html, "Legal text changes"; dev wiped again, reset m3-block-list);
 -- and for the email each story is sent with (EM-1 B, Joel 2026-11-17; dev wiped again, reset
--- sender-staff-emails).
+-- sender-staff-emails); and for the block list's notes (BN-6 A, Joel 2026-11-22; dev wiped again,
+-- reset block-list-notes).
 -- The old data scripts 0001, 0003, 0005 and 0007 wrote that machinery's rows and could no longer
 -- run on a fresh database, so they left the bundle (as 0002 did, D44): databases that applied
 -- them keep their _migration rows (the runner warns that the scripts are gone).
@@ -189,7 +190,7 @@ use it for advertising.
 - **The email a story was sent with.** The email address each story is sent with, so we can
   stop abuse.
 - **Block list.** If we block someone for breaking our terms of use, their email address and the
-  IP addresses they used.
+  IP addresses they used, and a short note on why.
 
 ## Where it’s stored and processed
 

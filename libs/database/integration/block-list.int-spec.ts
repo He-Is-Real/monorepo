@@ -112,17 +112,74 @@ describe('block list', () => {
     expect(await allBlocks()).toEqual([]);
   });
 
-  it('nobody changes an entry: an Admin removes it and adds it again', async () => {
-    await addEmail(admin, 'spam@example.com', 'joel@heisreal.today');
+  it('keeps an optional note that only api-admin reads and changes; the value, adder and date stay', async () => {
+    const by = 'joel@heisreal.today';
     expect(
       await outcome(
         admin,
-        `UPDATE blockedEmail:⟨spam@example.com⟩ SET addedBy = 'info@heisreal.today'`,
+        `CREATE blockedEmail:⟨spam@example.com⟩ CONTENT { email: 'spam@example.com', addedBy: $by, note: 'Advert stories' }`,
+        { by },
       ),
-    ).toMatchObject({ ok: true, result: [] });
+    ).toMatchObject({ ok: true });
+    // Blank is allowed (BN-2: a fast ban wave, notes later).
+    expect(await addIp(admin, '203.0.113.7', by)).toMatchObject({ ok: true });
+    // api-admin changes the note, and only the note.
     expect(
-      await rows(migrator, 'SELECT VALUE addedBy FROM blockedEmail'),
-    ).toEqual(['joel@heisreal.today']);
+      await outcome(
+        admin,
+        `UPDATE blockedIp:⟨203.0.113.7⟩ SET note = 'Same sender again'`,
+      ),
+    ).toMatchObject({ ok: true });
+    for (const change of [
+      `addedBy = 'info@heisreal.today'`,
+      `addedAt = d'2020-01-01T00:00:00Z'`,
+      `email = 'other@example.com'`,
+    ]) {
+      await outcome(
+        admin,
+        `UPDATE blockedEmail:⟨spam@example.com⟩ SET ${change}`,
+      );
+    }
+    // Over 500 characters, blank or untrimmed is refused.
+    for (const note of ['x'.repeat(501), '', ' padded ']) {
+      expect(
+        await outcome(
+          admin,
+          `UPDATE blockedEmail:⟨spam@example.com⟩ SET note = $note`,
+          { note },
+        ),
+        JSON.stringify(note),
+      ).toMatchObject({ ok: false });
+    }
+    expect(
+      await outcome(
+        admin,
+        `UPDATE blockedEmail:⟨spam@example.com⟩ SET note = $note`,
+        { note: 'y'.repeat(500) },
+      ),
+    ).toMatchObject({ ok: true });
+    expect(
+      await rows(migrator, 'SELECT email, addedBy, note FROM blockedEmail'),
+    ).toEqual([
+      { email: 'spam@example.com', addedBy: by, note: 'y'.repeat(500) },
+    ]);
+    expect(await rows(admin, 'SELECT VALUE note FROM blockedIp')).toEqual([
+      'Same sender again',
+    ]);
+    // api-user's one-row check still answers, but never sees the note, nor changes it.
+    const seen = await rows<Record<string, unknown>>(
+      apiUser,
+      'SELECT * FROM blockedIp',
+      { blockCheck: '203.0.113.7' },
+    );
+    expect(seen).toHaveLength(1);
+    expect(seen[0]['note']).toBeUndefined();
+    await outcome(apiUser, `UPDATE blockedIp SET note = 'x'`, {
+      blockCheck: '203.0.113.7',
+    });
+    expect(await rows(admin, 'SELECT VALUE note FROM blockedIp')).toEqual([
+      'Same sender again',
+    ]);
   });
 
   it('no one else reads or changes it: people, api-user (beyond one named value), workflow, housekeeping, the public', async () => {
@@ -148,10 +205,14 @@ describe('block list', () => {
         db,
         `CREATE blockedEmail:⟨x@example.com⟩ SET email = 'x@example.com', addedBy = 'x@example.com';
          CREATE blockedIp:⟨198.51.100.1⟩ SET ip = '198.51.100.1', addedBy = 'x@example.com';
+         UPDATE blockedEmail SET note = 'x'; UPDATE blockedIp SET note = 'x';
          DELETE blockedEmail; DELETE blockedIp;`,
       );
     }
     expect(await allBlocks()).toEqual(['spam@example.com', '203.0.113.7']);
+    expect(await rows(migrator, 'SELECT VALUE note FROM blockedEmail')).toEqual(
+      [undefined],
+    );
   });
 
   it('api-user can ask about exactly one email or address it names, and see nothing else', async () => {

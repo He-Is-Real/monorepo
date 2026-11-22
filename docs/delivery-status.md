@@ -1,6 +1,6 @@
 # Delivery status
 
-Where the build is, in plain words. **Last updated:** 2026-11-21
+Where the build is, in plain words. **Last updated:** 2026-11-22
 
 Everything here runs on the **dev** test site only, with made-up stories. Nothing reaches the
 public until the "Go live" milestone. The old prototype and the Squarespace site keep running until
@@ -102,6 +102,7 @@ Kept basic for now. Joel will decide later how stories are shared out between mo
 - ✅ Old rejected and abandoned stories are deleted automatically
 - ✅ Block list for email and internet addresses
 - ✅ Admins block a story's sender from its review page; the history shows which staff member did what
+- ✅ Each block can carry a short note on why, which any Admin can fill in or change later
 - ✅ Share flow tidy: drag and drop, file names, "attached" ticks, clearer preview button
 - ✅ A deleted story's pictures go straight away
 - ✅ A video that can't be used is sent back to its owner straight away to replace

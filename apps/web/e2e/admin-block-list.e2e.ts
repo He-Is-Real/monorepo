@@ -5,7 +5,8 @@ import { expectAllTargets, expectNoHorizontalOverflow } from './helpers';
 import { WEB_SIGNED_IN_URL } from './servers';
 
 // /admin/block-list (G21 D, G24; Joel 2026-11-11): an Admin sees the blocked emails and IP
-// addresses, blocks an email and an address and unblocks them; Moderators are refused. The page
+// addresses, blocks an email and an address (with or without a note, BN-1 to BN-4, Joel
+// 2026-11-22), changes a note and unblocks them; Moderators are refused. The page
 // fits every device; the behaviour runs on one phone and one desktop. The stub api-admin
 // (stub-api-user.mjs) keeps each test's list apart by its session.
 
@@ -52,12 +53,22 @@ test.describe('/admin/block-list', () => {
     await expect(entry(page, 'spammer@example.com')).toContainText(
       'Blocked by joel@heisreal.today on 11 November 2026.',
     );
+    await expect(
+      entry(page, 'spammer@example.com').locator('[data-block-note]'),
+    ).toHaveText('Advert stories, 11 Nov.');
     await expect(page.getByText('No IP addresses are blocked.')).toBeVisible();
 
     const emails = page.getByRole('region', { name: 'Emails' });
     await emails
       .getByLabel('Email', { exact: true })
       .fill('Abuser@Example.com');
+    await expect(emails.getByLabel('Why is it blocked?')).toHaveAttribute(
+      'placeholder',
+      'Note the reason, so other Admins know why.',
+    );
+    await emails
+      .getByLabel('Why is it blocked?')
+      .fill('  Threats in two stories, 18 Nov.  ');
     await emails.getByRole('button', { name: 'Block', exact: true }).click();
     await expect(status(page, 'done')).toHaveText(
       'Abuser@Example.com is blocked.',
@@ -65,7 +76,11 @@ test.describe('/admin/block-list', () => {
     await expect(entry(page, 'abuser@example.com')).toContainText(
       'Blocked by e2e-admin@heisreal.today',
     );
+    await expect(
+      entry(page, 'abuser@example.com').locator('[data-block-note]'),
+    ).toHaveText('Threats in two stories, 18 Nov.');
     await expect(emails.getByLabel('Email', { exact: true })).toHaveValue('');
+    await expect(emails.getByLabel('Why is it blocked?')).toHaveValue('');
 
     // Not an address: refused, nothing added.
     const ips = page.getByRole('region', { name: 'IP addresses' });
@@ -78,7 +93,22 @@ test.describe('/admin/block-list', () => {
       .getByLabel('IP address', { exact: true })
       .fill('2001:DB8:0:0:0:0:0:1');
     await ips.getByRole('button', { name: 'Block', exact: true }).click();
-    await expect(entry(page, '2001:db8::1')).toBeVisible();
+    // No note (a fast ban wave): "No note yet", filled in later with Edit note.
+    const ipEntry = entry(page, '2001:db8::1');
+    await expect(ipEntry.locator('[data-block-note-empty]')).toHaveText(
+      'No note yet',
+    );
+    await page
+      .getByRole('button', { name: 'Edit the note on 2001:db8::1' })
+      .click();
+    await ipEntry.getByLabel('Why is it blocked?').fill('Same sender again.');
+    await ipEntry.getByRole('button', { name: 'Save' }).click();
+    await expect(status(page, 'done')).toHaveText(
+      'The note on 2001:db8::1 is saved.',
+    );
+    await expect(ipEntry.locator('[data-block-note]')).toHaveText(
+      'Same sender again.',
+    );
 
     await page.reload();
     await expect(entry(page, 'abuser@example.com')).toBeVisible();

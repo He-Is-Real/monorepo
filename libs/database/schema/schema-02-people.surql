@@ -325,29 +325,37 @@ DEFINE EVENT OVERWRITE staffMember_last_admin ON staffMember
 -- email can't create an account or send a story; a blocked IP address can't send a story;
 -- reading is never blocked. An entry is permanent ("blacklist permanently"): it stays until an
 -- Admin removes it, even after the person deletes their account, so it is not person-linked and
--- not on the erasure checklist (the privacy notice says so). No reason text: only who added it
--- and when.
+-- not on the erasure checklist (the privacy notice says so). Each entry keeps who added it and
+-- when, and an optional note on why (BN-2, Joel 2026-11-22; block-list-notes.html).
 --   id = the value itself, lower-case (blockedEmail:`ann@example.com`, blockedIp:`203.0.113.7`;
 --     an IPv6 address in its short form, as api-admin writes it), so each is listed once;
 --   addedBy: the email of the Admin who added it (from their session token), as on the Staff
 --     page; NONE only from a system user; addedAt: when.
+--   note: why it is blocked, for other Admins (BN-1 to BN-6, Joel 2026-11-22): plain text, trimmed,
+--     1-500 characters, or NONE ("No note yet": blank is allowed for a fast ban wave, filled in
+--     later). It is personal data about the blocked person: only api-admin reads it (a field
+--     permission, so api-user's one-row check never sees it), and it goes with the entry.
 -- Who reads and writes: api-admin's login, for an Admin only (it checks the role, D1, G24).
 -- api-user enforces the block when an account is first used and when a story is sent, so its
 -- login may read ONE row, the one it names in the query's $blockCheck parameter (an exact
 -- email or address): it can ask "is this one blocked?" but can't list the block list. Nobody
--- else reads it, people and Moderators included. Nobody updates a row: remove and add again.
+-- else reads it, people and Moderators included. api-admin may change only the note (BN-4 A, no
+-- record of who edited it); the value, adder and date are read-only.
 DEFINE TABLE OVERWRITE blockedEmail SCHEMAFULL PERMISSIONS
   FOR select WHERE $auth = service:api_admin
     OR ($auth = service:api_user AND email = $blockCheck),
-  FOR create, delete WHERE $auth = service:api_admin,
-  FOR update NONE;
-DEFINE FIELD OVERWRITE email ON blockedEmail TYPE string
+  FOR create, update, delete WHERE $auth = service:api_admin;
+DEFINE FIELD OVERWRITE email ON blockedEmail TYPE string READONLY
   ASSERT string::len($value) <= 254 AND string::is_email($value)
     AND $value = string::lowercase($value)
     AND $value = record::id($this.id);
 DEFINE FIELD OVERWRITE addedBy ON blockedEmail TYPE option<string> READONLY
   ASSERT $value = NONE OR (string::len($value) <= 254 AND string::is_email($value));
 DEFINE FIELD OVERWRITE addedAt ON blockedEmail TYPE datetime VALUE $before OR time::now() READONLY;
+DEFINE FIELD OVERWRITE note ON blockedEmail TYPE option<string>
+  ASSERT $value = NONE OR (string::len($value) >= 1 AND string::len($value) <= 500
+    AND string::trim($value) = $value)
+  PERMISSIONS FOR select, create, update WHERE $auth = service:api_admin;
 DEFINE INDEX OVERWRITE blockedEmail_email ON blockedEmail FIELDS email UNIQUE;
 DEFINE EVENT OVERWRITE blockedEmail_by ON blockedEmail
   WHEN $event = 'CREATE' AND $auth != NONE AND $after.addedBy = NONE
@@ -356,15 +364,18 @@ DEFINE EVENT OVERWRITE blockedEmail_by ON blockedEmail
 DEFINE TABLE OVERWRITE blockedIp SCHEMAFULL PERMISSIONS
   FOR select WHERE $auth = service:api_admin
     OR ($auth = service:api_user AND ip = $blockCheck),
-  FOR create, delete WHERE $auth = service:api_admin,
-  FOR update NONE;
-DEFINE FIELD OVERWRITE ip ON blockedIp TYPE string
+  FOR create, update, delete WHERE $auth = service:api_admin;
+DEFINE FIELD OVERWRITE ip ON blockedIp TYPE string READONLY
   ASSERT string::len($value) <= 45 AND string::is_ip($value)
     AND $value = string::lowercase($value)
     AND $value = record::id($this.id);
 DEFINE FIELD OVERWRITE addedBy ON blockedIp TYPE option<string> READONLY
   ASSERT $value = NONE OR (string::len($value) <= 254 AND string::is_email($value));
 DEFINE FIELD OVERWRITE addedAt ON blockedIp TYPE datetime VALUE $before OR time::now() READONLY;
+DEFINE FIELD OVERWRITE note ON blockedIp TYPE option<string>
+  ASSERT $value = NONE OR (string::len($value) >= 1 AND string::len($value) <= 500
+    AND string::trim($value) = $value)
+  PERMISSIONS FOR select, create, update WHERE $auth = service:api_admin;
 DEFINE EVENT OVERWRITE blockedIp_by ON blockedIp
   WHEN $event = 'CREATE' AND $auth != NONE AND $after.addedBy = NONE
   THEN { THROW 'a block names the admin who added it (addedBy)' };

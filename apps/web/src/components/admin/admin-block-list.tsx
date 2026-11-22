@@ -11,6 +11,7 @@ import {
   FieldLabel,
   Input,
   Notice,
+  Textarea,
 } from '@heisreal/web-ui';
 import type { ApiUser } from '@/lib/api-user';
 
@@ -19,11 +20,13 @@ interface BlockedEmail {
   email: string;
   addedBy: string | null;
   addedAt: string;
+  note: string | null;
 }
 interface BlockedIp {
   ip: string;
   addedBy: string | null;
   addedAt: string;
+  note: string | null;
 }
 /** The contract's `BlockList`. */
 interface BlockList {
@@ -32,6 +35,53 @@ interface BlockList {
 }
 
 type Kind = 'emails' | 'ips';
+
+/** A block note's longest length, in characters (BN-2, Joel 2026-11-22; api-admin checks it too). */
+export const BLOCK_NOTE_MAX = 500;
+
+/** The note a Block command sends: trimmed, and none when blank (BN-2: a note is optional). */
+export const blockNoteBody = (note: string) => ({
+  note: note.trim() || null,
+});
+
+/**
+ * The note box for a block (BN-1 C, BN-2, BN-6 A; Joel 2026-11-22): "Why is it blocked?", with the
+ * grey suggestion and, under it, the hint that stays visible. Optional; at most 500 characters.
+ * Used on the Block list page (blocking, and Edit note) and in a story's moderation view (BN-7).
+ */
+export function BlockNoteField({
+  value,
+  onChange,
+  textareaRef,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  textareaRef?: React.Ref<HTMLTextAreaElement>;
+}) {
+  const id = useId();
+  const length = [...value.trim()].length;
+  return (
+    <Field id={`${id}-note`} hint describedBy={`${id}-count`}>
+      <FieldLabel>Why is it blocked?</FieldLabel>
+      <Textarea
+        ref={textareaRef}
+        className="min-h-24"
+        maxLength={BLOCK_NOTE_MAX}
+        placeholder="Note the reason, so other Admins know why."
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <FieldHint className="mt-1">
+        Only Admins see this note. Write only what explains the block, as if the
+        person could read it. Don’t copy their story.
+      </FieldHint>
+      <p id={`${id}-count`} className="mt-1 text-sm text-secondary-text">
+        {length.toLocaleString('en-GB')} /{' '}
+        {BLOCK_NOTE_MAX.toLocaleString('en-GB')} characters
+      </p>
+    </Field>
+  );
+}
 
 const day = (iso: string) =>
   new Date(iso).toLocaleDateString('en-GB', {
@@ -51,7 +101,8 @@ type Note = { kind: 'done' | 'error'; text: string } | null;
 
 /**
  * The Block list page (G21 D, G24; Joel 2026-11-11), Admins only (api-admin checks it too): the
- * blocked emails and IP addresses, adding one and removing one. A blocked email can't create an
+ * blocked emails and IP addresses, each with an optional note on why (BN-1 to BN-6, Joel
+ * 2026-11-22), adding one, changing its note and removing one. A blocked email can't create an
  * account or send a story; a blocked IP address can't send a story. `initialIp`: an address to
  * add, from a story's moderation view.
  */
@@ -127,10 +178,25 @@ function Blocks({
     }
   }
 
-  const add = (kind: Kind, value: string) =>
+  const add = (kind: Kind, value: string, note: string) =>
     change(
-      () => client.command(path(kind, value), { method: 'PUT' }),
+      () =>
+        client.command(path(kind, value), {
+          method: 'PUT',
+          body: blockNoteBody(note),
+        }),
       `${value} is blocked.`,
+    );
+  /** BN-4 A: any Admin changes the note; blank clears it ("No note yet"). */
+  const saveNote = (kind: Kind, value: string, note: string) =>
+    change(
+      () =>
+        client.command(path(kind, value), {
+          method: 'PATCH',
+          mergePatch: true,
+          body: blockNoteBody(note),
+        }),
+      `The note on ${value} is saved.`,
     );
   const remove = (kind: Kind, value: string) =>
     void change(
@@ -172,6 +238,7 @@ function Blocks({
         entries={loaded.list.emails.map((e) => ({ value: e.email, ...e }))}
         busy={busy}
         onAdd={add}
+        onSaveNote={saveNote}
         onRemove={remove}
       />
       <BlockPart
@@ -184,9 +251,121 @@ function Blocks({
         entries={loaded.list.ips.map((e) => ({ value: e.ip, ...e }))}
         busy={busy}
         onAdd={add}
+        onSaveNote={saveNote}
         onRemove={remove}
       />
     </section>
+  );
+}
+
+interface Entry {
+  value: string;
+  addedBy: string | null;
+  addedAt: string;
+  note: string | null;
+}
+
+/**
+ * One entry: the value, its note on its own line in full (BN-3 A; "No note yet" without one,
+ * BN-2), who blocked it and when, then Edit note (BN-4 A) and Unblock.
+ */
+function BlockEntry({
+  kind,
+  entry: e,
+  busy,
+  onSaveNote,
+  onRemove,
+}: {
+  kind: Kind;
+  entry: Entry;
+  busy: boolean;
+  onSaveNote: (kind: Kind, value: string, note: string) => Promise<boolean>;
+  onRemove: (kind: Kind, value: string) => void;
+}) {
+  const [editing, setEditing] = useState<string | null>(null);
+  const boxRef = useRef<HTMLTextAreaElement>(null);
+  const open = editing !== null;
+  // Opening the box moves to it.
+  useEffect(() => {
+    if (open) boxRef.current?.focus();
+  }, [open]);
+  return (
+    <li className="space-y-3 p-4" data-blocked={e.value}>
+      <div className="min-w-0 space-y-1">
+        <p className="font-medium [overflow-wrap:anywhere]">{e.value}</p>
+        {editing === null &&
+          (e.note ? (
+            <p
+              className="whitespace-pre-line [overflow-wrap:anywhere]"
+              data-block-note=""
+            >
+              {e.note}
+            </p>
+          ) : (
+            <p className="text-secondary-text italic" data-block-note-empty="">
+              No note yet
+            </p>
+          ))}
+        <p className="text-sm text-secondary-text [overflow-wrap:anywhere]">
+          Blocked {e.addedBy ? `by ${e.addedBy} ` : ''}on {day(e.addedAt)}.
+        </p>
+      </div>
+      {editing !== null ? (
+        <form
+          className="space-y-3"
+          aria-label={`Edit the note on ${e.value}`}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void onSaveNote(kind, e.value, editing).then(
+              (ok) => ok && setEditing(null),
+            );
+          }}
+        >
+          <BlockNoteField
+            value={editing}
+            onChange={setEditing}
+            textareaRef={boxRef}
+          />
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button type="submit" wrap disabled={busy}>
+              Save
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              wrap
+              disabled={busy}
+              onClick={() => setEditing(null)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </form>
+      ) : (
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Button
+            type="button"
+            variant="outline"
+            wrap
+            disabled={busy}
+            aria-label={`Edit the note on ${e.value}`}
+            onClick={() => setEditing(e.note ?? '')}
+          >
+            Edit note
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            wrap
+            disabled={busy}
+            aria-label={`Unblock ${e.value}`}
+            onClick={() => onRemove(kind, e.value)}
+          >
+            Unblock
+          </Button>
+        </div>
+      )}
+    </li>
   );
 }
 
@@ -201,6 +380,7 @@ function BlockPart({
   entries,
   busy,
   onAdd,
+  onSaveNote,
   onRemove,
 }: {
   kind: Kind;
@@ -209,13 +389,15 @@ function BlockPart({
   hint: string;
   empty: string;
   initial?: string;
-  entries: { value: string; addedBy: string | null; addedAt: string }[];
+  entries: Entry[];
   busy: boolean;
-  onAdd: (kind: Kind, value: string) => Promise<boolean>;
+  onAdd: (kind: Kind, value: string, note: string) => Promise<boolean>;
+  onSaveNote: (kind: Kind, value: string, note: string) => Promise<boolean>;
   onRemove: (kind: Kind, value: string) => void;
 }) {
   const id = useId();
   const [value, setValue] = useState(initial);
+  const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   function submit(event: React.FormEvent) {
@@ -228,7 +410,12 @@ function BlockPart({
       return;
     }
     setError(null);
-    void onAdd(kind, text).then((ok) => ok && setValue(''));
+    void onAdd(kind, text, note).then((ok) => {
+      if (ok) {
+        setValue('');
+        setNote('');
+      }
+    });
   }
 
   return (
@@ -236,29 +423,30 @@ function BlockPart({
       <h2 id={`${id}-heading`} className="text-lg font-semibold">
         {heading}
       </h2>
-      <Card asChild className="space-y-3 p-4 sm:p-6">
+      <Card asChild className="space-y-4 p-4 sm:p-6">
         <form onSubmit={submit} noValidate>
           <Field id={`${id}-value`} hint error={error}>
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
-              <div className="min-w-0 flex-1">
-                <FieldLabel>{label}</FieldLabel>
-                <Input
-                  size="standard"
-                  type={kind === 'emails' ? 'email' : 'text'}
-                  inputMode={kind === 'emails' ? 'email' : 'text'}
-                  autoComplete="off"
-                  spellCheck={false}
-                  value={value}
-                  onChange={(e) => setValue(e.target.value)}
-                />
-              </div>
-              <Button type="submit" wrap disabled={busy}>
-                Block
-              </Button>
+            <div>
+              <FieldLabel>{label}</FieldLabel>
+              <Input
+                size="standard"
+                type={kind === 'emails' ? 'email' : 'text'}
+                inputMode={kind === 'emails' ? 'email' : 'text'}
+                autoComplete="off"
+                spellCheck={false}
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+              />
+              <FieldHint className="mt-1">{hint}</FieldHint>
+              <FieldError className="mt-1" />
             </div>
-            <FieldHint>{hint}</FieldHint>
-            <FieldError />
           </Field>
+          <div>
+            <BlockNoteField value={note} onChange={setNote} />
+          </div>
+          <Button type="submit" wrap disabled={busy}>
+            Block
+          </Button>
         </form>
       </Card>
       {entries.length === 0 ? (
@@ -267,31 +455,14 @@ function BlockPart({
         <Card asChild className="divide-y divide-border">
           <ul>
             {entries.map((e) => (
-              <li
+              <BlockEntry
                 key={e.value}
-                className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
-                data-blocked={e.value}
-              >
-                <div className="min-w-0">
-                  <p className="font-medium [overflow-wrap:anywhere]">
-                    {e.value}
-                  </p>
-                  <p className="text-sm text-secondary-text [overflow-wrap:anywhere]">
-                    Blocked {e.addedBy ? `by ${e.addedBy} ` : ''}on{' '}
-                    {day(e.addedAt)}.
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  wrap
-                  disabled={busy}
-                  aria-label={`Unblock ${e.value}`}
-                  onClick={() => onRemove(kind, e.value)}
-                >
-                  Unblock
-                </Button>
-              </li>
+                kind={kind}
+                entry={e}
+                busy={busy}
+                onSaveNote={onSaveNote}
+                onRemove={onRemove}
+              />
             ))}
           </ul>
         </Card>

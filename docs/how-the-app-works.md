@@ -108,8 +108,19 @@ code does what it does today; nobody should build on either reading.
   addresses at `/admin/block-list`, in plain text, readable and changeable only by Admins (never
   Moderators). A blocked email can't create an account or send a story; a blocked IP address can't
   send a story. Reading the site is never blocked. A block is permanent: it stays until an Admin
-  removes it, even after the person deletes their account. Entries hold no reason text, only which
-  Admin added them and when.
+  removes it, even after the person deletes their account. Each entry keeps which Admin added it,
+  when, and an optional note on why.
+  - **Notes (BN-1 to BN-7, Joel 2026-11-22; block-list-notes.html):** under the email or address box
+    is a "Why is it blocked?" box, with the grey suggestion "Note the reason, so other Admins know
+    why." and, under it, the hint "Only Admins see this note. Write only what explains the block,
+    as if the person could read it. Don't copy their story." The note is optional (blank is allowed,
+    for a fast ban wave), plain text, at most 500 characters, trimmed (only spaces is no note). Each
+    entry shows its note in full on its own line, on every screen, or "No note yet". Any Admin can
+    change a note later (Edit note, then Save or Cancel; a blank note clears it); the later save
+    wins, and who edited it isn't recorded. "Blocked by … on …" stays as before. Blocking something
+    already on the list keeps its first note. The note is personal data about the blocked person:
+    only Admins read it (api-user's block check never sees it), it goes when the entry is removed,
+    and the privacy notice says we keep it. Dev's database was wiped for it (BN-5 A), no migration.
   - **Account creation:** checked where our side first sees a new Clerk account, the first call to
     api-user (which makes the person's database record). If the sign-in token's verified email is
     blocked, no record is made and every call is refused. Someone who already had an account when
@@ -138,7 +149,9 @@ code does what it does today; nobody should build on either reading.
     their own "Download my data" file.
   - **Blocking from the moderation view (EM-2, Joel 2026-11-17):** next to "Sent with email …" and
     "Sent from IP address …" an Admin has a **Block** button. It doesn't leave the page: it asks
-    "Block …? It stays until an Admin removes it." (Block / Cancel), adds it to the block list,
+    "Block …? It stays until an Admin removes it." with the note box (BN-7 A), already started with
+    the story's title and the day it was sent (`Story "…" (sent 20 Nov 2026): `, cursor at the end;
+    it can be cleared), then Block / Cancel. It adds it to the block list with that note,
     and the line then says "Blocked" (as it does whenever the page opens on one already blocked).
     Once the address is cleared after 30 days only the email shows. Errors show the generic
     message. The Block list page stays for the overview, blocking by hand and unblocking.
@@ -217,7 +230,8 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   where a story was sent from (30 days) and the block list under what we collect, how long we keep
   them and our legitimate interest, and AI tools under where it's stored. Edited again (EM-1 B,
   Joel 2026-11-17): the email each story is sent with, under what we collect, our legitimate
-  interest and how long we keep it (as long as the story). The notice is written to the people who
+  interest and how long we keep it (as long as the story). Edited again (BN-6 A, Joel 2026-11-22):
+  the block list line under what we collect adds "and a short note on why". The notice is written to the people who
   use the site and doesn't cover staff, so staff members' emails on their actions aren't in it.
 - **Cookies:** the site uses only essential cookies and storage (sign-in, the light or dark
   choice, the video player's own settings), so there is no cookie banner, only a footer note
@@ -1035,8 +1049,9 @@ Planned (M3):
 - **Staff** (Admins): the staff list (email, role, who added them and when, baseline admins
   marked); add an `@heisreal.today` email as a Moderator or an Admin, change a role, remove someone
   (after "Remove …? They become a User."). See "Staff" under Accounts and sign-in.
-- **Block list** (Admins): blocked emails and IP addresses, newest first, each with who blocked it
-  and when; block an email or an address, and unblock one. See "Block list" under Accounts and
+- **Block list** (Admins): blocked emails and IP addresses, newest first, each with its note (or
+  "No note yet"), who blocked it and when; block an email or an address with an optional note,
+  change a note, and unblock one. See "Block list" under Accounts and
   sign-in.
 - Planned (M5): the dashboard and the user list.
 

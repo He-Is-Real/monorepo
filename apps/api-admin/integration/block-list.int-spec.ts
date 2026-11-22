@@ -36,13 +36,24 @@ describe('the block list (api-admin)', () => {
   const admin = () => as('user_admin', 'Admin');
 
   async function call(
-    method: 'GET' | 'PUT' | 'DELETE',
+    method: 'GET' | 'PUT' | 'PATCH' | 'DELETE',
     path: string,
     who: Record<string, string> = admin(),
+    body?: unknown,
   ) {
     const res = await fetch(`${url}/v1/admin/block-list${path}`, {
       method,
-      headers: who,
+      headers:
+        body === undefined
+          ? who
+          : {
+              ...who,
+              'content-type':
+                method === 'PATCH'
+                  ? 'application/merge-patch+json'
+                  : 'application/json',
+            },
+      body: body === undefined ? undefined : JSON.stringify(body),
     });
     expect(await contract.check(method, res), `${method} ${path}`).toEqual([]);
     const text = await res.text();
@@ -70,7 +81,11 @@ describe('the block list (api-admin)', () => {
       database: t.database,
     });
     migrator = await t.migrator();
-    await createPeople(t, { admin: 'user_admin', moderator: 'user_mod' });
+    await createPeople(t, {
+      admin: 'user_admin',
+      other: 'user_other',
+      moderator: 'user_mod',
+    });
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(SURREAL)
       .useValue(await t.service('api_admin'))
@@ -120,6 +135,7 @@ describe('the block list (api-admin)', () => {
         email: 'spammer@example.com',
         addedBy: 'admin@heisreal.today',
         addedAt: expect.any(String),
+        note: null,
       },
     ]);
     expect(
@@ -165,6 +181,64 @@ describe('the block list (api-admin)', () => {
     expect(await stored()).toEqual({ emails: [], ips: [] });
   });
 
+  it('keeps an optional note: given when blocking, changed by any Admin, never over 500 characters', async () => {
+    const email = `/emails/${encodeURIComponent('spam@example.com')}`;
+    expect(
+      (
+        await call('PUT', email, admin(), {
+          note: '  Advert stories, 20 Nov.  ',
+        })
+      ).status,
+    ).toBe(200);
+    // Blocking again keeps the first note.
+    await call('PUT', email, admin(), { note: 'Something else' });
+    expect(
+      (await call('PUT', '/ips/203.0.113.7', admin(), { note: '   ' })).status,
+    ).toBe(200);
+    const notes = async () => {
+      const { body } = await call('GET', '');
+      return [
+        ...body.emails.map((e: { note: string | null }) => e.note),
+        ...body.ips.map((e: { note: string | null }) => e.note),
+      ];
+    };
+    expect(await notes()).toEqual(['Advert stories, 20 Nov.', null]);
+
+    // Another Admin fills in and changes notes later; a blank one clears it.
+    const other = as('user_other', 'Admin');
+    expect(
+      await call('PATCH', '/ips/203.0.113.7', other, { note: 'Same sender' }),
+    ).toEqual({ status: 200, body: { id: '203.0.113.7', version: null } });
+    expect((await call('PATCH', email, other, { note: '' })).status).toBe(200);
+    expect(await notes()).toEqual([null, 'Same sender']);
+
+    const tooLong = await call('PATCH', email, admin(), {
+      note: 'x'.repeat(501),
+    });
+    expect([tooLong.status, tooLong.body.errors?.[0]?.pointer]).toEqual([
+      400,
+      '/note',
+    ]);
+    expect(
+      (
+        await call('PUT', '/emails/new%40example.com', admin(), {
+          note: 'x'.repeat(501),
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await call('PATCH', '/emails/nobody%40example.com', admin(), {
+          note: 'x',
+        })
+      ).status,
+    ).toBe(404);
+    expect(await stored()).toEqual({
+      emails: ['spam@example.com'],
+      ips: ['203.0.113.7'],
+    });
+  });
+
   it('is for Admins only: a Moderator or a User is refused on every route, changing nothing', async () => {
     await blockEmail('spammer@example.com');
     for (const who of [as('user_mod', 'Moderator'), as('user_mod', 'User')]) {
@@ -172,6 +246,9 @@ describe('the block list (api-admin)', () => {
         await call('GET', '', who),
         await blockEmail('other@example.com', who),
         await blockIp('203.0.113.9', who),
+        await call('PATCH', '/emails/spammer%40example.com', who, {
+          note: 'x',
+        }),
         await call('DELETE', '/emails/spammer%40example.com', who),
         await call('DELETE', '/ips/203.0.113.9', who),
       ]) {

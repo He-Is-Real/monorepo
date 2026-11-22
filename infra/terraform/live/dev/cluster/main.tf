@@ -131,7 +131,10 @@ module "cluster" {
   # Joel 2026-11-17); data/0009 changed, so wiped again, no migration.
   # privacy-originals: version 0 of the privacy notice edited in place: Bunny keeps each video's
   # original upload (PV-1 A, Joel 2026-11-19); data/0009 changed, so wiped again, no migration.
-  dev_database_reset = "privacy-originals"
+  # block-list-notes: block-list entries gain an optional note, which api-admin may change, and
+  # version 0 of the privacy notice says we keep it (BN-2, BN-4 A, BN-6 A, Joel 2026-11-22);
+  # data/0009 changed, so wiped again, no migration (BN-5 A).
+  dev_database_reset = "block-list-notes"
   # D42: the automatic cluster plan's identity (modules/bootstrap), dry-run RBAC in `database`.
   cluster_planner_email = "tf-cluster-planner@heisreal-dev.iam.gserviceaccount.com"
 

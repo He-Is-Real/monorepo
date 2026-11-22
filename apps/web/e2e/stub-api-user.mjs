@@ -88,7 +88,7 @@
 //   Moderator; checked like the real one (@heisreal.today only, the two roles, never the last
 //   Admin: 409 `last_admin`; an email starting `nobody` has no account, so adding it is 400). A
 //   session starting `admin-clerk-down` gets 502 `clerk_unavailable`.
-// - api-admin's block list (G21 D): `GET /v1/admin/block-list`, `PUT`/`DELETE
+// - api-admin's block list (G21 D): `GET /v1/admin/block-list`, `PUT`/`PATCH`/`DELETE
 //   /v1/admin/block-list/{emails|ips}/{value}`, Admins only, kept per session from one blocked
 //   email; values checked and stored like the real one. An Admin's moderation view of
 //   `mod_video` carries a sender IP address and email (`senderIp`, `senderEmail`), and of
@@ -593,6 +593,7 @@ const blocksFor = (session) => {
           email: 'spammer@example.com',
           addedBy: 'joel@heisreal.today',
           addedAt: '2026-11-11T12:00:00.000Z',
+          note: 'Advert stories, 11 Nov.',
         },
       ],
       ips: [],
@@ -608,8 +609,8 @@ const blockIpOf = (raw) => {
   return null;
 };
 
-/** `PUT`/`DELETE /v1/admin/block-list/{emails|ips}/{value}`, checked like api-admin. */
-function changeBlocks(req, res, session, kind, raw) {
+/** `PUT`/`PATCH`/`DELETE /v1/admin/block-list/{emails|ips}/{value}`, checked like api-admin. */
+async function changeBlocks(req, res, session, kind, raw) {
   const list = blocksFor(session)[kind];
   const text = decodeURIComponent(raw).trim();
   const value =
@@ -634,11 +635,26 @@ function changeBlocks(req, res, session, kind, raw) {
     res.writeHead(204);
     return res.end();
   }
-  if (i < 0)
+  // The optional note (BN-2): trimmed, blank is none, at most 500 characters.
+  const sent = await readBody(req);
+  const given = sent ? JSON.parse(sent)?.note : undefined;
+  const note = typeof given === 'string' && given.trim() ? given.trim() : null;
+  if (note && [...note].length > 500)
+    return invalid(
+      res,
+      '/note',
+      'block_note',
+      'Keep the note to 500 characters or fewer.',
+    );
+  if (req.method === 'PATCH') {
+    if (i < 0) return problem(res, 404, 'Not found', 'not_found');
+    list[i].note = note;
+  } else if (i < 0)
     list.unshift({
       [key]: value,
       addedBy: 'e2e-admin@heisreal.today',
       addedAt: new Date().toISOString(),
+      note,
     });
   return send(res, 200, { id: value, version: null });
 }
@@ -2778,7 +2794,10 @@ createServer(async (req, res) => {
     });
   }
   const blocked = /^\/v1\/admin\/block-list\/(emails|ips)\/([^/]+)$/.exec(path);
-  if (blocked && (req.method === 'PUT' || req.method === 'DELETE')) {
+  if (
+    blocked &&
+    (req.method === 'PUT' || req.method === 'PATCH' || req.method === 'DELETE')
+  ) {
     if (!signedIn()) return;
     if (!token.startsWith('admin'))
       return problem(res, 403, 'Forbidden', 'role_required');

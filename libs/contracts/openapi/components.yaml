@@ -1571,7 +1571,7 @@ components:
     BlockedEmail:
       type: object
       description: An email on the block list (G21 D). It can't create an account or send a story.
-      required: [email, addedBy, addedAt]
+      required: [email, addedBy, addedAt, note]
       properties:
         email:
           type: string
@@ -1582,11 +1582,15 @@ components:
         addedAt:
           type: string
           format: date-time
+        note:
+          type: [string, 'null']
+          maxLength: 500
+          description: Why it is blocked, for other Admins (BN-1 to BN-6); `null` until one is written ("No note yet").
 
     BlockedIp:
       type: object
       description: An IP address on the block list (G21 D). It can't send a story.
-      required: [ip, addedBy, addedAt]
+      required: [ip, addedBy, addedAt, note]
       properties:
         ip:
           type: string
@@ -1597,10 +1601,25 @@ components:
         addedAt:
           type: string
           format: date-time
+        note:
+          type: [string, 'null']
+          maxLength: 500
+          description: Why it is blocked, for other Admins (BN-1 to BN-6); `null` until one is written ("No note yet").
+
+    BlockNote:
+      type: object
+      description: |
+        A block-list entry's note (BN-2, Joel 2026-11-22): plain text, at most 500 characters once
+        spaces at either end are trimmed. Optional when blocking (fast ban waves); missing, `null` or
+        blank means no note.
+      additionalProperties: false
+      properties:
+        note:
+          type: [string, 'null']
 
     BlockList:
       type: object
-      description: The block list, newest first in each part. Nothing else about the person is kept (no reason text).
+      description: The block list, newest first in each part. Each entry keeps who added it, when, and an optional note on why; nothing else about the person.
       required: [emails, ips]
       properties:
         emails:
