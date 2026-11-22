@@ -101,7 +101,18 @@ test.describe('/admin/block-list', () => {
     await page
       .getByRole('button', { name: 'Edit the note on 2001:db8::1' })
       .click();
-    await ipEntry.getByLabel('Why is it blocked?').fill('Same sender again.');
+    // The limit counts characters as api-admin does: 500 emoji fit, 501 don't.
+    const box = ipEntry.getByLabel('Why is it blocked?');
+    await box.fill('🙂'.repeat(501));
+    await expect(
+      ipEntry.getByText('Keep the note to 500 characters or fewer.'),
+    ).toBeVisible();
+    await box.fill('🙂'.repeat(500));
+    await expect(ipEntry.getByText('500 / 500 characters')).toBeVisible();
+    await expect(
+      ipEntry.getByText('Keep the note to 500 characters or fewer.'),
+    ).toHaveCount(0);
+    await box.fill('Same sender again.');
     await ipEntry.getByRole('button', { name: 'Save' }).click();
     await expect(status(page, 'done')).toHaveText(
       'The note on 2001:db8::1 is saved.',

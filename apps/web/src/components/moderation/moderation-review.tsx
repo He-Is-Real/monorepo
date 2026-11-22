@@ -11,8 +11,10 @@ import {
 } from 'react';
 import { AdminAccess, useRole } from '@/components/admin/admin-access';
 import {
+  BLOCK_NOTE_MAX,
   BlockNoteField,
   blockNoteBody,
+  blockNoteTooLong,
 } from '@/components/admin/admin-block-list';
 import { StoryArticle } from '@/components/stories/story-view';
 import {
@@ -396,7 +398,12 @@ function blockNoteStart(story: ModerationStory): string {
         year: 'numeric',
       })})`
     : '';
-  return `Story "${story.title}"${sent}: `;
+  // Capped so the start alone fits a note (BN-2): a long title is shortened with "…".
+  const room = BLOCK_NOTE_MAX - [...`Story ""${sent}: `].length;
+  const chars = [...story.title];
+  const title =
+    chars.length > room ? `${chars.slice(0, room - 1).join('')}…` : story.title;
+  return `Story "${title}"${sent}: `;
 }
 
 /**
@@ -433,6 +440,7 @@ function SenderLine({
     box.setSelectionRange(box.value.length, box.value.length);
   }, [open]);
   const block = async () => {
+    if (blockNoteTooLong(note)) return;
     setStep('busy');
     setError(null);
     try {

@@ -39,9 +39,20 @@ type Kind = 'emails' | 'ips';
 /** A block note's longest length, in characters (BN-2, Joel 2026-11-22; api-admin checks it too). */
 export const BLOCK_NOTE_MAX = 500;
 
+/** Trims as api-admin and the database do: Unicode White_Space at either end. */
+const trimNote = (note: string) =>
+  note.replace(/^\p{White_Space}+|\p{White_Space}+$/gu, '');
+
+/** A note's length in characters (code points, as api-admin counts), once trimmed. */
+const noteLength = (note: string) => [...trimNote(note)].length;
+
+/** Whether a note is over the limit: its form says so and doesn't send it. */
+export const blockNoteTooLong = (note: string) =>
+  noteLength(note) > BLOCK_NOTE_MAX;
+
 /** The note a Block command sends: trimmed, and none when blank (BN-2: a note is optional). */
 export const blockNoteBody = (note: string) => ({
-  note: note.trim() || null,
+  note: trimNote(note) || null,
 });
 
 /**
@@ -59,14 +70,24 @@ export function BlockNoteField({
   textareaRef?: React.Ref<HTMLTextAreaElement>;
 }) {
   const id = useId();
-  const length = [...value.trim()].length;
+  const length = noteLength(value);
+  // No native maxLength: it counts UTF-16 units, so an emoji would count twice.
+  const over = length > BLOCK_NOTE_MAX;
   return (
-    <Field id={`${id}-note`} hint describedBy={`${id}-count`}>
+    <Field
+      id={`${id}-note`}
+      hint
+      error={
+        over
+          ? `Keep the note to ${BLOCK_NOTE_MAX.toLocaleString('en-GB')} characters or fewer.`
+          : null
+      }
+      describedBy={`${id}-count`}
+    >
       <FieldLabel>Why is it blocked?</FieldLabel>
       <Textarea
         ref={textareaRef}
         className="min-h-24"
-        maxLength={BLOCK_NOTE_MAX}
         placeholder="Note the reason, so other Admins know why."
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -79,6 +100,7 @@ export function BlockNoteField({
         {length.toLocaleString('en-GB')} /{' '}
         {BLOCK_NOTE_MAX.toLocaleString('en-GB')} characters
       </p>
+      <FieldError className="mt-1" />
     </Field>
   );
 }
@@ -316,6 +338,7 @@ function BlockEntry({
           aria-label={`Edit the note on ${e.value}`}
           onSubmit={(event) => {
             event.preventDefault();
+            if (blockNoteTooLong(editing)) return;
             void onSaveNote(kind, e.value, editing).then(
               (ok) => ok && setEditing(null),
             );
@@ -410,6 +433,7 @@ function BlockPart({
       return;
     }
     setError(null);
+    if (blockNoteTooLong(note)) return;
     void onAdd(kind, text, note).then((ok) => {
       if (ok) {
         setValue('');

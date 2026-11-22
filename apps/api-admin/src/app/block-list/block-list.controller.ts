@@ -64,29 +64,63 @@ const badIp = () =>
   );
 
 /**
- * The body's optional `note` (BN-2): plain text, trimmed, at most 500 characters. Missing, `null`,
- * blank or only spaces is no note (`undefined`); the body itself may be missing.
+ * Trims a note exactly as the database's `string::trim` does: Unicode White_Space at either end
+ * (U+0085 too; JavaScript's own trim() misses it and also strips U+FEFF, which the database keeps).
  */
-function parseNote(body: unknown): string | undefined {
-  if (body === undefined || body === null) return undefined;
-  if (typeof body !== 'object' || Array.isArray(body)) {
-    throw invalid('', 'body', 'The body is an object.');
-  }
-  const value = (body as Record<string, unknown>)['note'];
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== 'string') {
-    throw invalid('/note', 'block_note', 'The note is text.');
-  }
-  const note = value.trim();
-  if ([...note].length > NOTE_MAX) {
-    throw invalid(
-      '/note',
-      'block_note',
-      `Keep the note to ${NOTE_MAX} characters or fewer.`,
-    );
-  }
+const trimNote = (text: string) =>
+  text.replace(/^\p{White_Space}+|\p{White_Space}+$/gu, '');
+
+const badNote = (message: string) => invalid('/note', 'block_note', message);
+const tooLong = () =>
+  badNote(`Keep the note to ${NOTE_MAX} characters or fewer.`);
+
+/** A note's value: text (trimmed, at most 500 characters) or `null`/blank, which is no note. */
+function noteValue(value: unknown): string | undefined {
+  if (value === null) return undefined;
+  if (typeof value !== 'string') throw badNote('The note is text.');
+  const note = trimNote(value);
+  if ([...note].length > NOTE_MAX) throw tooLong();
   return note || undefined;
 }
+
+const isObject = (body: unknown): body is Record<string, unknown> =>
+  typeof body === 'object' && body !== null && !Array.isArray(body);
+
+/** Only `note` (BlockNote has additionalProperties: false). */
+function onlyNote(body: Record<string, unknown>): void {
+  const extra = Object.keys(body).find((k) => k !== 'note');
+  if (extra !== undefined) {
+    throw invalid(`/${extra}`, 'unexpected', 'Only a note can be sent.');
+  }
+}
+
+/**
+ * Blocking's optional body (BN-2): `{ note }`. A missing body, or a missing, `null` or blank note,
+ * is no note (`undefined`).
+ */
+function parseBlockNote(body: unknown): string | undefined {
+  if (body === undefined || body === null) return undefined;
+  if (!isObject(body)) throw invalid('', 'body', 'The body is an object.');
+  onlyNote(body);
+  return body['note'] === undefined ? undefined : noteValue(body['note']);
+}
+
+/**
+ * A note change, JSON Merge Patch (D28): the body is required. An omitted `note` leaves it as it is
+ * (`unchanged`); `null` or blank clears it (`undefined`); otherwise the new note.
+ */
+const UNCHANGED = Symbol('unchanged');
+function parseNotePatch(body: unknown): string | undefined | typeof UNCHANGED {
+  if (!isObject(body)) throw invalid('', 'body', 'The body is an object.');
+  onlyNote(body);
+  return 'note' in body ? noteValue(body['note']) : UNCHANGED;
+}
+
+/** The database refused the note (its own check is the last word): the usual 400, nothing logged. */
+const isNoteRefusal = (err: unknown) =>
+  err instanceof DatabaseQueryError &&
+  /conform/.test(err.message) &&
+  /field `note`/.test(err.message);
 
 const notListed = () =>
   new ProblemException(
@@ -198,7 +232,7 @@ export class BlockListController {
 
   private async add(req: Request, kind: Kind, raw: string, body: unknown) {
     const value = listValue(kind, raw);
-    const note = parseNote(body);
+    const note = parseBlockNote(body);
     const { email: by } = await this.people.authenticate(req);
     try {
       await retryOnConflict(() =>
@@ -212,6 +246,7 @@ export class BlockListController {
         ),
       );
     } catch (err) {
+      if (isNoteRefusal(err)) throw tooLong();
       // The database's own check of the value (`string::is_email`) is the last word.
       if (err instanceof DatabaseQueryError && /conform/.test(err.message)) {
         throw kind === 'emails' ? badEmail() : badIp();
@@ -229,12 +264,22 @@ export class BlockListController {
   /** The later save wins (no version check; BN-4 A keeps no record of who changed it). */
   private async changeNote(kind: Kind, raw: string, body: unknown) {
     const value = listValue(kind, raw);
-    const note = parseNote(body);
-    const [changed] = (await runQuery(
-      this.db,
-      `UPDATE type::record($table, $value) SET note = $note RETURN VALUE id;`,
-      { table: TABLE[kind], value, note },
-    )) as [unknown[]];
+    const note = parseNotePatch(body);
+    const query =
+      note === UNCHANGED
+        ? `SELECT VALUE id FROM type::record($table, $value);`
+        : `UPDATE type::record($table, $value) SET note = $note RETURN VALUE id;`;
+    let changed: unknown[];
+    try {
+      [changed] = (await runQuery(this.db, query, {
+        table: TABLE[kind],
+        value,
+        note: note === UNCHANGED ? undefined : note,
+      })) as [unknown[]];
+    } catch (err) {
+      if (isNoteRefusal(err)) throw tooLong();
+      throw err;
+    }
     if (changed.length === 0) throw notListed();
     return { id: value, version: null };
   }

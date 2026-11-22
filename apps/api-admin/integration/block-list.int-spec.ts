@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { CLERK_CONFIG, parseClerkConfig } from '@heisreal/auth';
@@ -237,6 +238,97 @@ describe('the block list (api-admin)', () => {
       emails: ['spam@example.com'],
       ips: ['203.0.113.7'],
     });
+  });
+
+  it('trims a note as the database does, and refuses one it would refuse with a plain 400', async () => {
+    const errors = vi.spyOn(Logger.prototype, 'error');
+    const email = `/emails/${encodeURIComponent('spam@example.com')}`;
+    // U+0085 is a space to the database (Unicode White_Space) though JavaScript's trim() keeps it.
+    expect(
+      (
+        await call('PUT', email, admin(), {
+          note: '\u0085Private reason\u0085',
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await call('PATCH', '/ips/203.0.113.7', admin(), {
+          note: '\u0085x',
+        })
+      ).status,
+    ).toBe(404);
+    await call('PUT', '/ips/203.0.113.7');
+    expect(
+      (
+        await call('PATCH', '/ips/203.0.113.7', admin(), {
+          note: '\u0085Same\u2028',
+        })
+      ).status,
+    ).toBe(200);
+    // 500 emoji are 500 characters (1,000 UTF-16 units); 501 are too many, refused before the database.
+    expect(
+      (await call('PATCH', email, admin(), { note: '🙂'.repeat(500) })).status,
+    ).toBe(200);
+    const long = await call('PATCH', '/ips/203.0.113.7', admin(), {
+      note: '\u0085' + '🙂'.repeat(501),
+    });
+    expect([long.status, long.body.errors?.[0]?.pointer]).toEqual([
+      400,
+      '/note',
+    ]);
+    const { body } = await call('GET', '');
+    expect([body.emails[0].note, body.ips[0].note]).toEqual([
+      '🙂'.repeat(500),
+      'Same',
+    ]);
+    expect(JSON.stringify(long.body)).not.toContain('spam');
+    expect(errors).not.toHaveBeenCalled();
+    errors.mockRestore();
+  });
+
+  it('changes a note by JSON Merge Patch: an omitted note stays, a missing or odd body is refused', async () => {
+    const email = `/emails/${encodeURIComponent('spam@example.com')}`;
+    await call('PUT', email, admin(), { note: 'Advert stories' });
+    const note = async () => (await call('GET', '')).body.emails[0].note;
+
+    // `{}` changes nothing.
+    expect(await call('PATCH', email, admin(), {})).toEqual({
+      status: 200,
+      body: { id: 'spam@example.com', version: null },
+    });
+    expect(await note()).toBe('Advert stories');
+    expect(
+      (await call('PATCH', '/emails/nobody%40example.com', admin(), {})).status,
+    ).toBe(404);
+
+    // No body, a body that isn't an object, or anything besides `note`: 400, nothing changed.
+    expect((await call('PATCH', email, admin())).status).toBe(400);
+    for (const bad of [
+      null,
+      [],
+      'x',
+      { unexpected: 'x' },
+      { note: 'x', other: 1 },
+      { note: 5 },
+    ]) {
+      const res = await call('PATCH', email, admin(), bad);
+      expect(res.status, JSON.stringify(bad)).toBe(400);
+    }
+    expect(
+      (
+        await call('PUT', '/emails/new%40example.com', admin(), {
+          unexpected: 'x',
+        })
+      ).status,
+    ).toBe(400);
+    expect(await note()).toBe('Advert stories');
+
+    // `null` clears it.
+    expect((await call('PATCH', email, admin(), { note: null })).status).toBe(
+      200,
+    );
+    expect(await note()).toBe(null);
   });
 
   it('is for Admins only: a Moderator or a User is refused on every route, changing nothing', async () => {
