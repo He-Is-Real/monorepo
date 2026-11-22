@@ -101,6 +101,21 @@ source of truth, so change them in the same PR as the code.
   `tf.sh … plan-summary`; raw output goes to `gs://heisreal-dev-tfstate/dev/bunny/logs/`. Never set
   `TF_LOG` or step debug for tofu (`tf.sh` refuses). Workflows start from `permissions: {}`; never use
   `pull_request_target`. Install the secret-scanning hook once per clone: `mise install && tools/scripts/install-hooks.sh`.
+- **Logging (Joel, 2026-11-22).** Read `.claude/skills/writing-logs/SKILL.md` before adding or changing
+  logging, error handling, request handlers, jobs or workers (decisions: `../project/context/research/logging.html`).
+  Must-follow:
+  - One wide event per request or job, built up during the work and written once at the end; fold
+    facts into it as fields. No `console.*` and no mid-request "breadcrumb" lines (only start-up,
+    background work and the immediate unexpected-error line stand alone).
+  - Stable `snake_case` field names grouped by area (`http`, `user`, `story`, `db`, `external`, `error`…),
+    units as suffixes (`_ms`, `_bytes`); time every SurrealDB and outside call.
+  - Every event carries `ref`, the request's UUID v7 that is also the `traceparent` trace id and the
+    "Reference" people see.
+  - Every field has a data class: plain, keyed hash (HMAC, key from Secret Manager, `_hash` suffix),
+    hash unless a debug window is open (story text, transcripts, request bodies), or never (tokens,
+    cookies, keys, secrets, card data). Open points are marked "pending Joel" in the skill; don't decide them.
+  - Errors are fields on the event (`outcome`, `error.type/code`); messages never quote request data.
+  - A failed log send must never fail, slow or change the request; same JSON on stdout locally, in CI and on Google.
 - Budget guardrail: £15/month budget with alert emails at £3/£7.50/£15 (no automatic stop). Never
   unlink billing; storage is always kept.
 
