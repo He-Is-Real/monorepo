@@ -59,3 +59,15 @@ test('at Go live, the story page’s outage message isn’t indexed', async ({
     /noindex/,
   );
 });
+
+test('at Go live, the site’s error page isn’t indexed', async ({ page }) => {
+  // A page that fails to render (rate-limits.e2e.ts): the site's error page (PC-3 A).
+  await page.goto(`${WEB_LIVE_URL}/something-went-wrong`);
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Something went wrong' }),
+  ).toBeVisible();
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute(
+    'content',
+    /noindex/,
+  );
+});

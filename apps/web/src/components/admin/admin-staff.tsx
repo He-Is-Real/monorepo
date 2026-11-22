@@ -183,12 +183,7 @@ function Staff({ client }: { client: ApiUser }) {
                 />
               </div>
               <div>
-                <label
-                  htmlFor={`${id}-role`}
-                  className="mb-1 block font-medium text-foreground"
-                >
-                  Role
-                </label>
+                <FieldLabel htmlFor={`${id}-role`}>Role</FieldLabel>
                 <Select
                   id={`${id}-role`}
                   wrapperClassName="w-full sm:w-44"

@@ -437,7 +437,7 @@ function LimitsForm({
                     aria-current={i === group ? 'true' : undefined}
                     onClick={() => setGroup(i)}
                     data-group-tab={g.title}
-                    className={`flex min-h-11 w-full flex-col justify-center rounded-r-lg border-l-[3px] px-3 py-2 text-left focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none ${
+                    className={`flex min-h-11 w-full flex-col justify-center rounded-r-lg border-l-[3px] px-3 py-2 text-left ${
                       i === group
                         ? 'border-primary bg-accent font-medium text-foreground'
                         : 'border-transparent text-secondary-text hover:bg-accent hover:text-foreground'
@@ -456,12 +456,7 @@ function LimitsForm({
           </div>
           {/* Phones: a drop-down. */}
           <div className="mb-4 md:hidden">
-            <label
-              htmlFor={`${id}-group`}
-              className="mb-1 block font-medium text-foreground"
-            >
-              Group
-            </label>
+            <FieldLabel htmlFor={`${id}-group`}>Group</FieldLabel>
             <Select
               id={`${id}-group`}
               value={String(group)}
@@ -721,7 +716,7 @@ function SaveBar({
                 aria-expanded={open}
                 aria-controls={`${id}-changes`}
                 onClick={() => setOpen((o) => !o)}
-                className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md px-[4px] font-normal text-primary underline underline-offset-4 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+                className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md px-[4px] font-normal text-primary underline underline-offset-4"
               >
                 {open ? 'Hide' : 'Show'}
                 <span className="sr-only">&nbsp;changes</span>

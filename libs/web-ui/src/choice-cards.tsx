@@ -40,7 +40,7 @@ function ChoiceCards<T extends string>({
           <label
             key={o.value}
             className={cn(
-              'flex min-h-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl p-4 text-center has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50',
+              'flex min-h-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl p-4 text-center has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ring',
               value === o.value
                 ? 'border-2 border-brand bg-accent font-semibold'
                 : 'border border-border text-secondary-text',

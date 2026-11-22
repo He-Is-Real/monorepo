@@ -124,4 +124,14 @@ margins, padding, grid placement); a copied field class string fails lint. The l
 (`@heisreal/web-ui/eslint`). Colours are named by meaning (`danger`, `warning`, `success`, `info`, `brand`,
 `media`…); a hex, rgb() or Tailwind palette colour (`red-600`, `bg-white`) in page code fails lint.
 
+**Styling order (Joel, 2026-11-21).** When building or changing UI:
+
+1. Use the library's pieces and its colours (named by meaning) as they are.
+2. If no piece quite fits, prefer adjusting the design to use a common existing piece, accepting a small
+   compromise, over adding something new.
+3. If no existing piece can do the job, add a new piece to `libs/web-ui` (never a page-local styled copy).
+4. Only as a last resort, style in `apps/web` page code, and say why in the PR.
+
+Pages otherwise pass layout only (width, spacing, placement).
+
 Run tasks through Nx with the package manager prefix (`pnpm nx run-many -t lint test build typecheck`, `pnpm nx affected -t ...`). Check `pnpm nx <target> --help` rather than guessing flags. Scaffold with the Nx generators (`pnpm nx g ...`).

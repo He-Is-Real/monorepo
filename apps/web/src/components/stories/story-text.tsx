@@ -83,7 +83,7 @@ export function StoryText({
               toggled.current = true;
               setExpanded((e) => !e);
             }}
-            className="mt-2 inline-flex min-h-11 min-w-11 items-center rounded-md px-1 -mx-1 font-medium text-link underline-offset-4 transition-colors outline-none hover:text-link-hover hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            className="mt-2 inline-flex min-h-11 min-w-11 items-center rounded-md px-1 -mx-1 font-medium text-link underline-offset-4 transition-colors hover:text-link-hover hover:underline"
           >
             {expanded ? 'Show less' : 'Continue reading'}
           </button>

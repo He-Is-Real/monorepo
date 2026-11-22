@@ -27,6 +27,7 @@ import {
   Checkbox,
   chipVariants,
   cn,
+  Dialog,
   Field,
   FieldLabel,
   Input,
@@ -767,7 +768,10 @@ function AddName({
   );
 }
 
-/** A native modal dialog: focus stays inside, Escape closes it, focus goes back after. */
+/**
+ * The library's Dialog (MG-3 A: the Filters panel's look), open while it's on the page: focus
+ * stays inside, Escape, the × or the veil close it, focus goes back after.
+ */
 function Modal({
   title,
   onClose,
@@ -777,27 +781,15 @@ function Modal({
   onClose: () => void;
   children: ReactNode;
 }) {
-  const ref = useRef<HTMLDialogElement>(null);
-  const titleId = useId();
-  useEffect(() => {
-    const dialog = ref.current;
-    dialog?.showModal();
-    return () => dialog?.close();
-  }, []);
   return (
-    <dialog
-      ref={ref}
-      aria-labelledby={titleId}
+    <Dialog
+      open
+      title={title}
       onClose={onClose}
-      className="m-auto w-[min(100%-2rem,28rem)] max-w-full rounded-2xl border border-border bg-card p-0 text-foreground backdrop:bg-overlay"
+      className="sm:w-[min(100%-4rem,28rem)]"
     >
-      <div className="max-h-[85svh] space-y-4 overflow-y-auto p-5 [overflow-wrap:anywhere]">
-        <h2 id={titleId} className="text-xl font-semibold">
-          {title}
-        </h2>
-        {children}
-      </div>
-    </dialog>
+      <div className="space-y-4">{children}</div>
+    </Dialog>
   );
 }
 
@@ -846,18 +838,17 @@ function ThemePanel({
             />
           </div>
         </Field>
-        <div>
-          <label htmlFor={`${id}-category`} className="mb-1 block font-medium">
-            Category
-          </label>
-          <Select
-            id={`${id}-category`}
-            wrapperClassName="w-full"
-            value={where}
-            options={categories.map((c) => ({ value: c.id, label: c.name }))}
-            onValueChange={setWhere}
-          />
-        </div>
+        <Field id={`${id}-category`}>
+          <div>
+            <FieldLabel>Category</FieldLabel>
+            <Select
+              wrapperClassName="w-full"
+              value={where}
+              options={categories.map((c) => ({ value: c.id, label: c.name }))}
+              onValueChange={setWhere}
+            />
+          </div>
+        </Field>
         {/* A choice kept until Done, so a check box, not a switch (SW-1 B, CB-1 A). */}
         <Checkbox
           boxAfter

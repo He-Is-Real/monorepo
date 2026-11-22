@@ -921,7 +921,7 @@ export function ImagePanel({
           : 'Drag it here, or'}
       </p>
       <label
-        className={`${shown || cropping ? secondary : primary} cursor-pointer has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 ${busy ? 'pointer-events-none opacity-60' : ''}`}
+        className={`${shown || cropping ? secondary : primary} cursor-pointer has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ring ${busy ? 'pointer-events-none opacity-60' : ''}`}
       >
         {shown || cropping ? `Choose another ${noun}` : `Choose a ${noun}`}
         <input

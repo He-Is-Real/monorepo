@@ -35,3 +35,5 @@ export { Switch, type SwitchProps } from './switch';
 export { StatusBadge, Tag, type StatusTone } from './tag';
 export { Tabs, tabId, type TabItem } from './tabs';
 export { Disclosure } from './disclosure';
+export { Accordion, type AccordionItem } from './accordion';
+export { Dialog, type DialogProps } from './dialog';

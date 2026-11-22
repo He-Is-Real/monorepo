@@ -1,4 +1,10 @@
-import type { FaqItem } from '@/components/faq/faq-accordion';
+/** One question and its answer (plain text: the page and its FAQPage JSON-LD both use it). */
+export interface FaqItem {
+  /** Unique on the page; used for the element ids. */
+  id: string;
+  question: string;
+  answer: string;
+}
 
 // The FAQs (faqs.html's copy). Changed where the mockup disagrees with what we've built or
 // decided: anonymous stories show "Anonymous" (story-view), and sharing on social media is

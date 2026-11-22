@@ -6,7 +6,9 @@ import { Button } from '@heisreal/web-ui';
 /**
  * Anything a page couldn't render, most likely api-public-read being unreachable. Only "Something
  * went wrong. Please try again later." (Joel, 2026-11-09): no error details or backend state reach
- * the visitor (they're in Cloud Run's logs).
+ * the visitor (they're in Cloud Run's logs). Search engines are told not to index it (PC-3 A, Joel,
+ * 2026-11-22), like the "not found" page: with page caching the answer is 200, so the tag is
+ * what keeps a crash out of search results.
  */
 export default function ErrorPage({
   reset,
@@ -19,6 +21,7 @@ export default function ErrorPage({
       id="main"
       className="mx-auto flex w-full max-w-measure flex-1 flex-col items-center justify-center gap-4 px-4 py-16 text-center"
     >
+      <meta name="robots" content="noindex" />
       <h1 className="text-3xl font-semibold">Something went wrong</h1>
       <p className="text-secondary-text">Please try again later.</p>
       <div className="flex flex-wrap justify-center gap-3">

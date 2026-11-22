@@ -218,6 +218,23 @@ test.describe('/admin/themes', () => {
     ]);
   });
 
+  test('a theme’s panel is the site’s dialog: its × closes it without a change, and focus goes back to the pill', async ({
+    page,
+  }) => {
+    await open(page);
+    const dialog = await panel(page, 'Work');
+    await dialog.getByLabel('Name').fill('Something else');
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    await expect(dialog).toBeHidden();
+    await expect(
+      pill(page, 'Work').getByRole('button', { name: 'Work', exact: true }),
+    ).toBeFocused();
+    await expect(page.locator('[data-unsaved]')).toHaveAttribute(
+      'data-unsaved',
+      '0',
+    );
+  });
+
   test('Discard puts everything back as it was loaded', async ({ page }) => {
     await open(page);
     // A one-letter name is still a 44 px target.

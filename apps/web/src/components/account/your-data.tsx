@@ -3,7 +3,14 @@
 import { useClerk } from '@clerk/react';
 import { useRouter } from 'next/navigation';
 import { useId, useRef, useState } from 'react';
-import { Button, Card, DangerZone, Input, Notice } from '@heisreal/web-ui';
+import {
+  Button,
+  Card,
+  DangerZone,
+  FieldLabel,
+  Input,
+  Notice,
+} from '@heisreal/web-ui';
 import {
   type ApiUser,
   ApiUserProblem,
@@ -285,10 +292,10 @@ function DeleteAccount({ afterDeletion }: { afterDeletion: AfterDeletion }) {
                   void remove();
                 }}
               >
-                <label htmlFor={inputId} className="mb-1 block font-medium">
+                <FieldLabel htmlFor={inputId}>
                   Type <span className="font-bold">{CONFIRM_WORD}</span> to
                   confirm
-                </label>
+                </FieldLabel>
                 <Input
                   id={inputId}
                   size="standard"
