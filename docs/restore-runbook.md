@@ -43,9 +43,9 @@ gh run list -R He-Is-Real/monorepo --workflow "OpenTofu apply" -L 3
 ```bash
 gcloud storage ls -l gs://heisreal-dev-db-backups/surrealdb/ | sort -k2 | tail -3
 BACKUP=heisreal-main-20261122T023003Z.surql   # the newest one from the list
-DRILL=$(mktemp -d /tmp/restore-drill.XXXX)
+DRILL=$(mktemp -d /tmp/restore-drill.XXXX)            # 700: only you can read it
 gcloud storage cp "gs://heisreal-dev-db-backups/surrealdb/$BACKUP" "$DRILL/restore.surql"
-chmod 755 "$DRILL"; chmod 644 "$DRILL/restore.surql"   # the container runs as another user
+chmod 600 "$DRILL/restore.surql"
 head -c 300 "$DRILL/restore.surql"                     # starts with "OPTION IMPORT;"
 ```
 
@@ -59,11 +59,12 @@ Use the image pinned in `infra/k8s/surrealdb/base/kustomization.yaml` (today our
 ```bash
 IMG=ghcr.io/he-is-real/surrealdb:v3.2.4-jwt11@sha256:72921e733c0598223df14b8329a2c842ec54e2adf828639954d959307c7e7ed7
 docker run -d --rm --name restore-drill -p 127.0.0.1:18000:8000 -v "$DRILL:/drill:ro" \
-  "$IMG" start --user root --pass drillpass memory
+  --user "$(id -u):$(id -g)" "$IMG" start --user root --pass drillpass memory
 docker exec restore-drill /surreal version
 ```
 
-`drillpass` is a local password for this container only.
+`drillpass` is a local password for this container only. The container runs as you
+(`--user`), so it can read the private backup file without opening it to other users.
 
 ### 3. Import the backup
 
@@ -149,11 +150,13 @@ states, the legal texts.
 ### 7. Replay erasures since the backup
 
 A backup still holds people who deleted their account after it was taken. api-user logs every
-erasure with internal ids only (`Erased user:<id> (<reason>)`). Find those since the backup's time:
+erasure with internal ids only (`Erased user:<id> (<reason>); N deletion(s) queued`, as JSON, so
+the text is in `jsonPayload.message`). Find those since the backup's time:
 
 ```bash
-gcloud logging read 'resource.labels.service_name="api-user" AND textPayload:"Erased user:"
-  AND timestamp>="2026-11-22T02:30:00Z"' --project heisreal-dev --format='value(timestamp,textPayload)'
+gcloud logging read 'resource.labels.service_name="api-user" AND jsonPayload.message:"Erased user:"
+  AND timestamp>="2026-11-22T02:30:00Z"' --project heisreal-dev \
+  --format='value(timestamp,jsonPayload.message)'
 ```
 
 For each one, erase the person again in the restored database. Only api-user's login may erase
@@ -167,16 +170,18 @@ TOKEN=$(curl -sS -X POST http://127.0.0.1:18000/signin -H 'Accept: application/j
 unset AP
 
 USER_ID=user:xxxxxxxx   # from the log line
+REASON=account_deleted  # the reason in brackets in the same log line
 CLERK=$(echo "SELECT VALUE clerkUserId FROM ONLY $USER_ID;" | copy | grep -v '^$' \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)[0])')
 curl -sS -X POST http://127.0.0.1:18000/sql -H 'Accept: application/json' \
   -H "Authorization: Bearer $TOKEN" -H 'surreal-ns: heisreal' -H 'surreal-db: main' \
-  --data-binary "BEGIN TRANSACTION; fn::account::erase('$CLERK', 'clerk_user_deleted'); COMMIT TRANSACTION;"
+  --data-binary "BEGIN TRANSACTION; fn::account::erase('$CLERK', '$REASON'); COMMIT TRANSACTION;"
 ```
 
-Use the reason `clerk_user_deleted`: the Clerk account was already deleted by the first erasure, so
-this doesn't queue it again. The person's video files are queued for deletion again; Bunny treats a
-missing video as done. Afterwards the user row is `status = 'deleted'` with no Clerk id or
+Use the reason from the log line. The first erasure logs before it works through its deletion
+queue, so with `account_deleted` the Clerk account deletion may never have finished; replaying with
+the same reason queues it again, and Clerk treats an account that's already gone as done. The
+person's video files are queued for deletion again; Bunny treats a missing video as done. Afterwards the user row is `status = 'deleted'` with no Clerk id or
 agreements, and there is one more `erasedIdentity` row.
 
 On a drill with no erasures since the backup, try it on any test person in the copy to check the
@@ -188,7 +193,7 @@ step still works.
 docker stop restore-drill          # the copy lived in memory; it's gone
 kill $PF                           # end the port-forward
 rm -rf "$DRILL"
-unset BP TOKEN CLERK
+unset BP TOKEN CLERK REASON
 ```
 
 Then update "Last drill" at the top of this file.
@@ -203,7 +208,11 @@ Not drilled end to end yet; the drill covers each step except importing into a l
    the real endpoint, then point the services at it (OpenTofu). Never import over a database that has data.
 4. Replay every erasure logged since the backup's time (step 7). This is required: people who
    deleted their account must stay deleted.
-5. Run the schema migration (an OpenTofu apply of the cluster root) so the schema matches main.
+5. Run the schema migration so the schema matches main. A plain cluster apply shows no diff
+   (the migrations haven't changed), so force the Job to run again:
+   `tools/scripts/tf.sh cluster plan -replace='module.cluster.kustomization_resource.migrate' -out=cluster.plan`,
+   read the plan, `tools/scripts/tf.sh cluster apply cluster.plan`, then check the new Job
+   completes ("Order: migrate, then deploy" in `infra/k8s/surrealdb/README.md`).
 6. Bring the services back and check the site.
 
 ## Results of the last drill (2026-11-22)
