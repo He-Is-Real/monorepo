@@ -2395,6 +2395,8 @@ async function handleShare(req, res, path, url, s) {
       });
       s.uploadTimes.push({ at: Date.now(), image: false });
       st.videoId = videoId;
+      // As api-user's database write (thumbnail crop TC-9 B): a new video takes the thumbnail off.
+      if (b.format === 'video') st.image = null;
       // Part 1a: worked out from the file, so a new one clears it.
       st.mediaProblem = null;
       st.processing = null;

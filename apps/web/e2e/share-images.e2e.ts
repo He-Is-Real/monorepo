@@ -102,7 +102,7 @@ async function person(
 const FIXTURES = join(__dirname, 'fixtures');
 function videoFile(
   info: { outputPath: (name: string) => string },
-  fixture: 'portrait.mp4' | 'landscape.webm',
+  fixture: 'portrait.mp4' | 'landscape.webm' | 'tall.mp4',
   name: string,
 ) {
   const path = info.outputPath(name);
@@ -923,11 +923,20 @@ test.describe('behaviour', () => {
     expect([sent.width, sent.height]).toEqual([1120, 630]);
   });
 
-  test('a new video takes the thumbnail off and says why (TC-3 B)', async ({
+  test('a new video takes the thumbnail off with no second request, says why, and Continue works (TC-3 B, TC-9 B)', async ({
     page,
     request,
   }, info) => {
     const me = await person(page, request);
+    // The database takes it off with the new video: the page never asks for it separately.
+    const removals: string[] = [];
+    page.on('request', (req) => {
+      if (
+        /\/v1\/stories\/[^/]+$/.test(new URL(req.url()).pathname) &&
+        isImageEdit(req)
+      )
+        removals.push(req.url());
+    });
     await toVideo(page);
     await page
       .getByLabel('Choose a file')
@@ -960,77 +969,7 @@ test.describe('behaviour', () => {
     await step(page, 'Review and submit');
     await expect(page.locator('[data-review-picture]')).toHaveCount(0);
     expect((await me.uploads()).images).toHaveLength(1);
-  });
-
-  test('a new video’s old thumbnail that couldn’t be taken off holds the step until “Try again” takes it off (TC-3 B)', async ({
-    page,
-    request,
-  }, info) => {
-    const me = await person(page, request);
-    await toVideo(page);
-    await page
-      .getByLabel('Choose a file')
-      .setInputFiles(videoFile(info, 'portrait.mp4', 'clip.mp4'));
-    await expect(page.getByText(/^Uploaded: clip\.mp4/)).toBeVisible();
-    await page.getByLabel('Choose a thumbnail').setInputFiles({
-      name: 'thumb.png',
-      mimeType: 'image/png',
-      buffer: await drawn(page, 1200, 1200, 'image/png'),
-    });
-    await page.getByRole('button', { name: 'Use this thumbnail' }).click();
-    await expect(page.getByText('Thumbnail added.')).toBeVisible();
-
-    // The first removal of the thumbnail fails (our service is unavailable).
-    let failed = 0;
-    await page.route('**/v1/stories/*', async (route) => {
-      const req = route.request();
-      if (
-        failed === 0 &&
-        req.method() === 'PATCH' &&
-        req.postDataJSON()?.image === null
-      ) {
-        failed += 1;
-        return route.fulfill({ status: 500, body: '' });
-      }
-      return route.fallback();
-    });
-    await page
-      .getByLabel('Choose another file')
-      .setInputFiles(videoFile(info, 'landscape.webm', 'walk.webm'));
-    await expect(page.getByText(/^Uploaded: walk\.webm/)).toBeVisible();
-    await expect(
-      alert(page, 'Something went wrong. Please try again later.'),
-    ).toBeVisible();
-    await expect(page.locator('[data-picture-preview]')).toBeVisible();
-    await expect(page.getByText('Thumbnail added.')).toHaveCount(0);
-    expect(failed).toBe(1);
-
-    // Continue waits while the old thumbnail is still on the story.
-    await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await expect(
-      alert(
-        page,
-        'We couldn’t take your old thumbnail off. Try again before you continue.',
-      ),
-    ).toBeVisible();
-    await expect(
-      page.getByRole('heading', { level: 2, name: 'Upload your video' }),
-    ).toBeVisible();
-
-    await page.getByRole('button', { name: 'Try again' }).click();
-    await expect(
-      page.getByText(
-        'We’ve taken your thumbnail off because you changed your video. Choose one again if you still want it.',
-      ),
-    ).toBeVisible();
-    await expect(page.locator('[data-picture-preview]')).toHaveCount(0);
-    await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await step(page, 'Add some details');
-    await page.getByText('Hope', { exact: true }).click();
-    await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await step(page, 'Review and submit');
-    await expect(page.locator('[data-review-picture]')).toHaveCount(0);
-    expect((await me.uploads()).images).toHaveLength(1);
+    expect(removals).toEqual([]);
   });
 
   test('a video whose shape this browser can’t read waits for our video host before a thumbnail is chosen (TC-4)', async ({
@@ -1092,9 +1031,16 @@ test.describe('behaviour', () => {
   });
 
   // A tiny thumbnail keeps the video's shape through its enlargement: the crop is rounded only at
-  // the size it's uploaded at, not in the photo's few pixels (8 × 8 → 4.5 × 8 for 9:16).
-  for (const side of [8, 1]) {
-    test(`a tiny ${side} × ${side} thumbnail is enlarged to the video’s shape (TC-7 A, TC-2 A)`, async ({
+  // the size it's uploaded at, not in the photo's few pixels (8 × 8 → 4.5 × 8 for 9:16). A 1 × 1
+  // photo cut for a 1:3 video rounds to 333 × 1000, just past 1:3: it's nudged to 334 × 1000 so
+  // it's taken (Codex #262 round 2).
+  const tiny = [
+    { side: 8, fixture: 'portrait.mp4', shape: '9:16', aspect: 9 / 16 },
+    { side: 1, fixture: 'portrait.mp4', shape: '9:16', aspect: 9 / 16 },
+    { side: 1, fixture: 'tall.mp4', shape: '1:3', aspect: 1 / 3 },
+  ] as const;
+  for (const { side, fixture, shape, aspect } of tiny) {
+    test(`a tiny ${side} × ${side} thumbnail is enlarged to a ${shape} video’s shape (TC-7 A, TC-2 A)`, async ({
       page,
       request,
     }, info) => {
@@ -1102,7 +1048,7 @@ test.describe('behaviour', () => {
       await toVideo(page);
       await page
         .getByLabel('Choose a file')
-        .setInputFiles(videoFile(info, 'portrait.mp4', 'clip.mp4'));
+        .setInputFiles(videoFile(info, fixture, 'clip.mp4'));
       await expect(page.getByText(/^Uploaded: clip\.mp4/)).toBeVisible();
       await page.getByLabel('Choose a thumbnail').setInputFiles({
         name: 'tiny.png',
@@ -1115,7 +1061,8 @@ test.describe('behaviour', () => {
       expect(images).toHaveLength(1);
       const sent = await decoded(page, images[0].bytes ?? '');
       expect(sent.height).toBe(1000);
-      expect(sent.width / sent.height).toBeCloseTo(9 / 16, 2);
+      expect(sent.width / sent.height).toBeCloseTo(aspect, 2);
+      expect(sent.width * 3).toBeGreaterThanOrEqual(sent.height);
     });
   }
 

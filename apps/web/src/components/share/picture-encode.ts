@@ -21,9 +21,23 @@ export const clampAspect = (aspect: number) =>
 /**
  * The size a crop of `width` × `height` source pixels is uploaded at, and how it's drawn. A crop
  * may be in fractions of a pixel (a tiny picture cut to a video's shape): it's rounded only at
- * the size it's uploaded at, so it keeps its shape.
+ * the size it's uploaded at, so it keeps its shape, and nudged back inside 1:3..3:1 if rounding
+ * took it just outside (a 1 × 1 photo cut for a 1:3 video: 333 × 1000 becomes 334 × 1000).
  */
 export function outputSize(
+  width: number,
+  height: number,
+): { width: number; height: number; smooth: boolean } {
+  const size = roundedSize(width, height);
+  if (size.height > size.width * MAX_ASPECT) {
+    size.width = Math.ceil(size.height / MAX_ASPECT);
+  } else if (size.width > size.height * MAX_ASPECT) {
+    size.height = Math.ceil(size.width / MAX_ASPECT);
+  }
+  return size;
+}
+
+function roundedSize(
   width: number,
   height: number,
 ): { width: number; height: number; smooth: boolean } {

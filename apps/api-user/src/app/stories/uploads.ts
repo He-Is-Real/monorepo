@@ -42,7 +42,9 @@ import { setVideoPicture } from './video-picture';
  *   its storyFile row (R12), whose event points the person's draft at it in the same write (D80):
  *   the browser never names a video, and the TUS link it gets binds only that video.
  * - One video per draft: a new file replaces the draft's video, and the old one is deleted at
- *   Bunny at once (nobody reviewed it). A resume signs the draft's own video again, only while
+ *   Bunny at once (nobody reviewed it). A new video's row also takes the story's thumbnail off in
+ *   the same write (storyFile_attach; thumbnail crop TC-9 B, Joel 2026-11-22), so the answer
+ *   means "and the thumbnail is gone"; its file is tidied up as a removed picture's is. A resume signs the draft's own video again, only while
  *   nothing has arrived for it, and only once its row's renewal commits: that counts as
  *   touching the draft, so housekeeping doesn't delete it as abandoned (D71).
  * - The TUS link bounds neither size nor type (D68), so the person's limits (D113, admin
@@ -331,7 +333,8 @@ export class Uploads {
       replaced = draft.videoId;
       return {
         status: 200,
-        // The row's event attaches the video; it's the story's only version step (D29).
+        // The row's event attaches the video (and, for a video, takes the thumbnail off: TC-9 B);
+        // it's the story's only version step (D29).
         statements: `LET $grant = (CREATE ONLY type::record('storyFile', $video) CONTENT {
             story: type::record('story', $id), person: $person, format: $format,
             contentType: $contentType, sizeBytes: $size, durationSeconds: $duration,

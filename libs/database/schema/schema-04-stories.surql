@@ -1424,7 +1424,8 @@ DEFINE FUNCTION OVERWRITE fn::upload::image_limits() {
 -- person's and editable at the version they saw, they must have agreed to the latest terms of use
 -- and testimony consent (plan 4e, Q2: an upload is the person's write, made for them), and the file
 -- must be within the limits; then the story points at it (D80), and story_files detaches the
--- file it replaces. The story's version steps once, to storyVersion + 1.
+-- file it replaces. A new video also takes the story's thumbnail off (TC-9 B). The story's
+-- version steps once, to storyVersion + 1.
 DEFINE EVENT OVERWRITE storyFile_attach ON storyFile
   WHEN $event = 'CREATE' AND $auth != NONE AND $after.renderOf = NONE THEN {
     fn::person::live($after.person);
@@ -1485,6 +1486,12 @@ DEFINE EVENT OVERWRITE storyFile_attach ON storyFile
     };
     IF $after.format = 'image' {
       UPDATE $after.story SET image = { file: $after.id } RETURN NONE;
+    } ELSE IF $after.format = 'video' {
+      -- A new video takes the story's thumbnail off in this same write (thumbnail crop TC-3 B,
+      -- TC-9 B; Joel 2026-11-22), so a video never keeps a picture cut for another one;
+      -- story_files detaches the old picture's row as it does a removed one. A resume makes no
+      -- row, so it keeps the picture.
+      UPDATE $after.story SET mediaFile = $after.id, image = NONE RETURN NONE;
     } ELSE {
       UPDATE $after.story SET mediaFile = $after.id RETURN NONE;
     };

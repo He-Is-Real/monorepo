@@ -79,11 +79,10 @@ const tooLarge = (size: number | null, maxBytes: number | null) =>
 
 /**
  * `uploading`: being prepared or sent now; `unfinished`: chosen or on the story, its file not
- * there; `cropping`: a video's thumbnail being cut, not yet used (nothing uploaded); `stale`: a
- * new video's old thumbnail that couldn't be taken off yet (TC-3 B), with "Try again".
+ * there; `cropping`: a video's thumbnail being cut, not yet used (nothing uploaded).
  */
 export type PictureState =
-  'none' | 'uploading' | 'unfinished' | 'cropping' | 'stale' | 'done';
+  'none' | 'uploading' | 'unfinished' | 'cropping' | 'done';
 
 /** The video a thumbnail is cut for (thumbnail crop TC-2, TC-3, TC-4; Joel 2026-11-21). */
 export interface ThumbnailVideo {
@@ -351,25 +350,7 @@ export function ImagePanel({
   const phaseRef = useRef<Phase>(phase);
   const onStateRef = useRef(onState);
   onStateRef.current = onState;
-  /**
-   * A new video's old thumbnail still to come off (TC-3 B): set until a removal or another
-   * thumbnail takes it off, and the step is held back meanwhile.
-   */
-  const [stale, setStaleState] = useState(false);
-  const staleRef = useRef(false);
-  const showsOld = (p: Phase) => p.at === 'done' || p.at === 'preview';
-  /** What the step is told: the phase's state, or `stale` while the old thumbnail is still on. */
-  const tell = () =>
-    onStateRef.current?.(
-      staleRef.current && showsOld(phaseRef.current)
-        ? 'stale'
-        : stateOf(phaseRef.current),
-    );
-  const setStale = (next: boolean) => {
-    staleRef.current = next;
-    setStaleState(next);
-    tell();
-  };
+  const tell = () => onStateRef.current?.(stateOf(phaseRef.current));
   /** The step hears of each phase as it's set, not a render later: its Continue checks it after waiting. */
   const setPhase = (next: Phase) => {
     phaseRef.current = next;
@@ -620,25 +601,31 @@ export function ImagePanel({
     await add(prepared, false);
   }
 
-  // A new video takes the thumbnail off, whatever its shape (TC-3 B), and says so; a crop not yet
-  // used is dropped (nothing of it was sent).
+  // A new video takes the thumbnail off, whatever its shape (TC-3 B), and says so. The database
+  // already took it off in the write that accepted the video (TC-9 B), so the panel only forgets
+  // it: no request. A crop not yet used is dropped (nothing of it was sent).
   const replaced = video?.replaced ?? 0;
   const seenReplaced = useRef(replaced);
   useEffect(() => {
     if (replaced === seenReplaced.current) return;
     seenReplaced.current = replaced;
+    const was = phaseRef.current;
+    const showed = attachedRef.current !== null || was.at !== 'idle';
+    begin();
     setCutFrom(null);
     tidy([]);
-    const was = phaseRef.current;
-    const under = was.at === 'cropping' ? was.before : was;
-    if (was.at === 'cropping') setPhase(under);
-    if (attachedRef.current || under.at === 'done' || under.at === 'preview') {
-      // Held until it's off: a failed removal keeps "Try again" and the step waits.
-      setStale(true);
-      void remove(TAKEN_OFF);
-    } else if (was.at === 'cropping') {
-      setNotice(TAKEN_OFF);
+    setProblem(null);
+    setPending(null);
+    if (fileInput.current) fileInput.current.value = '';
+    const id = current().draftId;
+    if (id) {
+      forgetAttempt(owner, 'image-request', id);
+      keepPictureName(owner, id, null);
     }
+    held.current = null;
+    setAttached(null);
+    setPhase({ at: 'idle' });
+    setNotice(showed ? TAKEN_OFF : null);
     // Only when the step says the video was replaced.
   }, [replaced]);
 
@@ -700,8 +687,6 @@ export function ImagePanel({
         });
       }
       setAttached(shown);
-      // The new thumbnail replaced the old one on the story.
-      if (staleRef.current) setStale(false);
       held.current = { picture, path: shown.path };
       const controller = new AbortController();
       sending.current = controller;
@@ -828,17 +813,15 @@ export function ImagePanel({
     }
   }
 
-  /** Takes the picture off; `why` is said instead of the usual line (a new video, TC-3 B). */
-  async function remove(why?: string) {
+  async function remove() {
     const gone = begin();
     setProblem(null);
     setNotice(null);
     setPending(null);
     if (fileInput.current) fileInput.current.value = '';
     const cleared = (notice: string) => {
-      setStale(false);
       setPhase({ at: 'idle' });
-      setNotice(why ?? notice);
+      setNotice(notice);
     };
     const removed =
       format === 'video'
@@ -1042,21 +1025,11 @@ export function ImagePanel({
       )}
       {shown && (
         <div className="flex flex-wrap gap-3">
-          {phase.at === 'preview' && !stale && (
+          {phase.at === 'preview' && (
             <button
               type="button"
               className={primary}
               onClick={() => void add(phase.picture, phase.granted)}
-            >
-              Try again
-            </button>
-          )}
-          {showsOld(phase) && stale && !pending && (
-            <button
-              type="button"
-              className={primary}
-              disabled={busy}
-              onClick={() => void remove(TAKEN_OFF)}
             >
               Try again
             </button>
@@ -1070,7 +1043,7 @@ export function ImagePanel({
               Replace with my {noun}
             </button>
           )}
-          {recrop && !pending && !waiting && !stale && (
+          {recrop && !pending && !waiting && (
             <button
               type="button"
               className={secondary}
@@ -1110,14 +1083,14 @@ export function ImagePanel({
           Uploading your {noun}…
         </p>
       )}
-      {phase.at === 'done' && !pending && !stale && phase.arrived && (
+      {phase.at === 'done' && !pending && phase.arrived && (
         <p className="text-sm font-semibold" role="status">
           <span aria-hidden="true">✓ </span>
           {noun[0].toUpperCase()}
           {noun.slice(1)} added. You can continue.
         </p>
       )}
-      {phase.at === 'done' && !pending && !stale && !phase.arrived && (
+      {phase.at === 'done' && !pending && !phase.arrived && (
         <p className="text-sm font-semibold" role="status">
           Your story has this {noun}, but it didn’t finish uploading. Choose it
           again, or remove it.

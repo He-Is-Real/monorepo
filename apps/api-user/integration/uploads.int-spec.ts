@@ -560,6 +560,60 @@ describe('video and audio uploads', () => {
     expect([done.status, done.body.code]).toEqual([409, 'nothing_to_resume']);
   });
 
+  it('a new video takes the thumbnail off in the same write and detaches its row; a resume keeps it (thumbnail crop TC-9 B)', async () => {
+    await person('tia');
+    const id = await draft('tia');
+    const first = (await upload('tia', id, 1)).body.headers.VideoId;
+    const thumb = await upload('tia', id, 2, {
+      format: 'image',
+      contentType: 'image/webp',
+      fileSizeBytes: 40_000,
+      width: 1280,
+      height: 720,
+      expectedImage: null,
+    });
+    expect(thumb.status).toBe(200);
+    const path = thumb.body.path as string;
+    const picture = async () => {
+      const [row] = await rows(
+        migrator,
+        `SELECT version, image, record::id(mediaFile) AS video,
+           (SELECT VALUE detachedAt FROM ONLY type::record('storyFile', $path)) AS detachedAt
+         FROM type::record('story', $id)`,
+        { id, path },
+      );
+      return row as {
+        version: number;
+        image?: unknown;
+        video: string;
+        detachedAt?: unknown;
+      };
+    };
+    expect(await picture()).toMatchObject({ version: 3, video: first });
+    expect((await picture()).detachedAt).toBeUndefined();
+
+    // Carrying on with the same video writes nothing: the thumbnail stays.
+    const resumed = await upload('tia', id, 3, { ...FILE, resume: true });
+    expect([resumed.status, resumed.body.version]).toEqual([200, 3]);
+    const kept = await picture();
+    expect(kept.image).toEqual({ file: expect.anything() });
+    expect(kept.detachedAt).toBeUndefined();
+
+    // A new video: one write, one version step, the video on and the thumbnail off together.
+    const next = await upload('tia', id, 3);
+    expect([next.status, next.body.version]).toEqual([200, 4]);
+    const after = await picture();
+    expect(after).toMatchObject({
+      version: 4,
+      video: next.body.headers.VideoId,
+    });
+    expect(after.image).toBeUndefined();
+    expect(after.detachedAt).toBeDefined();
+    expect(
+      (await call('GET', `/v1/account/stories/${id}`, 'tia')).body.image,
+    ).toBeNull();
+  });
+
   it('processing the draft’s video steps its version, so the owner’s conditional GET sees the new media state (Codex, #188 review)', async () => {
     await person('pru');
     const id = await draft('pru');

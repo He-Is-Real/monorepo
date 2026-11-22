@@ -277,7 +277,9 @@ their fence (see "Transactions").
     person's, editable, at `storyVersion` (`story_cmd:stale_version`), of that format
     (`upload_refused:`), the upload limits (`limit_upload_size|duration|hourly|weekly:`; a picture
     doesn't count towards the weekly limit) and, for a picture, that the story still shows
-    `expectedImage` (`image_changed:`). It then points the draft at the file. `story_files` refuses
+    `expectedImage` (`image_changed:`). It then points the draft at the file; a new video also
+    takes the story's picture off in the same write (thumbnail crop TC-9 B, Joel 2026-11-22), so
+    `story_files` detaches the old picture's row as for a removed one. `story_files` refuses
     a pointer to a row of another story, another kind or detached (`media_not_granted`) for every
     login, system users included (two stories sharing a row would have it hidden, detached and
     deleted through one while the other still shows it), and marks the replaced row `detachedAt`.
