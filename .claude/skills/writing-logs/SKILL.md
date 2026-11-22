@@ -25,9 +25,9 @@ success or failure. Stripe calls it a canonical log line; the blog calls it a wi
 ## Rules
 
 1. **One wide event per unit of work.** A request to a service, a Pub/Sub job, a worker job, a
-   scheduled run. Start it at the edge (NestJS interceptor/middleware, Next.js `proxy.ts`, the job
-   handler), pass it down, add fields as you learn things, emit it in a `finally`. Lines inside a
-   request or job are folded into its event (LG-2 C). Only three kinds of line stay on their own:
+   scheduled run. Start it at the edge (NestJS middleware, Next.js `proxy.ts`, the job handler),
+   pass it down, add fields as you learn things, emit it once when the work ends (response closed,
+   job `finally`). Lines inside a request or job are folded into its event (LG-2 C). Only three kinds of line stay on their own:
    start-up/settings, background work outside any request (health checks, queue state), and the
    **immediate** unexpected-error line with `stack_trace` (Error Reporting groups errors from it).
 2. **No breadcrumbs.** No `console.log`, no "got here", no "calling Bunny…" then "Bunny answered".
@@ -45,10 +45,12 @@ success or failure. Stripe calls it a canonical log line; the blog calls it a wi
 7. **One id end to end.** Every event carries `ref`: the request's UUID v7 (LG-1b A), made by the
    browser before it sends (or by the first service if no browser sent one), travelling as the W3C
    `traceparent` trace id (the same 128 bits without dashes), shown to people as their error
-   "Reference", and written as `logging.googleapis.com/trace` so Google groups our line with
-   Cloud Run's own request line. Jobs carry it as a Pub/Sub attribute.
-8. **We don't sample** (LG-6 recommendation: keep everything, 30 days). The blog's tail sampling
-   (keep all errors and slow requests, a few % of the rest) only matters at volumes far above ours.
+   "Reference". How it crosses services is **pending Joel (LG-4, recommended:** also write it as
+   `logging.googleapis.com/trace` so Google groups our line with Cloud Run's own request line, and
+   carry it to jobs as a Pub/Sub attribute**)**.
+8. **Sampling: pending Joel (LG-6, recommended:** no sampling, keep everything for 30 days**).** The
+   blog's tail sampling (keep all errors and slow requests, a few % of the rest) only matters at
+   volumes far above ours. Until LG-6 is answered, don't add sampling.
 9. **A failed log send must never fail, slow or change the request.** Write to stdout first; send to
    Axiom after the response, without awaiting it on the request path; swallow and count send
    errors. Logging code never throws into business code.
@@ -94,8 +96,7 @@ this.logger.log(`Submitting story ${dto.title} for ${user.email}`);
 const res = await this.db.query('fn::submit_story($id)', { id });
 this.logger.log('Story submitted');
 
-// Good: the request's event (started by the shared interceptor) gains facts as they happen.
-// `event` is the wide event for this request; the interceptor emits it once, in a finally.
+// Good: the request's event (started by the shared middleware) gains facts as they happen.
 event.set({ action: 'story.submit', story: { id, type: dto.type } });
 event.set({
   story: { title_hash: hmac(dto.title), body_length: dto.body.length },
@@ -106,31 +107,34 @@ const res = await event.timeDb('fn::submit_story', () =>
 event.set({ outcome: 'ok' });
 ```
 
-The interceptor (sketch; the helper in `libs/logging` is part of the logging build and may not
-exist yet):
+Where the event starts and ends (sketch; the `libs/logging` helper is part of the logging build
+and may not exist yet). NestJS runs middleware, then guards, then interceptors, so the event
+must start in **middleware**: a guard refusal never reaches an interceptor, and an
+interceptor-only event would miss it.
 
 ```ts
-intercept(ctx: ExecutionContext, next: CallHandler) {
-  const event = startEvent(ctx); // ref from traceparent, service, http.method, http.route
-  return next.handle().pipe(
-    catchError((err) => {
-      event.fail(err); // outcome, error.type/code/retriable; the immediate error line goes out here
-      throw err;
-    }),
-    finalize(() => event.finish()), // http.status_code, duration_ms; write once; never throws
-  );
+// Middleware: runs first. Start the event; write it once when the response is done.
+use(req: Request, res: Response, next: NextFunction) {
+  req.event = startEvent(req); // ref from traceparent, service, http.method
+  res.on('close', () => req.event.finish(res.statusCode)); // also on aborted requests; never throws
+  next();
 }
+// Guards, interceptors and the exception filter only add to req.event:
+//   guard        event.set({ user: { id, role } }); a refusal throws, and the filter records it
+//   interceptor  event.set({ http: { route } }) from the handler's route
+//   filter       event.fail(err): outcome ('refused' or 'error'), error.type/code/retriable;
+//                an unexpected error also writes the immediate error line here
 ```
 
 ## Reading logs
 
 - **Axiom** (LG-3: free plan, US, Joel's account) holds the wide events; agents use Axiom's MCP.
-  Search by `ref`, `user.id`, `story.id`, `action`, `outcome`; group by route/outcome for stats,
-  never list people in a stat.
+  Search by `ref`, `user.id`, `story.id`, `action`, `outcome`. What stats we keep and where is
+  **pending Joel (LG-8)**; meanwhile group by route/outcome and never list people in a stat.
 - **Google Cloud Logging, London, 30 days** holds the same lines plus Cloud Run's own request line
   (status, latency, IP, browser): `gcloud logging read 'jsonPayload.ref="<ref>"' --project
 heisreal-dev --freshness=1d --format=json`, then `trace="projects/heisreal-dev/traces/<ref
-without dashes>"` for Cloud Run's line.
+without dashes>"` for Cloud Run's line (once the LG-4 trace field is in).
 - A reference with no lines means the request never reached us (or a browser-side crash); its
   UUID v7 still tells you the millisecond it was made.
 
