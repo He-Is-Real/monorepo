@@ -117,7 +117,7 @@ test('200% text: /admin/limits with its save bar and confirmation fits on the sm
   const group = page.getByLabel('Group', { exact: true });
   await chooseOption(group, 'Video and audio');
   await page.getByLabel('Largest video file').fill('10240');
-  await chooseOption(group, 'How often');
+  await chooseOption(group, 'Rate limit');
   const uploads = page.getByLabel('Upload attempts one person can start');
   await uploads.fill('10000');
   await expect(bar).toContainText('3 changes not saved yet');
