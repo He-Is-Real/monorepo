@@ -25,19 +25,22 @@ const eslint = new ESLint({
   ],
 });
 
-async function rules(code) {
+/** The library's rules that fail on `code` (only `rule`, when given). */
+async function ruleHits(code, rule) {
   const [result] = await eslint.lintText(code, {
     filePath: `${cwd}/src/app/probe/page.tsx`,
   });
   return result.messages
     .map((m) => m.ruleId)
-    .filter((id) => id?.startsWith('@heisreal/web-ui/'));
+    .filter((id) => id?.startsWith('@heisreal/web-ui/'))
+    .filter((id) => rule === undefined || id === `@heisreal/web-ui/${rule}`);
 }
 
 const page = (className) =>
   `export default function P() { return <p className=${className}>x</p>; }`;
 
 describe('no-raw-colour', () => {
+  const rules = (code) => ruleHits(code, 'no-raw-colour');
   for (const [what, cls] of [
     ['a palette class', '"text-red-600"'],
     [
@@ -178,11 +181,47 @@ describe('no-raw-colour', () => {
 });
 
 describe('field-look', () => {
+  const rules = (code) => ruleHits(code, 'field-look');
   it('fails on a copied field look', async () =>
     assert.deepEqual(
       await rules(
         page('"h-11 border-input bg-input-background focus-visible:ring-2"'),
       ),
       ['@heisreal/web-ui/field-look'],
+    ));
+});
+
+describe('no-text-look', () => {
+  const rules = (code) => ruleHits(code, 'no-text-look');
+  for (const [what, cls] of [
+    ['a text size', '"mb-2 text-sm"'],
+    ['an arbitrary size with a variant', '"sm:text-[1.75rem]"'],
+    ['a text colour', '"text-secondary-text"'],
+    ['a weight', '"font-semibold"'],
+    ['a line height', '"leading-relaxed"'],
+    ['letter spacing', '"tracking-[0.2em]"'],
+    ['capitals', '"uppercase"'],
+    ['italics in a selector variant', '"[&_p]:italic"'],
+    ['a size from a variable', '"text-(length:--card-font)"'],
+    ['a constant', "{'block text-xs'}"],
+    ['a template literal', '{`p-2 ${"x"} font-medium`}'],
+  ])
+    it(`fails on ${what}`, async () =>
+      assert.deepEqual(await rules(page(cls)), [
+        '@heisreal/web-ui/no-text-look',
+      ]));
+
+  for (const [what, cls] of [
+    ['layout only', '"mx-auto mt-3 max-w-measure text-center text-balance"'],
+    ['a sentence that names a look', '"Use italic sparingly."'],
+    ['a single word of text', '"Bold"'],
+    ['wrapping and clamps', '"line-clamp-2 truncate text-pretty"'],
+  ])
+    it(`passes ${what}`, async () => assert.deepEqual(await rules(page(cls)), []));
+
+  it('passes a link to an id', async () =>
+    assert.deepEqual(
+      await rules(`export const P = () => <a href="italic">x</a>;`),
+      [],
     ));
 });

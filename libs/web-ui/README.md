@@ -71,7 +71,7 @@ means. Pages use only these names, as Tailwind classes (`bg-danger`, `text-dange
 | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `background`, `foreground`             | The page and its text.                                                                                                  |
 | `raised`, `card`, `surface`, `popover` | Surfaces above the page: raised strips, bordered panels, filled areas, pop-up menus.                                    |
-| `secondary-text`, `muted-foreground`   | Quieter text (hints, captions).                                                                                         |
+| `secondary-text`                       | Quieter text (hints, captions, dates, card text): one grey (TX-1 A). Pages use `Text tone="quiet"`.                    |
 | `faint`                                | The quietest: large text, placeholders and icons only.                                                                  |
 | `link`, `link-hover`                   | Links.                                                                                                                  |
 | `primary`, `primary-foreground`        | The main action (filled buttons) and its text.                                                                          |

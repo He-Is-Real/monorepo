@@ -1,7 +1,9 @@
+import { Heading, Text } from '@heisreal/web-ui';
+
 /**
  * A page's opening: optional eyebrow, the page's one h1 and a short lead, centred (the
- * mockups' `.section-header.centered`). The eyebrow uses the link colour: brand teal is
- * decoration only on light (decision 19).
+ * mockups' `.section-header.centered`), on the library's text pieces: the eyebrow, the page
+ * title (TX-2 A) and the intro (TX-4 A).
  */
 export function PageHeader({
   eyebrow,
@@ -15,17 +17,15 @@ export function PageHeader({
   return (
     <header className="mb-10 text-center sm:mb-14">
       {eyebrow && (
-        <p className="mb-3 text-sm font-semibold tracking-[0.2em] text-link uppercase">
+        <Heading as="p" size="eyebrow" className="mb-3">
           {eyebrow}
-        </p>
+        </Heading>
       )}
-      <h1 className="text-[2rem] leading-tight font-normal text-balance sm:text-[2.75rem]">
-        {title}
-      </h1>
+      <Heading level={1}>{title}</Heading>
       {lead && (
-        <p className="mx-auto mt-3 max-w-[34rem] text-[1.0625rem] text-secondary-text">
+        <Text size="intro" tone="quiet" className="mx-auto mt-3 max-w-[34rem]">
           {lead}
-        </p>
+        </Text>
       )}
     </header>
   );

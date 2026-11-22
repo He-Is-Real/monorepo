@@ -12,7 +12,12 @@
 //   colour, or a Tailwind palette class (`red-600`, `bg-white`, `text-amber-500`) in a page fails.
 //   A colour a third party sets (a brand logo) is allowed with an eslint-disable comment that
 //   says so.
-// Both read every string and template literal, so class names built in constants count too.
+// - `no-text-look` (TX-7 A, Joel, 21 November 2026): text looks are the library's `Heading`,
+//   `Text`, `Quote` and `TextLink`. A text colour, size, weight, line height, letter spacing,
+//   capitals or italics class in a page fails. Only strings that read as class lists count (every
+//   word class-like), so ordinary words in sentences never do. A page that truly needs its own
+//   look (the styling order's last step) wraps it in an eslint-disable comment that says why.
+// They read every string and template literal, so class names built in constants count too.
 
 /** Whole class names only, in any order: one look-ahead each. */
 const has = (name, whole = true) =>
@@ -298,6 +303,36 @@ export function rawColour(text, key) {
   return null;
 }
 
+/** `text-*` utilities that place or wrap text rather than style it: layout, allowed. */
+const TEXT_LAYOUT =
+  /^text-(?:left|right|center|justify|start|end|balance|pretty|wrap|nowrap|ellipsis|clip)$/;
+/** A text look, after its variants (`sm:`, `hover:`, `group-open:`) and `!`. */
+const TEXT_LOOK =
+  /^(?:text-.+|font-(?:thin|extralight|light|normal|medium|semibold|bold|extrabold|black|mono|serif|sans|\[.+\]|\(.+\))|leading-.+|tracking-.+|uppercase|lowercase|capitalize|normal-case|italic|not-italic)$/;
+/** One word as a Tailwind class could be written: no capitals, no sentence punctuation. */
+const CLASS_LIKE = /^[a-z0-9!@:\-[\]()/&_.%,#'*>=+~]+$/;
+
+/** The first text-look class in a class list, or null (null too for text that isn't one). */
+export function textLook(text) {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length === 0 || !words.every((w) => CLASS_LIKE.test(w))) return null;
+  for (const word of words) {
+    // Variants end at the last `:` outside brackets: `sm:text-lg`, `[&_p]:italic`.
+    let depth = 0;
+    let cut = 0;
+    for (let i = 0; i < word.length; i++) {
+      const c = word[i];
+      if (c === '[' || c === '(') depth++;
+      else if (c === ']' || c === ')') depth--;
+      else if (c === ':' && depth === 0) cut = i + 1;
+    }
+    const base = word.slice(cut).replace(/^!|!$/g, '');
+    if (TEXT_LAYOUT.test(base)) continue;
+    if (TEXT_LOOK.test(base)) return word;
+  }
+  return null;
+}
+
 /** The attribute or object key a string is the value of (`href="…"`, `{ color: '…' }`). */
 function keyOf(node) {
   let n = node.type === 'TemplateElement' ? node.parent : node;
@@ -347,6 +382,33 @@ const plugin = {
             context.report({ node, messageId: 'copy' });
         }),
     },
+    'no-text-look': {
+      meta: {
+        type: 'problem',
+        docs: {
+          description:
+            'Text looks are Heading, Text, Quote and TextLink from @heisreal/web-ui.',
+        },
+        schema: [],
+        messages: {
+          look: 'Use Heading, Text, Quote or TextLink from @heisreal/web-ui instead of the text look `{{word}}` (libs/web-ui/README.md, "Styling order").',
+        },
+      },
+      create: (context) =>
+        strings((text, node) => {
+          if (
+            node.parent?.type === 'ImportDeclaration' ||
+            node.parent?.type === 'ImportExpression' ||
+            node.parent?.type === 'ExportNamedDeclaration' ||
+            node.parent?.type === 'ExportAllDeclaration'
+          )
+            return;
+          const key = keyOf(node);
+          if (key !== undefined && NOT_A_COLOUR_KEY.test(key)) return;
+          const word = textLook(text);
+          if (word) context.report({ node, messageId: 'look', data: { word } });
+        }),
+    },
     'no-raw-colour': {
       meta: {
         type: 'problem',
@@ -386,7 +448,7 @@ const NOT_PAGES = [
 ];
 
 plugin.configs = {
-  /** A website's pages: both checks. */
+  /** A website's pages: all three checks. */
   pages: [
     {
       files: ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx', '**/*.mjs'],
@@ -395,6 +457,7 @@ plugin.configs = {
       rules: {
         '@heisreal/web-ui/field-look': 'error',
         '@heisreal/web-ui/no-raw-colour': 'error',
+        '@heisreal/web-ui/no-text-look': 'error',
       },
     },
   ],
