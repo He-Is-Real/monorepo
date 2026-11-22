@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { CLERK_CONFIG, parseClerkConfig } from '@heisreal/auth';
@@ -36,13 +37,24 @@ describe('the block list (api-admin)', () => {
   const admin = () => as('user_admin', 'Admin');
 
   async function call(
-    method: 'GET' | 'PUT' | 'DELETE',
+    method: 'GET' | 'PUT' | 'PATCH' | 'DELETE',
     path: string,
     who: Record<string, string> = admin(),
+    body?: unknown,
   ) {
     const res = await fetch(`${url}/v1/admin/block-list${path}`, {
       method,
-      headers: who,
+      headers:
+        body === undefined
+          ? who
+          : {
+              ...who,
+              'content-type':
+                method === 'PATCH'
+                  ? 'application/merge-patch+json'
+                  : 'application/json',
+            },
+      body: body === undefined ? undefined : JSON.stringify(body),
     });
     expect(await contract.check(method, res), `${method} ${path}`).toEqual([]);
     const text = await res.text();
@@ -70,7 +82,11 @@ describe('the block list (api-admin)', () => {
       database: t.database,
     });
     migrator = await t.migrator();
-    await createPeople(t, { admin: 'user_admin', moderator: 'user_mod' });
+    await createPeople(t, {
+      admin: 'user_admin',
+      other: 'user_other',
+      moderator: 'user_mod',
+    });
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(SURREAL)
       .useValue(await t.service('api_admin'))
@@ -120,6 +136,7 @@ describe('the block list (api-admin)', () => {
         email: 'spammer@example.com',
         addedBy: 'admin@heisreal.today',
         addedAt: expect.any(String),
+        note: null,
       },
     ]);
     expect(
@@ -165,6 +182,155 @@ describe('the block list (api-admin)', () => {
     expect(await stored()).toEqual({ emails: [], ips: [] });
   });
 
+  it('keeps an optional note: given when blocking, changed by any Admin, never over 500 characters', async () => {
+    const email = `/emails/${encodeURIComponent('spam@example.com')}`;
+    expect(
+      (
+        await call('PUT', email, admin(), {
+          note: '  Advert stories, 20 Nov.  ',
+        })
+      ).status,
+    ).toBe(200);
+    // Blocking again keeps the first note.
+    await call('PUT', email, admin(), { note: 'Something else' });
+    expect(
+      (await call('PUT', '/ips/203.0.113.7', admin(), { note: '   ' })).status,
+    ).toBe(200);
+    const notes = async () => {
+      const { body } = await call('GET', '');
+      return [
+        ...body.emails.map((e: { note: string | null }) => e.note),
+        ...body.ips.map((e: { note: string | null }) => e.note),
+      ];
+    };
+    expect(await notes()).toEqual(['Advert stories, 20 Nov.', null]);
+
+    // Another Admin fills in and changes notes later; a blank one clears it.
+    const other = as('user_other', 'Admin');
+    expect(
+      await call('PATCH', '/ips/203.0.113.7', other, { note: 'Same sender' }),
+    ).toEqual({ status: 200, body: { id: '203.0.113.7', version: null } });
+    expect((await call('PATCH', email, other, { note: '' })).status).toBe(200);
+    expect(await notes()).toEqual([null, 'Same sender']);
+
+    const tooLong = await call('PATCH', email, admin(), {
+      note: 'x'.repeat(501),
+    });
+    expect([tooLong.status, tooLong.body.errors?.[0]?.pointer]).toEqual([
+      400,
+      '/note',
+    ]);
+    expect(
+      (
+        await call('PUT', '/emails/new%40example.com', admin(), {
+          note: 'x'.repeat(501),
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await call('PATCH', '/emails/nobody%40example.com', admin(), {
+          note: 'x',
+        })
+      ).status,
+    ).toBe(404);
+    expect(await stored()).toEqual({
+      emails: ['spam@example.com'],
+      ips: ['203.0.113.7'],
+    });
+  });
+
+  it('trims a note as the database does, and refuses one it would refuse with a plain 400', async () => {
+    const errors = vi.spyOn(Logger.prototype, 'error');
+    const email = `/emails/${encodeURIComponent('spam@example.com')}`;
+    // U+0085 is a space to the database (Unicode White_Space) though JavaScript's trim() keeps it.
+    expect(
+      (
+        await call('PUT', email, admin(), {
+          note: '\u0085Private reason\u0085',
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await call('PATCH', '/ips/203.0.113.7', admin(), {
+          note: '\u0085x',
+        })
+      ).status,
+    ).toBe(404);
+    await call('PUT', '/ips/203.0.113.7');
+    expect(
+      (
+        await call('PATCH', '/ips/203.0.113.7', admin(), {
+          note: '\u0085Same\u2028',
+        })
+      ).status,
+    ).toBe(200);
+    // 500 emoji are 500 characters (1,000 UTF-16 units); 501 are too many, refused before the database.
+    expect(
+      (await call('PATCH', email, admin(), { note: '🙂'.repeat(500) })).status,
+    ).toBe(200);
+    const long = await call('PATCH', '/ips/203.0.113.7', admin(), {
+      note: '\u0085' + '🙂'.repeat(501),
+    });
+    expect([long.status, long.body.errors?.[0]?.pointer]).toEqual([
+      400,
+      '/note',
+    ]);
+    const { body } = await call('GET', '');
+    expect([body.emails[0].note, body.ips[0].note]).toEqual([
+      '🙂'.repeat(500),
+      'Same',
+    ]);
+    expect(JSON.stringify(long.body)).not.toContain('spam');
+    expect(errors).not.toHaveBeenCalled();
+    errors.mockRestore();
+  });
+
+  it('changes a note by JSON Merge Patch: an omitted note stays, a missing or odd body is refused', async () => {
+    const email = `/emails/${encodeURIComponent('spam@example.com')}`;
+    await call('PUT', email, admin(), { note: 'Advert stories' });
+    const note = async () => (await call('GET', '')).body.emails[0].note;
+
+    // `{}` changes nothing.
+    expect(await call('PATCH', email, admin(), {})).toEqual({
+      status: 200,
+      body: { id: 'spam@example.com', version: null },
+    });
+    expect(await note()).toBe('Advert stories');
+    expect(
+      (await call('PATCH', '/emails/nobody%40example.com', admin(), {})).status,
+    ).toBe(404);
+
+    // No body, a body that isn't an object, or anything besides `note`: 400, nothing changed.
+    expect((await call('PATCH', email, admin())).status).toBe(400);
+    for (const bad of [
+      null,
+      [],
+      'x',
+      { unexpected: 'x' },
+      { note: 'x', other: 1 },
+      { note: 5 },
+    ]) {
+      const res = await call('PATCH', email, admin(), bad);
+      expect(res.status, JSON.stringify(bad)).toBe(400);
+    }
+    expect(
+      (
+        await call('PUT', '/emails/new%40example.com', admin(), {
+          unexpected: 'x',
+        })
+      ).status,
+    ).toBe(400);
+    expect(await note()).toBe('Advert stories');
+
+    // `null` clears it.
+    expect((await call('PATCH', email, admin(), { note: null })).status).toBe(
+      200,
+    );
+    expect(await note()).toBe(null);
+  });
+
   it('is for Admins only: a Moderator or a User is refused on every route, changing nothing', async () => {
     await blockEmail('spammer@example.com');
     for (const who of [as('user_mod', 'Moderator'), as('user_mod', 'User')]) {
@@ -172,6 +338,9 @@ describe('the block list (api-admin)', () => {
         await call('GET', '', who),
         await blockEmail('other@example.com', who),
         await blockIp('203.0.113.9', who),
+        await call('PATCH', '/emails/spammer%40example.com', who, {
+          note: 'x',
+        }),
         await call('DELETE', '/emails/spammer%40example.com', who),
         await call('DELETE', '/ips/203.0.113.9', who),
       ]) {

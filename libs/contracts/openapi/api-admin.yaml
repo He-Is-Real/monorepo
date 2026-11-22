@@ -782,7 +782,8 @@ paths:
         added it (their email) and when. A blocked email can't create an account or send a story; a
         blocked IP address can't send a story (api-user enforces both, `403 blocked`); reading the site
         is never blocked. Entries stay until an Admin removes them, even after the person deletes their
-        account. No reason text is kept.
+        account. Each entry has an optional `note` on why it is blocked (BN-1 to BN-6, Joel 2026-11-22),
+        which only Admins see; `null` shows as "No note yet".
       x-required-role: Admin
       x-milestone: M3
       responses:
@@ -822,10 +823,18 @@ paths:
         Admin removes it. Someone who already has an account keeps it (and can still read, edit and
         delete their own things), but can't send a story. An Admin can block a story's sender from its
         moderation view (`senderEmail`, EM-2), which calls this route. Adding an email already on the list changes
-        nothing (it keeps who added it first). No `If-Match` (nothing to change on an entry); `version`
-        is `null`. `400` for something that isn't an email address.
+        nothing (it keeps who added it first, and its note). The body's optional `note` says why it is
+        blocked (BN-2, Joel 2026-11-22); the moderation view starts it with the story's title and date
+        (BN-7). No `If-Match` (an entry has no version); `version` is `null`. `400` for something that
+        isn't an email address, or a note over 500 characters.
       x-required-role: Admin
       x-milestone: M3
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: './components.yaml#/components/schemas/BlockNote'
       responses:
         '200':
           description: The email is on the block list.
@@ -839,6 +848,43 @@ paths:
           $ref: './components.yaml#/components/responses/Unauthorized'
         '403':
           $ref: './components.yaml#/components/responses/Forbidden'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+    patch:
+      tags: [BlockList]
+      operationId: changeEmailNote
+      summary: Change a blocked email's note
+      description: |
+        Command `ChangeEmailNote` (BN-4 A, Joel 2026-11-22): any Admin sets or clears the entry's note
+        (a blank or `null` note clears it, shown as "No note yet"). Only the note changes: the value, the
+        Admin who added it and when stay. No `If-Match` (an entry has no version; the later save wins)
+        and no record of who changed it (Joel: not useful). `version` is `null`. `404` if it isn't on
+        the list; `400` for a note over 500 characters.
+      x-required-role: Admin
+      x-milestone: M3
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: './components.yaml#/components/schemas/BlockNote'
+      responses:
+        '200':
+          description: The note is saved.
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/CommandResult'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
         '503':
           $ref: './components.yaml#/components/responses/ServiceRestarting'
         '5XX':
@@ -884,10 +930,18 @@ paths:
         removes it (reading and accounts aren't affected). An Admin finds a recent sender's address on
         the story's moderation view (`senderIp`, kept 30 days), with a Block button there that calls
         this route (EM-2). Adding an address already on the list
-        changes nothing. `version` is `null`. `400` for something that isn't an IP address. The answer's
-        `id` is the address as stored.
+        changes nothing (it keeps its first adder and note). The body's optional `note` says why it is
+        blocked (BN-2, Joel 2026-11-22; BN-7 from the moderation view). `version` is `null`. `400` for
+        something that isn't an IP address, or a note over 500 characters. The answer's `id` is the
+        address as stored.
       x-required-role: Admin
       x-milestone: M3
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: './components.yaml#/components/schemas/BlockNote'
       responses:
         '200':
           description: The address is on the block list.
@@ -901,6 +955,43 @@ paths:
           $ref: './components.yaml#/components/responses/Unauthorized'
         '403':
           $ref: './components.yaml#/components/responses/Forbidden'
+        '503':
+          $ref: './components.yaml#/components/responses/ServiceRestarting'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
+    patch:
+      tags: [BlockList]
+      operationId: changeIpNote
+      summary: Change a blocked IP address's note
+      description: |
+        Command `ChangeIpNote` (BN-4 A, Joel 2026-11-22): any Admin sets or clears the entry's note
+        (a blank or `null` note clears it, shown as "No note yet"). Only the note changes: the value, the
+        Admin who added it and when stay. No `If-Match` (an entry has no version; the later save wins)
+        and no record of who changed it (Joel: not useful). `version` is `null`. `404` if it isn't on
+        the list; `400` for a note over 500 characters.
+      x-required-role: Admin
+      x-milestone: M3
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: './components.yaml#/components/schemas/BlockNote'
+      responses:
+        '200':
+          description: The note is saved.
+          content:
+            application/json:
+              schema:
+                $ref: './components.yaml#/components/schemas/CommandResult'
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './components.yaml#/components/responses/NotFound'
         '503':
           $ref: './components.yaml#/components/responses/ServiceRestarting'
         '5XX':

@@ -150,6 +150,9 @@ short-lived upload credentials.
   - `PUT`/`DELETE /v1/account/favourites/{storyId}` and `/v1/account/helped/{storyId}`: unversioned
     relationships that either exist or don't. The methods are idempotent, and repeating one gives the
     same result, so there is no lost update to prevent.
+  - `PATCH /v1/admin/block-list/emails/{email}` and `/ips/{ip}` (a block-list entry's note; BN-4 A,
+    Joel 2026-11-22): an entry has no version, so the later save wins, and nothing records who
+    changed it. `version` is `null`.
 - **`Idempotency-Key` is required on non-idempotent `POST`s:** create draft, submit, request an
   upload (its file row counts against the person's upload limits), concerns, and donations later. The `idempotencyKey` table stores key + user +
   request hash + the `{ id, version }` response for 24 hours (pruned nightly). A retry with the same

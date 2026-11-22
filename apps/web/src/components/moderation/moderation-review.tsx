@@ -10,6 +10,12 @@ import {
   useState,
 } from 'react';
 import { AdminAccess, useRole } from '@/components/admin/admin-access';
+import {
+  BLOCK_NOTE_MAX,
+  BlockNoteField,
+  blockNoteBody,
+  blockNoteTooLong,
+} from '@/components/admin/admin-block-list';
 import { StoryArticle } from '@/components/stories/story-view';
 import {
   Button,
@@ -345,6 +351,7 @@ function Sender({
   client: ApiUser;
 }) {
   if (!story.senderEmail && !story.senderIp) return null;
+  const startNote = blockNoteStart(story);
   return (
     <Card
       className="mx-auto mb-6 max-w-measure space-y-3 p-4 [overflow-wrap:anywhere]"
@@ -355,6 +362,7 @@ function Sender({
           kind="emails"
           value={story.senderEmail}
           blocked={story.senderEmailBlocked === true}
+          startNote={startNote}
           client={client}
         >
           Sent with email <span className="font-mono">{story.senderEmail}</span>
@@ -366,6 +374,7 @@ function Sender({
           kind="ips"
           value={story.senderIp}
           blocked={story.senderIpBlocked === true}
+          startNote={startNote}
           client={client}
         >
           Sent from IP address{' '}
@@ -377,17 +386,42 @@ function Sender({
   );
 }
 
-/** One of the sender's details with its inline Block: Block, then a short confirm, then "Blocked". */
+/**
+ * BN-7 A (Joel 2026-11-22): a block note starts with the story's title and the day it was sent,
+ * e.g. `Story "Buy cheap…" (sent 20 Nov 2026): `, for the Admin to add why (or clear).
+ */
+function blockNoteStart(story: ModerationStory): string {
+  const sent = story.submittedAt
+    ? ` (sent ${new Date(story.submittedAt).toLocaleDateString('en-GB', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      })})`
+    : '';
+  // Capped so the start alone fits a note (BN-2): a long title is shortened with "…".
+  const room = BLOCK_NOTE_MAX - [...`Story ""${sent}: `].length;
+  const chars = [...story.title];
+  const title =
+    chars.length > room ? `${chars.slice(0, room - 1).join('')}…` : story.title;
+  return `Story "${title}"${sent}: `;
+}
+
+/**
+ * One of the sender's details with its inline Block: Block, then a short confirm with the note
+ * box (BN-7 A, started with `startNote`), then "Blocked".
+ */
 function SenderLine({
   kind,
   value,
   blocked: blockedAtLoad,
+  startNote,
   client,
   children,
 }: {
   kind: 'emails' | 'ips';
   value: string;
   blocked: boolean;
+  startNote: string;
   client: ApiUser;
   children: ReactNode;
 }) {
@@ -395,17 +429,24 @@ function SenderLine({
     blockedAtLoad ? 'done' : 'idle',
   );
   const [error, setError] = useState<string | null>(null);
-  const confirmRef = useRef<HTMLParagraphElement>(null);
+  const [note, setNote] = useState(startNote);
+  const noteRef = useRef<HTMLTextAreaElement>(null);
+  const open = step === 'confirm' || step === 'busy';
+  // Opening the confirm moves to the note box, with the cursor after the story's title and date.
   useEffect(() => {
-    if (step === 'confirm') confirmRef.current?.focus();
-  }, [step]);
+    const box = noteRef.current;
+    if (!open || !box) return;
+    box.focus();
+    box.setSelectionRange(box.value.length, box.value.length);
+  }, [open]);
   const block = async () => {
+    if (blockNoteTooLong(note)) return;
     setStep('busy');
     setError(null);
     try {
       await client.command(
         `/v1/admin/block-list/${kind}/${encodeURIComponent(value)}`,
-        { method: 'PUT' },
+        { method: 'PUT', body: blockNoteBody(note) },
       );
       setStep('done');
     } catch (err) {
@@ -432,10 +473,17 @@ function SenderLine({
         </Button>
       ) : (
         <div className="mt-2" role="group" aria-label={`Block ${value}`}>
-          <p ref={confirmRef} tabIndex={-1} className="mb-2 outline-none">
+          <p className="mb-2">
             Block <span className="font-mono">{value}</span>? It stays until an
             Admin removes it.
           </p>
+          <div className="mb-3">
+            <BlockNoteField
+              value={note}
+              onChange={setNote}
+              textareaRef={noteRef}
+            />
+          </div>
           {error && (
             <p role="alert" className="mb-2 text-danger-text">
               {error}
@@ -456,6 +504,7 @@ function SenderLine({
               disabled={step === 'busy'}
               onClick={() => {
                 setError(null);
+                setNote(startNote);
                 setStep('idle');
               }}
             >

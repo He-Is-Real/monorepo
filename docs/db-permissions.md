@@ -107,11 +107,14 @@ their fence (see "Transactions").
   lower-case (`blockedEmail:⟨spam@example.com⟩`; `blockedIp:⟨203.0.113.7⟩`, IPv6 in its short
   form as api-admin writes it, `canonicalIp` in `libs/http`); `email` / `ip` (the same; a valid
   email, `string::is_email`, or IP address, `string::is_ip`), `addedBy` (the adding Admin's email
-  from their token; required from any session, NONE only from a system user), `addedAt`. api-admin's
-  login reads, creates and deletes (it checks the caller is an Admin); nobody updates (remove and
-  add again). **api-user may read one row it names:** the rule is `email = $blockCheck` /
+  from their token; required from any session, NONE only from a system user), `addedAt`, `note`
+  (optional, why it is blocked: trimmed, 1–500 characters, or NONE; BN-2, Joel 2026-11-22).
+  api-admin's login reads, creates, deletes and updates (it checks the caller is an Admin); an update
+  can change only `note` (the value, `addedBy` and `addedAt` are read-only; BN-4 A, no record of who
+  edited it). `note` has its own field permission: only api-admin reads or writes it. **api-user may read one row it names:** the rule is `email = $blockCheck` /
   `ip = $blockCheck`, the query's own parameter, so api-user can ask whether one email or address
-  is blocked (at a person's first call and when a story is sent) but can't list the block list.
+  is blocked (at a person's first call and when a story is sent) but can't list the block list, and
+  never sees a note.
   No other service or person reads either table. Not linked to `user`, kept after erasure on
   purpose (a block is permanent until an Admin removes it). Specs: `block-list`, api-admin's
   `block-list`, api-user's `account` and `stories`.

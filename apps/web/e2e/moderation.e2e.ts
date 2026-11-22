@@ -1124,6 +1124,13 @@ test.describe('moderation', () => {
     await email.getByRole('button', { name: 'Cancel' }).click();
     await expect(email.locator('[data-sender-blocked]')).toHaveCount(0);
     await email.getByRole('button', { name: 'Block' }).click();
+    // The note box starts with the story's title and when it was sent (BN-7 A); the Admin adds why.
+    const note = email.getByLabel('Why is it blocked?');
+    await expect(note).toBeFocused();
+    await expect(note).toHaveValue(
+      /^Story "The night I stopped running" \(sent \d{1,2} \w{3,4} \d{4}\): $/,
+    );
+    await page.keyboard.type('Advert spam.');
     await email.getByRole('button', { name: 'Block' }).click();
     await expect(email.locator('[data-sender-blocked]')).toHaveText('Blocked');
     await expect(page).toHaveURL(/\/moderation\/mod_video$/);
@@ -1133,7 +1140,11 @@ test.describe('moderation', () => {
     await page.reload();
     await expect(email.locator('[data-sender-blocked]')).toHaveText('Blocked');
     await page.goto(`${WEB_SIGNED_IN_URL}/admin/block-list`);
-    await expect(page.locator('main')).toContainText('robin.test@example.com');
+    await expect(
+      page.locator('[data-blocked="robin.test@example.com"] [data-block-note]'),
+    ).toHaveText(
+      /^Story "The night I stopped running" \(sent .+\): Advert spam\.$/,
+    );
 
     // A story whose address is past 30 days shows only its email, here already blocked.
     await page.goto(`${WEB_SIGNED_IN_URL}/moderation/mod_written`);
