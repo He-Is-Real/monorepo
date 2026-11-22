@@ -154,10 +154,14 @@ erasure with internal ids only (`Erased user:<id> (<reason>); N deletion(s) queu
 the text is in `jsonPayload.message`). Find those since the backup's time:
 
 ```bash
-gcloud logging read 'resource.labels.service_name="api-user" AND jsonPayload.message:"Erased user:"
+gcloud logging read 'resource.labels.service_name="api-user"
+  AND (jsonPayload.message:"Erased user:" OR textPayload:"Erased user:")
   AND timestamp>="2026-11-22T02:30:00Z"' --project heisreal-dev \
-  --format='value(timestamp,jsonPayload.message)'
+  --format='value(timestamp,jsonPayload.message,textPayload)'
 ```
+
+api-user's older lines (before it logged JSON, e.g. 7 November 2026) are plain text in
+`textPayload`, so the search looks in both.
 
 For each one, erase the person again in the restored database. Only api-user's login may erase
 (root is refused on purpose), so sign in as api-user:
