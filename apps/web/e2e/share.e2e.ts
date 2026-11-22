@@ -284,6 +284,46 @@ test.describe('behaviour', () => {
     ]);
   });
 
+  // RP-1 A, RP-2 A (Joel, 2026-11-22): aligned answer rows, each link lined up with its label
+  // (not floating in its 44 px tap area), and an empty optional answer said in words with "Add".
+  test('Review and submit lists the answers in aligned rows; an empty description says so and offers Add', async ({
+    page,
+    request,
+  }) => {
+    await person(page, request, SIGNED_UP);
+    await toWrite(page);
+    await page.getByLabel('Title').fill('How I found hope');
+    await page.getByLabel('Your story').fill(TEXT);
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Add some details');
+    await page.getByText('Healing', { exact: true }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Review and submit');
+
+    const answer = (label: string) =>
+      page.locator('dt', { hasText: label }).locator('xpath=..');
+    await expect(answer('Description').locator('dd').first()).toHaveText(
+      'None added (optional)',
+    );
+    const add = page.getByRole('button', { name: 'Add description' });
+    await expect(add).toHaveText('Add');
+    await expectTarget(page, add);
+
+    // Each link's word sits on its label's line.
+    const change = page.getByRole('button', { name: 'Change title' });
+    const [label, link] = await Promise.all([
+      page.locator('dt', { hasText: 'Title' }).boundingBox(),
+      change.boundingBox(),
+    ]);
+    const middle = (b: { y: number; height: number } | null) =>
+      (b?.y ?? 0) + (b?.height ?? 0) / 2;
+    expect(Math.abs(middle(label) - middle(link))).toBeLessThanOrEqual(2);
+    await expectTarget(page, change);
+
+    await add.click();
+    await step(page, 'Add some details');
+  });
+
   test('the story is saved as it’s written, with the first name chosen', async ({
     page,
     request,
@@ -317,21 +357,22 @@ test.describe('behaviour', () => {
     );
   });
 
-  // Drafts (Joel, 2026-11-14): people needn't write their story in one go. The page says what
-  // autosave is doing ("Saving…", "Draft saved"), and "Save and exit" waits for the save, then
-  // goes to My submissions, where the draft is listed to carry on with.
-  test('“Save and exit” waits for the save, then My submissions lists the draft to continue', async ({
+  // Drafts (Joel, 2026-11-14): people needn't write their story in one go. "Save Draft and Exit"
+  // shows what autosave is doing (Joel, 2026-11-22): "Saving…" and greyed while it saves, then
+  // ready again. It waits for the save, then goes to My submissions, where the draft is listed.
+  test('“Save Draft and Exit” shows the save, waits for it, then My submissions lists the draft to continue', async ({
     page,
     request,
   }) => {
     await person(page, request, SIGNED_UP);
     await toWrite(page);
-    const status = page.locator('[data-save-state]');
+    const exit = page.getByRole('button', { name: 'Save Draft and Exit' });
+    const saving = page.getByRole('button', { name: 'Saving…' });
     // Every save is held until the test lets it through.
     let release!: () => void;
     let held = new Promise<void>((r) => (release = r));
     let arrived!: () => void;
-    let saving = new Promise<void>((r) => (arrived = r));
+    let arrival = new Promise<void>((r) => (arrived = r));
     await page.route(`${STUB_USER_URL}/v1/stories**`, async (route) => {
       const method = route.request().method();
       if (method !== 'POST' && method !== 'PATCH') return route.fallback();
@@ -343,24 +384,26 @@ test.describe('behaviour', () => {
     });
     const next = () => {
       held = new Promise<void>((r) => (release = r));
-      saving = new Promise<void>((r) => (arrived = r));
+      arrival = new Promise<void>((r) => (arrived = r));
     };
 
     await page.getByLabel('Title').fill('Come back to it');
     await page.getByLabel('Your story').fill(TEXT);
-    await saving;
-    await expect(status).toHaveText('Saving…');
+    await arrival;
+    await expect(saving).toBeDisabled();
+    await expect(exit).toHaveCount(0);
     const first = release;
     next();
     first();
-    await expect(status).toHaveText('Draft saved');
+    await expect(exit).toBeEnabled();
+    // Screen readers still hear it.
+    await expect(page.locator('[data-save-state]')).toHaveText('Draft saved');
 
-    // A change not saved yet: Save and exit waits for it before leaving.
+    // A change not saved yet: Save Draft and Exit waits for it before leaving.
     await page.getByLabel('Title').fill('Come back to it later');
-    const exit = page.getByRole('button', { name: 'Save and exit' });
     await exit.click();
-    await saving;
-    await expect(page.getByRole('button', { name: 'Saving…' })).toBeDisabled();
+    await arrival;
+    await expect(saving).toBeDisabled();
     await expect(page).toHaveURL(/\/share/);
     release();
     await expect(page).toHaveURL(/\/account#my-submissions$/);
@@ -378,14 +421,14 @@ test.describe('behaviour', () => {
     await expect(page.getByLabel('Your story')).toHaveValue(TEXT);
   });
 
-  test('“Save and exit” before a draft can be saved stays, and says what it needs', async ({
+  test('“Save Draft and Exit” before a draft can be saved stays, and says what it needs', async ({
     page,
     request,
   }) => {
     const me = await person(page, request, SIGNED_UP);
     await toWrite(page);
     await page.getByLabel('Title').fill('Only a title');
-    await page.getByRole('button', { name: 'Save and exit' }).click();
+    await page.getByRole('button', { name: 'Save Draft and Exit' }).click();
     await expect(
       page
         .getByRole('alert')
@@ -396,8 +439,8 @@ test.describe('behaviour', () => {
   });
 
   // Codex review of the share flow tidy, round 1: text brought back after a reload counts as
-  // typed, so "Save and exit" never leaves it behind unsaved.
-  test('“Save and exit” on an incomplete draft brought back after a reload stays, and says what it needs', async ({
+  // typed, so "Save Draft and Exit" never leaves it behind unsaved.
+  test('“Save Draft and Exit” on an incomplete draft brought back after a reload stays, and says what it needs', async ({
     page,
     request,
   }) => {
@@ -412,7 +455,7 @@ test.describe('behaviour', () => {
     await page.getByRole('button', { name: 'Write my story' }).click();
     await page.getByRole('button', { name: 'Start writing' }).click();
     await expect(page.getByLabel('Title')).toHaveValue('Only a title');
-    await page.getByRole('button', { name: 'Save and exit' }).click();
+    await page.getByRole('button', { name: 'Save Draft and Exit' }).click();
     await expect(
       page
         .getByRole('alert')
@@ -422,7 +465,7 @@ test.describe('behaviour', () => {
     expect(await me.stories()).toEqual([]);
   });
 
-  test('“Save and exit” on a complete draft brought back after a reload saves it, then My submissions lists it', async ({
+  test('“Save Draft and Exit” on a complete draft brought back after a reload saves it, then My submissions lists it', async ({
     page,
     request,
   }) => {
@@ -443,7 +486,7 @@ test.describe('behaviour', () => {
     await page.getByRole('button', { name: 'Write my story' }).click();
     await page.getByRole('button', { name: 'Start writing' }).click();
     await expect(page.getByLabel('Your story')).toHaveValue(TEXT);
-    await page.getByRole('button', { name: 'Save and exit' }).click();
+    await page.getByRole('button', { name: 'Save Draft and Exit' }).click();
     await expect(page).toHaveURL(/\/account#my-submissions$/);
     const row = page.locator('li').filter({ hasText: 'Kept for later' });
     await expect(row.getByText('Draft', { exact: true })).toBeVisible();

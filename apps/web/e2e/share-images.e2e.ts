@@ -853,11 +853,16 @@ test.describe('behaviour', () => {
       .poll(() => shown.evaluate((img: HTMLImageElement) => img.naturalWidth))
       .toBe(sent.width);
     // What was attached, confirmed with its name in this tab, before it's sent (Joel, 2026-11-14).
+    // The video, still with Bunny, is one status line (RP-3 A, Joel 2026-11-22).
+    await expect(page.locator('[data-media-status="video"]')).toHaveText(
+      'clip.mp4Uploaded. Its preview will be ready later.',
+    );
     await expect(page.locator('[data-attached]')).toHaveText([
-      'Video attachedclip.mp4',
       'Thumbnail attachedthumb.png',
     ]);
-    await expect(page.locator('[data-attached] svg')).toHaveCount(2);
+    await expect(
+      page.locator('[data-media-status] svg, [data-attached] svg'),
+    ).toHaveCount(2);
   });
 
   test('a video’s thumbnail can be dropped onto its own drop area, not the video’s', async ({
