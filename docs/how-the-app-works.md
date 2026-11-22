@@ -1072,7 +1072,8 @@ Planned (M3):
   with** is kept as long as the story and goes with it, or with the account (EM-1 B, Joel
   2026-11-17). **The block list** is kept until
   an Admin removes an entry, even after the person deletes their account. (G21 D, Joel 2026-11-11)
-- Backups are nightly, in the UK, and age out; they aren't edited after a deletion.
+- Backups are nightly, in the UK, and age out; they aren't edited after a deletion. Restoring one
+  replays the erasures logged since it was taken: [restore runbook](restore-runbook.md).
 - Our services' logs are stored in London for 30 days. (D101)
 - **Where data lives:** in the UK wherever possible (London), declared in our infrastructure
   code. Exceptions: video and audio files at Bunny in Frankfurt (D89); Clerk in the US (D6);
