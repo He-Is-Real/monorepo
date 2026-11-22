@@ -11,7 +11,13 @@ import {
   useOptimistic,
 } from 'react';
 import type { StoryFormat } from '@heisreal/story-filters';
-import { Button, RadioGroup, SearchBox } from '@heisreal/web-ui';
+import {
+  Button,
+  cn,
+  headingVariants,
+  RadioGroup,
+  SearchBox,
+} from '@heisreal/web-ui';
 import { FormatSelect } from '@/components/story-filters/format-select';
 import {
   type BrowseFilters as Filters,
@@ -21,8 +27,10 @@ import {
 } from '@/lib/browse-query';
 
 /** A filter's name over its control in the filters column and panel (BS-1 C), as RadioGroup's. */
-export const FILTER_HEADING =
-  'mb-2 block text-xs font-semibold tracking-wide text-secondary-text uppercase';
+export const FILTER_HEADING = cn(
+  'mb-2 block',
+  headingVariants({ size: 'small' }),
+);
 
 /**
  * The one browse form's id. The search box is inside it; the sort, the format and the

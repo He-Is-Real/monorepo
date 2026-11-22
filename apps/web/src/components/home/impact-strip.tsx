@@ -1,4 +1,5 @@
 // Home's impact strip (home mockup, content spec home.md). Hidden until there are real figures
+import { Text } from '@heisreal/web-ui';
 // (2026-10-24, pending Joel): the content spec's numbers were placeholders, and the site shows
 // no made-up figures. To bring it back, add real figures to IMPACT_FIGURES. They must not be
 // story counts or engagement metrics (D62, design principles).
@@ -25,7 +26,10 @@ export function ImpactStrip({ figures }: { figures: readonly ImpactFigure[] }) {
         <dl className="grid grid-cols-2 gap-8 lg:grid-cols-4">
           {figures.map(({ value, label }) => (
             <div key={label} className="flex flex-col text-center">
-              <dt className="text-sm text-muted-foreground">{label}</dt>
+              <Text as="dt" size="small" tone="quiet">
+                {label}
+              </Text>
+              {/* eslint-disable-next-line @heisreal/web-ui/no-text-look -- the strip's big teal figures: a one-off display look no text piece draws (styling order, step 4) */}
               <dd className="order-first mb-2 text-[clamp(2.25rem,5vw,3.25rem)] leading-none font-bold text-link">
                 {value}
               </dd>

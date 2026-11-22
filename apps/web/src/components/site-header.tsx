@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { connection } from 'next/server';
 import { Suspense } from 'react';
-import { Button } from '@heisreal/web-ui';
+import { Button, Text } from '@heisreal/web-ui';
 import {
   AccountControl,
   FixtureSignedInAccount,
@@ -41,16 +41,19 @@ export function SiteHeader() {
     <>
       <header className="@container relative border-b border-border">
         <div className="mx-auto flex max-w-[90rem] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2 sm:gap-y-0 sm:px-10 xl:@min-[78rem]:grid xl:@min-[78rem]:grid-cols-[max-content_minmax(0,1fr)_auto]">
-          <Link
-            href="/"
-            className="col-start-1 row-start-1 inline-flex min-h-11 min-w-11 items-center justify-center gap-2 justify-self-start rounded-md text-foreground hover:text-foreground"
-            aria-label="He Is Real Today, home"
-          >
-            <Logo size={36} />
-            <span className="hidden text-sm font-semibold tracking-wide sm:inline">
-              He Is Real Today
-            </span>
-          </Link>
+          <Text asChild size="inherit" tone="normal">
+            <Link
+              href="/"
+              className="col-start-1 row-start-1 inline-flex min-h-11 min-w-11 items-center justify-center gap-2 justify-self-start rounded-md"
+              aria-label="He Is Real Today, home"
+            >
+              <Logo size={36} />
+              {/* eslint-disable-next-line @heisreal/web-ui/no-text-look -- the wordmark beside the logo, part of the brand, not text */}
+              <span className="hidden text-sm font-semibold tracking-wide sm:inline">
+                He Is Real Today
+              </span>
+            </Link>
+          </Text>
           <NavLinks className="hidden sm:order-last sm:block sm:basis-full sm:border-t sm:border-border xl:@min-[78rem]:order-none xl:@min-[78rem]:col-span-1 xl:@min-[78rem]:col-start-2 xl:@min-[78rem]:row-start-1 xl:@min-[78rem]:justify-self-end xl:@min-[78rem]:border-0" />
           <div
             data-header-actions=""

@@ -315,7 +315,8 @@ const CLASS_LIKE = /^[a-z0-9!@:\-[\]()/&_.%,#'*>=+~]+$/;
 /** The first text-look class in a class list, or null (null too for text that isn't one). */
 export function textLook(text) {
   const words = text.split(/\s+/).filter(Boolean);
-  if (words.length === 0 || !words.every((w) => CLASS_LIKE.test(w))) return null;
+  if (words.length === 0 || !words.every((w) => CLASS_LIKE.test(w)))
+    return null;
   for (const word of words) {
     // Variants end at the last `:` outside brackets: `sm:text-lg`, `[&_p]:italic`.
     let depth = 0;

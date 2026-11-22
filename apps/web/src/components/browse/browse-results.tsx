@@ -7,7 +7,7 @@ import {
   StoryMasonry,
 } from '@/components/stories/story-masonry';
 import { useNearEnd } from '@/components/stories/use-near-end';
-import { Button } from '@heisreal/web-ui';
+import { Button, Text } from '@heisreal/web-ui';
 import type { StorySummary } from '@/lib/browse';
 import {
   type BrowseFilters,
@@ -192,13 +192,15 @@ function BrowseList({ filters, cards, nextCursor, pagesLoaded }: ListProps) {
       </p>
       <div className="mt-12 flex flex-col items-center gap-3 text-center">
         {status === 'loading' && (
-          <p className="text-sm text-muted-foreground">Loading more stories…</p>
+          <Text size="small" tone="quiet">
+            Loading more stories…
+          </Text>
         )}
         {status === 'error' && (
           <>
-            <p role="alert" className="text-secondary-text">
+            <Text role="alert" size="inherit" tone="quiet">
               {TRY_AGAIN_LATER}
-            </p>
+            </Text>
             <Button
               variant="outline"
 
@@ -222,16 +224,17 @@ function BrowseList({ filters, cards, nextCursor, pagesLoaded }: ListProps) {
           // Without JavaScript nothing loads on its own and the button can't work: a link makes
           // the server render one page more, however many pages are on screen.
           <noscript>
-            <a
-              href={browseHref(filters, { pages: loaded.pages + 1 })}
-              className="inline-flex min-h-11 items-center rounded-md border px-6 text-sm font-medium"
-            >
-              Show more stories
-            </a>
+            <Button asChild variant="outline">
+              <a href={browseHref(filters, { pages: loaded.pages + 1 })}>
+                Show more stories
+              </a>
+            </Button>
           </noscript>
         )}
         {!loaded.cursor && (
-          <p className="text-secondary-text">You’ve seen every story here.</p>
+          <Text size="inherit" tone="quiet">
+            You’ve seen every story here.
+          </Text>
         )}
       </div>
     </>

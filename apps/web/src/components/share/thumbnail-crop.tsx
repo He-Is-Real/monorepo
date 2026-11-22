@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Cropper, { type Area, type Point } from 'react-easy-crop';
-import { buttonVariants } from '@heisreal/web-ui';
+import { buttonVariants, Text } from '@heisreal/web-ui';
 import { centred, clampAspect } from './picture-encode';
 
 /**
@@ -285,13 +285,15 @@ export function ThumbnailCropper({
           Centre
         </button>
       </div>
-      <p
+      <Text
+        size="small"
+        tone="quiet"
         aria-live="polite"
         data-crop-spoken=""
-        className="min-h-[1.5em] text-sm text-secondary-text italic"
+        className="min-h-[1.5em]"
       >
         {spoken}
-      </p>
+      </Text>
       {area && natural && (
         <div className="flex flex-wrap items-end gap-4" data-crop-previews="">
           <figure className="flex flex-col gap-1">
@@ -302,9 +304,9 @@ export function ThumbnailCropper({
               aspect={cardAspect}
               style={{ width: `${Math.min(10, 10 * cardAspect)}rem` }}
             />
-            <figcaption className="text-sm text-secondary-text">
+            <Text as="figcaption" size="small" tone="quiet">
               On Browse
-            </figcaption>
+            </Text>
           </figure>
           <figure className="flex flex-col gap-1">
             <Framed
@@ -316,15 +318,15 @@ export function ThumbnailCropper({
             >
               <PlayMark />
             </Framed>
-            <figcaption className="text-sm text-secondary-text">
+            <Text as="figcaption" size="small" tone="quiet">
               On your story’s page
-            </figcaption>
+            </Text>
           </figure>
         </div>
       )}
-      <p className="text-sm text-secondary-text">
+      <Text size="small" tone="quiet">
         Your video is {shapeName}, so your thumbnail is cut to the same shape.
-      </p>
+      </Text>
       <div className="flex flex-wrap gap-3">
         <button
           type="button"
@@ -397,9 +399,9 @@ export function VideoMoment({
 
   if (broken) {
     return (
-      <p className="text-secondary-text" role="status">
+      <Text tone="quiet" role="status">
         This browser can’t show your video here, so choose a picture instead.
-      </p>
+      </Text>
     );
   }
 
@@ -438,7 +440,9 @@ export function VideoMoment({
         />
       )}
       <label className="flex flex-col gap-1">
-        <span className="font-semibold">Moment</span>
+        <Text as="span" size="inherit" weight="bold">
+          Moment
+        </Text>
         <input
           type="range"
           min={0}
@@ -455,9 +459,9 @@ export function VideoMoment({
           className="min-h-11 w-full accent-primary"
         />
       </label>
-      <p className="text-sm text-secondary-text" aria-hidden="true">
+      <Text size="small" tone="quiet" aria-hidden="true">
         {clock(at)} / {clock(length)}
-      </p>
+      </Text>
       <div>
         <button
           type="button"

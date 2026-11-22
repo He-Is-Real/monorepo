@@ -6,6 +6,7 @@ import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { FORMAT_LABELS } from '@heisreal/story-filters';
 import { Button, chipVariants, Dialog, Switch } from '@heisreal/web-ui';
+import { TextLink } from '@/components/page/text-link';
 import { FavouritesList } from '@/components/favourites/favourites-list';
 import {
   type BrowseFilters,
@@ -240,6 +241,7 @@ export function BrowseView({
                     <>
                       <span
                         aria-hidden="true"
+                        // eslint-disable-next-line @heisreal/web-ui/no-text-look -- the count on the Filters button, a filled dot no piece draws
                         className="inline-grid h-5 min-w-5 place-items-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground"
                       >
                         {chosen.length}
@@ -277,13 +279,14 @@ export function BrowseView({
                     </li>
                   ))}
                   <li>
-                    <Link
+                    <TextLink
                       href={clearAll}
                       scroll={false}
-                      className="inline-flex min-h-11 items-center px-2 text-sm font-medium"
+                      kind="standalone"
+                      className="px-2"
                     >
                       Clear all
-                    </Link>
+                    </TextLink>
                   </li>
                 </ul>
               )}
@@ -332,13 +335,9 @@ export function BrowseView({
         footer={
           <>
             {chosen.length > 0 ? (
-              <Link
-                href={clearAll}
-                scroll={false}
-                className="inline-flex min-h-11 items-center text-sm font-medium"
-              >
+              <TextLink href={clearAll} scroll={false} kind="standalone">
                 Clear all
-              </Link>
+              </TextLink>
             ) : (
               <span />
             )}

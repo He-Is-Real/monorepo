@@ -1,4 +1,5 @@
 import { cacheLife } from 'next/cache';
+import { Heading, Quote, Text } from '@heisreal/web-ui';
 import { ButtonLink } from '@/components/page/button-link';
 import { RaisedBand } from '@/components/page/card';
 import { WideColumn, PageHeader } from '@/components/page/page-header';
@@ -59,7 +60,12 @@ function AboutContent({ keep }: { keep: boolean }) {
           <h2 id="mission" className="sr-only">
             Why we exist
           </h2>
-          <div className="max-w-prose space-y-7 text-lg leading-loose text-secondary-text sm:text-xl">
+          <Text
+            as="div"
+            size="story"
+            tone="quiet"
+            className="max-w-[38rem] space-y-7"
+          >
             <p>
               Churches are full of extraordinary testimonies. Week after week,
               people share what God has done in their lives, and those stories
@@ -67,26 +73,28 @@ function AboutContent({ keep }: { keep: boolean }) {
             </p>
             <p>
               They never reach the person quietly searching{' '}
-              <em className="text-foreground">“does God exist?”</em> at
-              midnight, or the colleague who is curious but would never walk
+              <Text as="em" size="inherit" tone="normal">
+                “does God exist?”
+              </Text>{' '}
+              at midnight, or the colleague who is curious but would never walk
               through a church door.
             </p>
-            <blockquote className="my-10 border-l-[3px] border-brand pl-6 text-xl leading-relaxed text-foreground sm:text-[1.75rem]">
+            <Quote className="my-10">
               Testimonies are one of the most powerful evangelistic tools
               available to the Church, yet for too long they have been locked
               inside four walls.
-            </blockquote>
+            </Quote>
             <p>
               He Is Real Today exists to change that. A simple, accessible way
               for those stories to escape the church building and reach the
               world: online, on demand, and on the terms of the person
               searching.
             </p>
-            <p className="text-foreground">
+            <Text size="inherit" tone="normal">
               No pressure. No preaching. Just honest, human accounts of a God
               who shows up in real life.
-            </p>
-          </div>
+            </Text>
+          </Text>
         </WideColumn>
       </RaisedBand>
 
@@ -98,13 +106,19 @@ function AboutContent({ keep }: { keep: boolean }) {
           <ul className="grid gap-10 sm:grid-cols-3">
             {VALUES.map((v) => (
               <li key={v.title} className="text-center">
-                <div aria-hidden="true" className="mb-4 text-5xl">
+                <div
+                  aria-hidden="true"
+                  // eslint-disable-next-line @heisreal/web-ui/no-text-look -- sizes the value's emoji icon, not text
+                  className="mb-4 text-5xl"
+                >
                   {v.icon}
                 </div>
-                <h3 className="mb-3 text-2xl font-normal">{v.title}</h3>
-                <p className="mx-auto max-w-xs text-[0.9375rem] leading-relaxed text-muted-foreground">
+                <Heading level={3} className="mb-3">
+                  {v.title}
+                </Heading>
+                <Text tone="quiet" className="mx-auto max-w-xs">
                   {v.text}
-                </p>
+                </Text>
               </li>
             ))}
           </ul>
@@ -113,15 +127,12 @@ function AboutContent({ keep }: { keep: boolean }) {
 
       <RaisedBand aria-labelledby="share" className="text-center">
         <WideColumn>
-          <h2
-            id="share"
-            className="mb-4 text-[1.75rem] font-normal sm:text-[2.375rem]"
-          >
+          <Heading level={2} id="share" className="mb-4">
             Have a story to share?
-          </h2>
-          <p className="mb-7 text-[1.0625rem] text-secondary-text">
+          </Heading>
+          <Text size="intro" tone="quiet" className="mb-7">
             Your testimony could be exactly what someone needs to hear today.
-          </p>
+          </Text>
           <div className="flex flex-col justify-center gap-4 sm:flex-row">
             <ButtonLink href="/get-ready" size="lg">
               Get ready to share

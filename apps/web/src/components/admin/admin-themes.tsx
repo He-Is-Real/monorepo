@@ -33,7 +33,11 @@ import {
   FieldLabel,
   Input,
   Notice,
+  Heading,
   Select,
+  Text,
+  textLinkVariants,
+  textVariants,
 } from '@heisreal/web-ui';
 import { type ApiUser, StaleVersion } from '@/lib/api-user';
 import {
@@ -64,9 +68,20 @@ const Locked = createContext(false);
 const DRAG_DISTANCE = 6;
 
 /** A theme's pill: the browse chip's shape (CH-1 A), its name and its × inside. */
-const PILL = cn(chipVariants({ padding: 'none' }), 'text-foreground');
-const SMALL_BUTTON =
-  'inline-flex min-h-11 min-w-11 items-center justify-center rounded-md px-2 text-sm font-medium text-link hover:text-link-hover';
+const PILL = cn(
+  chipVariants({ padding: 'none' }),
+  textVariants({ size: 'inherit', tone: 'normal' }),
+);
+/** A category's Rename and Delete category: small links on their own (TX-6 A). */
+const SMALL_BUTTON = cn(
+  'justify-center rounded-md px-2',
+  textLinkVariants({ kind: 'standalone' }),
+  textVariants({ size: 'small' }),
+);
+const SMALL_DANGER_BUTTON = cn(
+  'inline-flex min-h-11 min-w-11 items-center justify-center rounded-md px-2 underline-offset-4 hover:underline',
+  textVariants({ size: 'small', tone: 'danger', weight: 'bold' }),
+);
 
 /**
  * /admin/themes (themes plan v3): every category and its themes for Admin and above (api-admin
@@ -112,7 +127,7 @@ function ThemesLoader({ client }: { client: ApiUser }) {
   }, [refresh]);
 
   if (loaded.status === 'loading')
-    return <p className="text-secondary-text">Loading the themes…</p>;
+    return <Text tone="quiet">Loading the themes…</Text>;
   if (loaded.status === 'failed')
     return (
       <Notice kind="danger" as="p" role="alert">
@@ -494,17 +509,19 @@ function CategorySection({
               }}
             />
           ) : (
-            <h2
+            <Heading
+              level={2}
+              size="sub"
               id={id}
-              className="text-xl font-semibold [overflow-wrap:anywhere]"
+              className="[overflow-wrap:anywhere]"
             >
               {category.name}
-            </h2>
+            </Heading>
           )}
           {other ? (
-            <p className="text-sm text-secondary-text">
+            <Text size="small" tone="quiet">
               Fixed · themes land here when their category is deleted
-            </p>
+            </Text>
           ) : (
             !renaming && (
               <span className="flex flex-wrap">
@@ -518,7 +535,7 @@ function CategorySection({
                 </button>
                 <button
                   type="button"
-                  className={`${SMALL_BUTTON} text-danger-text hover:text-danger-text`}
+                  className={SMALL_DANGER_BUTTON}
                   onClick={onDeleteCategory}
                   aria-label={`Delete category ${category.name}`}
                 >
@@ -575,11 +592,13 @@ function Zone({
       data-zone={id}
       className={`mt-2 rounded-xl border-2 p-2 ${isOver ? 'border-dashed border-brand bg-accent' : 'border-transparent'}`}
     >
-      <h3 id={labelId} className="mb-2 text-sm text-muted-foreground">
+      <Text as="h3" size="small" tone="quiet" id={labelId} className="mb-2">
         {label}
-      </h3>
+      </Text>
       {children.length === 0 && empty && (
-        <p className="mb-2 text-sm text-secondary-text">{empty}</p>
+        <Text size="small" tone="quiet" className="mb-2">
+          {empty}
+        </Text>
       )}
       <ul aria-labelledby={labelId} className="flex flex-wrap gap-2">
         {children}
@@ -649,7 +668,7 @@ function Pill({
     >
       <button
         type="button"
-        className={`min-h-11 min-w-11 truncate rounded-l-full pl-4 pr-1 text-left ${theme.deleted ? 'text-muted-foreground line-through' : ''}`}
+        className={`min-h-11 min-w-11 truncate rounded-l-full pl-4 pr-1 text-left ${theme.deleted ? `${textVariants({ size: 'inherit', tone: 'quiet' })} line-through` : ''}`}
         disabled={theme.deleted}
         aria-haspopup="dialog"
         onMouseDown={(e) => {
@@ -675,7 +694,11 @@ function Pill({
       {theme.deleted ? (
         <button
           type="button"
-          className="inline-flex size-11 shrink-0 items-center justify-center rounded-r-full text-link"
+          className={cn(
+            'inline-flex size-11 shrink-0 items-center justify-center rounded-r-full',
+            textLinkVariants(),
+            'no-underline',
+          )}
           aria-label={`Undo deleting ${theme.name}`}
           onClick={onUndo}
         >
@@ -684,7 +707,7 @@ function Pill({
       ) : (
         <button
           type="button"
-          className="inline-flex size-11 shrink-0 items-center justify-center rounded-r-full text-muted-foreground hover:text-danger-text"
+          className={`inline-flex size-11 shrink-0 items-center justify-center rounded-r-full ${textVariants({ size: 'inherit', tone: 'quiet' })}`}
           aria-label={`Delete ${theme.name}`}
           onClick={onDelete}
         >
@@ -861,7 +884,7 @@ function ThemePanel({
           boxAfter
           checked={highlighted}
           onChange={(e) => setHighlighted(e.target.checked)}
-          labelClassName="font-medium"
+          labelClassName={textVariants({ size: 'inherit', weight: 'bold' })}
         >
           ★ Highlighted
         </Checkbox>
@@ -876,9 +899,9 @@ function ThemePanel({
             Delete theme
           </Button>
         </div>
-        <p className="text-sm text-secondary-text">
+        <Text size="small" tone="quiet">
           Done keeps the change on this page until you save.
-        </p>
+        </Text>
       </form>
     </Modal>
   );
@@ -940,9 +963,9 @@ function DeleteTheme({
             Cancel
           </Button>
         </div>
-        <p className="text-sm text-secondary-text">
+        <Text size="small" tone="quiet">
           Nothing is sent yet: it’s one of the changes Save sends.
-        </p>
+        </Text>
       </form>
     </Modal>
   );
@@ -972,14 +995,19 @@ function SaveBar({
       className="sticky bottom-0 z-20 mt-8 border-t border-border bg-background/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur sm:rounded-t-2xl sm:border-x"
     >
       <div className="flex flex-wrap items-center gap-3">
-        <p className="min-w-0 flex-1 text-sm" data-unsaved={n}>
+        <Text size="small" className="min-w-0 flex-1" data-unsaved={n}>
           <strong>{n === 0 ? 'No unsaved changes' : unsaved(n)}</strong>
           {n > 0 && (
-            <span className="line-clamp-1 text-secondary-text max-sm:hidden">
+            <Text
+              as="span"
+              size="inherit"
+              tone="quiet"
+              className="line-clamp-1 max-sm:hidden"
+            >
               {changes.map((c) => c.text).join(' · ')}
-            </span>
+            </Text>
           )}
-        </p>
+        </Text>
         {n > 0 && (
           <Button
             type="button"

@@ -1,7 +1,7 @@
 'use client';
 
-import Link from 'next/link';
-import { Button } from '@heisreal/web-ui';
+import { Button, Heading, Text } from '@heisreal/web-ui';
+import { TextLink } from '@/components/page/text-link';
 
 /**
  * Anything a page couldn't render, most likely api-public-read being unreachable. Only "Something
@@ -22,13 +22,13 @@ export default function ErrorPage({
       className="mx-auto flex w-full max-w-measure flex-1 flex-col items-center justify-center gap-4 px-4 py-16 text-center"
     >
       <meta name="robots" content="noindex" />
-      <h1 className="text-3xl font-semibold">Something went wrong</h1>
-      <p className="text-secondary-text">Please try again later.</p>
+      <Heading level={1}>Something went wrong</Heading>
+      <Text tone="quiet">Please try again later.</Text>
       <div className="flex flex-wrap justify-center gap-3">
         <Button onClick={() => reset()}>Try again</Button>
-        <Link href="/" className="inline-flex min-h-11 items-center px-2">
+        <TextLink href="/" kind="standalone" className="px-2">
           Go to the home page
-        </Link>
+        </TextLink>
       </div>
     </main>
   );

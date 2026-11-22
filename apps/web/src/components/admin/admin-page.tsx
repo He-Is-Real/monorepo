@@ -1,5 +1,5 @@
 import { AdminNav } from '@/components/admin/admin-access';
-import { Card } from '@heisreal/web-ui';
+import { Card, Heading, Text } from '@heisreal/web-ui';
 
 /** The site's default container, as the site header and footer use it. */
 const SITE = 'mx-auto w-full max-w-site px-4 sm:px-10';
@@ -58,14 +58,19 @@ export function AdminPage({
       <div data-admin-header="" className={`${SITE} text-center`}>
         <AdminNav />
         {title && (
-          <h1 className="mb-3 text-[2rem] leading-tight font-normal text-balance sm:text-[2.5rem]">
+          <Heading level={1} className="mb-3">
             {title}
-          </h1>
+          </Heading>
         )}
         {description && (
-          <div className="mx-auto mb-8 max-w-measure space-y-3 text-[1.0625rem] text-secondary-text">
+          <Text
+            as="div"
+            size="intro"
+            tone="quiet"
+            className="mx-auto mb-8 max-w-measure space-y-3"
+          >
             {description}
-          </div>
+          </Text>
         )}
         {header}
       </div>

@@ -121,7 +121,7 @@ Kept basic for now. Joel will decide later how stories are shared out between mo
 - ✅ One look for buttons and links that look like buttons
 - ✅ One look for notices
 - ✅ One look for pop-up panels, FAQ questions kept as they are, matching ticks and keyboard outlines, one field label
-- 🟡 One look each for headings, text and links, with a check that keeps pages from restyling them
+- ✅ One look each for headings, text and links, with a check that keeps pages from restyling them
 - ⚪ Final docs and a demo walk-through on dev
 - ⚪ Two-step sign-in for staff: deferred until we're happy to pay for it
 

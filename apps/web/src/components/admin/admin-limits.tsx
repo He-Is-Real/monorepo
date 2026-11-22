@@ -18,8 +18,11 @@ import {
   FieldHint,
   FieldLabel,
   Input,
+  Heading,
   Notice,
   Select,
+  Text,
+  textLinkVariants,
 } from '@heisreal/web-ui';
 import { type ApiUser, StaleVersion } from '@/lib/api-user';
 
@@ -232,7 +235,7 @@ function Limits({ client }: { client: ApiUser }) {
   }, [refresh]);
 
   if (loaded.status === 'loading') {
-    return <p className="text-secondary-text">Loading the limits…</p>;
+    return <Text tone="quiet">Loading the limits…</Text>;
   }
   if (loaded.status === 'failed') {
     return (
@@ -432,24 +435,30 @@ function LimitsForm({
             <ul className="space-y-1">
               {GROUPS.map((g, i) => (
                 <li key={g.title}>
-                  <button
-                    type="button"
-                    aria-current={i === group ? 'true' : undefined}
-                    onClick={() => setGroup(i)}
-                    data-group-tab={g.title}
-                    className={`flex min-h-11 w-full flex-col justify-center rounded-r-lg border-l-[3px] px-3 py-2 text-left ${
-                      i === group
-                        ? 'border-primary bg-accent font-medium text-foreground'
-                        : 'border-transparent text-secondary-text hover:bg-accent hover:text-foreground'
-                    }`}
+                  <Text
+                    asChild
+                    tone={i === group ? 'normal' : 'quiet'}
+                    weight={i === group ? 'bold' : 'normal'}
                   >
-                    {g.title}
-                    {groupHasError(i) && (
-                      <span className="text-sm font-normal text-danger-text">
-                        Needs fixing
-                      </span>
-                    )}
-                  </button>
+                    <button
+                      type="button"
+                      aria-current={i === group ? 'true' : undefined}
+                      onClick={() => setGroup(i)}
+                      data-group-tab={g.title}
+                      className={`flex min-h-11 w-full flex-col justify-center rounded-r-lg border-l-[3px] px-3 py-2 text-left ${
+                        i === group
+                          ? 'border-primary bg-accent'
+                          : 'border-transparent hover:bg-accent'
+                      }`}
+                    >
+                      {g.title}
+                      {groupHasError(i) && (
+                        <Text as="span" size="small" tone="danger">
+                          Needs fixing
+                        </Text>
+                      )}
+                    </button>
+                  </Text>
                 </li>
               ))}
             </ul>
@@ -466,19 +475,18 @@ function LimitsForm({
               }))}
               onValueChange={(v) => setGroup(Number(v))}
               wrapperClassName="w-full"
-              className="text-base"
             />
           </div>
 
           <Card className="@container min-w-0 p-4 sm:p-6">
             <fieldset key={current.title} className="min-w-0">
-              <legend className="text-lg font-semibold text-foreground">
+              <Heading as="legend" size="sub">
                 {current.title}
-              </legend>
+              </Heading>
               {current.note && (
-                <p className="mt-1 text-sm text-secondary-text">
+                <Text size="small" tone="quiet" className="mt-1">
                   {current.note}
-                </p>
+                </Text>
               )}
               <div className="mt-2 divide-y divide-border">
                 {current.fields.map(({ field, label, unit }) => {
@@ -518,9 +526,9 @@ function LimitsForm({
                                   : ''
                               }`}
                             />
-                            <span className="min-w-0 text-foreground">
+                            <Text as="span" tone="normal" className="min-w-0">
                               {unit}
-                            </span>
+                            </Text>
                           </div>
                         </div>
                         <FieldError className="mt-1 @lg:text-right" />
@@ -704,7 +712,12 @@ function SaveBar({
         ref={top}
         className="flex flex-wrap items-center gap-x-[12px] gap-y-[4px]"
       >
-        <p className="min-w-0 flex-1 basis-48 text-sm font-semibold text-foreground [overflow-wrap:anywhere]">
+        <Text
+          size="small"
+          tone="normal"
+          weight="bold"
+          className="min-w-0 flex-1 basis-48 [overflow-wrap:anywhere]"
+        >
           {changes.length === 1
             ? '1 change not saved yet'
             : `${changes.length} changes not saved yet`}
@@ -716,14 +729,14 @@ function SaveBar({
                 aria-expanded={open}
                 aria-controls={`${id}-changes`}
                 onClick={() => setOpen((o) => !o)}
-                className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md px-[4px] font-normal text-primary underline underline-offset-4"
+                className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md px-[4px] ${textLinkVariants()}`}
               >
                 {open ? 'Hide' : 'Show'}
                 <span className="sr-only">&nbsp;changes</span>
               </button>
             </>
           )}
-        </p>
+        </Text>
         <div className="ml-auto flex flex-none gap-[8px]">
           <Button
             type="button"
@@ -744,7 +757,10 @@ function SaveBar({
           </Button>
         </div>
       </div>
-      <ul
+      <Text
+        as="ul"
+        size="small"
+        tone="quiet"
         id={`${id}-changes`}
         hidden={!shown}
         // Scrolls when long, so keyboard users can reach it too. At least a line, even on
@@ -754,12 +770,12 @@ function SaveBar({
         style={{
           maxHeight: fits ? '6rem' : `max(${room}px, 1lh)`,
         }}
-        className="mt-[8px] overflow-y-auto text-sm text-secondary-text [overflow-wrap:anywhere] focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+        className="mt-[8px] overflow-y-auto [overflow-wrap:anywhere] focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
       >
         {changes.map(({ field, text }) => (
           <li key={field}>{text}</li>
         ))}
-      </ul>
+      </Text>
     </div>
   );
 }

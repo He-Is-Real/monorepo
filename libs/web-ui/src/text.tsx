@@ -53,7 +53,7 @@ function Heading({
   as,
   className,
   ...props
-}: React.HTMLAttributes<HTMLHeadingElement> & {
+}: React.ComponentProps<'h2'> & {
   level?: 1 | 2 | 3 | 4 | 5 | 6;
   size?: HeadingSize;
   as?: React.ElementType;
@@ -93,6 +93,8 @@ const textVariants = cva('', {
       quiet: 'text-secondary-text',
       danger: 'text-danger-text',
       success: 'text-success-text',
+      /** Needs attention soon (late, an answer still missing): the warning amber. */
+      warning: 'text-warning',
       /** On a picture, video or the dark hero: white. */
       media: 'text-on-media',
       /** Quieter words on a picture, video or the dark hero. */
@@ -100,6 +102,8 @@ const textVariants = cva('', {
     },
     weight: {
       normal: '',
+      /** Regular words inside a bold line ("(optional)" after a label). */
+      regular: 'font-normal',
       /** Words that stand out without being emphasis (a name, a count, a label). */
       bold: 'font-semibold',
     },
@@ -109,7 +113,8 @@ const textVariants = cva('', {
 
 /**
  * Text: `size` (`intro`, `story`, `body`, `small`, `inherit`), `tone` (`normal`, `quiet`,
- * `danger`, `success`, `media`, `media-quiet`, or the colour around it) and `weight` (`bold`).
+ * `danger`, `success`, `warning`, `media`, `media-quiet`, or the colour around it) and `weight`
+ * (`bold`, or `regular` inside a bold line).
  * A `p` unless `as` says otherwise; `asChild` puts the look on its child. Bold words inside a
  * sentence stay plain `<strong>`.
  */

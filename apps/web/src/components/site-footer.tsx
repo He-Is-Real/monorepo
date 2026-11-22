@@ -1,5 +1,7 @@
 import Link from 'next/link';
+import { Heading, Text } from '@heisreal/web-ui';
 import { Logo } from '@/components/logo';
+import { TextLink } from '@/components/page/text-link';
 
 const EXPLORE = [
   { href: '/stories', label: 'Browse stories' },
@@ -13,7 +15,9 @@ const SHARE = [
   { href: '/contact', label: 'Contact us' },
 ];
 
+// The footer keeps its own quiet links (web-library-round3.html: the menus and footer keep theirs).
 const linkClass =
+  // eslint-disable-next-line @heisreal/web-ui/no-text-look -- the footer's own link look, kept by decision (round 3)
   'inline-flex min-h-11 min-w-11 items-center text-sm text-secondary-text hover:text-foreground';
 
 function LinkGroup({
@@ -25,7 +29,9 @@ function LinkGroup({
 }) {
   return (
     <div>
-      <h2 className="mb-1 text-xs font-semibold text-foreground">{heading}</h2>
+      <Heading level={2} size="small" className="mb-1">
+        {heading}
+      </Heading>
       <ul>
         {links.map((l) => (
           <li key={l.href}>
@@ -52,13 +58,13 @@ export function SiteFooter() {
         <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr] lg:gap-12">
           <div className="max-w-sm">
             <Logo size={36} />
-            <p className="mt-4 text-sm leading-relaxed text-secondary-text">
+            <Text size="small" tone="quiet" className="mt-4">
               A collection of God Stories from everyday people around the world.
               Not affiliated with any particular Christian denomination.
-            </p>
-            <p className="mt-3 text-sm text-muted-foreground">
+            </Text>
+            <Text size="small" tone="quiet" className="mt-3">
               UK-based not-for-profit. Charity registration pending.
-            </p>
+            </Text>
           </div>
           <nav
             aria-label="Footer"
@@ -69,16 +75,21 @@ export function SiteFooter() {
           </nav>
         </div>
 
-        <div className="mt-10 flex flex-col gap-4 border-t border-border pt-6 text-sm text-muted-foreground lg:flex-row lg:items-center lg:justify-between">
+        <Text
+          as="div"
+          size="small"
+          tone="quiet"
+          className="mt-10 flex flex-col gap-4 border-t border-border pt-6 lg:flex-row lg:items-center lg:justify-between"
+        >
           <p>&copy; 2026 He Is Real Today.</p>
           <p>
             We only use essential cookies and storage.{' '}
-            <Link
+            <TextLink
               href="/privacy#cookies"
-              className="inline-flex min-h-11 items-center underline-offset-4 hover:underline"
+              className="inline-flex min-h-11 items-center"
             >
               How we use cookies
-            </Link>
+            </TextLink>
           </p>
           <ul className="flex gap-6">
             <li>
@@ -92,7 +103,7 @@ export function SiteFooter() {
               </Link>
             </li>
           </ul>
-        </div>
+        </Text>
       </div>
     </footer>
   );

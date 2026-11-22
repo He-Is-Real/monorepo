@@ -151,7 +151,9 @@ real-SurrealDB suites use `vitest.integration.config.mts` with libs/database's g
 styled copies (`docs/how-the-app-works.md`, technical decisions; `libs/web-ui/README.md`). Every drop-down is
 its `Select`, every text box its `Input`, every text area its `Textarea` (with `Field`, `FieldLabel`, `FieldHint`
 and `FieldError` for the label, hint and error wiring), every bordered panel its `Card`, every pop-up menu panel
-its `PopoverPanel`, and buttons whose words may wrap are `Button wrap`. Pages pass layout classes only (width,
+its `PopoverPanel`, every dialog its `Dialog`, headings, text and links its `Heading`, `Text`, `Quote` and
+`TextLink` (a text colour, size or weight class in page code fails lint), and buttons whose words may wrap are
+`Button wrap`. Pages pass layout classes only (width,
 margins, padding, grid placement); a copied field class string fails lint. The library also owns the theme
 (`libs/web-ui/src/styles/theme.css`: colours light and dark, font, radii, widths) and these lint checks
 (`@heisreal/web-ui/eslint`). Colours are named by meaning (`danger`, `warning`, `success`, `info`, `brand`,

@@ -1,9 +1,9 @@
 'use client';
 
-import Link from 'next/link';
 import { useMemo, useRef, useEffect, useState } from 'react';
 import { useRole } from '@/components/admin/admin-access';
-import { Button, Card, Notice } from '@heisreal/web-ui';
+import { Button, Card, Heading, Notice } from '@heisreal/web-ui';
+import { TextLink } from '@/components/page/text-link';
 import { apiUser, type ApiUser } from '@/lib/api-user';
 import { usePersonalSession } from '@/lib/personal-session';
 import {
@@ -104,9 +104,9 @@ function TakeDown({ storyId, client }: { storyId: string; client: ApiUser }) {
 
         data-take-down=""
       >
-        <h2 id="take-down-heading" className="mb-4 text-xl font-semibold">
+        <Heading level={2} size="sub" id="take-down-heading" className="mb-4">
           For moderators
-        </h2>
+        </Heading>
         {(state.step === 'closed' || state.step === 'opening') && (
           <Button
             variant="outline"
@@ -146,15 +146,17 @@ function TakeDown({ storyId, client }: { storyId: string; client: ApiUser }) {
               ref={doneRef}
               tabIndex={-1}
               role="status"
-              className="font-semibold outline-none"
+              className="outline-none"
               data-take-down-notice={state.step}
             >
-              {state.step === 'done' ? DONE.hide : state.message}
+              <strong>
+                {state.step === 'done' ? DONE.hide : state.message}
+              </strong>
             </Notice>
             <p className="mt-2">
-              <Link href={review} className="inline-flex min-h-11 items-center">
+              <TextLink kind="standalone" href={review}>
                 Open its review page
-              </Link>
+              </TextLink>
             </p>
           </>
         )}

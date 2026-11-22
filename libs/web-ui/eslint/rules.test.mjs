@@ -217,7 +217,8 @@ describe('no-text-look', () => {
     ['a single word of text', '"Bold"'],
     ['wrapping and clamps', '"line-clamp-2 truncate text-pretty"'],
   ])
-    it(`passes ${what}`, async () => assert.deepEqual(await rules(page(cls)), []));
+    it(`passes ${what}`, async () =>
+      assert.deepEqual(await rules(page(cls)), []));
 
   it('passes a link to an id', async () =>
     assert.deepEqual(

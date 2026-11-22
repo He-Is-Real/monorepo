@@ -1,6 +1,6 @@
 import { cacheLife } from 'next/cache';
 import { ButtonLink } from '@/components/page/button-link';
-import { Card } from '@heisreal/web-ui';
+import { Card, Heading, Text } from '@heisreal/web-ui';
 import {
   NarrowColumn,
   PageHeader,
@@ -72,23 +72,24 @@ function NextStepsContent({ keep }: { keep: boolean }) {
               <Card className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:gap-7 sm:p-8">
                 <div
                   aria-hidden="true"
+                  // eslint-disable-next-line @heisreal/web-ui/no-text-look -- sizes the step's emoji icon, not text
                   className="flex size-12 shrink-0 items-center justify-center rounded-lg bg-surface text-2xl sm:size-20 sm:rounded-xl sm:text-4xl"
                 >
                   {step.icon}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <h2 className="mb-2 text-lg font-normal sm:text-[1.375rem]">
+                  <Heading level={2} size="sub" className="mb-2">
                     {step.title}
-                  </h2>
-                  <p className="mb-4 text-[0.9375rem] leading-relaxed text-secondary-text">
+                  </Heading>
+                  <Text tone="quiet" className="mb-4">
                     {step.text}
-                  </p>
+                  </Text>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                     <ButtonLink href={step.href}>{step.action}</ButtonLink>
                     {step.domain && (
-                      <span className="text-sm text-muted-foreground">
+                      <Text as="span" size="small" tone="quiet">
                         {step.domain}
-                      </span>
+                      </Text>
                     )}
                   </div>
                 </div>

@@ -1,6 +1,6 @@
 import { cacheLife } from 'next/cache';
 import { ButtonLink } from '@/components/page/button-link';
-import { Card, Tag } from '@heisreal/web-ui';
+import { Card, Heading, Tag, Text } from '@heisreal/web-ui';
 import { NarrowColumn, PageHeader } from '@/components/page/page-header';
 import { cachedPage, type PageCacheLife } from '@/lib/page-cache';
 import { pageMetadata } from '@/lib/seo';
@@ -67,12 +67,12 @@ function GetReadyContent() {
             {RESOURCES.map((r) => (
               <li key={r.title}>
                 <Card className="p-6 sm:px-8 sm:py-7">
-                  <h3 className="mb-2 text-xl font-normal sm:text-[1.375rem]">
+                  <Heading level={3} className="mb-2">
                     {r.title}
-                  </h3>
-                  <p className="mb-4 text-[0.9375rem] text-secondary-text">
+                  </Heading>
+                  <Text tone="quiet" className="mb-4">
                     {r.text}
-                  </p>
+                  </Text>
                   <p>
                     <Tag className="py-1">PDF and audio coming soon</Tag>
                   </p>
@@ -85,6 +85,7 @@ function GetReadyContent() {
         <Card className="mb-14 flex flex-col items-start gap-5 p-6 sm:flex-row sm:items-center sm:gap-7 sm:p-8">
           <div
             aria-hidden="true"
+            // eslint-disable-next-line @heisreal/web-ui/no-text-look -- colours the play mark (currentColor) on the black placeholder, not text
             className="flex aspect-video w-full shrink-0 items-center justify-center rounded-xl bg-media text-on-media/50 sm:w-48"
           >
             <svg viewBox="0 0 24 24" className="size-9">
@@ -95,27 +96,27 @@ function GetReadyContent() {
             <p className="mb-3">
               <Tag className="py-1">Coming soon</Tag>
             </p>
-            <h2 className="mb-2 text-xl font-normal sm:text-[1.375rem]">
+            <Heading level={2} size="sub" className="mb-2">
               Watch: how to share your story
-            </h2>
-            <p className="text-[0.9375rem] text-secondary-text">
+            </Heading>
+            <Text tone="quiet">
               A short video walking you through the whole process.
-            </p>
+            </Text>
           </div>
         </Card>
 
         <section aria-labelledby="tips" className="mb-14">
-          <h2 id="tips" className="mb-5 text-2xl font-normal sm:text-[1.75rem]">
+          <Heading level={2} id="tips" className="mb-5">
             Quick tips
-          </h2>
+          </Heading>
           <ul className="grid gap-4 sm:grid-cols-2">
             {TIPS.map((t) => (
               <li key={t.title}>
                 <Card className="h-full p-6">
-                  <h3 className="mb-2 font-semibold">{t.title}</h3>
-                  <p className="text-[0.9375rem] leading-relaxed text-secondary-text">
-                    {t.text}
-                  </p>
+                  <Heading level={3} className="mb-2">
+                    {t.title}
+                  </Heading>
+                  <Text tone="quiet">{t.text}</Text>
                 </Card>
               </li>
             ))}
@@ -123,16 +124,13 @@ function GetReadyContent() {
         </section>
 
         <section aria-labelledby="ready" className="text-center">
-          <h2
-            id="ready"
-            className="mb-3 text-2xl font-normal sm:text-[1.75rem]"
-          >
+          <Heading level={2} id="ready" className="mb-3">
             Ready?
-          </h2>
-          <p className="mb-6 text-secondary-text">
+          </Heading>
+          <Text tone="quiet" className="mb-6">
             Take your time. Your story is saved as you write, so you can come
             back to it.
-          </p>
+          </Text>
           <ButtonLink href="/share">Share your story</ButtonLink>
         </section>
       </NarrowColumn>

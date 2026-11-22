@@ -29,10 +29,13 @@ export const SHARE_HREF = '/share';
 const isCurrent = (pathname: string, href: string) =>
   pathname === href || pathname.startsWith(`${href}/`);
 
+// The site menu keeps its own links (web-library-round3.html: the menus and footer keep theirs).
+/* eslint-disable @heisreal/web-ui/no-text-look -- the site menu's own links and menu button, kept by decision (round 3) */
 const DESKTOP_LINK =
   'relative inline-flex min-h-11 min-w-11 items-center justify-center text-sm font-medium text-secondary-text after:absolute after:inset-x-0 after:bottom-2 after:h-0.5 after:origin-left after:scale-x-0 after:bg-brand after:transition-transform hover:text-foreground hover:after:scale-x-100 aria-[current=page]:text-foreground aria-[current=page]:after:scale-x-100 motion-reduce:after:transition-none';
 const MENU_LINK =
   'flex min-h-12 items-center text-lg text-secondary-text hover:text-foreground aria-[current=page]:font-semibold aria-[current=page]:text-foreground';
+/* eslint-enable @heisreal/web-ui/no-text-look */
 
 /** The main navigation: one row on desktops, a second header row on tablets (plan 1.6). */
 export function NavLinks({ className = '' }: { className?: string }) {
@@ -82,6 +85,7 @@ export function NavLinks({ className = '' }: { className?: string }) {
 }
 
 const MENU_BUTTON =
+  // eslint-disable-next-line @heisreal/web-ui/no-text-look -- the menu button's icon colour, part of the site menu kept by decision (round 3)
   'inline-flex size-11 items-center justify-center rounded-md text-secondary-text hover:text-foreground';
 // The menu's focusable items, in order: the disclosure's and the button's are the same list.
 const DISCLOSURE_ITEMS = 'summary, a[href]';

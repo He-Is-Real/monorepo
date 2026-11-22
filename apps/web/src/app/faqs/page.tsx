@@ -1,5 +1,5 @@
 import { cacheLife } from 'next/cache';
-import { Accordion } from '@heisreal/web-ui';
+import { Accordion, Heading, Text } from '@heisreal/web-ui';
 import { ButtonLink } from '@/components/page/button-link';
 import { JsonLd } from '@/components/page/json-ld';
 import { NarrowColumn, PageHeader } from '@/components/page/page-header';
@@ -28,12 +28,14 @@ function FaqsContent() {
             aria-labelledby={`faq-group-${group.id}`}
             className="mb-12"
           >
-            <h2
+            <Heading
+              level={2}
+              size="eyebrow"
               id={`faq-group-${group.id}`}
-              className="mb-5 text-sm font-semibold tracking-[0.15em] text-link uppercase"
+              className="mb-5"
             >
               {group.heading}
-            </h2>
+            </Heading>
             <Accordion
               idPrefix="faq"
               items={group.items.map((i) => ({
@@ -45,7 +47,9 @@ function FaqsContent() {
           </section>
         ))}
         <div className="pt-2 text-center">
-          <p className="mb-4 text-muted-foreground">Still have a question?</p>
+          <Text tone="quiet" className="mb-4">
+            Still have a question?
+          </Text>
           <ButtonLink href="/contact">Get in touch</ButtonLink>
         </div>
       </NarrowColumn>

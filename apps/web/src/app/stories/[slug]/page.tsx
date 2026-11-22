@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { notFound, permanentRedirect } from 'next/navigation';
 import { StoryTakeDown } from '@/components/moderation/story-take-down';
 import { RestartingMessage } from '@/components/restarting/restarting-message';
@@ -13,7 +12,8 @@ import {
 import { apiAdminUrl } from '@/lib/config';
 import { logStoriesUnavailable } from '@/lib/log';
 import { jsonLdScript, pageMetadata } from '@/lib/seo';
-import { Button } from '@heisreal/web-ui';
+import { Button, Heading, Text } from '@heisreal/web-ui';
+import { TextLink } from '@/components/page/text-link';
 
 type Props = { params: Promise<{ slug: string }> };
 
@@ -56,18 +56,15 @@ function StoryUnavailable({ slug }: { slug: string }) {
       id="main"
       className="mx-auto flex w-full max-w-measure flex-1 flex-col items-center justify-center gap-4 px-4 py-16 text-center"
     >
-      <h1 className="text-3xl font-semibold">Something went wrong</h1>
-      <p className="text-secondary-text">Please try again later.</p>
+      <Heading level={1}>Something went wrong</Heading>
+      <Text tone="quiet">Please try again later.</Text>
       <div className="flex flex-wrap justify-center gap-3">
         <Button asChild>
           <a href={`/stories/${slug}`}>Try again</a>
         </Button>
-        <Link
-          href="/stories"
-          className="inline-flex min-h-11 items-center px-2"
-        >
+        <TextLink href="/stories" kind="standalone" className="px-2">
           Browse stories
-        </Link>
+        </TextLink>
       </div>
     </main>
   );

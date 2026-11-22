@@ -13,7 +13,7 @@ import {
 } from '@/lib/config';
 import { getShareLegal } from '@/lib/share-legal';
 import { pageMetadata } from '@/lib/seo';
-import { Card } from '@heisreal/web-ui';
+import { Card, Text } from '@heisreal/web-ui';
 
 /** Per request: URLs come from SITE_URL (seo.ts). Never indexed: it's a personal form. */
 export function generateMetadata(): Metadata {
@@ -65,9 +65,9 @@ export default async function SharePage() {
           ) : publishableKey && apiUser ? (
             <ShareWithClerk apiUserUrl={apiUser} legal={legal} />
           ) : (
-            <p className="text-center text-secondary-text">
+            <Text tone="quiet" className="text-center">
               Sharing isn’t available on this site yet.
-            </p>
+            </Text>
           )}
         </div>
       </NarrowColumn>

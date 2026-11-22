@@ -1,6 +1,6 @@
 import { cacheLife } from 'next/cache';
 import { ButtonLink } from '@/components/page/button-link';
-import { Card } from '@heisreal/web-ui';
+import { Card, Heading, Quote, Text } from '@heisreal/web-ui';
 import { RaisedBand } from '@/components/page/card';
 import { NarrowColumn } from '@/components/page/page-header';
 import {
@@ -117,26 +117,22 @@ function PartText({ part, number }: { part: Part; number: number }) {
     <div>
       <p
         aria-hidden="true"
+        // eslint-disable-next-line @heisreal/web-ui/no-text-look -- the giant faded part number is decoration no text piece draws (styling order, step 4)
         className="mb-2 text-5xl leading-none font-bold text-brand/25 sm:text-7xl"
       >
         {String(number).padStart(2, '0')}
       </p>
-      <h2 className="mb-5 text-[1.75rem] leading-tight font-normal text-balance sm:text-[2.5rem]">
+      <Heading level={2} className="mb-5">
         {part.heading}
-      </h2>
-      <div className="space-y-5 text-base leading-[1.9] text-secondary-text sm:text-lg">
+      </Heading>
+      <Text as="div" size="story" tone="quiet" className="space-y-5">
         {part.paragraphs.map((p) => (
           <p key={p}>{p}</p>
         ))}
-      </div>
-      <figure className="mt-6 border-l-2 border-brand pl-5">
-        <blockquote className="text-[0.9375rem] text-muted-foreground italic sm:text-[1.0625rem]">
-          <p>“{part.verse}”</p>
-        </blockquote>
-        <figcaption className="mt-2 text-[0.8125rem] text-muted-foreground">
-          <cite className="not-italic">{part.reference}</cite>
-        </figcaption>
-      </figure>
+      </Text>
+      <Quote source={part.reference} className="mt-6">
+        <p>“{part.verse}”</p>
+      </Quote>
     </div>
   );
 }
@@ -145,18 +141,18 @@ function GreatestStoryContent() {
   return (
     <main id="main" className="flex-1">
       <NarrowColumn className="py-14 sm:py-24">
-        <p className="mb-3 text-sm font-semibold tracking-[0.2em] text-link uppercase">
+        <Heading as="p" size="eyebrow" className="mb-3">
           The Gospel
-        </p>
-        <h1 className="mb-6 text-[2.5rem] leading-[1.1] font-normal sm:text-[3.75rem]">
+        </Heading>
+        <Heading level={1} size="display" className="mb-6">
           The Greatest Story <br />
           <em>Ever Told</em>
-        </h1>
-        <p className="text-lg leading-relaxed text-secondary-text sm:text-xl">
+        </Heading>
+        <Text size="intro" tone="quiet">
           Every testimony on this site points back to one story. A story of
           love, sacrifice, and hope that changed the world, and that can change
           yours.
-        </p>
+        </Text>
       </NarrowColumn>
 
       {/* role="list": Safari drops list semantics when the markers are hidden. */}
@@ -173,6 +169,7 @@ function GreatestStoryContent() {
                 <div className="mx-auto grid max-w-[calc(var(--container-measure)+2rem)] items-center gap-8 px-4 sm:max-w-[calc(var(--container-measure)+5rem)] sm:px-10 md:max-w-site md:grid-cols-2 md:gap-16">
                   <PartText part={part} number={i + 1} />
                   <div
+                    // eslint-disable-next-line @heisreal/web-ui/no-text-look -- text-brand colours the drawing (currentColor), not text
                     className={`flex aspect-video items-center justify-center rounded-3xl border border-border bg-card p-6 text-brand md:aspect-square ${
                       i % 2 === 1 ? 'md:order-first' : ''
                     }`}
@@ -192,42 +189,38 @@ function GreatestStoryContent() {
 
       <section aria-labelledby="prayer" className="py-14 sm:py-24">
         <NarrowColumn>
-          <h2
-            id="prayer"
-            className="mb-4 text-[1.75rem] font-normal sm:text-[2.25rem]"
-          >
+          <Heading level={2} id="prayer" className="mb-4">
             A simple prayer
-          </h2>
-          <p className="mb-8 text-[1.0625rem] text-secondary-text">
+          </Heading>
+          <Text size="intro" tone="quiet" className="mb-8">
             If you’d like to take this step, there are no magic words. But if it
             helps, you could pray something like this:
-          </p>
+          </Text>
           <Card className="p-6 sm:p-10">
-            <div className="space-y-4 text-lg leading-relaxed italic sm:text-xl">
+            <Text as="div" size="story" className="space-y-4">
               {PRAYER.map((line) => (
                 <p key={line}>{line}</p>
               ))}
-              <p className="font-semibold not-italic">Amen.</p>
-            </div>
+              <p>
+                <strong>Amen.</strong>
+              </p>
+            </Text>
           </Card>
         </NarrowColumn>
       </section>
 
       <RaisedBand aria-labelledby="what-now" className="text-center">
         <NarrowColumn>
-          <h2
-            id="what-now"
-            className="mb-4 text-[1.75rem] font-normal sm:text-[2.25rem]"
-          >
+          <Heading level={2} id="what-now" className="mb-4">
             What now?
-          </h2>
-          <p className="text-[1.0625rem] text-secondary-text">
+          </Heading>
+          <Text size="intro" tone="quiet">
             If you prayed that prayer, or even if you’re still thinking about
             it, you’re not alone.
-          </p>
-          <p className="mb-8 text-[1.0625rem] text-secondary-text">
+          </Text>
+          <Text size="intro" tone="quiet" className="mb-8">
             Here are some ways to keep going.
-          </p>
+          </Text>
           <div className="flex flex-col justify-center gap-3 sm:flex-row sm:flex-wrap">
             <ButtonLink href="/next-steps" size="lg">
               Explore next steps
@@ -239,13 +232,13 @@ function GreatestStoryContent() {
               Talk to someone
             </ButtonLink>
           </div>
-          <p className="mt-12 text-xs leading-relaxed text-muted-foreground">
+          <Text size="small" tone="quiet" className="mt-12">
             Scripture quotations taken from The Holy Bible, New International
             Version (Anglicised edition). Copyright © 1979, 1984, 2011 by
             Biblica. Used by permission of Hodder &amp; Stoughton Publishers, an
             Hachette UK company. All rights reserved. ‘NIV’ is a registered
             trademark of Biblica.
-          </p>
+          </Text>
         </NarrowColumn>
       </RaisedBand>
     </main>

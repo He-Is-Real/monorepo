@@ -18,7 +18,8 @@ import { RestartingMessage } from '@/components/restarting/restarting-message';
 import { cachedPage, type PageCacheLife } from '@/lib/page-cache';
 import { pageMetadata } from '@/lib/seo';
 import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
-import { Button, Notice } from '@heisreal/web-ui';
+import { Button, Heading, Notice, Text } from '@heisreal/web-ui';
+import { TextLink } from '@/components/page/text-link';
 
 export async function generateMetadata(): Promise<Metadata> {
   return pageMetadata({
@@ -58,12 +59,9 @@ async function newestStories(
 /** The mockups' section label, as the section's heading. */
 function Eyebrow({ id, children }: { id: string; children: React.ReactNode }) {
   return (
-    <h2
-      id={id}
-      className="mb-4 text-sm font-semibold tracking-[0.2em] text-link uppercase"
-    >
+    <Heading level={2} size="eyebrow" id={id} className="mb-4">
       {children}
-    </h2>
+    </Heading>
   );
 }
 
@@ -71,26 +69,28 @@ function Eyebrow({ id, children }: { id: string; children: React.ReactNode }) {
 function ThemeTrack({ category }: { category: ThemeCategory }) {
   return (
     <div>
-      <h3 className="mb-4 text-lg text-secondary-text italic">
+      <Heading level={3} size="small" className="mb-4">
         {category.name}
-      </h3>
+      </Heading>
       <ul className="grid gap-2.5 sm:grid-cols-2">
         {category.themes.map((t) => (
           <li key={t.id}>
-            <Link
-              href={`/stories?theme=${t.id}`}
-              className="group flex min-h-14 items-center justify-between rounded-lg border border-border bg-card px-4 font-semibold text-foreground transition-colors hover:border-brand hover:bg-accent hover:text-foreground"
-            >
-              {t.name}
-              <svg
-                viewBox="0 0 24 24"
-                aria-hidden="true"
-                className="size-4 fill-none stroke-faint transition-transform group-hover:translate-x-0.5 group-hover:stroke-brand motion-reduce:transition-none"
-                strokeWidth="2"
+            <Text asChild size="inherit" tone="normal" weight="bold">
+              <Link
+                href={`/stories?theme=${t.id}`}
+                className="group flex min-h-14 items-center justify-between rounded-lg border border-border bg-card px-4 transition-colors hover:border-brand hover:bg-accent"
               >
-                <path d="M9 6l6 6-6 6" />
-              </svg>
-            </Link>
+                {t.name}
+                <svg
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  className="size-4 fill-none stroke-faint transition-transform group-hover:translate-x-0.5 group-hover:stroke-brand motion-reduce:transition-none"
+                  strokeWidth="2"
+                >
+                  <path d="M9 6l6 6-6 6" />
+                </svg>
+              </Link>
+            </Text>
           </li>
         ))}
       </ul>
@@ -134,7 +134,7 @@ async function Home({ keep }: { keep: boolean }) {
         Keagan Henman's "black metal framed padded folding chair" (Unsplash, iFBIdX54BOk; free
         under the Unsplash License), greyscale and darkened to 72% in the file itself.
       */}
-      <section className="relative isolate flex min-h-[min(88svh,52rem)] items-center justify-center overflow-hidden bg-hero px-4 pt-20 pb-32 text-center text-on-media">
+      <section className="relative isolate flex min-h-[min(88svh,52rem)] items-center justify-center overflow-hidden bg-hero px-4 pt-20 pb-32 text-center">
         <Image
           src="/hero-backdrop.webp"
           alt=""
@@ -152,24 +152,35 @@ async function Home({ keep }: { keep: boolean }) {
           aria-hidden="true"
           className="absolute inset-x-0 bottom-0 -z-10 h-24 bg-linear-to-b from-transparent to-background"
         />
-        <div className="max-w-2xl">
+        <Text as="div" size="inherit" tone="media" className="max-w-2xl">
           <Logo
             size={120}
             className="mx-auto mb-10 animate-in fade-in duration-700 [--logo:var(--on-media)]"
           />
-          <h1 className="text-[clamp(2.5rem,7vw,4rem)] leading-[1.12] font-normal tracking-tight animate-in fade-in slide-in-from-bottom-4 delay-150 duration-700 fill-mode-both">
+          <Heading
+            level={1}
+            size="display"
+            className="animate-in fade-in slide-in-from-bottom-4 delay-150 duration-700 fill-mode-both"
+          >
+            {/* eslint-disable @heisreal/web-ui/no-text-look -- the hero's teal "God", the page's one bold moment on the always-dark hero (styling order, step 4) */}
             Is <em className="text-brand-bright">God</em> Real?
             <br />
             Does <em className="text-brand-bright">God</em> exist?
-          </h1>
-          <p className="mx-auto mt-7 max-w-xl text-[clamp(1rem,2vw,1.2rem)] leading-relaxed text-on-media/80 animate-in fade-in slide-in-from-bottom-4 delay-300 duration-700 fill-mode-both">
+            {/* eslint-enable @heisreal/web-ui/no-text-look */}
+          </Heading>
+          <Text
+            size="intro"
+            tone="media-quiet"
+            className="mx-auto mt-7 max-w-xl animate-in fade-in slide-in-from-bottom-4 delay-300 duration-700 fill-mode-both"
+          >
             Whatever brought you here, you’ll find real stories from real people
             about moments that changed them. No scripts, no performance, just
             honesty.
-          </p>
+          </Text>
           <div className="mt-10 flex flex-wrap justify-center gap-4 animate-in fade-in delay-500 duration-700 fill-mode-both">
             {/* The library's large buttons (BT-1 A), in the hero's own colours: it is dark in
                 both themes. */}
+            {/* eslint-disable @heisreal/web-ui/no-text-look -- the hero's own button colours, dark in both themes (styling order, step 4) */}
             <Button
               asChild
               size="lg"
@@ -187,8 +198,9 @@ async function Home({ keep }: { keep: boolean }) {
             >
               <Link href={SHARE_HREF}>Share your story</Link>
             </Button>
+            {/* eslint-enable @heisreal/web-ui/no-text-look */}
           </div>
-        </div>
+        </Text>
       </section>
 
       <section
@@ -221,12 +233,9 @@ async function Home({ keep }: { keep: boolean }) {
           </ul>
         )}
         <p className="mt-10 text-center">
-          <Link
-            href="/stories"
-            className="inline-flex min-h-11 items-center font-medium"
-          >
+          <TextLink href="/stories" kind="standalone">
             View all stories
-          </Link>
+          </TextLink>
         </p>
       </section>
 
@@ -238,9 +247,9 @@ async function Home({ keep }: { keep: boolean }) {
           <div className="mx-auto max-w-site px-4 py-16 sm:px-10 sm:py-24">
             <div className="mb-10 text-center">
               <Eyebrow id="explore">Explore stories</Eyebrow>
-              <p className="text-lg text-secondary-text">
+              <Text size="intro" tone="quiet">
                 Find stories from people who’ve been where you are.
-              </p>
+              </Text>
             </div>
             <div className="grid gap-10 lg:grid-cols-2 lg:gap-14">
               {tracks.map((c) => (
@@ -260,11 +269,11 @@ async function Home({ keep }: { keep: boolean }) {
           className="absolute top-0 left-1/2 h-px w-20 -translate-x-1/2 bg-linear-to-r from-transparent via-brand to-transparent"
         />
         <Eyebrow id="your-story">Your story</Eyebrow>
-        <p className="mx-auto max-w-xl text-lg text-secondary-text">
+        <Text size="intro" tone="quiet" className="mx-auto max-w-xl">
           Whether it’s a moment of healing, an answered prayer, a life turned
           around, or simply His faithfulness, someone out there needs to hear
           how you discovered God is real.
-        </p>
+        </Text>
         <p className="mt-8">
           <Button asChild size="lg" wrap>
             <Link href={SHARE_HREF}>Get ready to share</Link>
@@ -279,20 +288,17 @@ async function Home({ keep }: { keep: boolean }) {
         className="bg-[radial-gradient(ellipse_at_50%_0%,color-mix(in_srgb,var(--brand)_15%,transparent),transparent_70%)] px-4 py-16 text-center sm:py-24"
       >
         <div className="mx-auto max-w-measure">
-          <h2
-            id="support"
-            className="mb-3 text-[clamp(1.75rem,3.5vw,2.5rem)] font-normal"
-          >
+          <Heading level={2} id="support" className="mb-3">
             Support this work
-          </h2>
-          <p className="text-lg text-secondary-text">
+          </Heading>
+          <Text size="intro" tone="quiet">
             He Is Real Today is a not-for-profit. We rely on the generosity of
             people who believe these stories matter.
-          </p>
-          <p className="mt-2 text-sm text-muted-foreground">
+          </Text>
+          <Text size="small" tone="quiet" className="mt-2">
             Every donation goes to publishing more stories and reaching more
             people. UK taxpayers can add 25% through Gift Aid at no extra cost.
-          </p>
+          </Text>
           <div className="mt-7 flex flex-wrap justify-center gap-3">
             <Button asChild size="lg" wrap variant="outline">
               <Link href="/donate">Give once</Link>

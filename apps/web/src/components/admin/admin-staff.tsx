@@ -11,8 +11,10 @@ import {
   FieldHint,
   FieldLabel,
   Input,
+  Heading,
   Notice,
   Select,
+  Text,
 } from '@heisreal/web-ui';
 import type { ApiUser } from '@/lib/api-user';
 
@@ -135,7 +137,7 @@ function Staff({ client }: { client: ApiUser }) {
   }
 
   if (loaded.status === 'loading') {
-    return <p className="text-secondary-text">Loading the staff list…</p>;
+    return <Text tone="quiet">Loading the staff list…</Text>;
   }
   if (loaded.status === 'failed') {
     return (
@@ -167,9 +169,9 @@ function Staff({ client }: { client: ApiUser }) {
 
           aria-labelledby={`${id}-add`}
         >
-          <h2 id={`${id}-add`} className="text-lg font-semibold">
+          <Heading level={2} size="sub" id={`${id}-add`}>
             Add someone
-          </h2>
+          </Heading>
           <Field id={`${id}-email`} hint error={emailError}>
             <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
               <div className="min-w-0 flex-1">
@@ -206,9 +208,9 @@ function Staff({ client }: { client: ApiUser }) {
       </Card>
 
       <section aria-labelledby={`${id}-list`} className="space-y-3">
-        <h2 id={`${id}-list`} className="text-lg font-semibold">
+        <Heading level={2} id={`${id}-list`}>
           Staff
-        </h2>
+        </Heading>
         <Card asChild className="divide-y divide-border">
           <ul>
             {loaded.members.map((m) => (
@@ -218,15 +220,19 @@ function Staff({ client }: { client: ApiUser }) {
                 data-staff-member={m.email}
               >
                 <div className="min-w-0">
-                  <p className="font-medium [overflow-wrap:anywhere]">
+                  <Text weight="bold" className="[overflow-wrap:anywhere]">
                     {m.email}
-                  </p>
-                  <p className="text-sm text-secondary-text [overflow-wrap:anywhere]">
+                  </Text>
+                  <Text
+                    size="small"
+                    tone="quiet"
+                    className="[overflow-wrap:anywhere]"
+                  >
                     {m.baseline ? 'Baseline admin. ' : ''}
                     Added {m.addedBy
                       ? `by ${m.addedBy}`
                       : 'by the deploy'} on {day(m.addedAt)}.
-                  </p>
+                  </Text>
                 </div>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                   <label className="sr-only" htmlFor={`${id}-${m.email}`}>

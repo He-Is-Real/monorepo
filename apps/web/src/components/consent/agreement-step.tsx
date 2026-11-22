@@ -6,7 +6,16 @@ import { confirmAgreement } from '@/components/auth/account-bootstrap';
 import { LegalHtml } from '@/components/legal/legal-html';
 import { PrivacyNoticeLink } from '@/components/legal/privacy-notice-link';
 import { Redline } from '@/components/legal/redline';
-import { Button, Checkbox, Disclosure, Notice } from '@heisreal/web-ui';
+import {
+  Button,
+  Checkbox,
+  cn,
+  Disclosure,
+  Notice,
+  Text,
+  TextLink,
+  textVariants,
+} from '@heisreal/web-ui';
 import {
   type Agreement,
   type AgreementState,
@@ -103,9 +112,9 @@ export function AgreementStep({
       <div>
         {heading(title(document, agreed))}
         <div aria-busy="true" className="min-h-[16rem]">
-          <p role="status" className="text-secondary-text">
+          <Text role="status" tone="quiet">
             Loading…
-          </p>
+          </Text>
         </div>
       </div>
     );
@@ -193,17 +202,17 @@ export function AgreementStep({
         data-agreement-version={latest}
       >
         {reAgree ? (
-          <p className="mb-4 text-[1.0625rem] text-secondary-text">
+          <Text size="intro" tone="quiet" className="mb-4">
             You agreed to version {agreed.version} on{' '}
             <time dateTime={agreed.agreedAt}>{shortDate(agreed.agreedAt)}</time>
             . Here’s what’s different in version {latest}.
-          </p>
+          </Text>
         ) : (
-          <p className="mb-4 text-[1.0625rem] text-secondary-text">
+          <Text size="intro" tone="quiet" className="mb-4">
             {document === 'terms-of-use'
               ? 'Please read our terms of use. You must be 18 or over to have an account.'
               : 'Please read our testimony consent. It covers every story you submit.'}
-          </p>
+          </Text>
         )}
 
         {problem && (
@@ -246,12 +255,9 @@ export function AgreementStep({
             </section>
             {document === 'terms-of-use' && (
               <p className="mt-2">
-                <a
-                  href={documentHref('terms-of-use')}
-                  className="inline-flex min-h-11 items-center font-medium text-link underline-offset-4 hover:text-link-hover hover:underline"
-                >
+                <TextLink kind="standalone" href={documentHref('terms-of-use')}>
                   Read the full terms
-                </a>
+                </TextLink>
               </p>
             )}
           </>
@@ -268,22 +274,27 @@ export function AgreementStep({
             }}
             aria-invalid={missing || undefined}
             aria-describedby={missing ? `${id}-missing` : undefined}
-            className="text-[1.0625rem] leading-relaxed [overflow-wrap:anywhere]"
-            labelClassName="font-semibold"
+            className={cn(
+              '[overflow-wrap:anywhere]',
+              textVariants({ size: 'intro' }),
+            )}
+            labelClassName={textVariants({ size: 'inherit', weight: 'bold' })}
           >
             {label}
           </Checkbox>
           {missing && (
-            <p
+            <Text
               id={`${id}-missing`}
-              className="mt-2 font-medium text-danger-text"
+              tone="danger"
+              weight="bold"
+              className="mt-2"
             >
               Tick the box to continue. Nothing is saved until you do.
-            </p>
+            </Text>
           )}
         </div>
 
-        <Button type="submit" disabled={saving} wrap className="mt-6 text-base">
+        <Button type="submit" disabled={saving} wrap className="mt-6">
           {saving ? 'Saving…' : 'Continue'}
         </Button>
         <PrivacyNoticeLink className="mt-4" />

@@ -68,6 +68,7 @@ export function ThemeToggle() {
       aria-label={`${LABELS[choice]}. Switch to ${upcoming}`}
       title={LABELS[choice]}
       data-theme-choice={choice}
+      // eslint-disable-next-line @heisreal/web-ui/no-text-look -- the header's icon button colour (the icon is currentColor), as the site menu's button
       className="inline-flex size-11 shrink-0 items-center justify-center rounded-md text-secondary-text transition-colors hover:bg-accent hover:text-foreground"
     >
       <ThemeIcon choice={choice} />

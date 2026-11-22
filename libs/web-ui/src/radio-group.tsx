@@ -66,9 +66,7 @@ export function RadioGroup({
 
   return (
     <fieldset ref={fieldset} className={className}>
-      <legend
-        className={cn('mb-2 block', headingVariants({ size: 'small' }))}
-      >
+      <legend className={cn('mb-2 block', headingVariants({ size: 'small' }))}>
         {legend}
       </legend>
       {options.map((o) => (

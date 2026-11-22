@@ -14,7 +14,7 @@ import {
 } from '@/lib/api-user';
 import { usePersonalSession } from '@/lib/personal-session';
 import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
-import { Card, Notice } from '@heisreal/web-ui';
+import { Card, Notice, Text } from '@heisreal/web-ui';
 
 type Role = Account['role'];
 /** D1's order: each role can do what the ones before it can (S-1: Moderator, then Admin). */
@@ -113,6 +113,7 @@ export function AdminNav() {
       <ul className="flex flex-wrap justify-center gap-x-6 gap-y-1">
         {ADMIN_PAGES.filter((p) => atLeast(role, p.min)).map((p) => (
           <li key={p.href}>
+            {/* eslint-disable @heisreal/web-ui/no-text-look -- the staff pages' menu keeps its own links, as the site's menus do (round 3) */}
             <Link
               href={p.href}
               aria-current={here === p.href ? 'page' : undefined}
@@ -131,6 +132,7 @@ export function AdminNav() {
                 </span>
               </span>
             </Link>
+            {/* eslint-enable @heisreal/web-ui/no-text-look */}
           </li>
         ))}
       </ul>
@@ -167,7 +169,7 @@ export function AdminAccess({
     session.status === 'unknown' ||
     (userId && account.status !== 'ready' && account.status !== 'failed')
   ) {
-    return <p className="text-secondary-text">Loading…</p>;
+    return <Text tone="quiet">Loading…</Text>;
   }
   if (session.status !== 'signed-in') {
     return (

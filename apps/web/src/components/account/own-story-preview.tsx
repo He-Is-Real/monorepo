@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useCallback } from 'react';
 import { PreviewLater, ownStoryContent } from '@/components/share/own-media';
 import type { MyStory } from '@/components/share/share-api';
@@ -9,7 +8,13 @@ import { type ApiUser, ApiUserProblem } from '@/lib/api-user';
 import { signInHref } from '@/lib/return-path';
 import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 import { useOwnData } from './use-own-data';
-import { Card, Notice } from '@heisreal/web-ui';
+import {
+  Card,
+  TextLink as LibraryTextLink,
+  Notice,
+  Text,
+} from '@heisreal/web-ui';
+import { TextLink } from '@/components/page/text-link';
 
 type Read = { story: MyStory } | { gone: true };
 
@@ -44,14 +49,13 @@ export function OwnStoryPreview({ id }: { id: string }) {
     return (
       <Card asChild className="p-6">
         <p>
-          <a
+          <LibraryTextLink
             href={signInHref(
               `/account/stories/${encodeURIComponent(id)}/preview`,
             )}
-            className="inline-flex min-h-11 items-center font-semibold"
           >
             Sign in
-          </a>{' '}
+          </LibraryTextLink>{' '}
           to see your story’s preview.
         </p>
       </Card>
@@ -79,9 +83,7 @@ export function OwnStoryPreview({ id }: { id: string }) {
         <p data-preview-gone="">
           This story isn’t available. It may have been deleted, or it belongs to
           another account.{' '}
-          <Link href="/account" className="inline-flex min-h-11 items-center">
-            Back to your profile
-          </Link>
+          <TextLink href="/account">Back to your profile</TextLink>
         </p>
       </Card>
     );
@@ -96,10 +98,10 @@ export function OwnStoryPreview({ id }: { id: string }) {
         className="mx-auto mb-8 max-w-measure"
       >
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-          <p className="font-semibold">Only you can see this preview</p>
-          <Link href="/account" className="inline-flex min-h-11 items-center">
+          <Text weight="bold">Only you can see this preview</Text>
+          <TextLink href="/account" kind="standalone">
             Back to your profile
-          </Link>
+          </TextLink>
         </div>
       </Notice>
       <PreviewLater story={story} className="mx-auto mb-6 max-w-measure" />

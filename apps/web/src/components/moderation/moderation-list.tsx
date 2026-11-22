@@ -20,13 +20,19 @@ import {
 import {
   Button,
   Card,
+  cn,
+  Heading,
+  headingVariants,
   Notice,
   RadioGroup,
   SearchBox,
   StatusBadge,
   Tag,
+  Text,
+  textVariants,
 } from '@heisreal/web-ui';
 import { ThemeLinks } from '@/components/browse/theme-filter';
+import { TextLink } from '@/components/page/text-link';
 import { FormatSelect } from '@/components/story-filters/format-select';
 import type { ApiUser } from '@/lib/api-user';
 import type { ThemeCategory } from '@/lib/browse';
@@ -247,22 +253,30 @@ function StateTabs({
                 aria-current={on ? 'page' : undefined}
                 scroll={false}
                 data-state-tab={s.state}
-                className={`inline-flex min-h-11 items-center gap-2 border-b-[3px] px-3 py-2 whitespace-nowrap transition-colors sm:px-4 ${
-                  on
-                    ? 'border-brand font-semibold text-foreground'
-                    : 'border-transparent text-secondary-text hover:text-foreground'
-                }`}
+                className={cn(
+                  'inline-flex min-h-11 items-center gap-2 border-b-[3px] px-3 py-2 whitespace-nowrap transition-colors sm:px-4',
+                  on ? 'border-brand' : 'border-transparent',
+                  textVariants({
+                    size: 'inherit',
+                    tone: on ? 'normal' : 'quiet',
+                    weight: on ? 'bold' : 'normal',
+                  }),
+                )}
               >
                 {s.label}
                 {count !== undefined && (
-                  <span
+                  <Text
+                    as="span"
+                    size="small"
+                    tone="quiet"
+                    weight="bold"
                     data-state-count=""
-                    className="rounded-full bg-surface px-2 text-xs leading-5 font-semibold text-secondary-text"
+                    className="rounded-full bg-surface px-2"
                   >
                     <span className="sr-only">(</span>
                     {count}
                     <span className="sr-only">)</span>
-                  </span>
+                  </Text>
                 )}
               </Link>
             </li>
@@ -273,8 +287,8 @@ function StateTabs({
   );
 }
 
-const SECTION_HEADING =
-  'mb-2 block text-xs font-semibold tracking-wide text-secondary-text uppercase';
+/** The grey capitals over each filter (the library's small heading). */
+const SECTION_HEADING = cn('mb-2 block', headingVariants({ size: 'small' }));
 
 /**
  * The search, sort, format and theme (MQ-1 E; the format and theme are browse's own controls and
@@ -306,7 +320,10 @@ function SidePanel({
         aria-controls={`${id}-panel`}
         onClick={() => setOpen(!open)}
         data-filters-toggle=""
-        className="inline-flex min-h-11 w-full items-center justify-between gap-2 rounded-lg border border-input bg-input-background px-4 text-left font-medium xl:hidden"
+        className={cn(
+          'inline-flex min-h-11 w-full items-center justify-between gap-2 rounded-lg border border-input bg-input-background px-4 text-left xl:hidden',
+          textVariants({ size: 'inherit', weight: 'bold' }),
+        )}
       >
         Filters and sort ({n})
         <svg
@@ -348,7 +365,9 @@ function SidePanel({
 
         {categories.length > 0 && (
           <div>
-            <h2 className={SECTION_HEADING}>Themes</h2>
+            <Heading level={2} size="small" className="mb-2 block">
+              Themes
+            </Heading>
             <ThemeLinks
               categories={categories}
               chosen={filters.themes}
@@ -361,14 +380,14 @@ function SidePanel({
         )}
 
         {n > 0 && (
-          <Link
+          <TextLink
+            kind="standalone"
             href={moderationHref(cleared(filters))}
             onClick={(e) => follow(cleared(filters), e)}
             scroll={false}
-            className="inline-flex min-h-11 items-center font-medium text-link hover:text-link-hover"
           >
             Clear filters
-          </Link>
+          </TextLink>
         )}
       </section>
     </div>
@@ -422,7 +441,10 @@ function FormatIcon({ format }: { format: Format }) {
   return (
     <span
       aria-hidden="true"
-      className="inline-flex size-6 shrink-0 items-center justify-center rounded-md bg-surface text-secondary-text"
+      className={cn(
+        'inline-flex size-6 shrink-0 items-center justify-center rounded-md bg-surface',
+        textVariants({ size: 'inherit', tone: 'quiet' }),
+      )}
     >
       <svg
         viewBox="0 0 24 24"
@@ -449,9 +471,9 @@ function FormatIcon({ format }: { format: Format }) {
 
 /** OQ-2: orange after 2 days and red after 7, on Waiting for review only (AA as text, both themes). */
 const ALERT = {
-  late: 'font-semibold text-warning',
+  late: textVariants({ size: 'inherit', tone: 'warning', weight: 'bold' }),
   // Danger words: in dark, the red lightened 25% (4.8:1 or more on every surface a row sits on).
-  overdue: 'font-semibold text-danger-text',
+  overdue: textVariants({ size: 'inherit', tone: 'danger', weight: 'bold' }),
 } as const;
 
 function List({
@@ -466,7 +488,7 @@ function List({
   follow: (to: ListFilters, e: MouseEvent<HTMLAnchorElement>) => void;
 }) {
   if (loaded.status === 'loading') {
-    return <p className="text-secondary-text">Loading the stories…</p>;
+    return <Text tone="quiet">Loading the stories…</Text>;
   }
   if (loaded.status === 'failed') {
     return (
@@ -487,20 +509,21 @@ function List({
           {filtered ? 'No stories match these filters.' : 'No stories here.'}
         </p>
         {filtered && (
-          <Link
+          <TextLink
+            kind="standalone"
             href={moderationHref(cleared(filters))}
             onClick={(e) => follow(cleared(filters), e)}
             scroll={false}
-            className="mt-2 inline-flex min-h-11 items-center font-medium text-link hover:text-link-hover"
+            className="mt-2"
           >
             Clear filters
-          </Link>
+          </TextLink>
         )}
       </Card>
     );
   }
   const waiting = filters.state === 'pending' ? 'Waiting' : 'In this state';
-  const head = 'px-2.5 py-2 text-xs font-semibold tracking-wide uppercase';
+  const head = cn('px-2.5 py-2', headingVariants({ size: 'small' }));
   // From 1280 px a table, one line per story; below, each row is a small card (title, themes and
   // the waiting time), so nothing scrolls sideways.
   const cell = 'xl:table-cell xl:px-2.5 xl:py-3 xl:align-middle';
@@ -511,7 +534,7 @@ function List({
       </h2>
       <table className="block w-full border-collapse text-left xl:table">
         <thead className="sr-only xl:not-sr-only xl:table-header-group">
-          <tr className="border-b border-border bg-raised text-secondary-text">
+          <tr className="border-b border-border bg-raised">
             <th scope="col" className={head}>
               Title
             </th>
@@ -552,13 +575,14 @@ function List({
                     <span className="sr-only">
                       {FORMAT_LABEL[s.primaryFormat]}:{' '}
                     </span>
-                    <Link
+                    <TextLink
+                      kind="standalone"
                       href={`/moderation/${encodeURIComponent(s.id)}`}
-                      className="inline-flex min-h-11 min-w-0 items-center font-semibold"
+                      className="min-w-0"
                       data-list-title=""
                     >
                       {s.title}
-                    </Link>
+                    </TextLink>
                   </span>
                 </td>
                 <td
@@ -574,14 +598,18 @@ function List({
                   </StatusBadge>
                   {s.mediaProblem === 'ours' && (
                     // Part 1a (P1-5, P1-9): our own give-ups, never the person's file.
-                    <span
-                      className="block text-sm font-semibold text-secondary-text xl:mt-1"
+                    <Text
+                      as="span"
+                      size="small"
+                      tone="quiet"
+                      weight="bold"
+                      className="block xl:mt-1"
                       data-list-problem="ours"
                     >
                       {s.state === 'pending'
                         ? 'Can’t be reviewed yet: a problem on our side'
                         : 'A problem on our side'}
-                    </span>
+                    </Text>
                   )}
                 </td>
                 <td className={`${cell} min-w-0`} data-list-themes="">
@@ -594,13 +622,13 @@ function List({
                       ))}
                     </ul>
                   ) : (
-                    <span className="text-sm text-muted-foreground">
+                    <Text as="span" size="small" tone="quiet">
                       No themes
-                    </span>
+                    </Text>
                   )}
                 </td>
                 <td
-                  className={`${cell} self-start text-right text-sm whitespace-nowrap xl:text-left`}
+                  className={`${cell} self-start text-right whitespace-nowrap xl:text-left ${textVariants({ size: 'small' })}`}
                   data-list-waiting={alert ?? ''}
                 >
                   <span className="sr-only xl:hidden">{waiting}: </span>
@@ -609,17 +637,19 @@ function List({
                   </span>
                 </td>
                 <td
-                  className={`hidden ${cell} text-sm whitespace-nowrap`}
+                  className={`hidden ${cell} whitespace-nowrap ${textVariants({ size: 'small' })}`}
                   data-list-sent=""
                 >
                   {s.sentAt ? (
                     <time dateTime={s.sentAt}>{listTime(s.sentAt)}</time>
                   ) : (
-                    <span className="text-muted-foreground">Never sent</span>
+                    <Text as="span" size="inherit" tone="quiet">
+                      Never sent
+                    </Text>
                   )}
                 </td>
                 <td
-                  className={`hidden ${cell} text-sm whitespace-nowrap text-secondary-text`}
+                  className={`hidden ${cell} whitespace-nowrap ${textVariants({ size: 'small', tone: 'quiet' })}`}
                   data-list-changed=""
                 >
                   <time dateTime={s.updatedAt}>{listTime(s.updatedAt)}</time>
@@ -632,9 +662,9 @@ function List({
       {loaded.next && (
         <div className="mt-6 space-y-3">
           {loaded.more && loaded.more !== 'loading' && (
-            <p role="alert" className="text-danger-text">
+            <Text role="alert" tone="danger">
               {loaded.more}
-            </p>
+            </Text>
           )}
           <Button
             type="button"

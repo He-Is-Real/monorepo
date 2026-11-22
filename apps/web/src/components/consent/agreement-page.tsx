@@ -6,7 +6,14 @@ import { useEffect, useMemo } from 'react';
 import { useAccountState } from '@/components/auth/account-bootstrap';
 import { AgreementStep } from '@/components/consent/agreement-step';
 import { dismissTestimonyBanner } from '@/components/consent/consent-prompts';
-import { Button, Card, Notice } from '@heisreal/web-ui';
+import {
+  Button,
+  Card,
+  Heading,
+  Notice,
+  Text,
+  TextLink,
+} from '@heisreal/web-ui';
 import type { AgreementName } from '@/lib/legal-text';
 import { personalApiUser, usePersonalSession } from '@/lib/personal-session';
 import { signInHref } from '@/lib/return-path';
@@ -49,9 +56,9 @@ export function AgreementPage({
   }, [upToDate, returnTo, router]);
 
   const h1 = (text: string) => (
-    <h1 className="mb-3 text-[2rem] leading-tight font-normal text-balance sm:text-[2.5rem]">
+    <Heading level={1} className="mb-3">
       {text}
-    </h1>
+    </Heading>
   );
 
   if (session.status === 'signed-out') {
@@ -60,12 +67,12 @@ export function AgreementPage({
       <Card asChild className="p-6">
         <p>
           You’re signed out.{' '}
-          <a
+          <TextLink
             href={signInHref(here)}
-            className="inline-flex min-h-11 items-center font-medium"
+            className="inline-flex min-h-11 items-center"
           >
             Sign in to continue
-          </a>
+          </TextLink>
         </p>
       </Card>
     );
@@ -83,9 +90,9 @@ export function AgreementPage({
   if (!state || !api || !userId || upToDate) {
     return (
       <div aria-busy="true" className="min-h-[16rem]">
-        <p role="status" className="text-secondary-text">
+        <Text role="status" tone="quiet">
           Loading…
-        </p>
+        </Text>
       </div>
     );
   }
@@ -104,11 +111,11 @@ export function AgreementPage({
             aria-label="Not now"
             className="mt-8 space-y-3 border-t border-border pt-6"
           >
-            <p className="text-secondary-text">
+            <Text tone="quiet">
               {state.agreed
                 ? 'Not now? Your published stories stay up. You just can’t start a new one until you agree.'
                 : 'Not now? You can read every story without agreeing. You just can’t start one until you do.'}
-            </p>
+            </Text>
             <Button asChild variant="outline" wrap>
               <Link href={returnTo} onClick={dismissTestimonyBanner}>
                 Not now

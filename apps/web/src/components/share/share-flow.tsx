@@ -16,15 +16,21 @@ import {
   Chip,
   ChipTick,
   ChoiceCards,
+  cn,
   Field,
   FieldError,
   FieldHint,
   FieldLabel,
+  Heading,
+  headingVariants,
   Input,
   Notice,
   Quiet,
   Tag,
+  Text,
   Textarea,
+  textLinkVariants,
+  textVariants,
 } from '@heisreal/web-ui';
 import { agreementTexts } from '@/app/consent/actions';
 import { AgreementStep } from '@/components/consent/agreement-step';
@@ -232,13 +238,13 @@ export function ShareFlow({
   if (auth.state === 'signed-out') {
     return (
       <Card className="p-6 text-center sm:p-8">
-        <h2 className="mb-3 text-2xl font-normal">
+        <Heading level={2} className="mb-3">
           Sign in to share your story
-        </h2>
-        <p className="mb-6 text-secondary-text">
+        </Heading>
+        <Text tone="quiet" className="mb-6">
           Your story is saved to your account as you write, so you can come back
           to it.
-        </p>
+        </Text>
         <a href={signInHref('/share')} className={primary}>
           Sign in
         </a>
@@ -516,21 +522,21 @@ function SignedInFlow({
   if (loaded.state === 'loading') {
     return (
       <div className="min-h-[24rem]" aria-busy="true">
-        <p className="text-center text-secondary-text" role="status">
+        <Text tone="quiet" role="status" className="text-center">
           Loading…
-        </p>
+        </Text>
       </div>
     );
   }
   if (missingDraft) {
     return (
       <Card className="p-6 text-center sm:p-8">
-        <h2 className="mb-3 text-2xl font-normal">
+        <Heading level={2} className="mb-3">
           This draft isn’t available
-        </h2>
-        <p className="mb-6 text-secondary-text">
+        </Heading>
+        <Text tone="quiet" className="mb-6">
           It may have been deleted, or it belongs to another account.
-        </p>
+        </Text>
         <a href="/share" className={primary}>
           Start a new story
         </a>
@@ -540,9 +546,9 @@ function SignedInFlow({
   if (loaded.state === 'failed') {
     return (
       <Notice kind="danger" className="sm:p-8">
-        <h2 role="alert" className="mb-3 text-2xl font-normal">
+        <Heading level={2} role="alert" className="mb-3">
           Something went wrong
-        </h2>
+        </Heading>
         <p className="mb-6">
           Please try again later. Anything you wrote on this device is kept.
         </p>
@@ -556,13 +562,13 @@ function SignedInFlow({
   if (!account.termsOfUse.upToDate) {
     return (
       <Card className="p-6 text-center sm:p-8">
-        <h2 className="mb-3 text-2xl font-normal">
+        <Heading level={2} className="mb-3">
           First, agree to our terms of use
-        </h2>
-        <p className="mb-6 text-secondary-text">
+        </Heading>
+        <Text tone="quiet" className="mb-6">
           Before you share a story, please read our terms of use and agree to
           them. It only takes a moment.
-        </p>
+        </Text>
         <a href={TERMS_HREF} className={primary}>
           Read the terms of use
         </a>
@@ -684,10 +690,22 @@ function SignedInFlow({
       <div>
         {step !== 'done' && (
           <nav aria-label="Steps" className="mb-8">
-            <ol className="flex flex-wrap justify-center gap-x-1 gap-y-1 text-sm">
+            <Text
+              as="ol"
+              size="small"
+              className="flex flex-wrap justify-center gap-x-1 gap-y-1"
+            >
               {steps.map((s, i) => {
                 const current = s === step;
                 const done = steps.indexOf(step as Exclude<Step, 'done'>) > i;
+                /* eslint-disable @heisreal/web-ui/no-text-look -- the step list's three states
+                   (current, done, to come) are a stepper look no library piece has yet */
+                const look = current
+                  ? 'font-semibold text-foreground underline decoration-2 decoration-brand'
+                  : done
+                    ? 'text-link'
+                    : 'text-secondary-text';
+                /* eslint-enable @heisreal/web-ui/no-text-look */
                 return (
                   <li key={s}>
                     <button
@@ -695,13 +713,7 @@ function SignedInFlow({
                       aria-current={current ? 'step' : undefined}
                       disabled={!!agreeing}
                       onClick={() => void goTo(s)}
-                      className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-md px-3 underline-offset-4 hover:underline disabled:no-underline ${
-                        current
-                          ? 'font-semibold text-foreground underline decoration-2 decoration-brand'
-                          : done
-                            ? 'text-link'
-                            : 'text-secondary-text'
-                      }`}
+                      className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-md px-3 underline-offset-4 hover:underline disabled:no-underline ${look}`}
                     >
                       {i + 1}. {stepLabel(s, draft.format)}
                       {done && <span className="sr-only"> (done)</span>}
@@ -709,13 +721,13 @@ function SignedInFlow({
                   </li>
                 );
               })}
-            </ol>
+            </Text>
           </nav>
         )}
         {navProblem && (
-          <p role="alert" className="mb-6 text-center text-danger-text">
+          <Text role="alert" tone="danger" className="mb-6 text-center">
             {navProblem}
-          </p>
+          </Text>
         )}
         <Card className="p-[16px] sm:p-8">
           {agreeing && (
@@ -908,7 +920,10 @@ function StepHeading({
     <h2
       ref={heading}
       tabIndex={-1}
-      className="mb-4 scroll-mt-4 text-[1.375rem] leading-snug font-normal outline-none sm:text-2xl"
+      className={cn(
+        'mb-4 scroll-mt-4 outline-none',
+        headingVariants({ size: 'section' }),
+      )}
     >
       {children}
     </h2>
@@ -965,10 +980,10 @@ function ChooseStep({
         value={format}
         onValueChange={setFormat}
       />
-      <p className="mt-4 text-sm text-secondary-text">
+      <Text size="small" tone="quiet" className="mt-4">
         Recorded a video or a voice note already? Upload the file. Recording
         straight from this page comes later.
-      </p>
+      </Text>
       <Quiet
         as="section"
         aria-label="What you can share this week"
@@ -989,7 +1004,7 @@ function ChooseStep({
           </>
         )}
         {draftsFull && (
-          <p id="start-drafts" className="text-foreground">
+          <Text id="start-drafts" tone="normal">
             You have{' '}
             {limits.openDrafts.open === 1
               ? 'a draft'
@@ -997,14 +1012,14 @@ function ChooseStep({
             on the go, which is as many as you can keep at once. Carry on with
             {limits.openDrafts.open === 1 ? ' it' : ' one of them'} below, or
             delete one from your account page to start a new one.
-          </p>
+          </Text>
         )}
       </Quiet>
       {drafts.length > 0 && (
         <section aria-labelledby="your-drafts" className="mt-8">
-          <h3 id="your-drafts" className="mb-3 font-semibold">
+          <Heading level={3} size="sub" id="your-drafts" className="mb-3">
             Your drafts
-          </h3>
+          </Heading>
           <ul className="flex flex-col gap-2">
             {drafts.map((d) => (
               <li
@@ -1014,10 +1029,10 @@ function ChooseStep({
                 <span className="min-w-0 [overflow-wrap:anywhere]">
                   {d.title}
                   {d.primaryFormat !== 'written' && (
-                    <span className="text-secondary-text">
+                    <Text as="span" size="inherit" tone="quiet">
                       {' '}
                       ({d.primaryFormat})
-                    </span>
+                    </Text>
                   )}
                 </span>
                 <button
@@ -1079,19 +1094,21 @@ function PrepareStep({
   return (
     <div>
       <StepHeading heading={heading}>Prepare your story</StepHeading>
-      <p className="mb-5 text-secondary-text">
+      <Text tone="quiet" className="mb-5">
         Some questions to think about before you{' '}
         {format === 'written' ? 'write' : 'record'}. They’re only here to help:
         nothing on this step is saved.
-      </p>
+      </Text>
       <ul className="flex flex-col gap-3">
         {PROMPTS.map((p) => (
           <li
             key={p.title}
             className="rounded-xl border-l-[3px] border-brand bg-surface px-4 py-3"
           >
-            <p className="font-semibold">{p.title}</p>
-            <p className="text-sm text-secondary-text">{p.text}</p>
+            <Text weight="bold">{p.title}</Text>
+            <Text size="small" tone="quiet">
+              {p.text}
+            </Text>
           </li>
         ))}
       </ul>
@@ -1245,15 +1262,18 @@ function SaveState({
         className={
           quiet
             ? 'sr-only'
-            : `text-sm ${draft.status === 'error' ? 'text-danger-text' : 'text-secondary-text'}`
+            : textVariants({
+                size: 'small',
+                tone: draft.status === 'error' ? 'danger' : 'quiet',
+              })
         }
       >
         {text[draft.status]}
       </p>
       {exit.problem && (
-        <p role="alert" className="mt-2 text-sm text-danger-text">
+        <Text role="alert" size="small" tone="danger" className="mt-2">
           {exit.problem}
-        </p>
+        </Text>
       )}
       {(draft.status === 'offline' || draft.status === 'error') && (
         <button
@@ -1481,7 +1501,7 @@ function WriteStep({
           <div>
             <FieldLabel>Your story</FieldLabel>
             <Textarea
-              className="min-h-72 leading-relaxed"
+              className="min-h-72"
               maxLength={limits.storyText.max}
               value={draft.fields.body}
               onChange={(e) => draft.update({ body: e.target.value })}
@@ -1492,18 +1512,20 @@ function WriteStep({
               least {limits.storyText.min.toLocaleString('en-GB')} to submit.
             </FieldHint>
             {fullLength > limits.storyText.max && (
-              <p role="alert" className="mt-1 text-sm text-danger-text">
+              <Text role="alert" size="small" tone="danger" className="mt-1">
                 This is over the current limit of{' '}
                 {limits.storyText.max.toLocaleString('en-GB')} characters.
                 Shorten it before you submit; your shorter versions are saved as
                 you go.
-              </p>
+              </Text>
             )}
             <FieldError className="mt-1" />
           </div>
         </Field>
         <div>
-          <p className="mb-1.5 font-semibold">A picture (optional)</p>
+          <Text weight="bold" className="mb-1.5">
+            A picture (optional)
+          </Text>
           <ImagePanel
             calls={calls}
             owner={owner}
@@ -1518,9 +1540,9 @@ function WriteStep({
             maxBytes={limits.uploads.imageMaxBytes}
           />
           {picture.problem && (
-            <p role="alert" className="mt-2 text-danger-text">
+            <Text role="alert" tone="danger" className="mt-2">
               {picture.problem}
-            </p>
+            </Text>
           )}
         </div>
       </div>
@@ -1647,7 +1669,9 @@ function MediaStep({
           </div>
         </Field>
         <div>
-          <p className="mb-1.5 font-semibold">Your {noun}</p>
+          <Text weight="bold" className="mb-1.5">
+            Your {noun}
+          </Text>
           {/* Part 1a: the file sent before couldn't be used. P1-6 A (Joel, 2026-11-14): for an
               audio story's picture video, the recording is asked for again (and a picture if they
               like). Codex r4 F2: "your new file is in" only once api-user says the failed file was
@@ -1701,16 +1725,16 @@ function MediaStep({
             video is chosen; without one, Bunny's thumbnail (or the site's audio picture). */}
         {(format === 'audio' || file !== 'none') && (
           <div>
-            <p className="mb-1.5 font-semibold">
+            <Text weight="bold" className="mb-1.5">
               {format === 'video'
                 ? 'Add a thumbnail (optional)'
                 : 'Add a picture (optional)'}
-            </p>
-            <p className="mb-3 text-sm text-secondary-text">
+            </Text>
+            <Text size="small" tone="quiet" className="mb-3">
               {format === 'video'
                 ? 'The picture shown before your video plays, cut to your video’s shape. Without one, our video host picks a frame.'
                 : 'The picture shown while people listen. Without one, we show our own.'}
-            </p>
+            </Text>
             <ImagePanel
               calls={calls}
               owner={owner}
@@ -1730,15 +1754,15 @@ function MediaStep({
       </div>
       <SaveState draft={draft} exit={exit} />
       {(problem ?? picture.problem) && (
-        <p role="alert" className="mt-2 text-danger-text">
+        <Text role="alert" tone="danger" className="mt-2">
           {problem ?? picture.problem}
-        </p>
+        </Text>
       )}
       <StepActions draft={draft} exit={exit} onBack={onBack} />
-      <p className="mt-4 text-sm text-secondary-text">
+      <Text size="small" tone="quiet" className="mt-4">
         Your {noun} goes straight to our video host in Frankfurt. Only our team
         sees it until your story is approved.
-      </p>
+      </Text>
     </form>
   );
 }
@@ -1789,13 +1813,14 @@ function DetailsStep({
           <div>
             <FieldLabel>
               Your first name{' '}
-              <span className="font-normal text-secondary-text">
+              <Text as="span" size="inherit" tone="quiet" weight="regular">
                 (optional)
-              </span>
+              </Text>
             </FieldLabel>
             {/* "Anonymous" is the name it shows when left empty, so it reads as text, not a faint example. */}
             <Input
               size="standard"
+              // eslint-disable-next-line @heisreal/web-ui/no-text-look -- "Anonymous" reads as the name it will show, not a faint example (placeholder colour, no piece)
               className="placeholder:text-secondary-text focus:placeholder:text-transparent"
               placeholder="Anonymous"
               maxLength={80}
@@ -1812,9 +1837,9 @@ function DetailsStep({
           <div>
             <FieldLabel>
               Brief description{' '}
-              <span className="font-normal text-secondary-text">
+              <Text as="span" size="inherit" tone="quiet" weight="regular">
                 (optional)
-              </span>
+              </Text>
             </FieldLabel>
             <Textarea
               className="min-h-24"
@@ -1828,18 +1853,20 @@ function DetailsStep({
           </div>
         </Field>
         <fieldset aria-describedby="story-themes-hint">
-          <legend className="mb-1.5 font-semibold">
+          <Text as="legend" weight="bold" className="mb-1.5">
             Which themes fit your story?
-          </legend>
-          <p
+          </Text>
+          <Text
             id="story-themes-hint"
-            className="mb-3 text-sm text-secondary-text"
+            size="small"
+            tone="quiet"
+            className="mb-3"
           >
             {chosen.length > 0
               ? `${chosen.length} of ${max} chosen. `
               : `${themeRule(min, max)}. `}
             They help people find it.
-          </p>
+          </Text>
           <ThemePicker
             categories={themes}
             chosen={chosen}
@@ -1869,9 +1896,9 @@ function DetailsStep({
             }}
           />
           {problem && (
-            <p role="alert" className="mt-2 text-sm text-danger-text">
+            <Text role="alert" size="small" tone="danger" className="mt-2">
               {problem}
-            </p>
+            </Text>
           )}
         </fieldset>
       </div>
@@ -1998,7 +2025,7 @@ export function ReviewStep({
         {message}.{' '}
         <button
           type="button"
-          className="min-h-11 font-semibold text-link underline"
+          className={textLinkVariants({ kind: 'standalone' })}
           onClick={() => onEdit('details')}
         >
           Choose themes
@@ -2232,7 +2259,7 @@ export function ReviewStep({
               submitted.{' '}
               <button
                 type="button"
-                className="min-h-11 font-semibold text-link underline"
+                className={textLinkVariants({ kind: 'standalone' })}
                 onClick={() => onEdit('write')}
               >
                 Keep writing
@@ -2256,7 +2283,7 @@ export function ReviewStep({
               )}{' '}
               <button
                 type="button"
-                className="min-h-11 font-semibold text-link underline"
+                className={textLinkVariants({ kind: 'standalone' })}
                 onClick={() => onEdit(tooLong ? 'write' : 'details')}
               >
                 {tooLong ? 'Shorten it' : 'Change themes'}
@@ -2276,7 +2303,7 @@ export function ReviewStep({
               )}{' '}
               <button
                 type="button"
-                className="min-h-11 font-semibold text-link underline"
+                className={textLinkVariants({ kind: 'standalone' })}
                 onClick={() => onEdit('write')}
               >
                 Go to your upload
@@ -2289,7 +2316,7 @@ export function ReviewStep({
               {plainMessage(err, 'Your picture hasn’t finished uploading.')}{' '}
               <button
                 type="button"
-                className="min-h-11 font-semibold text-link underline"
+                className={textLinkVariants({ kind: 'standalone' })}
                 onClick={() => onEdit('write')}
               >
                 Go to your picture
@@ -2335,7 +2362,12 @@ export function ReviewStep({
   // An empty optional answer is grey; an empty required one (Themes) is in the warning colour,
   // since submit asks for it (RP-2 A).
   const none = (words: string, required = false) => (
-    <span className={required ? 'text-warning' : 'text-secondary-text'}>
+    <span
+      className={textVariants({
+        size: 'inherit',
+        tone: required ? 'warning' : 'quiet',
+      })}
+    >
       {words}
     </span>
   );
@@ -2468,33 +2500,33 @@ export function ReviewStep({
           </svg>
           <span className="flex flex-col text-left">
             <span>See your story preview</span>
-            <span className="text-xs font-normal text-secondary-text">
+            <Text as="span" size="small" tone="quiet" weight="regular">
               Opens in a new tab
-            </span>
+            </Text>
           </span>
         </a>
       )}
       <div className="mt-6 flex flex-col gap-3">
-        <p className="text-sm text-secondary-text">
+        <Text size="small" tone="quiet">
           You’ve agreed to your stories being published on heisreal.today once a
           moderator approves them (our testimony consent).
-        </p>
+        </Text>
         {alreadyShared && (
-          <p data-shared="" className="text-sm text-secondary-text">
+          <Text data-shared="" size="small" tone="quiet">
             You’ve already allowed us to share this story on social media.
-          </p>
+          </Text>
         )}
         {offerSharing && sharing && (
           <div
             data-sharing-box={sharing.version}
             className="sm:rounded-xl sm:border sm:border-border sm:p-4"
           >
-            <h3 className="mb-2 text-lg font-semibold text-foreground">
+            <Heading level={3} size="sub" className="mb-2">
               Sharing on social media{' '}
-              <span className="font-normal text-secondary-text">
+              <Text as="span" size="inherit" tone="quiet" weight="regular">
                 (optional)
-              </span>
-            </h3>
+              </Text>
+            </Heading>
             {changes && changes.length > 0 && (
               <Redline
                 items={changes}
@@ -2518,15 +2550,15 @@ export function ReviewStep({
             >
               I agree to He Is Real Today sharing this story on social media, as
               set out above.{' '}
-              <span className="text-secondary-text">
+              <Text as="span" size="inherit" tone="quiet">
                 (Optional, for this story only.)
-              </span>
+              </Text>
             </Checkbox>
             {kept && (
-              <p id="social-kept" className="mt-2 text-sm text-secondary-text">
+              <Text id="social-kept" size="small" tone="quiet" className="mt-2">
                 Kept as you sent it, until we know whether your story was
                 submitted.
-              </p>
+              </Text>
             )}
             <PrivacyNoticeLink className="mt-2" />
           </div>
@@ -2538,9 +2570,9 @@ export function ReviewStep({
         </Quiet>
       )}
       {problem && (
-        <p role="alert" className="mt-4 text-danger-text">
+        <Text role="alert" tone="danger" className="mt-4">
           {problem}
-        </p>
+        </Text>
       )}
       <Actions>
         <div className="flex flex-col-reverse gap-3 sm:flex-row">
@@ -2566,9 +2598,9 @@ export function ReviewStep({
           {busy ? 'Submitting…' : 'Submit for review'}
         </button>
       </Actions>
-      <p className="mt-4 text-sm text-secondary-text">
+      <Text size="small" tone="quiet" className="mt-4">
         Our team reads every story before it’s published.
-      </p>
+      </Text>
     </form>
   );
 }
@@ -2594,11 +2626,18 @@ function Attached({
     >
       <Tick />
       <span>
-        <span className="font-semibold">{kind} attached</span>
+        <Text as="span" size="inherit" weight="bold">
+          {kind} attached
+        </Text>
         {name && (
-          <span className="block text-sm text-secondary-text [overflow-wrap:anywhere]">
+          <Text
+            as="span"
+            size="small"
+            tone="quiet"
+            className="block [overflow-wrap:anywhere]"
+          >
             {name}
-          </span>
+          </Text>
         )}
       </span>
     </p>
@@ -2625,14 +2664,20 @@ function SummaryRow({
 }) {
   return (
     <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 border-b border-border py-3 sm:grid-cols-[10rem_minmax(0,1fr)_auto]">
-      <dt className="text-sm leading-6 text-secondary-text">{label}</dt>
+      <Text as="dt" size="small" tone="quiet">
+        {label}
+      </Text>
       <dd className="col-span-2 row-start-2 [overflow-wrap:anywhere] sm:col-span-1 sm:col-start-2 sm:row-start-1">
         {value}
       </dd>
       <dd className="col-start-2 row-start-1 sm:col-start-3">
         <button
           type="button"
-          className="-my-2.5 inline-flex min-h-11 min-w-11 items-center justify-end py-2.5 text-sm leading-6 font-semibold text-link"
+          className={cn(
+            textLinkVariants({ kind: 'standalone' }),
+            textVariants({ size: 'small' }),
+            '-my-3 justify-end py-3',
+          )}
           aria-label={`${action} ${label.toLowerCase()}`}
           onClick={onAction}
         >
@@ -2660,13 +2705,18 @@ function Uploaded({
       <Tick />
       <span>
         {name && (
-          <span className="block font-semibold [overflow-wrap:anywhere]">
+          <Text
+            as="span"
+            size="inherit"
+            weight="bold"
+            className="block [overflow-wrap:anywhere]"
+          >
             {name}
-          </span>
+          </Text>
         )}
-        <span className="block text-sm text-secondary-text">
+        <Text as="span" size="small" tone="quiet" className="block">
           Uploaded. Its preview will be ready later.
-        </span>
+        </Text>
       </span>
     </p>
   );
@@ -2703,7 +2753,7 @@ function NotAttached({
       {children}{' '}
       <button
         type="button"
-        className="min-h-11 font-semibold text-link underline"
+        className={textLinkVariants({ kind: 'standalone' })}
         onClick={onAction}
       >
         {action}
@@ -2718,10 +2768,10 @@ function DoneStep({ heading }: { heading: HeadingRef }) {
       <StepHeading heading={heading}>
         Thank you for sharing your story
       </StepHeading>
-      <p className="mb-6 text-secondary-text">
+      <Text tone="quiet" className="mb-6">
         It’s waiting for review. Our team reads every story before it goes on
         the site.
-      </p>
+      </Text>
       <div className="flex flex-col justify-center gap-3 sm:flex-row">
         <a href="/stories" className={primary}>
           Read other stories

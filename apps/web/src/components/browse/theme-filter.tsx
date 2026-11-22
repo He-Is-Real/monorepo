@@ -6,7 +6,8 @@ import { useSearchParams } from 'next/navigation';
 import { useThemeChoices } from '@/components/browse/browse-filters';
 import { ThemePicker } from '@/components/themes/theme-picker';
 import { THEMES_MAX } from '@heisreal/story-filters';
-import { Chip, ChipTick } from '@heisreal/web-ui';
+import { Chip, ChipTick, Text } from '@heisreal/web-ui';
+import { TextLink } from '@/components/page/text-link';
 import type { ThemeCategory } from '@/lib/browse';
 import {
   type BrowseFilters,
@@ -124,25 +125,22 @@ export function ThemeLinks({
       />
       {/* Always in the page and the accessibility tree (never display: none), so screen readers
           announce the note when its words appear; the spacing only comes with them. */}
-      <p
-        role="status"
-        className="text-sm text-secondary-text"
-        data-theme-limit=""
-      >
+      <Text role="status" size="small" tone="quiet" data-theme-limit="">
         {triedMore && full && (
           <span className="mt-2 block">{THEME_LIMIT_NOTE}</span>
         )}
-      </p>
+      </Text>
       {chosen.length > 0 && (
-        <Link
+        <TextLink
           href={clearHref}
           scroll={false}
           onClick={plain(onClear)}
-          className="mt-2 inline-flex min-h-11 items-center text-sm font-medium"
+          kind="standalone"
+          className="mt-2"
           data-clear-themes=""
         >
           Clear themes
-        </Link>
+        </TextLink>
       )}
     </nav>
   );

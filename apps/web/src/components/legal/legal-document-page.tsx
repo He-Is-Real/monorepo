@@ -1,6 +1,6 @@
-import Link from 'next/link';
 import { LegalMarkdown } from '@/components/legal/legal-markdown';
 import { NarrowColumn } from '@/components/page/page-header';
+import { TextLink } from '@/components/page/text-link';
 import type { LegalVersion } from '@/lib/legal';
 import {
   DOCUMENT_TITLES,
@@ -10,10 +10,7 @@ import {
   type PublicDocument,
 } from '@/lib/legal-text';
 import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
-import { Notice } from '@heisreal/web-ui';
-
-const LINK =
-  'inline-flex min-h-11 items-center font-medium underline-offset-4 hover:underline';
+import { Heading, Notice, Text } from '@heisreal/web-ui';
 
 /**
  * A legal text's page (plan 4e): /privacy and /terms show the latest version (the privacy notice,
@@ -43,30 +40,37 @@ export function LegalDocumentPage({
   return (
     <main id="main" className="flex-1 py-12 sm:py-20">
       <NarrowColumn>
-        <h1 className="mb-3 text-[2rem] leading-tight font-normal sm:text-[2.75rem]">
+        <Heading level={1} className="mb-3">
           {title}
-        </h1>
+        </Heading>
         {version && text !== null ? (
           <article
             aria-label={title}
             data-legal-document={document}
             data-legal-version={version.version}
           >
-            <p
-              className="mb-8 text-sm text-muted-foreground"
+            <Text
+              size="small"
+              tone="quiet"
+              className="mb-8"
               data-version-line=""
             >
               Version {version.version}, in force from{' '}
               <time dateTime={version.releaseDate}>
                 {longDate(version.releaseDate)}
               </time>
-            </p>
+            </Text>
             {inForce !== null && inForce !== version.version && (
-              <Notice kind="info" as="p" role="note" className="mb-8 text-sm">
-                This is an earlier version, kept so you can see what it said.{' '}
-                <Link href={documentHref(document)} className={LINK}>
-                  Read the latest {title.toLowerCase()} (version {inForce})
-                </Link>
+              <Notice kind="info" as="p" role="note" className="mb-8">
+                <Text as="span" size="small">
+                  This is an earlier version, kept so you can see what it said.{' '}
+                  <TextLink
+                    href={documentHref(document)}
+                    className="inline-flex min-h-11 items-center"
+                  >
+                    Read the latest {title.toLowerCase()} (version {inForce})
+                  </TextLink>
+                </Text>
               </Notice>
             )}
             {/* From 1024 px the page has room either side of its reading column: its tables
@@ -87,32 +91,29 @@ export function LegalDocumentPage({
             className="mt-12 border-t border-border pt-6"
             data-document-versions={document}
           >
-            <h2
-              id="other-versions"
-              className="mb-2 text-lg font-semibold text-foreground"
-            >
+            <Heading level={2} size="sub" id="other-versions" className="mb-2">
               {version && version.version !== inForce
                 ? 'Other versions'
                 : 'Previous versions'}
-            </h2>
-            <ul className="space-y-1 text-secondary-text">
+            </Heading>
+            <Text as="ul" size="inherit" tone="quiet" className="space-y-1">
               {others.map((v) => (
                 <li key={v.version} data-version={v.version}>
-                  <Link
+                  <TextLink
+                    kind="standalone"
                     href={
                       v.version === inForce
                         ? documentHref(document)
                         : documentVersionHref(document, v.version)
                     }
-                    className={LINK}
                   >
                     Version {v.version}
                     {v.version === inForce ? ' (latest)' : ''}, in force from{' '}
                     {longDate(v.releaseDate)}
-                  </Link>
+                  </TextLink>
                 </li>
               ))}
-            </ul>
+            </Text>
           </section>
         )}
       </NarrowColumn>
