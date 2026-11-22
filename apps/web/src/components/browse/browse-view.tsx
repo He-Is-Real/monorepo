@@ -322,6 +322,7 @@ export function BrowseView({
         title="Filters"
         closeLabel="Close filters"
         open={open}
+        closeOnOutsideClick
         onClose={() => {
           setOpen(false);
           button.current?.focus();

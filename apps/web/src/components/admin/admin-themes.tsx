@@ -12,6 +12,7 @@ import {
 import {
   createContext,
   type ReactNode,
+  type RefObject,
   useCallback,
   useContext,
   useEffect,
@@ -770,15 +771,18 @@ function AddName({
 
 /**
  * The library's Dialog (MG-3 A: the Filters panel's look), open while it's on the page: focus
- * stays inside, Escape, the × or the veil close it, focus goes back after.
+ * starts on `initialFocus` and stays inside, Escape or the × close it, focus goes back after. A
+ * click outside does nothing, so unsaved edits in it aren't lost.
  */
 function Modal({
   title,
   onClose,
+  initialFocus,
   children,
 }: {
   title: string;
   onClose: () => void;
+  initialFocus: RefObject<HTMLElement | null>;
   children: ReactNode;
 }) {
   return (
@@ -786,6 +790,7 @@ function Modal({
       open
       title={title}
       onClose={onClose}
+      initialFocus={initialFocus}
       className="sm:w-[min(100%-4rem,28rem)]"
     >
       <div className="space-y-4">{children}</div>
@@ -817,8 +822,9 @@ function ThemePanel({
   const [name, setName] = useState(theme.name);
   const [where, setWhere] = useState(category);
   const [highlighted, setHighlighted] = useState(theme.highlighted);
+  const first = useRef<HTMLInputElement>(null);
   return (
-    <Modal title={theme.name} onClose={onClose}>
+    <Modal title={theme.name} onClose={onClose} initialFocus={first}>
       <form
         className="space-y-4"
         onSubmit={(e) => {
@@ -831,6 +837,7 @@ function ThemePanel({
           <div>
             <FieldLabel>Name</FieldLabel>
             <Input
+              ref={first}
               size="standard"
               maxLength={40}
               value={name}
@@ -891,8 +898,13 @@ function DeleteTheme({
   const [typed, setTyped] = useState('');
   const ok = confirmsDelete(typed, theme.name);
   const stories = theme.storyCount;
+  const first = useRef<HTMLInputElement>(null);
   return (
-    <Modal title={`Delete “${theme.name}”?`} onClose={onClose}>
+    <Modal
+      title={`Delete “${theme.name}”?`}
+      onClose={onClose}
+      initialFocus={first}
+    >
       <form
         className="space-y-4"
         onSubmit={(e) => {
@@ -911,6 +923,7 @@ function DeleteTheme({
             Type delete {theme.name}
           </label>
           <Input
+            ref={first}
             size="standard"
             id={id}
             autoComplete="off"
@@ -1004,8 +1017,13 @@ function ConfirmSave({
   const effects = changes.filter((c) => c.sideEffect);
   const rest = changes.filter((c) => !c.sideEffect);
   const n = changes.length;
+  const first = useRef<HTMLButtonElement>(null);
   return (
-    <Modal title={`Save ${n} change${n === 1 ? '' : 's'}?`} onClose={onClose}>
+    <Modal
+      title={`Save ${n} change${n === 1 ? '' : 's'}?`}
+      onClose={onClose}
+      initialFocus={first}
+    >
       {effects.length > 0 && (
         <div>
           <p className="mb-2">
@@ -1031,7 +1049,7 @@ function ConfirmSave({
         </div>
       )}
       <div className="flex flex-wrap gap-3">
-        <Button type="button" wrap onClick={onSave}>
+        <Button ref={first} type="button" wrap onClick={onSave}>
           Save changes
         </Button>
         <Button type="button" variant="outline" wrap onClick={onClose}>

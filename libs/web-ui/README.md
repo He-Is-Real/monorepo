@@ -125,7 +125,9 @@ means. Pages use only these names, as Tailwind classes (`bg-danger`, `text-dange
   a phone it rises from the bottom, from 640 px a centred box (40 rem; a page may pass a width). A
   title bar (`title`, the sub-heading look) with a × (`closeLabel` names it), a scrolling body and
   an optional `footer` of buttons. `open` and `onClose`; the browser's modal `<dialog>`, so focus
-  stays inside, Escape, the × or a click on the veil close it and focus goes back. `ref` reaches
+  stays inside, Escape or the × close it and focus goes back; `closeOnOutsideClick` lets a click on
+  the veil close it too (the Filters panel; off for the Admin themes dialogs, which hold edits).
+  `initialFocus` takes a ref to what gets focus on opening (otherwise the ×). `ref` reaches
   the `<dialog>`; `bodyRef` the body (the Stories filters move in with a portal). The Stories
   Filters panel and the Admin themes dialogs.
 - `Accordion`: questions that open one at a time (MG-2 B, the FAQ page's look): a bordered box per

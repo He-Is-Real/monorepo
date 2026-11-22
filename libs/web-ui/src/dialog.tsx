@@ -11,12 +11,19 @@ export interface DialogProps extends Omit<
   title: React.ReactNode;
   /** Open (shown as a modal over the page) or closed. */
   open: boolean;
-  /** Called when the dialog closes: the ×, Escape, a click on the veil, or `close()` on its ref. */
+  /** Called when the dialog closes: the ×, Escape, a click on the veil (if on), or `close()` on its ref. */
   onClose: () => void;
   /** The × button's name for screen readers ("Close filters"). */
   closeLabel?: string;
   /** Buttons along the bottom, under a line (the Filters panel's "Clear all" and "Show stories"). */
   footer?: React.ReactNode;
+  /**
+   * A click on the veil around the box closes it. Off unless asked for: a dialog holding edits
+   * (the Admin themes dialogs) would lose them to a stray click. The Stories Filters panel turns it on.
+   */
+  closeOnOutsideClick?: boolean;
+  /** What gets focus when it opens (the first text box); otherwise the browser's choice, the ×. */
+  initialFocus?: React.RefObject<HTMLElement | null>;
   /** The scrolling body element, for content moved in with a portal (the Stories filters). */
   bodyRef?: React.Ref<HTMLDivElement>;
   children?: React.ReactNode;
@@ -29,7 +36,8 @@ export interface DialogProps extends Omit<
  * title (the sub-heading look) and a × to close; the body scrolls; an optional footer of buttons.
  *
  * The browser's own modal `<dialog>`: focus stays inside, Escape closes it, and focus goes back to
- * what opened it. A click on the veil around it closes it too. `ref` reaches the `<dialog>`
+ * what opened it. A click on the veil around it closes it too where `closeOnOutsideClick` is on.
+ * `initialFocus` picks what gets focus when it opens. `ref` reaches the `<dialog>`
  * element (`ref.current.close()`). Pages pass layout classes only (a width).
  */
 export function Dialog({
@@ -39,6 +47,8 @@ export function Dialog({
   closeLabel = 'Close',
   footer,
   bodyRef,
+  closeOnOutsideClick = false,
+  initialFocus,
   className,
   children,
   ref,
@@ -56,12 +66,17 @@ export function Dialog({
   React.useEffect(() => {
     const el = own.current;
     if (!el) return;
-    if (open && !el.open) el.showModal();
+    if (open && !el.open) {
+      el.showModal();
+      initialFocus?.current?.focus();
+    }
     if (!open && el.open) el.close();
     return () => {
       // Taken off the page while open: close it, so focus goes back where it came from.
       if (open && el.open) el.close();
     };
+    // initialFocus is read only as it opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   return (
@@ -73,7 +88,8 @@ export function Dialog({
       onClick={(e) => {
         onClick?.(e);
         // A click on the veil (the dialog itself, outside its box) closes it.
-        if (e.target === e.currentTarget) e.currentTarget.close();
+        if (closeOnOutsideClick && e.target === e.currentTarget)
+          e.currentTarget.close();
       }}
       className={cn(
         'mx-0 mt-auto mb-0 w-full max-w-full rounded-t-2xl border border-border-hover bg-card p-0 text-foreground backdrop:bg-overlay sm:m-auto sm:w-[min(100%-4rem,40rem)] sm:rounded-2xl',
