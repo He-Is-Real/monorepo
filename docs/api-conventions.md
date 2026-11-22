@@ -17,7 +17,7 @@ brackets).
   `api-public-read` has no auth code at all.
 - **`web` calls only `api-public-read`, and only on the server, to prerender** pages for crawlers,
   share cards and a fast first load (D32). It never calls `api-user` or `api-admin`, and holds no
-  database access, secrets or user tokens.
+  database access or user tokens. Its one secret is the website key (rate limits, below).
 - **The browser calls `api-user` and `api-admin` directly** with the Clerk token (D31). Signed-in
   pages are browser-side components. Each API allows CORS from the `web` origin only.
 - **web's one client for api-user is `apps/web/src/lib/api-user.ts`, browser only** (D83). It asks
@@ -183,6 +183,21 @@ short-lived upload credentials.
   Contracts list every status an operation can answer, `5XX` included: api-public-read's
   integration tests and web's e2e stub are checked against the contract (`@heisreal/contracts/testing`).
 
+- **Rate limits (Joel 2026-11-21, RL-1..RL-10; rules in `docs/how-the-app-works.md`, "Rate
+  limits"):** express-rate-limit, set up once in `libs/http` (`RateLimitModule`, the groups and
+  numbers in `limits.ts`) and attached to each API's controllers in its app module. **A limited
+  caller gets exactly the generic `5XX` (`ServerError`): `500`, the same body
+  (`{"type":"about:blank","title":"Internal server error","status":500}`), the same headers
+  (`no-store`), deliberately indistinguishable from any unexpected failure** (RL-5): no `429`, no
+  `RateLimit-*`, `X-RateLimit-*` or `Retry-After` header, no code or wording of its own. The
+  caller is its address (Express trusts exactly one proxy hop, Google's front end; IPv6 by /56).
+  web's server sends api-public-read the website key in `X-Website-Key` (a private header, not
+  for other callers); with the right key, its calls share the `website` allowance; a missing or
+  wrong key is an ordinary caller. api-admin limits only requests it refuses for sign-in (RL-2):
+  `RateLimits.refusals` counts a request with no sign-in as it arrives, and any other once it
+  ends, if it was answered `401`, or `403` to a caller who isn't staff (or the caller hung up and
+  isn't staff); an address over the limit is refused before anything else runs. Signed-in staff
+  are never counted.
 - **IDs and slugs:** public queries use the slug (`GET /v1/stories/{slug}`); commands and admin
   routes use the ID. An old slug answers `301` to the current one (through `slugHistory`), so
   shared links survive a title edit.

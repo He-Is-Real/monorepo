@@ -89,6 +89,12 @@ variable "secret_rotation" {
   default     = 1
 }
 
+variable "website_key_rotation" {
+  description = "Bump to rotate the website key web's server sends to api-public-read (rate limits, RL-8 A; secrets.tf)."
+  type        = number
+  default     = 1
+}
+
 variable "root_secret_rotation" {
   description = "Bump to rotate the SurrealDB root password. SurrealDB only reads it on first start, so an existing database must be told with the previous version: see infra/k8s/surrealdb/README.md 'Rotating passwords'."
   type        = number

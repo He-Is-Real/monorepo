@@ -32,6 +32,24 @@ Code that needs api-user goes through this client, never its own `fetch`. Wideni
 (another file, another rule) is a decision for review: record it here and in
 `eslint-token-boundary.test.mjs`.
 
+**The second carve-out (rate limiting, RL-8 A, Joel 2026-11-21): `src/lib/visitor-address.ts`.**
+`proxy.ts` counts each visitor's page loads and server actions in memory, by their IP address, so
+this one file reads one request header: the last `X-Forwarded-For` entry, the one Google's front
+end appended. Lint allows exactly `<request>.headers.get('x-forwarded-for')` there and refuses
+every other `.headers` or `.cookies` use; all the other rules stay on. The address is a counter
+key only: never logged, stored or forwarded. A visitor over a limit gets what a crash gives: the proxy
+rewrites the request (same URL) to `src/app/something-went-wrong`, a page that fails to render, so
+Next answers as for any crash: its status and headers, and the site's error page (`app/error.tsx`). A limited server action (a POST)
+goes to a route handler there that fails instead (`action/route.ts`): route handlers never run
+server actions, so it doesn't run, and web never has to read the request's headers (D32). Next's proxy calls a 127.x `HOSTNAME` "localhost",
+which turns that rewrite into a loop back through the proxy; the image listens on 0.0.0.0, and so
+does the e2e server with limits on.
+
+web's server also holds one secret now: the website key (`WEBSITE_KEY`, put in the environment by
+Cloud Run from Secret Manager), sent as `X-Website-Key` with its calls to api-public-read so they
+share one large allowance there (`websiteKey()` in `src/lib/config.ts`). It is never logged or
+sent anywhere else.
+
 ## Signing in
 
 - The header's **Sign in** is a link to `/sign-in?redirect_url=<this page>`. The page mounts

@@ -16,6 +16,10 @@ info:
       change (a story hidden, withdrawn or erased) reaches the public within 30 seconds.
     - Public stories are addressed by slug; an old slug answers `301` (D30).
     - Cursor pagination (`?limit=&cursor=` → `{ data, nextCursor }`), no totals, no engagement metrics.
+    - Rate limits (RL-1..RL-9, Joel 2026-11-21): a caller over a limit gets the generic `5XX`
+      (`ServerError`), exactly as for any unexpected failure, by design. `web`'s server sends a
+      private `X-Website-Key` header so its calls share one large allowance; it isn't for other
+      callers, and a missing or wrong key is simply an ordinary caller.
     - `x-milestone` on each operation is the delivery milestone that builds it.
 
     Conventions: `docs/api-conventions.md`.

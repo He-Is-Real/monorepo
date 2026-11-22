@@ -51,13 +51,16 @@
   ],
   "references": [
     {
-      "path": "../../libs/web-ui"
-    },
-    {
       "path": "../../libs/story-filters"
     },
     {
       "path": "../../libs/logging"
+    },
+    {
+      "path": "../../libs/http"
+    },
+    {
+      "path": "../../libs/web-ui"
     },
     {
       "path": "../../libs/contracts"

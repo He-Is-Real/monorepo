@@ -1,4 +1,4 @@
-// The e2e servers (playwright.config.ts starts them): the built site six times over, each
+// The e2e servers (playwright.config.ts starts them): the built site seven times over, each
 // against a port of the stub api-public-read (stub-api.mjs), and the stub api-user
 // (stub-api-user.mjs) the signed-in one calls from the browser. E2E_PORT_BASE moves them all,
 // so two checkouts can run the suite at once (default 4300).
@@ -50,6 +50,13 @@ export const WEB_SLOW_URL = `http://localhost:${WEB_SLOW_PORT}`;
  */
 export const WEB_SIGNED_IN_PORT = base + 3;
 export const WEB_SIGNED_IN_URL = `http://localhost:${WEB_SIGNED_IN_PORT}`;
+/**
+ * Rate limits on (rate-limits.e2e.ts): `K_SERVICE` set, as Cloud Run sets it, so this one
+ * server counts visitors (RL-8 A); every other server leaves limits off, so the suite's many
+ * requests from one address never trip them. Its clock is E2E_NOW, which stands still.
+ */
+export const WEB_LIMITED_PORT = base + 6;
+export const WEB_LIMITED_URL = `http://localhost:${WEB_LIMITED_PORT}`;
 /** 40 characters: long names must truncate before anything in the header wraps. */
 export const SIGNED_IN_NAME = 'Bartholomew Montgomery-Fitzwilliam Smith';
 

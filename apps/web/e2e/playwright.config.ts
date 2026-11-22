@@ -15,6 +15,7 @@ import {
   STUB_USER_URL,
   WEB_CACHED_PORT,
   WEB_DOWN_PORT,
+  WEB_LIMITED_PORT,
   WEB_LIVE_PORT,
   WEB_PORT,
   WEB_SIGNED_IN_PORT,
@@ -118,6 +119,15 @@ export default defineConfig({
       E2E_FIXTURES: 'true',
       SITE_ENVIRONMENT: 'prod',
       E2E_PAGE_CACHE: JSON.stringify(CACHED_TIMES),
+    }),
+    // Rate limits on (rate-limits.e2e.ts): K_SERVICE as Cloud Run sets it, and listening on
+    // every address, as the image does (HOSTNAME=0.0.0.0): the proxy's rewrite to the crash page
+    // stays inside the site only when HOSTNAME isn't a 127.x address, which Next's proxy calls
+    // "localhost".
+    web(WEB_LIMITED_PORT, STUB_PORT, {
+      E2E_FIXTURES: 'true',
+      K_SERVICE: 'web',
+      HOSTNAME: '0.0.0.0',
     }),
     // Signed in: E2E_FIXTURES makes the header show this name instead of Clerk's control, so no
     // Clerk session or secret is needed. Its browser calls the stub api-user.

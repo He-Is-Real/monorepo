@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { DatabaseAvailability } from '@heisreal/database';
 import type { Response } from 'express';
+import { sendProblem } from './server-error';
 
 /** An RFC 9457 problem (`components.yaml#/components/schemas/Problem`). */
 export interface Problem {
@@ -106,11 +107,7 @@ export class ProblemFilter implements ExceptionFilter {
         status: 500,
       };
     }
-    response
-      .status(problem.status)
-      .type('application/problem+json')
-      .setHeader('Cache-Control', 'no-store');
-    response.send(JSON.stringify(problem));
+    sendProblem(response, { ...problem });
   }
 }
 

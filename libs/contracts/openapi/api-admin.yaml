@@ -17,6 +17,10 @@ info:
     - Every path is under `/v1` except `/health` (D30). Errors are RFC 9457 `application/problem+json`.
     - Commands return `{ id, version }` (D28); modifying commands need `If-Match` (`412`/`428`) (D29).
     - Queries return an `ETag` and `Cache-Control: private, no-store`.
+    - Rate limits (RL-2, Joel 2026-11-21): a signed-in Moderator or Admin is never limited. Only
+      requests refused for sign-in (`401`, and `403` to someone who isn't staff) count, 10 a minute
+      per address; an address over that gets the generic `5XX` (`ServerError`) before sign-in is
+      checked, exactly as for any unexpected failure, by design.
     - `x-milestone` on each operation is the delivery milestone that builds it.
 
     Conventions: `docs/api-conventions.md`.
