@@ -322,18 +322,8 @@ developers, deleted after 30 days, part of the GDPR erasure/retention map.
 
 - **Back up now:** GKE: `terraform -chdir=infra/terraform/live/dev/cluster apply -var backup_run=<new id>`.
   Locally: `kubectl -n database create job --from=cronjob/surrealdb-backup backup-manual`.
-- **Restore drill** (`stack-decisions.md` requires a tested restore; last done on GKE 2026-10-05).
-  Restore into a scratch database, check it, then remove it:
-
-  ```bash
-  gcloud storage cp gs://heisreal-dev-db-backups/surrealdb/<file>.surql restore.surql
-  kubectl -n database port-forward svc/surrealdb 8000:8000
-  export SURREAL_PASS="$(gcloud secrets versions access latest --secret=surreal-root-password --project=heisreal-dev)"
-  surreal import --endpoint http://localhost:8000 --username root --namespace heisreal --database restore_drill restore.surql
-  echo 'INFO FOR DB;' | surreal sql --endpoint http://localhost:8000 --username root --namespace heisreal --database restore_drill
-  echo 'REMOVE DATABASE restore_drill;' | surreal sql --endpoint http://localhost:8000 --username root --namespace heisreal --database main
-  unset SURREAL_PASS; rm restore.surql
-  ```
+- **Restore drill and restore:** [`docs/restore-runbook.md`](../../../docs/restore-runbook.md)
+  (`stack-decisions.md` requires a tested restore; last drill 2026-11-22, passed).
 
 Always export to a **file**: on stdout the CLI mixes its log lines into the dump.
 
