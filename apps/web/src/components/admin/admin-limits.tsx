@@ -83,7 +83,7 @@ const GROUPS: {
     ],
   },
   {
-    title: 'How often',
+    title: 'Rate limit',
     note: 'Trusted submitters skip the draft, weekly and upload-count limits, and get the largest file sizes and lengths.',
     fields: [
       {

@@ -63,7 +63,7 @@ test('/admin/limits fits with 44 px targets, and its save bar and confirmation f
   const video = page.getByLabel('Largest video file');
   await expect(video).toHaveValue('4096');
   await video.fill('2048');
-  await showGroup(page, 'How often');
+  await showGroup(page, 'Rate limit');
   const weekly = page.getByLabel('Stories one person can send for review');
   await weekly.fill('2');
   await expect(saveBar(page)).toContainText('2 changes not saved yet');
@@ -183,7 +183,7 @@ test.describe('/admin/limits', () => {
     // A value out of bounds in a group that isn't shown: Save shows that group, marks and
     // focuses the field, and nothing is asked.
     await video.fill('99999');
-    await showGroup(page, 'How often');
+    await showGroup(page, 'Rate limit');
     await expect(video).toHaveCount(0);
     await saveButton(page).click();
     await expect(page.locator('[data-limit="videoMaxBytes"]')).toContainText(
@@ -204,7 +204,7 @@ test.describe('/admin/limits', () => {
 
     // Values typed in one group survive switching to another and back.
     await video.fill('2048');
-    await showGroup(page, 'How often');
+    await showGroup(page, 'Rate limit');
     const weekly = page.getByLabel('Stories one person can send for review');
     await expect(weekly).toHaveValue('1');
     await weekly.fill('2');
@@ -251,7 +251,7 @@ test.describe('/admin/limits', () => {
     await page.reload();
     await showGroup(page, 'Video and audio');
     await expect(page.getByLabel('Largest video file')).toHaveValue('2048');
-    await showGroup(page, 'How often');
+    await showGroup(page, 'Rate limit');
     await expect(
       page.getByLabel('Stories one person can send for review'),
     ).toHaveValue('2');
@@ -303,7 +303,7 @@ test.describe('/admin/limits', () => {
       const page = await (await browser.newContext()).newPage();
       await useSession(page, session);
       await page.goto(`${WEB_SIGNED_IN_URL}/admin/limits`);
-      await showGroup(page, 'How often');
+      await showGroup(page, 'Rate limit');
       await expect(
         page.getByLabel('Unfinished drafts one person can have'),
       ).toHaveValue('3');
@@ -325,7 +325,7 @@ test.describe('/admin/limits', () => {
     const stale = mine.locator('[data-save-status="stale"]');
     await expect(stale).toContainText('Someone else changed the limits');
     await stale.getByRole('button', { name: 'Reload' }).click();
-    await showGroup(mine, 'How often');
+    await showGroup(mine, 'Rate limit');
     await expect(
       mine.getByLabel('Unfinished drafts one person can have'),
     ).toHaveValue('4');
