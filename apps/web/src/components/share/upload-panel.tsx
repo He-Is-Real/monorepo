@@ -11,6 +11,7 @@ import {
 } from '@/lib/api-user';
 import { PREFIX } from '@/lib/share-storage';
 import { stripMediaMetadata } from '@/lib/strip-media-metadata';
+import { type MediaFacts, readMediaFacts } from '@/lib/video-shape';
 import { formatWhen, UploadsLeft, uploadsState } from './allowance';
 import { DropZone } from './drop-zone';
 import type {
@@ -160,35 +161,6 @@ export function contentTypeOf(
   return TYPES[format][file.type] ?? TYPES[format][ext];
 }
 
-/** The file's length in whole seconds, if the browser can read it (a few seconds at most). */
-function readDuration(
-  file: File,
-  format: UploadFormat,
-): Promise<number | undefined> {
-  return new Promise((resolve) => {
-    const el = document.createElement(format);
-    const url = URL.createObjectURL(file);
-    let settled = false;
-    const done = (v: number | undefined) => {
-      if (settled) return;
-      settled = true;
-      URL.revokeObjectURL(url);
-      el.removeAttribute('src');
-      resolve(v);
-    };
-    el.preload = 'metadata';
-    el.onloadedmetadata = () =>
-      done(
-        Number.isFinite(el.duration) && el.duration > 0
-          ? Math.ceil(el.duration)
-          : undefined,
-      );
-    el.onerror = () => done(undefined);
-    setTimeout(() => done(undefined), 5000);
-    el.src = url;
-  });
-}
-
 const keptKey = (owner: string, draftId: string) =>
   `${PREFIX}${owner}:upload:${draftId}`;
 function readKept(owner: string, draftId: string): Kept | null {
@@ -240,6 +212,8 @@ export function UploadPanel({
   reload,
   onState,
   onCounted,
+  onVideo,
+  onReplaced,
 }: {
   calls: ShareApi;
   owner: string;
@@ -260,13 +234,24 @@ export function UploadPanel({
   onState: (state: FileState) => void;
   /** A new upload was counted, or refused for the limits: read them again. */
   onCounted: () => void;
+  /**
+   * The file this tab is uploading, with what the browser read of it (its shape, and whether it
+   * plays here), once api-user gave it a link: what the thumbnail is cut to (TC-4).
+   */
+  onVideo?: (file: File, facts: MediaFacts) => void;
+  /** A new file replaced the story's (not carrying on with the same one): TC-3 B. */
+  onReplaced?: () => void;
 }) {
   const [phase, setPhase] = useState<Phase>({ at: 'idle' });
   const [problem, setProblem] = useState<React.ReactNode>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const upload = useRef<Upload | null>(null);
-  const current = useRef<{ file: File; draftId: string } | null>(null);
+  const current = useRef<{
+    file: File;
+    draftId: string;
+    facts: MediaFacts;
+  } | null>(null);
   const [kept, setKept] = useState<Kept | null>(null);
   const maxBytes =
     format === 'audio' ? limits.audioMaxBytes : limits.videoMaxBytes;
@@ -371,6 +356,7 @@ export function UploadPanel({
       const target = await newUpload(file, ready, request, gone);
       if (!target) return null;
       onCounted();
+      onReplaced?.();
       remember(ready.draftId, {
         name: file.name,
         size: file.size,
@@ -381,17 +367,18 @@ export function UploadPanel({
       });
       return { target, draftId: ready.draftId };
     },
-    [calls, format, newUpload, onCounted, owner, prepare, remember],
+    [calls, format, newUpload, onCounted, onReplaced, owner, prepare, remember],
   );
 
   const run = useCallback(
     async (
       file: File,
       contentType: string,
-      durationSeconds: number | undefined,
+      facts: MediaFacts,
       gone: () => boolean,
       asked = 0,
     ): Promise<void> => {
+      const durationSeconds = facts.seconds;
       setProblem(null);
       setNotice(null);
       setPhase({ at: 'checking', name: file.name });
@@ -406,7 +393,7 @@ export function UploadPanel({
           // video made before the refusal carries on rather than being made (and counted) again.
           if (asked < AGREE_ASKS && (await agreeAgain(which))) {
             if (gone()) return;
-            return run(file, contentType, durationSeconds, gone, asked + 1);
+            return run(file, contentType, facts, gone, asked + 1);
           }
           if (gone()) return;
           setPhase({ at: 'idle' });
@@ -416,9 +403,7 @@ export function UploadPanel({
               <button
                 type="button"
                 className="min-h-11 font-semibold text-link underline"
-                onClick={() =>
-                  void run(file, contentType, durationSeconds, begin())
-                }
+                onClick={() => void run(file, contentType, facts, begin())}
               >
                 Try again
               </button>
@@ -442,7 +427,8 @@ export function UploadPanel({
       }
       const { target, draftId: id } = link;
       const videoId = target.signed['VideoId'] ?? '';
-      current.current = { file, draftId: id };
+      current.current = { file, draftId: id, facts };
+      onVideo?.(file, facts);
       // The same bytes every time for the same file, so a resume carries on where it stopped.
       const body = await stripMediaMetadata(file);
       if (gone()) return;
@@ -479,7 +465,7 @@ export function UploadPanel({
       if (previous[0]) tus.resumeFromPreviousUpload(previous[0]);
       tus.start();
     },
-    [agreeAgain, begin, linkFor, noun, onCounted, owner, remember],
+    [agreeAgain, begin, linkFor, noun, onCounted, onVideo, owner, remember],
   );
 
   async function choose(file: File | undefined) {
@@ -516,8 +502,9 @@ export function UploadPanel({
     }
     setPhase({ at: 'checking', name: file.name });
     const gone = begin();
-    const seconds = await readDuration(file, format);
+    const facts = await readMediaFacts(file, format);
     if (gone()) return;
+    const seconds = facts.seconds;
     if (seconds && seconds > limits.maxDurationSeconds) {
       setPhase({ at: 'idle' });
       setProblem(
@@ -525,7 +512,7 @@ export function UploadPanel({
       );
       return;
     }
-    await run(file, contentType, seconds, gone);
+    await run(file, contentType, facts, gone);
   }
 
   function pause() {
@@ -537,7 +524,14 @@ export function UploadPanel({
     const c = current.current;
     if (!c) return;
     const contentType = contentTypeOf(c.file, format);
-    if (contentType) void run(c.file, contentType, undefined, begin());
+    // Carrying on sends no length again (the link is for the same video).
+    if (contentType)
+      void run(
+        c.file,
+        contentType,
+        { ...c.facts, seconds: undefined },
+        begin(),
+      );
   }
 
   function cancel() {

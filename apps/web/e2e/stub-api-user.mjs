@@ -2254,8 +2254,8 @@ async function handleShare(req, res, path, url, s) {
       const limits = uploadLimitsOf(s);
       const errors = [];
       if (b.format === 'image') {
-        // As api-user (uploads.ts, checkImage): WebP, the setting's imageMaxBytes, 200–4096 px,
-        // 1:3..3:1.
+        // As api-user (uploads.ts, checkImage): WebP, the setting's imageMaxBytes, 1–4096 px
+        // (no smallest size: thumbnail crop TC-7 A), 1:3..3:1.
         const { width: w, height: h } = b;
         if (b.contentType !== 'image/webp')
           errors.push({ pointer: '/contentType', message: 'a WebP image' });
@@ -2265,7 +2265,7 @@ async function handleShare(req, res, path, url, s) {
             message: `at most ${limits.imageMaxBytes} bytes`,
           });
         if (
-          ![w, h].every((x) => Number.isInteger(x) && x >= 200 && x <= 4096) ||
+          ![w, h].every((x) => Number.isInteger(x) && x >= 1 && x <= 4096) ||
           w > h * 3 ||
           h > w * 3
         )
@@ -2395,6 +2395,8 @@ async function handleShare(req, res, path, url, s) {
       });
       s.uploadTimes.push({ at: Date.now(), image: false });
       st.videoId = videoId;
+      // As api-user's database write (thumbnail crop TC-9 B): a new video takes the thumbnail off.
+      if (b.format === 'video') st.image = null;
       // Part 1a: worked out from the file, so a new one clears it.
       st.mediaProblem = null;
       st.processing = null;

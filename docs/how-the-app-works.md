@@ -375,14 +375,52 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   that passes counts as processed, so a moderator can approve it; until M7's scanning, that check
   and the moderator seeing every picture are what stand between an upload and the public.
 - Pictures are converted in the browser before upload, so no location or camera data leaves the
-  device: WebP, at most 2048 pixels on the long side, at least 200 pixels a side, no bigger than
-  the largest picture file an admin set (see "Limits"), and no more extreme than 1:3 or 3:1.
+  device: WebP, at most 2048 pixels on the long side, no bigger than the largest picture file an
+  admin set (see "Limits"), and no more extreme than 1:3 or 3:1. **There is no smallest size**
+  (Joel 2026-11-21, thumbnail crop TC-7 A: someone may want to share pixel art): anything from 1
+  pixel up is taken by the browser, api-user and the database. Before upload the browser enlarges
+  a picture under about 1,000 pixels on its longer side by a whole number, with hard pixel edges,
+  until its longer side is at least about 1,000 pixels, so it stays crisp on cards and in Bunny's
+  player rather than smeared. This applies to every picture (written, audio, thumbnail). Only the
+  browser ever handles a picture's pixels; our servers see only its size in bytes, width and height.
+- **A video's thumbnail is cut to the video's shape in the browser** (Joel 2026-11-21, thumbnail
+  crop TC-1 to TC-8). On a video story's upload step, once the video is chosen, "Add a thumbnail
+  (optional)" offers two tabs: "A picture" and "A moment from your video".
+  - **A picture** (TC-1 A, TC-2 A, TC-8 A): the chosen photo opens in a crop box with the video's
+    own shape (kept within 1:3 to 3:1), which can't be resized: the person moves and zooms the
+    photo under it. It starts centred and as large as it can be. Below it, small previews show the
+    Browse card and the story page's player. Nothing is uploaded or saved to the draft until "Use
+    this thumbnail" (TC-6 A: no autosave while cropping); Cancel goes back. Continue while a crop
+    is open says "Use this thumbnail, or cancel it, before you go on." Only the cropped picture
+    leaves the device, never the original photo; once added, "Change how it's cropped" reopens the
+    cropper on the same photo while this tab still has it.
+  - **A moment from your video** (TC-1 D): a slider through the video; "Use this moment" grabs
+    that frame in the browser (already the video's shape) and adds it like any picture. The tab
+    appears only when this browser can play the chosen video.
+  - **Keyboard and screen readers:** the picture is one stop in the Tab order ("Thumbnail crop:
+    arrow keys move the picture, plus and minus zoom"); arrow keys move it (with Shift, further), +
+    and − zoom, 0 centres it. A labelled zoom slider with − and + buttons and "Centre" sit beside
+    it, and a polite spoken line says where the crop is after a move ("Zoom 1.5 times. Showing the
+    top left of your picture.").
+  - **The video's shape** (TC-4) is read from the chosen file in the browser, as its length is (a
+    phone's "turn this" note applied). If the browser can't play the file, it's read from an MP4
+    or MOV file's header. If the shape still isn't known (another format, or a draft carried on in
+    another tab or on another device), the thumbnail chooser waits with a plain line until our
+    video host reports the shape (usually a few minutes); the person can carry on and come back.
+  - **A new video takes the thumbnail off** (TC-3 B), whatever its shape, and says so: "We've
+    taken your thumbnail off because you changed your video. Choose one again if you still want
+    it." The database step that accepts the new video takes the thumbnail off in the same write
+    (TC-9 B, Joel 2026-11-22), so it can't half-happen and the browser sends no second request;
+    the old picture file is deleted by the nightly clean-up, as a removed picture's is. Carrying
+    on with the same video's upload keeps the thumbnail.
+  - Audio and written stories' pictures are not cropped (TC-5 A): they keep their own shape.
 - **A picture has no description** (Joel, 2026-11-14, having weighed accessibility and search):
   there is no "describe the picture" box, and none is stored or sent anywhere. Readers' pages give
   every story picture the same neutral alternative text ("A photo shared with this story"). The
   story's own optional description stays.
 - **A chosen picture is added straight away** (Joel, 2026-11-09), as a video or audio file
-  uploads once chosen: no "Add" button to press. A line says whether it is being prepared,
+  uploads once chosen: no "Add" button to press (except a video's thumbnail, which is cropped
+  first and added on "Use this thumbnail", above). A line says whether it is being prepared,
   uploading or added; Continue waits while it uploads. A failed upload keeps one "Try again"
   button.
 - **The attached file's name is shown** (Joel, 2026-11-14) for a video, audio file or picture, on

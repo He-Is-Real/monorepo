@@ -824,7 +824,10 @@ paths:
         creates a video at Bunny (titled with the story id only, D69), records a file row on
         its own login and, in the same database write, makes it the draft's one video or audio
         file (the story's version steps once); the draft's previous file is deleted at Bunny at
-        once. The browser never names a video, and the link binds only that one.
+        once. A new video also takes the story's thumbnail off in that same write (thumbnail crop
+        TC-9 B, Joel 2026-11-22): after the answer the draft has no picture, and its old picture
+        file is tidied up as a removed one is. A `resume` keeps it. The browser never names a
+        video, and the link binds only that one.
 
         **Limits (D113; admin settings, `SubmissionLimits.uploads`):** the file's size and length
         (`400` `validation_failed`, `/fileSizeBytes` or `/durationSeconds`), and new uploads per

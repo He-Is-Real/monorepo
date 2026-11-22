@@ -78,6 +78,8 @@ Everything is built. Two small steps are left.
 - ✅ Nightly clean-up of abandoned drafts and leftover files
 - ✅ Videos and audio checked automatically once Bunny has processed them
 - ✅ An audio story becomes a video of its picture
+- ✅ A video's thumbnail is cropped to the video's shape, or picked from a moment in the video
+- ✅ Pictures of any size, even tiny pixel art (enlarged with crisp edges)
 - ⏸ Joel connects his PC to the video checker (it then renews its own sign-in while it runs; after
   more than a day switched off, Joel connects it again)
 - ⚪ A final "try it all" walk-through on dev, then M2 is closed

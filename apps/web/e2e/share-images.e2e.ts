@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { copyFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   type APIRequestContext,
   expect,
@@ -90,6 +91,64 @@ async function person(
         await request.get(`${STUB_USER_URL}/__e2e/sessions/${id}/uploads`)
       ).json()) as { requests: number; images: Uploaded[] },
   };
+}
+
+/**
+ * Real videos (made with ffmpeg, a few KB): a portrait MP4 stored sideways with a phone's "turn
+ * this" note (160 × 90 turned to 90 × 160, its header after the media as phones write it) in a
+ * format no browser plays (MPEG-4 Part 2), so its shape is read from its header (TC-4); and a
+ * 2-second landscape WebM (160 × 90) every browser here plays.
+ */
+const FIXTURES = join(__dirname, 'fixtures');
+function videoFile(
+  info: { outputPath: (name: string) => string },
+  fixture: 'portrait.mp4' | 'landscape.webm' | 'tall.mp4',
+  name: string,
+) {
+  const path = info.outputPath(name);
+  copyFileSync(join(FIXTURES, fixture), path);
+  return path;
+}
+
+/** An uploaded WebP's size, and the colour (red) at the given points, as this browser decodes it. */
+async function decoded(
+  page: Page,
+  base64: string,
+  points: [number, number][] = [],
+) {
+  return page.evaluate(
+    async ([b64, at]) => {
+      const bytes = Uint8Array.from(atob(b64 as string), (c) =>
+        c.charCodeAt(0),
+      );
+      const bitmap = await createImageBitmap(
+        new Blob([bytes], { type: 'image/webp' }),
+      );
+      const c = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const ctx = c.getContext('2d') as OffscreenCanvasRenderingContext2D;
+      ctx.drawImage(bitmap, 0, 0);
+      const red = (at as [number, number][]).map(
+        ([x, y]) => ctx.getImageData(x, y, 1, 1).data[0],
+      );
+      return { width: bitmap.width, height: bitmap.height, red };
+    },
+    [base64, points] as const,
+  );
+}
+
+/** A video story's upload step, with its title. */
+async function toVideo(page: Page) {
+  await page.goto(SHARE);
+  await page
+    .locator('label')
+    .filter({ hasText: 'Upload a video file' })
+    .click();
+  await page.getByRole('button', { name: 'Share my video' }).click();
+  await page.locator('label').filter({ hasText: ART9 }).click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('button', { name: 'Upload my video' }).click();
+  await step(page, 'Upload your video');
+  await page.getByLabel('Title').fill('Twenty years of searching');
 }
 
 const step = (page: Page, name: string) =>
@@ -723,41 +782,65 @@ test.describe('behaviour', () => {
     expect(images[2].bytes).not.toBeNull();
   });
 
-  test('a video’s own thumbnail is offered once the video is chosen, and both are confirmed by name when reviewing', async ({
+  test('a video’s own thumbnail is offered once the video is chosen, cut to the video’s shape: a square photo for a portrait video uploads as 9:16 (thumbnail crop TC-1 A, TC-2 A)', async ({
     page,
     request,
   }, info) => {
     const me = await person(page, request);
-    await page.goto(SHARE);
-    await page
-      .locator('label')
-      .filter({ hasText: 'Upload a video file' })
-      .click();
-    await page.getByRole('button', { name: 'Share my video' }).click();
-    await page.locator('label').filter({ hasText: ART9 }).click();
-    await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await page.getByRole('button', { name: 'Upload my video' }).click();
-    await step(page, 'Upload your video');
+    await toVideo(page);
     await expect(page.getByText('Add a thumbnail (optional)')).toHaveCount(0);
-    await page.getByLabel('Title').fill('Twenty years of searching');
-    const clip = info.outputPath('clip.mp4');
-    writeFileSync(clip, Buffer.alloc(64 * 1024, 7));
-    await page.getByLabel('Choose a file').setInputFiles(clip);
+    await page
+      .getByLabel('Choose a file')
+      .setInputFiles(videoFile(info, 'portrait.mp4', 'clip.mp4'));
     await expect(page.getByText(/^Uploaded: clip\.mp4/)).toBeVisible();
+    const before = (await me.uploads()).requests;
 
     await expect(page.getByText('Add a thumbnail (optional)')).toBeVisible();
     await page.getByLabel('Choose a thumbnail').setInputFiles({
       name: 'thumb.png',
       mimeType: 'image/png',
-      buffer: await drawn(page, 1280, 720, 'image/png'),
+      buffer: await drawn(page, 1200, 1200, 'image/png'),
     });
+    // The crop box opens at the video's shape; nothing is sent until it's used (TC-6 A).
+    await expect(page.locator('[data-cropper]')).toBeVisible();
+    await expect(page.getByText('Your video is portrait')).toBeVisible();
+    // This browser can't play the video, so only "A picture" is offered (TC-1 D).
+    await expect(page.getByRole('tab')).toHaveCount(0);
+    await expect(page.locator('[data-attached-name]')).toHaveText(
+      'Chosen: thumb.png',
+    );
+    expect(await me.uploads()).toMatchObject({ requests: before, images: [] });
+    // Continue waits for the crop to be used or cancelled.
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(
+      alert(page, 'Use this thumbnail, or cancel it, before you go on.'),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('heading', { level: 2, name: 'Upload your video' }),
+    ).toBeVisible();
+
+    // The keyboard moves and zooms it, and a polite line says where it is.
+    await page.getByRole('group', { name: /^Thumbnail crop/ }).focus();
+    await page.keyboard.press('+');
+    await page.keyboard.press('ArrowLeft');
+    await expect(page.locator('[data-crop-spoken]')).toHaveText(
+      /^Zoom 1\.2 times\. Showing .+ of your picture\.$/,
+    );
+    await page.keyboard.press('0');
+    await page.getByRole('button', { name: 'Use this thumbnail' }).click();
     await expect(page.getByText('Thumbnail added.')).toBeVisible();
     await expect(page.locator('[data-attached-name]')).toHaveText(
       'Attached: thumb.png',
     );
-    expect((await me.uploads()).images).toMatchObject([
-      { bytes: expect.any(String) },
-    ]);
+    const { images } = await me.uploads();
+    expect(images).toHaveLength(1);
+    const sent = await decoded(page, images[0].bytes ?? '');
+    // 9:16, the whole height of the photo (1200 px).
+    expect(sent.width / sent.height).toBeCloseTo(9 / 16, 2);
+    expect(sent.height).toBe(1200);
+    await expect(
+      page.getByRole('button', { name: 'Change how it’s cropped' }),
+    ).toBeVisible();
 
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await step(page, 'Add some details');
@@ -768,7 +851,7 @@ test.describe('behaviour', () => {
     await expect(shown).toBeVisible();
     await expect
       .poll(() => shown.evaluate((img: HTMLImageElement) => img.naturalWidth))
-      .toBe(1280);
+      .toBe(sent.width);
     // What was attached, confirmed with its name in this tab, before it's sent (Joel, 2026-11-14).
     await expect(page.locator('[data-attached]')).toHaveText([
       'Video attachedclip.mp4',
@@ -782,20 +865,10 @@ test.describe('behaviour', () => {
     request,
   }, info) => {
     const me = await person(page, request);
-    await page.goto(SHARE);
+    await toVideo(page);
     await page
-      .locator('label')
-      .filter({ hasText: 'Upload a video file' })
-      .click();
-    await page.getByRole('button', { name: 'Share my video' }).click();
-    await page.locator('label').filter({ hasText: ART9 }).click();
-    await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await page.getByRole('button', { name: 'Upload my video' }).click();
-    await step(page, 'Upload your video');
-    await page.getByLabel('Title').fill('Twenty years of searching');
-    const clip = info.outputPath('clip.mp4');
-    writeFileSync(clip, Buffer.alloc(64 * 1024, 7));
-    await page.getByLabel('Choose a file').setInputFiles(clip);
+      .getByLabel('Choose a file')
+      .setInputFiles(videoFile(info, 'portrait.mp4', 'clip.mp4'));
     await expect(page.getByText(/^Uploaded: clip\.mp4/)).toBeVisible();
 
     await dropPictures(page, [
@@ -805,6 +878,10 @@ test.describe('behaviour', () => {
         bytes: await drawn(page, 1280, 720, 'image/png'),
       },
     ]);
+    await expect(page.locator('[data-cropper]')).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await expectAllTargets(page);
+    await page.getByRole('button', { name: 'Use this thumbnail' }).click();
     await expect(page.getByText('Thumbnail added.')).toBeVisible();
     await expect(
       page.getByText('Want to use a different thumbnail? Drag it here, or'),
@@ -816,6 +893,178 @@ test.describe('behaviour', () => {
     await expectNoHorizontalOverflow(page);
     await expectAllTargets(page);
   });
+
+  test('a thumbnail can be a moment from the video, when this browser plays it (TC-1 D)', async ({
+    page,
+    request,
+  }, info) => {
+    const me = await person(page, request);
+    await toVideo(page);
+    await page
+      .getByLabel('Choose a file')
+      .setInputFiles(videoFile(info, 'landscape.webm', 'walk.webm'));
+    await expect(page.getByText(/^Uploaded: walk\.webm/)).toBeVisible();
+    await page.getByRole('tab', { name: 'A moment from your video' }).click();
+    const moment = page.getByRole('slider', { name: 'Moment' });
+    await expect(moment).toBeEnabled();
+    await moment.focus();
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    await expect(moment).toHaveAttribute('aria-valuetext', '0:00 of 0:02');
+    await page.getByRole('button', { name: 'Use this moment' }).click();
+    await expect(page.getByText('Thumbnail added.')).toBeVisible();
+    await expect(page.locator('[data-attached-name]')).toHaveText(
+      'Attached: walk.webm at 0:00',
+    );
+    const { images } = await me.uploads();
+    expect(images).toHaveLength(1);
+    // The video's own 16:9 frame (160 × 90), enlarged 7 times with hard edges (TC-7 A).
+    const sent = await decoded(page, images[0].bytes ?? '');
+    expect([sent.width, sent.height]).toEqual([1120, 630]);
+  });
+
+  test('a new video takes the thumbnail off with no second request, says why, and Continue works (TC-3 B, TC-9 B)', async ({
+    page,
+    request,
+  }, info) => {
+    const me = await person(page, request);
+    // The database takes it off with the new video: the page never asks for it separately.
+    const removals: string[] = [];
+    page.on('request', (req) => {
+      if (
+        /\/v1\/stories\/[^/]+$/.test(new URL(req.url()).pathname) &&
+        isImageEdit(req)
+      )
+        removals.push(req.url());
+    });
+    await toVideo(page);
+    await page
+      .getByLabel('Choose a file')
+      .setInputFiles(videoFile(info, 'portrait.mp4', 'clip.mp4'));
+    await expect(page.getByText(/^Uploaded: clip\.mp4/)).toBeVisible();
+    await page.getByLabel('Choose a thumbnail').setInputFiles({
+      name: 'thumb.png',
+      mimeType: 'image/png',
+      buffer: await drawn(page, 1200, 1200, 'image/png'),
+    });
+    await page.getByRole('button', { name: 'Use this thumbnail' }).click();
+    await expect(page.getByText('Thumbnail added.')).toBeVisible();
+
+    await page
+      .getByLabel('Choose another file')
+      .setInputFiles(videoFile(info, 'landscape.webm', 'walk.webm'));
+    await expect(page.getByText(/^Uploaded: walk\.webm/)).toBeVisible();
+    await expect(
+      page.getByText(
+        'We’ve taken your thumbnail off because you changed your video. Choose one again if you still want it.',
+      ),
+    ).toBeVisible();
+    await expect(page.locator('[data-picture-preview]')).toHaveCount(0);
+    await expect(page.getByLabel('Choose a thumbnail')).toBeVisible();
+    // Off the story at the server too: Review shows no thumbnail.
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Add some details');
+    await page.getByText('Hope', { exact: true }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await step(page, 'Review and submit');
+    await expect(page.locator('[data-review-picture]')).toHaveCount(0);
+    expect((await me.uploads()).images).toHaveLength(1);
+    expect(removals).toEqual([]);
+  });
+
+  test('a video whose shape this browser can’t read waits for our video host before a thumbnail is chosen (TC-4)', async ({
+    page,
+    request,
+  }, info) => {
+    await person(page, request);
+    await toVideo(page);
+    const clip = info.outputPath('clip.mp4');
+    writeFileSync(clip, Buffer.alloc(64 * 1024, 7));
+    await page.getByLabel('Choose a file').setInputFiles(clip);
+    await expect(page.getByText(/^Uploaded: clip\.mp4/)).toBeVisible();
+    await expect(page.locator('[data-thumbnail-waiting]')).toContainText(
+      'We can’t read your video’s shape in this browser',
+    );
+    await expect(page.getByLabel('Choose a thumbnail')).toHaveCount(0);
+  });
+
+  test('a tiny picture is taken, enlarged with hard pixel edges (TC-7 A)', async ({
+    page,
+    request,
+  }) => {
+    const me = await person(page, request);
+    await toWrite(page);
+    await page.getByLabel('Title').fill('Pixel by pixel');
+    await page
+      .getByLabel('Your story')
+      .fill('It happened on a hill. '.repeat(10));
+    // A 16 × 16 checkerboard of 2-pixel black and white squares: pixel art.
+    const art = await page.evaluate(async () => {
+      const c = new OffscreenCanvas(16, 16);
+      const ctx = c.getContext('2d') as OffscreenCanvasRenderingContext2D;
+      for (let y = 0; y < 16; y += 2)
+        for (let x = 0; x < 16; x += 2) {
+          ctx.fillStyle = (x + y) % 4 === 0 ? '#000' : '#fff';
+          ctx.fillRect(x, y, 2, 2);
+        }
+      const blob = await c.convertToBlob({ type: 'image/png' });
+      return [...new Uint8Array(await blob.arrayBuffer())];
+    });
+    await page.getByLabel('Choose a picture').setInputFiles({
+      name: 'art.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(art),
+    });
+    await expect(page.getByText('Picture added.')).toBeVisible();
+    const { images } = await me.uploads();
+    expect(images).toHaveLength(1);
+    // 63 times: each square is 126 px. A smoothed enlargement would blur its edges over tens of
+    // pixels; a hard one stays black or white 4 px either side of an edge.
+    const edge = 126;
+    const sent = await decoded(page, images[0].bytes ?? '', [
+      [edge - 4, 60],
+      [edge + 4, 60],
+    ]);
+    expect([sent.width, sent.height]).toEqual([1008, 1008]);
+    expect(sent.red[0]).toBeLessThan(40);
+    expect(sent.red[1]).toBeGreaterThan(215);
+  });
+
+  // A tiny thumbnail keeps the video's shape through its enlargement: the crop is rounded only at
+  // the size it's uploaded at, not in the photo's few pixels (8 × 8 → 4.5 × 8 for 9:16). A 1 × 1
+  // photo cut for a 1:3 video rounds to 333 × 1000, just past 1:3: it's nudged to 334 × 1000 so
+  // it's taken (Codex #262 round 2).
+  const tiny = [
+    { side: 8, fixture: 'portrait.mp4', shape: '9:16', aspect: 9 / 16 },
+    { side: 1, fixture: 'portrait.mp4', shape: '9:16', aspect: 9 / 16 },
+    { side: 1, fixture: 'tall.mp4', shape: '1:3', aspect: 1 / 3 },
+  ] as const;
+  for (const { side, fixture, shape, aspect } of tiny) {
+    test(`a tiny ${side} × ${side} thumbnail is enlarged to a ${shape} video’s shape (TC-7 A, TC-2 A)`, async ({
+      page,
+      request,
+    }, info) => {
+      const me = await person(page, request);
+      await toVideo(page);
+      await page
+        .getByLabel('Choose a file')
+        .setInputFiles(videoFile(info, fixture, 'clip.mp4'));
+      await expect(page.getByText(/^Uploaded: clip\.mp4/)).toBeVisible();
+      await page.getByLabel('Choose a thumbnail').setInputFiles({
+        name: 'tiny.png',
+        mimeType: 'image/png',
+        buffer: await drawn(page, side, side, 'image/png'),
+      });
+      await page.getByRole('button', { name: 'Use this thumbnail' }).click();
+      await expect(page.getByText('Thumbnail added.')).toBeVisible();
+      const { images } = await me.uploads();
+      expect(images).toHaveLength(1);
+      const sent = await decoded(page, images[0].bytes ?? '');
+      expect(sent.height).toBe(1000);
+      expect(sent.width / sent.height).toBeCloseTo(aspect, 2);
+      expect(sent.width * 3).toBeGreaterThanOrEqual(sent.height);
+    });
+  }
 
   // Plan 4e: a newer testimony consent or terms of use saved while the person was writing makes
   // api-user refuse the picture's upload request (403): the same agree-again screen a refused save
