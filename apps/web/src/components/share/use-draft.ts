@@ -360,6 +360,9 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
           }
         }
         if (!(err instanceof StaleVersion)) throw err;
+        // Still stale on the last round: stop with the usual error and its "Try saving again"
+        // (Codex review, round 1), rather than stay "Saving…" with nothing running.
+        if (round === 4) throw err;
         // D70: re-read, and re-apply only what nobody else changed.
         const story = await api.story(s.draftId);
         if (!alive.current) return false;

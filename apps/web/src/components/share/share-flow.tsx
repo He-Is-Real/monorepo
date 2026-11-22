@@ -2332,8 +2332,12 @@ export function ReviewStep({
       onAction={() => onEdit(edit)}
     />
   );
-  const none = (words: string) => (
-    <span className="text-secondary-text">{words}</span>
+  // An empty optional answer is grey; an empty required one (Themes) is in the warning colour,
+  // since submit asks for it (RP-2 A).
+  const none = (words: string, required = false) => (
+    <span className={required ? 'text-warning' : 'text-secondary-text'}>
+      {words}
+    </span>
   );
   const description = f.description.trim();
   const fileKind = draft.format === 'video' ? 'Video' : 'Audio file';
@@ -2367,7 +2371,7 @@ export function ReviewStep({
               ))}
             </ul>
           ) : (
-            none('None chosen')
+            none('None chosen', true)
           ),
           'details',
           themeNames.length === 0,
@@ -2549,6 +2553,7 @@ export function ReviewStep({
           </button>
           <SaveAndExitButton
             exit={{ exiting: savingDraft, saveAndExit: saveAsDraft }}
+            saving={draft.status === 'saving'}
             disabled={busy}
           />
         </div>

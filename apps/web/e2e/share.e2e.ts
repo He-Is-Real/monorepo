@@ -914,6 +914,98 @@ test.describe('behaviour', () => {
     await step(page, 'Review and submit');
     return me;
   }
+  const problem = (status: number, code: string, detail: string) => ({
+    status,
+    contentType: 'application/problem+json',
+    headers: {
+      'access-control-allow-origin': new URL(WEB_SIGNED_IN_URL).origin,
+    },
+    body: JSON.stringify({
+      type: 'about:blank',
+      title: code,
+      status,
+      code,
+      detail,
+    }),
+  });
+
+  // Codex review of the share review polish, round 1: a save still stale after its five tries
+  // ends in the usual error and "Try saving again", not "Saving…" forever.
+  test('a save that stays stale ends in the error with “Try saving again”, and “Save Draft and Exit” is usable', async ({
+    page,
+    request,
+  }) => {
+    const id = 'stale-five';
+    await atReview(page, request, id);
+    await page.getByRole('button', { name: 'Change title' }).click();
+    await step(page, 'Write your story');
+    let patches = 0;
+    await page.route(`${STUB_USER_URL}/v1/stories/${id}`, (route) => {
+      if (route.request().method() !== 'PATCH') return route.fallback();
+      patches++;
+      return route.fulfill(
+        problem(412, 'stale_version', 'The story changed since you read it'),
+      );
+    });
+    await page.getByLabel('Title').fill('Almost there, renamed');
+    await expect(
+      page.getByRole('button', { name: 'Try saving again' }),
+    ).toBeVisible();
+    await expect(page.locator('[data-save-state]')).toHaveAttribute(
+      'data-save-state',
+      'error',
+    );
+    await expect(
+      page.getByRole('button', { name: 'Save Draft and Exit' }),
+    ).toBeEnabled();
+    expect(patches).toBe(5);
+  });
+
+  // Codex review of the share review polish, round 1: choosing themes again on Review clears
+  // them, which autosaves; "Save Draft and Exit" shows that save. The empty Themes answer is
+  // in the warning colour (RP-2 A).
+  test('themes changed at submit: “Save Draft and Exit” shows the save clearing them, and Themes reads “None chosen” as a warning', async ({
+    page,
+    request,
+  }) => {
+    const id = 'themes-again';
+    await atReview(page, request, id);
+    await page.route(`${STUB_USER_URL}/v1/stories/${id}/submit`, (route) =>
+      route.fulfill(
+        problem(
+          400,
+          'themes_changed',
+          'Themes have changed, please choose again',
+        ),
+      ),
+    );
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    let arrived!: () => void;
+    const arrival = new Promise<void>((r) => (arrived = r));
+    await page.route(`${STUB_USER_URL}/v1/stories/${id}`, async (route) => {
+      if (route.request().method() !== 'PATCH') return route.fallback();
+      arrived();
+      await held;
+      return route.fallback();
+    });
+    await page.getByRole('button', { name: 'Submit for review' }).click();
+    await arrival;
+    await expect(page.getByRole('button', { name: 'Saving…' })).toBeDisabled();
+    await expect(
+      page.getByRole('button', { name: 'Save Draft and Exit' }),
+    ).toHaveCount(0);
+    const none = page
+      .locator('dt', { hasText: 'Themes' })
+      .locator('xpath=..')
+      .getByText('None chosen', { exact: true });
+    await expect(none).toHaveClass(/\btext-warning\b/);
+    release();
+    await expect(
+      page.getByRole('button', { name: 'Save Draft and Exit' }),
+    ).toBeEnabled();
+  });
+
   /** The submit reaches api-user and goes through; the browser gets `answer` instead. */
   const loseSubmitAnswer = (
     page: Page,
