@@ -591,7 +591,7 @@ export function NoteForm({
       }}
     >
       <Field id={noteId} hint describedBy={`${noteId}-count`}>
-        <FieldLabel size="writing">{noted.label}</FieldLabel>
+        <FieldLabel>{noted.label}</FieldLabel>
         <FieldHint className="mb-2">{noted.hint}</FieldHint>
         <Textarea
           ref={noteRef}

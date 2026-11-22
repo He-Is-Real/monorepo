@@ -27,7 +27,7 @@ export function SearchBox({
       <button
         type="submit"
         data-slot="search-button"
-        className="absolute top-0 right-0 inline-flex size-11 items-center justify-center rounded-lg text-secondary-text outline-none hover:text-link focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        className="absolute top-0 right-0 inline-flex size-11 items-center justify-center rounded-lg text-secondary-text hover:text-link"
       >
         <svg
           viewBox="0 0 24 24"

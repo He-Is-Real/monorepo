@@ -12,6 +12,7 @@ import {
 import {
   createContext,
   type ReactNode,
+  type RefObject,
   useCallback,
   useContext,
   useEffect,
@@ -27,6 +28,7 @@ import {
   Checkbox,
   chipVariants,
   cn,
+  Dialog,
   Field,
   FieldLabel,
   Input,
@@ -767,37 +769,32 @@ function AddName({
   );
 }
 
-/** A native modal dialog: focus stays inside, Escape closes it, focus goes back after. */
+/**
+ * The library's Dialog (MG-3 A: the Filters panel's look), open while it's on the page: focus
+ * starts on `initialFocus` and stays inside, Escape or the × close it, focus goes back after. A
+ * click outside does nothing, so unsaved edits in it aren't lost.
+ */
 function Modal({
   title,
   onClose,
+  initialFocus,
   children,
 }: {
   title: string;
   onClose: () => void;
+  initialFocus: RefObject<HTMLElement | null>;
   children: ReactNode;
 }) {
-  const ref = useRef<HTMLDialogElement>(null);
-  const titleId = useId();
-  useEffect(() => {
-    const dialog = ref.current;
-    dialog?.showModal();
-    return () => dialog?.close();
-  }, []);
   return (
-    <dialog
-      ref={ref}
-      aria-labelledby={titleId}
+    <Dialog
+      open
+      title={title}
       onClose={onClose}
-      className="m-auto w-[min(100%-2rem,28rem)] max-w-full rounded-2xl border border-border bg-card p-0 text-foreground backdrop:bg-overlay"
+      initialFocus={initialFocus}
+      className="sm:w-[min(100%-4rem,28rem)]"
     >
-      <div className="max-h-[85svh] space-y-4 overflow-y-auto p-5 [overflow-wrap:anywhere]">
-        <h2 id={titleId} className="text-xl font-semibold">
-          {title}
-        </h2>
-        {children}
-      </div>
-    </dialog>
+      <div className="space-y-4">{children}</div>
+    </Dialog>
   );
 }
 
@@ -825,8 +822,9 @@ function ThemePanel({
   const [name, setName] = useState(theme.name);
   const [where, setWhere] = useState(category);
   const [highlighted, setHighlighted] = useState(theme.highlighted);
+  const first = useRef<HTMLInputElement>(null);
   return (
-    <Modal title={theme.name} onClose={onClose}>
+    <Modal title={theme.name} onClose={onClose} initialFocus={first}>
       <form
         className="space-y-4"
         onSubmit={(e) => {
@@ -839,6 +837,7 @@ function ThemePanel({
           <div>
             <FieldLabel>Name</FieldLabel>
             <Input
+              ref={first}
               size="standard"
               maxLength={40}
               value={name}
@@ -846,18 +845,17 @@ function ThemePanel({
             />
           </div>
         </Field>
-        <div>
-          <label htmlFor={`${id}-category`} className="mb-1 block font-medium">
-            Category
-          </label>
-          <Select
-            id={`${id}-category`}
-            wrapperClassName="w-full"
-            value={where}
-            options={categories.map((c) => ({ value: c.id, label: c.name }))}
-            onValueChange={setWhere}
-          />
-        </div>
+        <Field id={`${id}-category`}>
+          <div>
+            <FieldLabel>Category</FieldLabel>
+            <Select
+              wrapperClassName="w-full"
+              value={where}
+              options={categories.map((c) => ({ value: c.id, label: c.name }))}
+              onValueChange={setWhere}
+            />
+          </div>
+        </Field>
         {/* A choice kept until Done, so a check box, not a switch (SW-1 B, CB-1 A). */}
         <Checkbox
           boxAfter
@@ -900,8 +898,13 @@ function DeleteTheme({
   const [typed, setTyped] = useState('');
   const ok = confirmsDelete(typed, theme.name);
   const stories = theme.storyCount;
+  const first = useRef<HTMLInputElement>(null);
   return (
-    <Modal title={`Delete “${theme.name}”?`} onClose={onClose}>
+    <Modal
+      title={`Delete “${theme.name}”?`}
+      onClose={onClose}
+      initialFocus={first}
+    >
       <form
         className="space-y-4"
         onSubmit={(e) => {
@@ -920,6 +923,7 @@ function DeleteTheme({
             Type delete {theme.name}
           </label>
           <Input
+            ref={first}
             size="standard"
             id={id}
             autoComplete="off"
@@ -1013,8 +1017,13 @@ function ConfirmSave({
   const effects = changes.filter((c) => c.sideEffect);
   const rest = changes.filter((c) => !c.sideEffect);
   const n = changes.length;
+  const first = useRef<HTMLButtonElement>(null);
   return (
-    <Modal title={`Save ${n} change${n === 1 ? '' : 's'}?`} onClose={onClose}>
+    <Modal
+      title={`Save ${n} change${n === 1 ? '' : 's'}?`}
+      onClose={onClose}
+      initialFocus={first}
+    >
       {effects.length > 0 && (
         <div>
           <p className="mb-2">
@@ -1040,7 +1049,7 @@ function ConfirmSave({
         </div>
       )}
       <div className="flex flex-wrap gap-3">
-        <Button type="button" wrap onClick={onSave}>
+        <Button ref={first} type="button" wrap onClick={onSave}>
           Save changes
         </Button>
         <Button type="button" variant="outline" wrap onClick={onClose}>

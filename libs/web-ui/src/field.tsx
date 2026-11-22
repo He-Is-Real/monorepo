@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from './cn';
 
 interface FieldContextValue {
@@ -78,31 +77,21 @@ export function useFieldControl(props: {
   };
 }
 
-const labelVariants = cva('block', {
-  variants: {
-    size: {
-      /** Admin and moderation forms. */
-      default: 'mb-1 font-medium text-foreground',
-      /** Where people write (sharing a story, moderators' notes). */
-      writing: 'mb-1.5 font-semibold',
-    },
-  },
-  defaultVariants: { size: 'default' },
-});
-
-/** The field's label, pointing at its control. */
+/**
+ * The field's label, pointing at its control. One look everywhere (MG-5 A, Joel, 21 November
+ * 2026): semibold, as Share's "Title" and "Your story". Outside a `Field`, give it `htmlFor`.
+ */
 export function FieldLabel({
   className,
-  size,
+  htmlFor,
   ...props
-}: Omit<React.ComponentProps<'label'>, 'htmlFor'> &
-  VariantProps<typeof labelVariants>) {
+}: React.ComponentProps<'label'>) {
   const field = React.useContext(FieldContext);
   return (
     <label
       data-slot="field-label"
-      htmlFor={field?.id}
-      className={cn(labelVariants({ size }), className)}
+      htmlFor={htmlFor ?? field?.id}
+      className={cn('mb-1.5 block font-semibold', className)}
       {...props}
     />
   );

@@ -1,5 +1,5 @@
 import { cacheLife } from 'next/cache';
-import { FaqAccordion } from '@/components/faq/faq-accordion';
+import { Accordion } from '@heisreal/web-ui';
 import { ButtonLink } from '@/components/page/button-link';
 import { JsonLd } from '@/components/page/json-ld';
 import { NarrowColumn, PageHeader } from '@/components/page/page-header';
@@ -34,7 +34,14 @@ function FaqsContent() {
             >
               {group.heading}
             </h2>
-            <FaqAccordion items={group.items} />
+            <Accordion
+              idPrefix="faq"
+              items={group.items.map((i) => ({
+                id: i.id,
+                title: i.question,
+                content: i.answer,
+              }))}
+            />
           </section>
         ))}
         <div className="pt-2 text-center">

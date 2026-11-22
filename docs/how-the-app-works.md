@@ -669,6 +669,9 @@ recording | picture` (worked out from the status history: set while the story's 
   usual "not found" page, which tells search engines not to index it ("noindex"). The server
   answers "OK" (200), not "not found" (404): Next.js sends a page's start before the page has
   checked anything. (PC-1 A, Joel 2026-11-21)
+- A page that fails to build (most likely the public API being down) shows "Something went wrong.
+  Please try again later." That error page also tells search engines not to index it, and also
+  answers "OK" (200), for the same reason. (PC-3 A, Joel 2026-11-22)
 - Sharing links use the site's brand picture, not the story's.
 - Video, audio and pictures load only through signed links that expire (6 to 7 hours on dev).
   (D52, D64)
@@ -1360,6 +1363,17 @@ For developers. Details are in the linked documents.
   a colour a third party sets (the share menu's network logos). There is one red, moderation's
   checked one, light and dark: the library's `danger` button and every red word. Moderation's
   Send back is the library's `caution` button (the warning amber).
+  **Round 3 (Joel, 21 November 2026; `web-library-round3.html`):** the order for building UI
+  (Joel: "the priority is to use components and colours from the library, if necessary create a
+  new component but prefer compromising to use common existing components and if absolutely
+  necessary as a last resort to use styling in the web frontend code"; `AGENTS.md`, "Styling
+  order"). One library `Dialog` in the Stories Filters panel's look (MG-3 A: a bottom sheet on
+  phones, a centred box wider, a title bar with ×), used by the Filters panel and the Admin themes
+  dialogs. The FAQ page keeps its bordered question boxes with a chevron (MG-2 B), now the library's
+  `Accordion`; Donate keeps its One-off / Monthly tray (`SegmentedChoice`, MG-1 B). Radio dots are
+  the check box's 22 px and every pressable piece shows the same keyboard outline, text boxes
+  keeping their glow (MG-4 A). One field label, semibold (MG-5 A). Card's unused coloured edges are
+  gone.
 - **Logs are JSON everywhere** (Joel, 2026-11-14: "yes add JSON formatting to all logs with
   severity levels eg DEBUG INFO WARNING including the worker with timestamps. dont force surrealdb
   to do this if it does not support it out of the box"). Every service, job and the media worker

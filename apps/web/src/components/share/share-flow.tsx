@@ -695,7 +695,7 @@ function SignedInFlow({
                       aria-current={current ? 'step' : undefined}
                       disabled={!!agreeing}
                       onClick={() => void goTo(s)}
-                      className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-md px-3 underline-offset-4 hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none disabled:no-underline ${
+                      className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-md px-3 underline-offset-4 hover:underline disabled:no-underline ${
                         current
                           ? 'font-semibold text-foreground underline decoration-2 decoration-brand'
                           : done
@@ -1467,7 +1467,7 @@ function WriteStep({
       <div className="flex flex-col gap-5">
         <Field id="story-title" error={problems.title}>
           <div>
-            <FieldLabel size="writing">Title</FieldLabel>
+            <FieldLabel>Title</FieldLabel>
             <Input
               size="standard"
               maxLength={140}
@@ -1479,7 +1479,7 @@ function WriteStep({
         </Field>
         <Field id="story-body" hint error={problems.body}>
           <div>
-            <FieldLabel size="writing">Your story</FieldLabel>
+            <FieldLabel>Your story</FieldLabel>
             <Textarea
               className="min-h-72 leading-relaxed"
               maxLength={limits.storyText.max}
@@ -1636,7 +1636,7 @@ function MediaStep({
       <div className="flex flex-col gap-5">
         <Field id="story-title" error={titleProblem}>
           <div>
-            <FieldLabel size="writing">Title</FieldLabel>
+            <FieldLabel>Title</FieldLabel>
             <Input
               size="standard"
               maxLength={140}
@@ -1787,7 +1787,7 @@ function DetailsStep({
       <div className="flex flex-col gap-6">
         <Field id="story-name" hint>
           <div>
-            <FieldLabel size="writing">
+            <FieldLabel>
               Your first name{' '}
               <span className="font-normal text-secondary-text">
                 (optional)
@@ -1810,7 +1810,7 @@ function DetailsStep({
         </Field>
         <Field id="story-description" hint>
           <div>
-            <FieldLabel size="writing">
+            <FieldLabel>
               Brief description{' '}
               <span className="font-normal text-secondary-text">
                 (optional)

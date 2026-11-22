@@ -19,6 +19,7 @@ import {
   Button,
   Confirm,
   Disclosure,
+  FieldLabel,
   Notice,
   Tabs,
   Textarea,
@@ -451,12 +452,9 @@ function EditVersion({
       <form onSubmit={askConfirm} className="space-y-6" noValidate>
         <div className="grid gap-6 lg:grid-cols-2" data-editor-panes="">
           <div className="min-w-0">
-            <label
-              htmlFor={`${id}-text`}
-              className="mb-1 block font-medium text-foreground"
-            >
+            <FieldLabel htmlFor={`${id}-text`}>
               New text (version {next}) · Markdown
-            </label>
+            </FieldLabel>
             <Disclosure
               summary="How to format it"
               className="mb-2 text-sm text-secondary-text"

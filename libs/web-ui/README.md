@@ -5,6 +5,19 @@ components that `apps/web` pages use instead of their own styled copies) and the
 keep pages on them (`docs/how-the-app-works.md`, layout and UI rules; LB-1 and OT-1, Joel,
 20 November 2026). Another website gets the whole look from it.
 
+## Styling order (Joel, 2026-11-21)
+
+When building or changing UI:
+
+1. Use the library's pieces and its colours (named by meaning) as they are.
+2. If no piece quite fits, prefer adjusting the design to use a common existing piece, accepting a
+   small compromise, over adding something new.
+3. If no existing piece can do the job, add a new piece to `libs/web-ui` (never a page-local styled
+   copy).
+4. Only as a last resort, style in `apps/web` page code, and say why in the PR.
+
+Pages otherwise pass layout only (width, spacing, placement).
+
 ## Using it in a website
 
 The website needs React 19, Tailwind CSS v4 (`@tailwindcss/postcss`) and `tw-animate-css`, and
@@ -77,7 +90,7 @@ means. Pages use only these names, as Tailwind classes (`bg-danger`, `text-dange
 | `logo`                                 | The logo: brand teal on light, white on dark.                                                                           |
 | `media`, `on-media`                    | Black behind pictures and video and the veil over them; white for what sits on them (play buttons, captions, initials). |
 | `hero`                                 | The home page's hero, always dark.                                                                                      |
-| `overlay`                              | The veil behind a dialog (`backdrop:bg-overlay`): the Stories Filters panel, the Admin themes dialogs.                  |
+| `overlay`                              | The veil behind a `Dialog` (`backdrop:bg-overlay`).                                                                     |
 | `--art-1-…` to `--art-5-…`             | A story card without a picture: five quiet artworks (`-from`, `-to`, `-accent`), CSS variables only.                    |
 
 ## Components
@@ -93,20 +106,35 @@ means. Pages use only these names, as Tailwind classes (`bg-danger`, `text-dange
   everywhere people type: Share, admin forms, "Delete my account"). The theme-naming box keeps its
   round ends (`rounded-full`), as it stands in for a theme chip while you type.
 - `RadioGroup`: radio buttons as a fieldset with its legend as a small heading over 44 px rows,
-  each a drawn round button filled teal when chosen (the moderators' list's sort, and the Stories
+  each a drawn 22 px round button (the check box's size, MG-4 A) filled teal when chosen (the moderators' list's sort, and the Stories
   page's since Joel, 2026-11-20). Controlled (`value`) or in a form (`name`, `defaultValue`,
   `submitOnChange`).
 - `SearchBox`: the search box (BS-2 A, Joel 2026-11-20): the compact `Input` with a magnifier submit
   button inside it, named "Search" (`buttonLabel`). Enter searches too. The Stories page and the
   moderators' list both use it (BS-4 B).
 - `Textarea`: the standard text box, taller (set the height with a `min-h-*` class).
-- `Field`, `FieldLabel`, `FieldHint`, `FieldError`: the label, hint and error of one control. `Field`
+- `Field`, `FieldLabel`, `FieldHint`, `FieldError`: the label, hint and error of one control. One
+  label look everywhere, semibold (MG-5 A); outside a `Field`, `FieldLabel` takes `htmlFor`. `Field`
   adds no element: inside it, the label points at the control, and the `Input`, `Textarea` or
   `Select` takes the id, `aria-describedby` (hint, any `describedBy` ids, error) and `aria-invalid`
   (while there is an error). A control given its own `id` keeps it and takes nothing from the field.
   `FieldError` shows only while the field has an error.
-- `Card`: a bordered panel on the card colour (`tone`: `default`, `danger`, `primary`, `link`).
-  `asChild` puts the look on its child (a `section`, `form`, `ul`).
+- `Card`: a bordered panel on the card colour, one look (its unused coloured edges went in round
+  3). `asChild` puts the look on its child (a `section`, `form`, `ul`).
+- `Dialog`: a panel over the page (MG-3 A, the Stories Filters panel's look, for every dialog): on
+  a phone it rises from the bottom, from 640 px a centred box (40 rem; a page may pass a width). A
+  title bar (`title`, the sub-heading look) with a × (`closeLabel` names it), a scrolling body and
+  an optional `footer` of buttons. `open` and `onClose`; the browser's modal `<dialog>`, so focus
+  stays inside, Escape or the × close it and focus goes back; `closeOnOutsideClick` lets a click on
+  the veil close it too (the Filters panel; off for the Admin themes dialogs, which hold edits).
+  `initialFocus` takes a ref to what gets focus on opening (otherwise the ×). `ref` reaches
+  the `<dialog>`; `bodyRef` the body (the Stories filters move in with a portal). The Stories
+  Filters panel and the Admin themes dialogs.
+- `Accordion`: questions that open one at a time (MG-2 B, the FAQ page's look): a bordered box per
+  question with a chevron on the right, the WAI-ARIA accordion pattern (a button in a heading,
+  `headingLevel` 3 by default, controlling a region). Answers are in the server's HTML, hidden
+  until opened. `items` of `{ id, title, content }`; `idPrefix` starts the ids. For one "show
+  more", use `Disclosure`.
 - `PopoverPanel`: the panel of a pop-up menu (Radix Popover content, in a portal). Inside a
   `Popover.Root`; pass padding only.
 - `Button` and `buttonVariants`: the site's buttons (BT-1 A, Joel, 20 November 2026): 44 px tall
@@ -159,7 +187,7 @@ means. Pages use only these names, as Tailwind classes (`bg-danger`, `text-dange
 - `ChoiceCards`: big radio cards (CB-2 B, Share's Written / Video / Audio), the chosen one with a
   2 px brand edge.
 - `SegmentedChoice`: a rounded tray of radios, the chosen one filled (CB-2 B, donate's One-off /
-  Monthly).
+  Monthly; kept, MG-1 B).
 - `Disclosure`: an open/close section (DS-1 A+E 4) on the native `<details>`: closed, link
   words with a solid triangle; open, `variant` `short` (default; the content hangs from a grey
   bar: "See all versions", "How to format it") or `long` (words and content in a light panel:
@@ -182,6 +210,10 @@ means. Pages use only these names, as Tailwind classes (`bg-danger`, `text-dange
 - `fieldVariants`: the field look, for a control the library doesn't have yet.
 - `cn`: class names, with later Tailwind utilities overriding earlier ones.
 - `browserThemeColour`: the page background, light and dark, for `theme-color` meta tags.
+
+Keyboard focus is one look on everything pressable (MG-4 A): the site's 2 px outline with a gap
+(the theme's `:focus-visible`, or `has-[:focus-visible]:outline-*` on a label round a hidden
+input). Text boxes keep their glow.
 
 Pages pass layout classes only (width, margins, padding, grid placement).
 

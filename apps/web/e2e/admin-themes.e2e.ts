@@ -218,6 +218,40 @@ test.describe('/admin/themes', () => {
     ]);
   });
 
+  test('a theme’s panel is the site’s dialog: its × closes it without a change, and focus goes back to the pill', async ({
+    page,
+  }) => {
+    await open(page);
+    const dialog = await panel(page, 'Work');
+    await dialog.getByLabel('Name').fill('Something else');
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    await expect(dialog).toBeHidden();
+    await expect(
+      pill(page, 'Work').getByRole('button', { name: 'Work', exact: true }),
+    ).toBeFocused();
+    await expect(page.locator('[data-unsaved]')).toHaveAttribute(
+      'data-unsaved',
+      '0',
+    );
+  });
+
+  test('a theme’s panel opens with focus in Name, and a click outside it keeps it open with the edit; the delete confirmation opens with focus in its box', async ({
+    page,
+  }) => {
+    await open(page);
+    const dialog = await panel(page, 'Work');
+    await expect(dialog.getByLabel('Name')).toBeFocused();
+    await dialog.getByLabel('Name').fill('Something else');
+    // The veil, outside the box (a phone's sheet sits at the bottom, a desktop's box in the middle).
+    await page.mouse.click(5, 5);
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByLabel('Name')).toHaveValue('Something else');
+    await dialog.getByRole('button', { name: 'Delete theme' }).click();
+    const confirm = page.getByRole('dialog', { name: 'Delete “Work”?' });
+    await expect(confirm).toBeVisible();
+    await expect(confirm.getByLabel('Type delete Work')).toBeFocused();
+  });
+
   test('Discard puts everything back as it was loaded', async ({ page }) => {
     await open(page);
     // A one-letter name is still a 44 px target.

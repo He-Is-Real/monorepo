@@ -71,7 +71,7 @@ export function RadioGroup({
       {options.map((o) => (
         <label
           key={o.value}
-          className="relative flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-1 hover:bg-surface"
+          className="relative flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-1 hover:bg-surface has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ring"
         >
           <input
             type="radio"
@@ -91,8 +91,8 @@ export function RadioGroup({
           <span
             aria-hidden="true"
             className={cn(
-              'flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-input bg-input-background',
-              'peer-checked:border-primary peer-checked:bg-primary peer-focus-visible:ring-[3px] peer-focus-visible:ring-ring/50',
+              'flex size-[22px] shrink-0 items-center justify-center rounded-full border-2 border-input bg-input-background',
+              'peer-checked:border-primary peer-checked:bg-primary',
               '[&>*]:invisible peer-checked:[&>*]:visible',
             )}
           >

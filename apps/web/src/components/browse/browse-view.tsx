@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { FORMAT_LABELS } from '@heisreal/story-filters';
-import { Button, chipVariants, Switch } from '@heisreal/web-ui';
+import { Button, chipVariants, Dialog, Switch } from '@heisreal/web-ui';
 import { FavouritesList } from '@/components/favourites/favourites-list';
 import {
   type BrowseFilters,
@@ -121,7 +121,6 @@ export function BrowseView({
   useEffect(() => {
     if (!open) return;
     const el = dialog.current;
-    if (el && !el.open) el.showModal();
     // Wide enough for the column (the button is gone): the panel isn't needed any more.
     const watch = new ResizeObserver(() => {
       if (button.current && getComputedStyle(button.current).display === 'none')
@@ -317,48 +316,21 @@ export function BrowseView({
 
       {/* Tablets and phones: the filters in a modal panel (a bottom sheet on phones). The native
           dialog keeps focus inside, closes with Escape and gives focus back to the button. */}
-      <dialog
+      <Dialog
         ref={dialog}
         id={`${id}-panel`}
-        aria-labelledby={`${id}-title`}
+        title="Filters"
+        closeLabel="Close filters"
+        open={open}
+        closeOnOutsideClick
         onClose={() => {
           setOpen(false);
           button.current?.focus();
         }}
-        onClick={(e) => {
-          // A click on the backdrop (the dialog itself, outside its box) closes it.
-          if (e.target === e.currentTarget) e.currentTarget.close();
-        }}
-        className="mx-0 mt-auto mb-0 w-full max-w-full rounded-t-2xl border border-border-hover bg-card p-0 text-foreground backdrop:bg-overlay sm:m-auto sm:w-[min(100%-4rem,40rem)] sm:rounded-2xl"
+        bodyRef={setBody}
         data-filters-panel=""
-      >
-        <div className="flex max-h-[85svh] flex-col">
-          <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-2">
-            <h2 id={`${id}-title`} className="text-lg font-semibold">
-              Filters
-            </h2>
-            <button
-              type="button"
-              onClick={() => dialog.current?.close()}
-              className="inline-flex size-11 items-center justify-center rounded-lg text-secondary-text hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                aria-hidden="true"
-                className="size-5 fill-none stroke-current"
-                strokeWidth="2"
-                strokeLinecap="round"
-              >
-                <path d="M6 6l12 12M18 6 6 18" />
-              </svg>
-              <span className="sr-only">Close filters</span>
-            </button>
-          </div>
-          <div
-            ref={setBody}
-            className="min-h-0 flex-1 overflow-y-auto px-5 py-4"
-          />
-          <div className="flex items-center justify-between gap-3 border-t border-border px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        footer={
+          <>
             {chosen.length > 0 ? (
               <Link
                 href={clearAll}
@@ -373,9 +345,9 @@ export function BrowseView({
             <Button type="button" onClick={() => dialog.current?.close()}>
               Show stories
             </Button>
-          </div>
-        </div>
-      </dialog>
+          </>
+        }
+      />
     </>
   );
 }

@@ -572,7 +572,7 @@ export function UploadPanel({
             : `Drag your ${noun} here, or`}
         </p>
         <label
-          className={`${phase.at === 'done' ? secondary : primary} cursor-pointer has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 ${busy || held ? 'pointer-events-none opacity-60' : ''}`}
+          className={`${phase.at === 'done' ? secondary : primary} cursor-pointer has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ring ${busy || held ? 'pointer-events-none opacity-60' : ''}`}
         >
           {phase.at === 'done' ? 'Choose another file' : 'Choose a file'}
           <input

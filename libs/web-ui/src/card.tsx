@@ -1,22 +1,9 @@
 import * as React from 'react';
-import { cva, type VariantProps } from 'class-variance-authority';
 import { Slot } from 'radix-ui';
 import { cn } from './cn';
 
-const cardVariants = cva('rounded-2xl border bg-card', {
-  variants: {
-    tone: {
-      default: 'border-border',
-      /** An error, or something that can't be undone. */
-      danger: 'border-danger',
-      /** The thing to do next (a chosen or highlighted panel). */
-      primary: 'border-primary',
-      /** A note that links on (the link colour). */
-      link: 'border-link',
-    },
-  },
-  defaultVariants: { tone: 'default' },
-});
+/** The panel's look: a rounded border on the card colour. */
+const cardVariants = () => 'rounded-2xl border border-border bg-card';
 
 /**
  * A panel on the card colour with a rounded border (the mockups' `.card`). Not clickable. Pass
@@ -25,16 +12,14 @@ const cardVariants = cva('rounded-2xl border bg-card', {
  */
 function Card({
   className,
-  tone,
   asChild = false,
   ...props
-}: React.ComponentProps<'div'> &
-  VariantProps<typeof cardVariants> & { asChild?: boolean }) {
+}: React.ComponentProps<'div'> & { asChild?: boolean }) {
   const Comp = asChild ? Slot.Root : 'div';
   return (
     <Comp
       data-slot="card"
-      className={cn(cardVariants({ tone }), className)}
+      className={cn(cardVariants(), className)}
       {...props}
     />
   );

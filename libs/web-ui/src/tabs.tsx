@@ -83,7 +83,7 @@ function Tabs<T extends string>({
           onClick={() => onValueChange(t.value)}
           // Under 768 px a 2×2 grid, each cell with its own underline (a 1 px rule; the chosen
           // one 3 px); from 768 px one row on a shared rule, the chosen one underlined.
-          className="flex min-h-11 min-w-0 flex-col items-start justify-center px-3 py-2 text-left leading-snug text-secondary-text shadow-[inset_0_-1px_0_var(--color-border)] hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none aria-selected:font-semibold aria-selected:text-foreground aria-selected:shadow-[inset_0_-3px_0_var(--color-primary)] md:-mb-px md:px-4 md:shadow-none md:aria-selected:shadow-[inset_0_-3px_0_var(--color-primary)]"
+          className="flex min-h-11 min-w-0 flex-col items-start justify-center px-3 py-2 text-left leading-snug text-secondary-text shadow-[inset_0_-1px_0_var(--color-border)] hover:text-foreground aria-selected:font-semibold aria-selected:text-foreground aria-selected:shadow-[inset_0_-3px_0_var(--color-primary)] md:-mb-px md:px-4 md:shadow-none md:aria-selected:shadow-[inset_0_-3px_0_var(--color-primary)]"
           {...t.props}
         >
           <span>{t.label}</span>
