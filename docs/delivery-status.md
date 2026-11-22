@@ -67,7 +67,7 @@ Everything is built. Two small steps are left.
 - ✅ Sign up and sign in with Google or email
 - ✅ Agree to the terms, consent and privacy texts, and agree again when they change
 - ✅ Share a written, video or audio story, with a picture
-- ✅ Drafts save on their own, with "Save and exit"
+- ✅ Drafts save on their own, with "Save Draft and Exit"
 - ✅ Limits on how much and how often people can share, and how big a picture can be (admins can change them)
 - ✅ My submissions: see each story's status, edit or delete it
 - ✅ Delete my account, with all its stories and files

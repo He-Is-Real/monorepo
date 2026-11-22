@@ -1107,11 +1107,11 @@ function PrepareStep({
   );
 }
 
-/** Where "Save and exit" goes: My submissions, which lists the draft (Joel, 2026-11-14). */
+/** Where "Save Draft and Exit" goes: My submissions, which lists the draft (Joel, 2026-11-14). */
 const MY_SUBMISSIONS = '/account#my-submissions';
 
 /**
- * "Save and exit" (Joel, 2026-11-14: people needn't write their story in one go): waits for the
+ * "Save Draft and Exit" (Joel, 2026-11-14 and 2026-11-22: people needn't write their story in one go): waits for the
  * draft's save, then goes to My submissions, where the draft is listed to carry on with. No draft
  * yet and nothing in the fields (text brought back after a reload counts): nothing to save, so it
  * just goes. A draft that can't be saved yet (no
@@ -1152,38 +1152,74 @@ function useSaveAndExit(draft: DraftState, picture?: PictureGate) {
   return { exiting, problem, saveAndExit };
 }
 
-/** The "Save and exit" button (useSaveAndExit). */
+/**
+ * The "Save Draft and Exit" button (useSaveAndExit; Joel, 2026-11-22): it carries autosave's
+ * state itself. "Saving…" and greyed while a save is under way (autosave's or its own), "Save
+ * Draft and Exit" once ready. Sits right of Back in the step's buttons.
+ */
 function SaveAndExitButton({
   exit,
+  saving = false,
   disabled,
 }: {
-  exit: ReturnType<typeof useSaveAndExit>;
+  exit: { exiting: boolean; saveAndExit: () => unknown };
+  saving?: boolean;
   disabled?: boolean;
 }) {
+  const busy = saving || exit.exiting;
   return (
     <button
       type="button"
       className={secondary}
-      disabled={disabled || exit.exiting}
+      disabled={disabled || busy}
       onClick={() => void exit.saveAndExit()}
     >
-      {exit.exiting ? 'Saving…' : 'Save and exit'}
+      {busy ? 'Saving…' : 'Save Draft and Exit'}
     </button>
   );
 }
 
 /**
- * What autosave is doing, said plainly (a polite live region): "Saving…", then "Draft saved"
- * (Joel, 2026-11-14), with "Save and exit" beside it.
+ * A step's buttons: Back with "Save Draft and Exit" right of it, Continue on the far right
+ * (Joel, 2026-11-22). Phones stack them, Continue on top.
+ */
+function StepActions({
+  draft,
+  exit,
+  onBack,
+}: {
+  draft: DraftState;
+  exit: ReturnType<typeof useSaveAndExit>;
+  onBack: () => void;
+}) {
+  return (
+    <Actions>
+      <div className="flex flex-col-reverse gap-3 sm:flex-row">
+        <button type="button" className={secondary} onClick={onBack}>
+          Back
+        </button>
+        <SaveAndExitButton exit={exit} saving={draft.status === 'saving'} />
+      </div>
+      <button type="submit" className={primary}>
+        Continue
+      </button>
+    </Actions>
+  );
+}
+
+/**
+ * What autosave is doing, said plainly. "Saving…" and "Draft saved" (Joel, 2026-11-14) are now
+ * shown in the "Save Draft and Exit" button (Joel, 2026-11-22), so here they're for screen
+ * readers only; what needs the person's attention stays as text: kept on this device, offline,
+ * an error or a conflict, and a problem with "Save Draft and Exit". One polite live region.
  */
 function SaveState({
   draft,
-  picture,
+  exit,
 }: {
   draft: DraftState;
-  picture?: PictureGate;
+  exit: ReturnType<typeof useSaveAndExit>;
 }) {
-  const exit = useSaveAndExit(draft, picture);
   const text: Record<string, string> = {
     idle: '',
     unsaved:
@@ -1197,20 +1233,23 @@ function SaveState({
     error: draft.error ?? '',
     submitted: '',
   };
+  const quiet =
+    draft.status === 'saving' ||
+    draft.status === 'saved' ||
+    !text[draft.status];
   return (
-    <div className="mt-3 min-h-11">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <p
-          role="status"
-          data-save-state={draft.status}
-          className={`text-sm ${draft.status === 'error' ? 'text-danger-text' : 'text-secondary-text'}`}
-        >
-          {text[draft.status]}
-        </p>
-        <div className="flex shrink-0">
-          <SaveAndExitButton exit={exit} />
-        </div>
-      </div>
+    <div className={quiet && !exit.problem ? '' : 'mt-3'}>
+      <p
+        role="status"
+        data-save-state={draft.status}
+        className={
+          quiet
+            ? 'sr-only'
+            : `text-sm ${draft.status === 'error' ? 'text-danger-text' : 'text-secondary-text'}`
+        }
+      >
+        {text[draft.status]}
+      </p>
       {exit.problem && (
         <p role="alert" className="mt-2 text-sm text-danger-text">
           {exit.problem}
@@ -1414,6 +1453,7 @@ function WriteStep({
   const length = [...draft.fields.body.trim()].length;
   // The maximum counts the whole text, as the database does.
   const fullLength = [...draft.fields.body].length;
+  const exit = useSaveAndExit(draft, picture);
   return (
     <form
       noValidate
@@ -1484,15 +1524,8 @@ function WriteStep({
           )}
         </div>
       </div>
-      <SaveState draft={draft} picture={picture} />
-      <Actions>
-        <button type="button" className={secondary} onClick={onBack}>
-          Back
-        </button>
-        <button type="submit" className={primary}>
-          Continue
-        </button>
-      </Actions>
+      <SaveState draft={draft} exit={exit} />
+      <StepActions draft={draft} exit={exit} onBack={onBack} />
     </form>
   );
 }
@@ -1589,6 +1622,7 @@ function MediaStep({
     return { draftId: id, version };
   };
 
+  const exit = useSaveAndExit(draft, picture);
   return (
     <form
       noValidate
@@ -1694,20 +1728,13 @@ function MediaStep({
           </div>
         )}
       </div>
-      <SaveState draft={draft} picture={picture} />
+      <SaveState draft={draft} exit={exit} />
       {(problem ?? picture.problem) && (
         <p role="alert" className="mt-2 text-danger-text">
           {problem ?? picture.problem}
         </p>
       )}
-      <Actions>
-        <button type="button" className={secondary} onClick={onBack}>
-          Back
-        </button>
-        <button type="submit" className={primary}>
-          Continue
-        </button>
-      </Actions>
+      <StepActions draft={draft} exit={exit} onBack={onBack} />
       <p className="mt-4 text-sm text-secondary-text">
         Your {noun} goes straight to our video host in Frankfurt. Only our team
         sees it until your story is approved.
@@ -1746,6 +1773,7 @@ function DetailsStep({
     if (checks > 0) check();
     // Only when the steps at the top ask (`checks` changes), with the values of that moment.
   }, [checks]);
+  const exit = useSaveAndExit(draft);
   return (
     <form
       noValidate
@@ -1847,15 +1875,8 @@ function DetailsStep({
           )}
         </fieldset>
       </div>
-      <SaveState draft={draft} />
-      <Actions>
-        <button type="button" className={secondary} onClick={onBack}>
-          Back
-        </button>
-        <button type="submit" className={primary}>
-          Continue
-        </button>
-      </Actions>
+      <SaveState draft={draft} exit={exit} />
+      <StepActions draft={draft} exit={exit} onBack={onBack} />
     </form>
   );
 }
@@ -2036,7 +2057,7 @@ export function ReviewStep({
   }
 
   /**
-   * "Save and exit" (Joel, 2026-11-14; nothing waits on Bunny, Joel 2026-11-10): the draft is kept
+   * "Save Draft and Exit" (Joel, 2026-11-14; nothing waits on Bunny, Joel 2026-11-10): the draft is kept
    * as it is, to come back to from My submissions (it's saved as the person goes; this makes sure
    * of it), and the page goes there. Not while a submission's outcome is unknown: that submission
    * is settled first, and if it went through, it's "Thank you", not a draft; if it can't be settled
@@ -2298,20 +2319,28 @@ export function ReviewStep({
     }
   }
 
-  const row = (label: string, value: React.ReactNode, edit: Step) => (
-    <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1 border-b border-border py-3">
-      <dt className="text-sm text-secondary-text">{label}</dt>
-      <dd className="order-3 w-full [overflow-wrap:anywhere]">{value}</dd>
-      <button
-        type="button"
-        className="inline-flex min-h-11 min-w-11 items-center justify-center text-sm font-semibold text-link"
-        aria-label={`Change ${label.toLowerCase()}`}
-        onClick={() => onEdit(edit)}
-      >
-        Change
-      </button>
-    </div>
+  const row = (
+    label: string,
+    value: React.ReactNode,
+    edit: Step,
+    empty = false,
+  ) => (
+    <SummaryRow
+      label={label}
+      value={value}
+      action={empty ? 'Add' : 'Change'}
+      onAction={() => onEdit(edit)}
+    />
   );
+  // An empty optional answer is grey; an empty required one (Themes) is in the warning colour,
+  // since submit asks for it (RP-2 A).
+  const none = (words: string, required = false) => (
+    <span className={required ? 'text-warning' : 'text-secondary-text'}>
+      {words}
+    </span>
+  );
+  const description = f.description.trim();
+  const fileKind = draft.format === 'video' ? 'Video' : 'Audio file';
 
   return (
     <form
@@ -2322,10 +2351,15 @@ export function ReviewStep({
       }}
     >
       <StepHeading heading={heading}>Review and submit</StepHeading>
-      <dl>
+      <dl className="border-t border-border">
         {row('Title', <span id="review-title">{f.title}</span>, 'write')}
         {row('Name shown', f.bylineName.trim() || 'Anonymous', 'details')}
-        {row('Description', f.description.trim() || '—', 'details')}
+        {row(
+          'Description',
+          description || none('None added (optional)'),
+          'details',
+          !description,
+        )}
         {row(
           'Themes',
           themeNames.length > 0 ? (
@@ -2337,9 +2371,10 @@ export function ReviewStep({
               ))}
             </ul>
           ) : (
-            '—'
+            none('None chosen', true)
           ),
           'details',
+          themeNames.length === 0,
         )}
         {draft.format === 'written'
           ? row(
@@ -2352,13 +2387,17 @@ export function ReviewStep({
           : row(
               `Your ${NOUN[draft.format]}`,
               <>
-                {own && <OwnMediaPreview story={own} />}
-                {mediaState === 'done' && (
-                  <Attached
-                    kind={draft.format === 'video' ? 'Video' : 'Audio file'}
-                    name={mediaFile}
-                  />
-                )}
+                {mediaState === 'done' &&
+                  (own && !media?.playbackUrl ? (
+                    // Still with the video host: one calm line (RP-3 A).
+                    <Uploaded name={mediaFile} format={draft.format} />
+                  ) : (
+                    // Ready: the player, as before (RP-3 A); or the story is still being read.
+                    <>
+                      {own && <OwnMediaPreview story={own} />}
+                      <Attached kind={fileKind} name={mediaFile} first={!own} />
+                    </>
+                  ))}
                 {(mediaState === 'failed' || mediaState === 'unconfirmed') && (
                   <NotAttached
                     action="Go to your upload"
@@ -2378,7 +2417,7 @@ export function ReviewStep({
             <>
               <div
                 data-review-picture=""
-                className="max-w-64 overflow-hidden rounded-lg bg-surface"
+                className="w-30 overflow-hidden rounded-lg bg-surface"
                 style={{ aspectRatio: `${picture.width} / ${picture.height}` }}
               >
                 {picture.url && (
@@ -2504,31 +2543,28 @@ export function ReviewStep({
         </p>
       )}
       <Actions>
-        <button
-          type="button"
-          className={secondary}
-          onClick={() => onEdit('details')}
-        >
-          Back
-        </button>
         <div className="flex flex-col-reverse gap-3 sm:flex-row">
           <button
             type="button"
             className={secondary}
-            disabled={busy || savingDraft}
-            onClick={() => void saveAsDraft()}
+            onClick={() => onEdit('details')}
           >
-            {savingDraft ? 'Saving…' : 'Save and exit'}
+            Back
           </button>
-          <button
-            type="submit"
-            className={primary}
-            disabled={busy || waiting || savingDraft}
-            aria-describedby={waiting ? 'submit-waiting' : undefined}
-          >
-            {busy ? 'Submitting…' : 'Submit for review'}
-          </button>
+          <SaveAndExitButton
+            exit={{ exiting: savingDraft, saveAndExit: saveAsDraft }}
+            saving={draft.status === 'saving'}
+            disabled={busy}
+          />
         </div>
+        <button
+          type="submit"
+          className={primary}
+          disabled={busy || waiting || savingDraft}
+          aria-describedby={waiting ? 'submit-waiting' : undefined}
+        >
+          {busy ? 'Submitting…' : 'Submit for review'}
+        </button>
       </Actions>
       <p className="mt-4 text-sm text-secondary-text">
         Our team reads every story before it’s published.
@@ -2541,17 +2577,22 @@ export function ReviewStep({
  * An attached file's confirmation on "Review and submit" (Joel, 2026-11-14): a tick and "Video
  * attached", with the file's name when this tab knows it (names are never stored at the server).
  */
-function Attached({ kind, name }: { kind: string; name: string | null }) {
+function Attached({
+  kind,
+  name,
+  first = false,
+}: {
+  kind: string;
+  name: string | null;
+  /** First in its row: no gap above, so it lines up with the row's label. */
+  first?: boolean;
+}) {
   return (
-    <p data-attached="" className="mt-2 flex items-start gap-2">
-      <svg
-        viewBox="0 0 24 24"
-        aria-hidden="true"
-        className="mt-0.5 size-5 shrink-0 fill-none stroke-brand stroke-[2.5] [stroke-linecap:round] [stroke-linejoin:round]"
-      >
-        <circle cx="12" cy="12" r="10" />
-        <path d="m7.5 12.5 3 3 6-6.5" />
-      </svg>
+    <p
+      data-attached=""
+      className={`${first ? '' : 'mt-2'} flex items-start gap-2`}
+    >
+      <Tick />
       <span>
         <span className="font-semibold">{kind} attached</span>
         {name && (
@@ -2561,6 +2602,86 @@ function Attached({ kind, name }: { kind: string; name: string | null }) {
         )}
       </span>
     </p>
+  );
+}
+
+/**
+ * One answer on "Review and submit" (RP-1 A, Joel 2026-11-22; GOV.UK "Check answers"): label,
+ * answer and its link on one line on wider screens, label and link above the answer on phones.
+ * The link keeps a 44 px tap area that reaches past its line (negative margin), so its word lines
+ * up with the label's first line instead of floating in the middle of the tap area. The link is
+ * the row's second `dd`, as GOV.UK does, with its full name ("Change title", "Add description").
+ */
+function SummaryRow({
+  label,
+  value,
+  action,
+  onAction,
+}: {
+  label: string;
+  value: React.ReactNode;
+  action: 'Change' | 'Add';
+  onAction: () => void;
+}) {
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 border-b border-border py-3 sm:grid-cols-[10rem_minmax(0,1fr)_auto]">
+      <dt className="text-sm leading-6 text-secondary-text">{label}</dt>
+      <dd className="col-span-2 row-start-2 [overflow-wrap:anywhere] sm:col-span-1 sm:col-start-2 sm:row-start-1">
+        {value}
+      </dd>
+      <dd className="col-start-2 row-start-1 sm:col-start-3">
+        <button
+          type="button"
+          className="-my-2.5 inline-flex min-h-11 min-w-11 items-center justify-end py-2.5 text-sm leading-6 font-semibold text-link"
+          aria-label={`${action} ${label.toLowerCase()}`}
+          onClick={onAction}
+        >
+          {action}
+        </button>
+      </dd>
+    </div>
+  );
+}
+
+/**
+ * A video or audio file the host is still processing, on "Review and submit" (RP-3 A, Joel
+ * 2026-11-22): one status line, a tick, the file's name when this tab knows it, and that its
+ * preview comes later. No empty player box.
+ */
+function Uploaded({
+  name,
+  format,
+}: {
+  name: string | null;
+  format: 'video' | 'audio';
+}) {
+  return (
+    <p data-media-status={format} className="flex items-start gap-2">
+      <Tick />
+      <span>
+        {name && (
+          <span className="block font-semibold [overflow-wrap:anywhere]">
+            {name}
+          </span>
+        )}
+        <span className="block text-sm text-secondary-text">
+          Uploaded. Its preview will be ready later.
+        </span>
+      </span>
+    </p>
+  );
+}
+
+function Tick() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className="mt-0.5 size-5 shrink-0 fill-none stroke-brand stroke-[2.5] [stroke-linecap:round] [stroke-linejoin:round]"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <path d="m7.5 12.5 3 3 6-6.5" />
+    </svg>
   );
 }
 

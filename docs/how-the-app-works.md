@@ -284,9 +284,10 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   meanwhile, they stay on the upload step with its usual message.
 - **Seeing your own upload** (Joel, 2026-11-10, part 1b; P1b-1 C, P1b-2): once Bunny has
   processed the video or audio file, the review step plays it in Bunny's player, beside the
-  picture. Until then it says "Check back later for your video preview." ("…your audio preview."
-  for audio), with no waiting or checking again: the person can still send the story, or press
-  "Save and exit" and come back later (after a submission whose answer was lost, "Save and exit"
+  picture. Until then its row is one status line (Joel, 2026-11-22, RP-3 A): a tick, the file's
+  name (when the tab knows it) and "Uploaded. Its preview will be ready later.", with no waiting
+  or checking again: the person can still send the story, or press "Save Draft and Exit" and come
+  back later (after a submission whose answer was lost, "Save Draft and Exit"
   first sends that same submission again, since the person already asked to send it and our server
   may still be working on it: if it went through it shows "Thank you"; if that can't be known yet
   it confirms nothing and asks them to try again). The review step also has a "See your story as others
@@ -297,9 +298,19 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   The links to the person's own video, audio and picture are signed only when that one story is
   read (never in the list, never publicly) and last one hour; reloading gets fresh ones (an answer
   carrying links is never "not modified", so the page never keeps expired ones).
-- **Drafts** (Joel, 2026-11-14: people needn't write their story in one go): each step says what
-  autosave is doing, "Saving…" then "Draft saved". **"Save and exit"** on every step from writing
-  to review waits for the save, then goes to My submissions, where the draft is listed with
+- **"Review and submit" layout** (Joel, 2026-11-22, RP-1 A, RP-2 A): the answers are aligned rows
+  (like GOV.UK's "Check answers"): label, answer and its link on one line on wider screens; on
+  phones the label and link share the top line and the answer sits under them. Each link keeps its
+  44 px tap area and full name ("Change title"). An empty description reads "None added
+  (optional)" in grey and its link says "Add" (no themes chosen: "None chosen", "Add"). The
+  picture or thumbnail is a small picture (120 px wide) in its row. There's no story card: the
+  "See your story preview" button shows the result.
+- **Drafts** (Joel, 2026-11-14: people needn't write their story in one go): **"Save Draft and
+  Exit"** sits right of Back on every step from writing to review (Joel, 2026-11-22), Continue or
+  Submit on the far right. It shows what autosave is doing: "Saving…" and greyed while a save is
+  under way, "Save Draft and Exit" when ready (screen readers still hear "Saving…" and "Draft
+  saved"). Warnings stay as text under the step: kept on this device until it can be saved,
+  offline, a save error or a clash with another tab. It waits for the save, then goes to My submissions, where the draft is listed with
   "Continue". Before a draft can be saved (a written story needs its title and some text, a video
   or audio story its title) it stays and says what's needed, also for text brought back after a
   reload; it only leaves straight away when nothing has been typed. If the save fails it stays and
@@ -427,7 +438,7 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   the upload step and on "Review and submit", so it's clear what was attached. On "Review and
   submit" each attached file has a success confirmation: a tick and "Video attached", "Audio file
   attached", "Thumbnail attached" (a video's picture) or "Picture attached", with the file's name
-  under it. The name is kept only in that browser tab, never on our servers: after a reload in
+  under it (a video or audio file still being processed shows its one status line instead, above). The name is kept only in that browser tab, never on our servers: after a reload in
   another tab or on another device, the confirmation is shown without the name. The tick shows
   only when the file is known to have arrived: a picture our server found in storage, or a video
   or audio file this tab finished uploading (and hasn't since asked to replace) or that Bunny has
