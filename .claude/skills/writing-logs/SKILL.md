@@ -99,8 +99,8 @@ content rule below is not an option for them. Strip them out of a request body b
 hashed by default, plain while a debug window is open, and **the full value whenever the work ends
 in an error** (`outcome: "error"`: something failed on our side), so the failure can be reproduced.
 The default hashing exists **only to keep log volume down** for long, many-paragraph fields such as
-story text and transcripts. It is not a privacy measure: secrets follow the always-hash rule above,
-and short personal fields (email, IP, title) are simply plain.
+story text and transcripts. It is not a privacy measure: only the session id and token are keyed-hashed, other secrets are
+left out entirely (rule above), and short personal fields (email, IP, title) are simply plain.
 An input refusal (`input_refused`) or a rate limit is not an error: it logs the failed field, its
 size and the failed check, never the value. An event holding content in plain sets
 `debug: { plain_content: true, reason: "error" | "window" }`.
