@@ -155,10 +155,16 @@ Content is resolved once, when the event is written, because only then is the ou
 ```ts
 // libs/logging (sketch). Two helpers, two different rules.
 
-// Sensitive (session id, token; who searched, with the search key): always hashed. No `failed`:
+// Sensitive (session id, token): always hashed with the general key (hk1:). No `failed`:
 // nothing makes it plain.
 function sensitiveField(value: string) {
-  return hmac(value);
+  return hmac(value); // general log key, prefix hk1:
+}
+
+// Who searched (ip, email, user id on a search event): always hashed with the search-only key (hs1:),
+// never the general key, so these hashes can't be joined to the rest of the logs.
+function searchIdentityField(value: string) {
+  return searchHmac(value); // key `log-search-hmac`, prefix hs1:
 }
 
 // Long non-sensitive content: hashed only to keep log volume down.
@@ -172,6 +178,7 @@ const body = contentField(JSON.stringify(withoutSecrets(req.body)), { failed });
 // finish(): outcome === 'error' → story.body (full) + debug.plain_content true;
 // otherwise → story.body_hash + story.body_length.
 // user.session_hash = sensitiveField(sid) and user.token_hash = sensitiveField(token), always.
+// On a search event: client.ip_hash / user.email_hash / user.id_hash = searchIdentityField(...).
 ```
 
 Where the event starts and ends (sketch; the `libs/logging` helper is part of the logging build
