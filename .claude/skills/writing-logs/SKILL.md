@@ -152,8 +152,9 @@ const body = contentField(JSON.stringify(withoutSecrets(req.body)), {
   failed,
   window,
 });
-// finish(): failed = outcome === 'error' → story.body (full) + debug.reason "error";
-// otherwise story.body_hash + story.body_length.
+// finish(): outcome === 'error' → story.body (full) + debug.reason "error";
+// debug window open → story.body (plain) + debug.reason "window";
+// otherwise → story.body_hash + story.body_length.
 // user.session_hash = sensitiveField(sid) and user.token_hash = sensitiveField(token), always.
 ```
 
