@@ -86,13 +86,21 @@ today's lines: no personal data, tokens, keys or story content.
 | Class          | How it is written                                                                                                                               | Fields                                                                                                                                                                                                                                                                                                                                                             |
 | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Plain**      | as is, in Axiom and Google alike                                                                                                                | routes, status, timings, counts, outcomes, ids (`user.id`, `story.id`, job ids), roles, consent version numbers, search queries and tags, and personal fields: `user.email`, `client.ip`, browser (`client.user_agent`), `story.title` (Joel, 23 Nov: plain for simplicity; the privacy wording is expanded to say so, LG-2f). No hashing or encryption for these. |
-| **Keyed hash** | HMAC-SHA-256 with a key from Secret Manager (`libs/secrets`), never plain SHA                                                                   | the session: `user.session_hash` = HMAC of Clerk's stable session id (`sid`, the same for the whole visit) (Joel, 23 Nov, LG-2d). Never the raw token, and never a hash of the token.                                                                                                                                                                              |
-| **Content**    | keyed hash plus length by default; plain inside a debug window; **in full whenever the request or job ends in an error**, even outside a window | larger content fields: story text, descriptions, captions, transcripts, request bodies. **Pending Joel (LG-2e):** where the debug switch lives, its limits and any per-field size cap (16 KB recommended). Until the switch exists, there is no window: hash on success.                                                                                           |
-| **Never**      | not at all                                                                                                                                      | session tokens, cookies, API keys, passwords, secrets, signed URLs, card data, whole header sets.                                                                                                                                                                                                                                                                  |
+| **Keyed hash** | HMAC-SHA-256 with a key from Secret Manager (`libs/secrets`), never plain SHA. **Always**: on success, on error and inside a debug window alike | sensitive fields that must be matchable: the session, `user.session_hash` = HMAC of Clerk's stable session id (`sid`, the same for the whole visit) (Joel, 23 Nov, LG-2d). Never the raw token, and never a hash of the token.                                                                                                                                     |
+| **Content**    | keyed hash plus length by default; plain inside a debug window; **in full whenever the request or job ends in an error**, even outside a window | long, many-paragraph, non-sensitive fields: story text, descriptions, captions, transcripts, request bodies (with any secret inside a body removed first). **Pending Joel (LG-2e):** where the debug switch lives, its limits and any per-field size cap (16 KB recommended). Until the switch exists, there is no window: hash on success.                        |
+| **Never**      | not at all, not on error, not in a debug window                                                                                                 | session tokens, cookies, API keys, passwords, secrets, signed URLs, auth headers, card data, whole header sets.                                                                                                                                                                                                                                                    |
+
+**Sensitive fields are never plain (Joel, 23 Nov).** Tokens, session ids, API keys, passwords,
+cookies and auth headers are always keyed-hashed (only where we need to match them, like the
+session) or left out. Never plain, **not when the request fails and not in a debug window**: the
+content rule below is not an option for them. Strip them out of a request body before it is logged.
 
 **The content rule (Joel, 23 Nov).** Write content fields through one helper, never by hand:
 hashed by default, plain while a debug window is open, and **the full value whenever the work ends
 in an error** (`outcome: "error"`: something failed on our side), so the failure can be reproduced.
+The default hashing exists **only to keep log volume down** for long, many-paragraph fields such as
+story text and transcripts. It is not a privacy measure: secrets follow the always-hash rule above,
+and short personal fields (email, IP, title) are simply plain.
 An input refusal (`input_refused`) or a rate limit is not an error: it logs the failed field, its
 size and the failed check, never the value. An event holding content in plain sets
 `debug: { plain_content: true, reason: "error" | "window" }`.
@@ -123,7 +131,14 @@ event.set({ outcome: 'ok' });
 Content is resolved once, when the event is written, because only then is the outcome known:
 
 ```ts
-// libs/logging (sketch): one helper for every content field.
+// libs/logging (sketch). Two helpers, two different rules.
+
+// Sensitive (the session id): always hashed. No `failed`, no `window`: nothing makes it plain.
+function sensitiveField(value: string) {
+  return hmac(value);
+}
+
+// Long non-sensitive content: hashed only to keep log volume down.
 function contentField(
   value: string,
   { failed, window }: { failed: boolean; window: boolean },
@@ -131,8 +146,14 @@ function contentField(
   if (failed || window) return { value, length: value.length }; // full text on error or in a window
   return { hash: hmac(value), length: value.length }; // default: fingerprint only
 }
+
+// A request body is content, but secrets inside it are removed first, even on error.
+const body = contentField(JSON.stringify(withoutSecrets(req.body)), {
+  failed,
+  window,
+});
 // finish(): failed = outcome === 'error' → story.body (full) + debug.reason "error";
-// otherwise story.body_hash + story.body_length.
+// otherwise story.body_hash + story.body_length. user.session_hash = sensitiveField(sid), always.
 ```
 
 Where the event starts and ends (sketch; the `libs/logging` helper is part of the logging build

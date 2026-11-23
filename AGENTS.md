@@ -115,9 +115,12 @@ source of truth, so change them in the same PR as the code.
     Secret Manager, `_hash` suffix), content, or never (tokens, cookies, keys, secrets, card data). Open
     points are marked "pending Joel" in the skill; don't decide them.
   - Content fields (story text, transcripts, request bodies) are hashed by default, plain inside a debug
-    window, and logged in full whenever the request or job ends in an error, even outside a window.
-  - A session is logged only as `user.session_hash`, an HMAC of Clerk's session id (`sid`); never the raw
-    token or a hash of the token.
+    window, and logged in full whenever the request or job ends in an error, even outside a window. That
+    hashing only keeps log volume down for long, many-paragraph fields; it is not a privacy measure.
+  - Sensitive fields (tokens, session ids, API keys, passwords, cookies, auth headers) are always
+    keyed-hashed or left out: never plain, not on error, not in a debug window; strip them from bodies.
+    A session is logged only as `user.session_hash`, an HMAC of Clerk's session id (`sid`); never the
+    raw token or a hash of the token.
   - Errors are fields on the event (`outcome`, `error.type/code`); messages never quote request data.
     Server errors are logged by the servers only; the browser reports only its own failures (LG-1c).
   - A failed log send must never fail, slow or change the request; same JSON on stdout locally, in CI and on Google.
