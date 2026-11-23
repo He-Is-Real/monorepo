@@ -111,13 +111,15 @@ source of truth, so change them in the same PR as the code.
     units as suffixes (`_ms`, `_bytes`); time every SurrealDB and outside call.
   - Every event carries `ref`, the request's UUID v7 that is also the `traceparent` trace id and the
     "Reference" people see.
-  - Every field has a data class: plain (incl. email, IP, browser, story title), keyed hash (HMAC, key from
+  - Every field has a data class: plain (incl. email, IP, browser user agent for bot detection, story title), keyed hash (HMAC, key from
     Secret Manager, `_hash` suffix), content, or never (tokens, cookies, keys, secrets, card data). Open
     points are marked "pending Joel" in the skill; don't decide them.
-  - Content fields (story text, transcripts, request bodies) are hashed by default, plain inside a debug
-    window, and logged in full whenever the request or job ends in an error, even outside a window. That
-    hashing only keeps log volume down for long, many-paragraph fields; it is not a privacy measure.
-  - Sensitive fields are never plain, not on error, not in a debug window; strip them from bodies. Only
+  - Content fields (story text, transcripts, request bodies) are hashed by default and logged in full
+    whenever the request or job ends in an error. No debug window or switch. That hashing only keeps log
+    volume down for long, many-paragraph fields; it is not a privacy measure.
+  - Search events: terms and filters plain; IP, email and user id only as keyed hashes with the
+    search-only key (`log-search-hmac`), never plain, not on error (LG-2g pending Joel, see the skill).
+  - Sensitive fields are never plain, not even on error; strip them from bodies. Only
     the session id and token are logged, as keyed hashes; cookies, API keys, passwords and auth headers
     are not logged at all (the session hash is enough).
     Log both `user.session_hash` (HMAC of Clerk's session id `sid`, for journeys) and `user.token_hash`

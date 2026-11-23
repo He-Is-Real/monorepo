@@ -2,8 +2,8 @@
 name: writing-logs
 description: >
   How we write logs in this monorepo: one wide event per request or job, stable field names, and
-  the data-handling class of every field (plain, keyed hash, content: hashed unless a debug window
-  is open or the work failed, never). Use whenever you add or change logging, error handling, a
+  the data-handling class of every field (plain, keyed hash, content: hashed unless the work
+  failed, never), and search events that never say who searched. Use whenever you add or change logging, error handling, a
   NestJS controller, interceptor, guard or filter, a Next.js route, server action or error page, a
   Pub/Sub job or worker step, or a call to SurrealDB, Clerk, Bunny, Stripe or Resend, and when you
   read logs to debug something.
@@ -80,30 +80,52 @@ success or failure. Stripe calls it a canonical log line; the blog calls it a wi
 ## What may go in a field (data classes)
 
 Joel decided (22–23 Nov 2026) which personal data we log and how. Until the logging build lands
-(wide-event helper, hashing key, debug switch), the `libs/logging` README rule still holds for
+(wide-event helper, hashing keys), the `libs/logging` README rule still holds for
 today's lines: no personal data, tokens, keys or story content.
 
-| Class          | How it is written                                                                                                                                              | Fields                                                                                                                                                                                                                                                                                                                                                                    |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Plain**      | as is, in Axiom and Google alike                                                                                                                               | routes, status, timings, counts, outcomes, ids (`user.id`, `story.id`, job ids), roles, consent version numbers, search queries and tags, and personal fields: `user.email`, `client.ip`, browser (`client.user_agent`), `story.title` (Joel, 23 Nov: plain for simplicity; the privacy wording is expanded to say so, LG-2f). No hashing or encryption for these.        |
-| **Keyed hash** | HMAC-SHA-256 with a key from Secret Manager (`libs/secrets`), never plain SHA, `hk1:` prefix. **Always**: on success, on error and inside a debug window alike | sensitive fields that must be matchable (Joel, 23 Nov, LG-2d C): `user.session_hash` = HMAC of Clerk's stable session id (`sid`, the same for the whole visit), to follow journeys; `user.token_hash` = HMAC of the whole Clerk token, to answer "was this exact token used?" (it changes about every minute, so it can't follow journeys). Never the raw token or `sid`. |
-| **Content**    | keyed hash plus length by default; plain inside a debug window; **in full whenever the request or job ends in an error**, even outside a window                | long, many-paragraph, non-sensitive fields: story text, descriptions, captions, transcripts, request bodies (with any secret inside a body removed first). **Pending Joel (LG-2e):** where the debug switch lives, its limits and any per-field size cap (16 KB recommended). Until the switch exists, there is no window: hash on success.                               |
-| **Never**      | not at all, not on error, not in a debug window                                                                                                                | session tokens, cookies, API keys, passwords, secrets, signed URLs, auth headers, card data, whole header sets.                                                                                                                                                                                                                                                           |
+| Class          | How it is written                                                                                                                                                              | Fields                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Plain**      | as is, in Axiom and Google alike                                                                                                                                               | routes, status, timings, counts, outcomes, ids (`user.id`, `story.id`, job ids), roles, consent version numbers, search queries, tags and filters, and personal fields: `user.email`, `client.ip`, `story.title` (Joel, 23 Nov: plain for simplicity; the privacy wording is expanded to say so, LG-2f). No hashing or encryption for these, **except on search events**, where `user.email`, `client.ip` and `user.id` are keyed hashes (see "Search events"). The browser's user agent `client.user_agent` is plain everywhere, search events included: we need it to tell whether anyone is running bots on the site (Joel, 23 Nov), and the privacy notice says so. |
+| **Keyed hash** | HMAC-SHA-256 with a key from Secret Manager (`libs/secrets`), never plain SHA, `hk1:` prefix (search events: their own key, `hs1:`). **Always**: on success and on error alike | sensitive fields that must be matchable (Joel, 23 Nov, LG-2d C): `user.session_hash` = HMAC of Clerk's stable session id (`sid`, the same for the whole visit), to follow journeys; `user.token_hash` = HMAC of the whole Clerk token, to answer "was this exact token used?" (it changes about every minute, so it can't follow journeys). Never the raw token or `sid`. On search events, who searched (see "Search events").                                                                                                                                                                                                                                         |
+| **Content**    | keyed hash plus length by default; **in full whenever the request or job ends in an error**                                                                                    | long, many-paragraph, non-sensitive fields: story text, descriptions, captions, transcripts, request bodies (with any secret inside a body removed first). There is no debug window or switch (Joel, 23 Nov, LG-2e): if we ever really need the plain words of a field, we change the code to stop hashing it, in a normal PR.                                                                                                                                                                                                                                                                                                                                          |
+| **Never**      | not at all, not on error                                                                                                                                                       | session tokens, cookies, API keys, passwords, secrets, signed URLs, auth headers, card data, whole header sets.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 **Sensitive fields are never plain (Joel, 23 Nov).** Only the session id and the token are logged,
 as keyed hashes (`user.session_hash`, `user.token_hash`). Cookies, API keys, passwords and auth
-headers are not logged at all, hashed or not: the session hash is enough to follow a visit. Never plain, **not when the request fails and not in a debug window**: the
+headers are not logged at all, hashed or not: the session hash is enough to follow a visit. Never plain, **not even when the request fails**: the
 content rule below is not an option for them. Strip them out of a request body before it is logged.
 
 **The content rule (Joel, 23 Nov).** Write content fields through one helper, never by hand:
-hashed by default, plain while a debug window is open, and **the full value whenever the work ends
-in an error** (`outcome: "error"`: something failed on our side), so the failure can be reproduced.
+hashed by default, and **the full value whenever the work ends in an error** (`outcome: "error"`: something failed on our side), so the failure can be reproduced.
 The default hashing exists **only to keep log volume down** for long, many-paragraph fields such as
-story text and transcripts. It is not a privacy measure: only the session id and token are keyed-hashed, other secrets are
-left out entirely (rule above), and short personal fields (email, IP, title) are simply plain.
+story text and transcripts. It is not a privacy measure: the session id and token are keyed-hashed, other secrets are
+left out entirely (rule above), and short personal fields (email, IP, title) are simply plain
+(except who searched, on search events: below).
 An input refusal (`input_refused`) or a rate limit is not an error: it logs the failed field, its
 size and the failed check, never the value. An event holding content in plain sets
-`debug: { plain_content: true, reason: "error" | "window" }`.
+`debug: { plain_content: true }` (only ever on error).
+
+**Search events (Joel, 23 Nov):** "for privacy, only for search terms and filters always hash the
+ip, email, user id anything that links search terms to a specific user. The terms themselves in
+plain text are essential for us to build the site but we dont need to know who is searching for
+them."
+
+- On any event that carries search terms or filters (`search.q`, `search.tags`, `search.filters`,
+  `search.result_count`), the terms, filters, result count, timing and outcome are plain.
+- Every field that ties the search to one person is a keyed hash, under its `_hash` name with the
+  plain name left off: `client.ip_hash`, `user.email_hash`, `user.id_hash`. **Never plain, not even
+  on error.** `user.role`, `client.user_agent` and `client.browser / os / device` stay plain;
+  `user.account_age_days` is left off.
+- These hashes use **their own HMAC key** (Secret Manager secret `log-search-hmac`, `hs1:` prefix),
+  never used for any other field, so a search can't be matched to the same person's other events by
+  accident or by joining fields. Holding that key, someone could still hash a known email on purpose
+  and find that person's searches; don't build tooling that does.
+- **Pending Joel (LG-2g):** the other links back to the person: `user.session_hash` /
+  `user.token_hash` and `ref` on the search, and Cloud Run's own request line (full URL with the
+  terms, plain IP). Recommended: each search as its own small `event: "search"` with no `ref` and no
+  session or token hash, the route's normal wide event without the terms, and search URLs excluded
+  from Cloud Run's request log. Until answered, leave `user.session_hash` and `user.token_hash` off
+  search events (the safer reading) and don't build the separate event.
 
 Stack traces are fine (Joel: they help us find abuse); make sure no error message you write
 embeds a value from the request.
@@ -133,27 +155,21 @@ Content is resolved once, when the event is written, because only then is the ou
 ```ts
 // libs/logging (sketch). Two helpers, two different rules.
 
-// Sensitive (session id, token): always hashed. No `failed`, no `window`: nothing makes it plain.
+// Sensitive (session id, token; who searched, with the search key): always hashed. No `failed`:
+// nothing makes it plain.
 function sensitiveField(value: string) {
   return hmac(value);
 }
 
 // Long non-sensitive content: hashed only to keep log volume down.
-function contentField(
-  value: string,
-  { failed, window }: { failed: boolean; window: boolean },
-) {
-  if (failed || window) return { value, length: value.length }; // full text on error or in a window
+function contentField(value: string, { failed }: { failed: boolean }) {
+  if (failed) return { value, length: value.length }; // full text when the work ended in an error
   return { hash: hmac(value), length: value.length }; // default: fingerprint only
 }
 
 // A request body is content, but secrets inside it are removed first, even on error.
-const body = contentField(JSON.stringify(withoutSecrets(req.body)), {
-  failed,
-  window,
-});
-// finish(): outcome === 'error' → story.body (full) + debug.reason "error";
-// debug window open → story.body (plain) + debug.reason "window";
+const body = contentField(JSON.stringify(withoutSecrets(req.body)), { failed });
+// finish(): outcome === 'error' → story.body (full) + debug.plain_content true;
 // otherwise → story.body_hash + story.body_length.
 // user.session_hash = sensitiveField(sid) and user.token_hash = sensitiveField(token), always.
 ```
@@ -194,5 +210,6 @@ without dashes>"` for Cloud Run's line (once the LG-4 trace field is in).
 
 - One event per request/job; no new `console.*` or mid-request log lines.
 - Every new field has a stable name and a data class from the table; nothing from "Never".
+- Search events: terms plain, who searched only as `hs1:` hashes, never plain.
 - Outside calls timed; errors as fields; `ref` present.
 - Log sending can't throw or block.
