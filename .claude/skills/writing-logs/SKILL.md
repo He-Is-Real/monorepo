@@ -55,9 +55,9 @@ success or failure. Stripe calls it a canonical log line; the blog calls it a wi
    Axiom after the response, without awaiting it on the request path; swallow and count send
    errors. Logging code never throws into business code.
 10. **Server errors are logged by servers only (LG-1c, Joel 22 Nov).** The browser never sends
-    details of a server-side error: anyone can read their own network traffic. Only browser-side
-    failures (a crash in our JavaScript, a request that got no answer) send a small
-    `error_report` (reference, route, kind) to api-user.
+    details of a server-side error: anyone can read their own network traffic. Only a crash in
+    our JavaScript sends a small `error_report` (reference, route, kind) to api-user. Whether a
+    request that got no answer (offline, timeout) also sends one is pending Joel (LG-1c).
 11. **Same format everywhere.** One JSON object per line on stdout (`libs/logging`): locally, in CI
     and on Google Cloud. Don't add a "pretty" mode to services; pretty-print with `jq` when reading.
 
@@ -140,8 +140,8 @@ use(req: Request, res: Response, next: NextFunction) {
 heisreal-dev --freshness=1d --format=json`, then `trace="projects/heisreal-dev/traces/<ref
 without dashes>"` for Cloud Run's line (once the LG-4 trace field is in).
 - A reference with no lines means the request never reached us; its UUID v7 still tells you the
-  millisecond it was made. Browser crashes (and requests that got no answer) send an
-  `error_report` event with the reference. A server-page crash is found by its time and route.
+  millisecond it was made. Browser crashes send an `error_report` event
+  with the reference (requests that got no answer: pending Joel, LG-1c). A server-page crash is found by its time and route.
 
 ## Before you finish
 
