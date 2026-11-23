@@ -27,7 +27,7 @@ success or failure. Stripe calls it a canonical log line; the blog calls it a wi
 1. **One wide event per unit of work.** A request to a service, a Pub/Sub job, a worker job, a
    scheduled run. Start it at the edge (NestJS middleware, Next.js `proxy.ts`, the job handler),
    pass it down, add fields as you learn things, emit it once when the work ends (response closed,
-   job `finally`). Lines inside a request or job are folded into its event (LG-2 C). Only three kinds of line stay on their own:
+   job `finally`). Lines inside a request or job are folded into its event (LG-2 C, Joel 22 Nov). Only three kinds of line stay on their own:
    start-up/settings, background work outside any request (health checks, queue state), and the
    **immediate** unexpected-error line with `stack_trace` (Error Reporting groups errors from it).
 2. **No breadcrumbs.** No `console.log`, no "got here", no "calling Bunny…" then "Bunny answered".
@@ -54,7 +54,11 @@ success or failure. Stripe calls it a canonical log line; the blog calls it a wi
 9. **A failed log send must never fail, slow or change the request.** Write to stdout first; send to
    Axiom after the response, without awaiting it on the request path; swallow and count send
    errors. Logging code never throws into business code.
-10. **Same format everywhere.** One JSON object per line on stdout (`libs/logging`): locally, in CI
+10. **Server errors are logged by servers only (LG-1c, Joel 22 Nov).** The browser never sends
+    details of a server-side error: anyone can read their own network traffic. Only browser-side
+    failures (a crash in our JavaScript, a request that got no answer) send a small
+    `error_report` (reference, route, kind) to api-user.
+11. **Same format everywhere.** One JSON object per line on stdout (`libs/logging`): locally, in CI
     and on Google Cloud. Don't add a "pretty" mode to services; pretty-print with `jq` when reading.
 
 ## Field names
@@ -78,12 +82,12 @@ Joel decided (22 Nov 2026) which personal data we log; how some of it is protect
 Until the logging build lands (wide-event helper, hashing key, debug switch), the `libs/logging`
 README rule still holds for today's lines: no personal data, tokens, keys or story content.
 
-| Class                                  | How it is written                                                                                                                | Fields                                                                                                                                                                                                                                                                                                                                                  |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Plain**                              | as is                                                                                                                            | routes, status, timings, counts, outcomes, ids (`user.id`, `story.id`, job ids), roles, consent version numbers. Joel also chose plain for IP address, email and browser; **pending Joel (LG-2c)** whether IP and email become keyed hashes because Axiom is in the US. Until LG-2c is answered, write IP and email only where a builder brief says so. |
-| **Keyed hash**                         | HMAC-SHA-256 with a key from Secret Manager (`libs/secrets`), never plain SHA (short values can be guessed and hashed by anyone) | anything that identifies a session: **pending Joel** whether it is the Clerk session id (`sid`, recommended: stable for the whole visit) or the token itself (changes every minute). The raw value never appears.                                                                                                                                       |
-| **Hash unless a debug window is open** | keyed hash plus length by default; plain text only while a time-boxed debug switch is on                                         | story text, titles, descriptions, captions, transcripts, request bodies. **Pending Joel:** where the switch lives and its limits. Until it exists, always hash. Failed request checks log the field name, size and which check failed, never the value.                                                                                                 |
-| **Never**                              | not at all                                                                                                                       | session tokens, cookies, API keys, passwords, secrets, signed URLs, card data, whole header sets.                                                                                                                                                                                                                                                       |
+| Class                                  | How it is written                                                                                                                | Fields                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Plain**                              | as is                                                                                                                            | routes, status, timings, counts, outcomes, ids (`user.id`, `story.id`, job ids), roles, consent version numbers, browser, search queries and tags (Joel, 23 Nov: for tag priorities). Joel also chose plain for IP address and email; **pending Joel (LG-2c)** whether they become deterministically encrypted `_enc` fields (recommended) or keyed hashes. Until LG-2c is answered, write IP and email only where a builder brief says so. |
+| **Keyed hash**                         | HMAC-SHA-256 with a key from Secret Manager (`libs/secrets`), never plain SHA (short values can be guessed and hashed by anyone) | anything that identifies a session: **pending Joel** whether it is the Clerk session id (`sid`, recommended: stable for the whole visit) or the token itself (changes every minute). The raw value never appears.                                                                                                                                                                                                                           |
+| **Hash unless a debug window is open** | keyed hash plus length by default; plain text only while a time-boxed debug switch is on                                         | story text, titles, descriptions, captions, transcripts, request bodies. **Pending Joel:** where the switch lives and its limits. Until it exists, always hash. Failed request checks log the field name, size and which check failed, never the value.                                                                                                                                                                                     |
+| **Never**                              | not at all                                                                                                                       | session tokens, cookies, API keys, passwords, secrets, signed URLs, card data, whole header sets.                                                                                                                                                                                                                                                                                                                                           |
 
 Stack traces are fine (Joel: they help us find abuse); make sure no error message you write
 embeds a value from the request.
@@ -135,8 +139,9 @@ use(req: Request, res: Response, next: NextFunction) {
   (status, latency, IP, browser): `gcloud logging read 'jsonPayload.ref="<ref>"' --project
 heisreal-dev --freshness=1d --format=json`, then `trace="projects/heisreal-dev/traces/<ref
 without dashes>"` for Cloud Run's line (once the LG-4 trace field is in).
-- A reference with no lines means the request never reached us (or a browser-side crash); its
-  UUID v7 still tells you the millisecond it was made.
+- A reference with no lines means the request never reached us; its UUID v7 still tells you the
+  millisecond it was made. Browser crashes (and requests that got no answer) send an
+  `error_report` event with the reference. A server-page crash is found by its time and route.
 
 ## Before you finish
 

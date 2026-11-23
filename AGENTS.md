@@ -115,6 +115,7 @@ source of truth, so change them in the same PR as the code.
     hash unless a debug window is open (story text, transcripts, request bodies), or never (tokens,
     cookies, keys, secrets, card data). Open points are marked "pending Joel" in the skill; don't decide them.
   - Errors are fields on the event (`outcome`, `error.type/code`); messages never quote request data.
+    Server errors are logged by the servers only; the browser reports only its own failures (LG-1c).
   - A failed log send must never fail, slow or change the request; same JSON on stdout locally, in CI and on Google.
 - Budget guardrail: £15/month budget with alert emails at £3/£7.50/£15 (no automatic stop). Never
   unlink billing; storage is always kept.
