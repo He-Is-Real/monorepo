@@ -117,8 +117,9 @@ source of truth, so change them in the same PR as the code.
   - Content fields (story text, transcripts, request bodies) are hashed by default, plain inside a debug
     window, and logged in full whenever the request or job ends in an error, even outside a window. That
     hashing only keeps log volume down for long, many-paragraph fields; it is not a privacy measure.
-  - Sensitive fields (tokens, session ids, API keys, passwords, cookies, auth headers) are always
-    keyed-hashed or left out: never plain, not on error, not in a debug window; strip them from bodies.
+  - Sensitive fields are never plain, not on error, not in a debug window; strip them from bodies. Only
+    the session id and token are logged, as keyed hashes; cookies, API keys, passwords and auth headers
+    are not logged at all (the session hash is enough).
     Log both `user.session_hash` (HMAC of Clerk's session id `sid`, for journeys) and `user.token_hash`
     (HMAC of the whole token, for "was this exact token used?"); never the raw token.
   - Errors are fields on the event (`outcome`, `error.type/code`); messages never quote request data.

@@ -90,9 +90,9 @@ today's lines: no personal data, tokens, keys or story content.
 | **Content**    | keyed hash plus length by default; plain inside a debug window; **in full whenever the request or job ends in an error**, even outside a window                | long, many-paragraph, non-sensitive fields: story text, descriptions, captions, transcripts, request bodies (with any secret inside a body removed first). **Pending Joel (LG-2e):** where the debug switch lives, its limits and any per-field size cap (16 KB recommended). Until the switch exists, there is no window: hash on success.                               |
 | **Never**      | not at all, not on error, not in a debug window                                                                                                                | session tokens, cookies, API keys, passwords, secrets, signed URLs, auth headers, card data, whole header sets.                                                                                                                                                                                                                                                           |
 
-**Sensitive fields are never plain (Joel, 23 Nov).** Tokens, session ids, API keys, passwords,
-cookies and auth headers are always keyed-hashed (only where we need to match them, like the
-session) or left out. Never plain, **not when the request fails and not in a debug window**: the
+**Sensitive fields are never plain (Joel, 23 Nov).** Only the session id and the token are logged,
+as keyed hashes (`user.session_hash`, `user.token_hash`). Cookies, API keys, passwords and auth
+headers are not logged at all, hashed or not: the session hash is enough to follow a visit. Never plain, **not when the request fails and not in a debug window**: the
 content rule below is not an option for them. Strip them out of a request body before it is logged.
 
 **The content rule (Joel, 23 Nov).** Write content fields through one helper, never by hand:
