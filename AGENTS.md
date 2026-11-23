@@ -111,9 +111,11 @@ source of truth, so change them in the same PR as the code.
     units as suffixes (`_ms`, `_bytes`); time every SurrealDB and outside call.
   - Every event carries `ref`, the request's UUID v7 that is also the `traceparent` trace id and the
     "Reference" people see.
-  - Every field has a data class: plain, keyed hash (HMAC, key from Secret Manager, `_hash` suffix),
-    hash unless a debug window is open (story text, transcripts, request bodies), or never (tokens,
-    cookies, keys, secrets, card data). Open points are marked "pending Joel" in the skill; don't decide them.
+  - Every field has a data class: plain (incl. email, IP, browser, story title), keyed hash (HMAC, key from
+    Secret Manager, `_hash` suffix), content, or never (tokens, cookies, keys, secrets, card data). Open
+    points are marked "pending Joel" in the skill; don't decide them.
+  - Content fields (story text, transcripts, request bodies) are hashed by default, plain inside a debug
+    window, and logged in full whenever the request or job ends in an error, even outside a window.
   - Errors are fields on the event (`outcome`, `error.type/code`); messages never quote request data.
     Server errors are logged by the servers only; the browser reports only its own failures (LG-1c).
   - A failed log send must never fail, slow or change the request; same JSON on stdout locally, in CI and on Google.
