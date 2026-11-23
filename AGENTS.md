@@ -119,8 +119,8 @@ source of truth, so change them in the same PR as the code.
     hashing only keeps log volume down for long, many-paragraph fields; it is not a privacy measure.
   - Sensitive fields (tokens, session ids, API keys, passwords, cookies, auth headers) are always
     keyed-hashed or left out: never plain, not on error, not in a debug window; strip them from bodies.
-    A session is logged only as `user.session_hash`, an HMAC of Clerk's session id (`sid`); never the
-    raw token or a hash of the token.
+    Log both `user.session_hash` (HMAC of Clerk's session id `sid`, for journeys) and `user.token_hash`
+    (HMAC of the whole token, for "was this exact token used?"); never the raw token.
   - Errors are fields on the event (`outcome`, `error.type/code`); messages never quote request data.
     Server errors are logged by the servers only; the browser reports only its own failures (LG-1c).
   - A failed log send must never fail, slow or change the request; same JSON on stdout locally, in CI and on Google.
