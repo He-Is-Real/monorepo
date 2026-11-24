@@ -54,6 +54,10 @@ export WORKER_IDENTITY_DIR="$identity_dir"
 number="$(node "$app/dist/identity.js" check)" || exit 1
 [[ "$number" =~ ^[0-9]+$ ]] || die "the identity directory has no project number: enrol again"
 export GOOGLE_APPLICATION_CREDENTIALS="$identity_dir/credentials.json"
+# Which code is running, for the logs' `service.version` (as images get it at build): this
+# checkout's commit, unless already set.
+SERVICE_VERSION="${SERVICE_VERSION:-$(git -C "$root" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)}"
+export SERVICE_VERSION
 # The result writer's address: Cloud Run's deterministic one (no gcloud needed).
 writer="https://workflow-$number.$region.run.app"
 
