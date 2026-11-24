@@ -40,7 +40,7 @@ test('a deployed website without its log keys exits instead of serving', async (
   child.stderr.on('data', (d: Buffer) => (output += d.toString()));
   try {
     const code = await new Promise<number | null>((done) =>
-      child.on('exit', (c) => done(c)),
+      child.on('close', (c) => done(c)),
     );
     expect(code).toBe(1);
     const line = output
