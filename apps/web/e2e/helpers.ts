@@ -396,3 +396,14 @@ export async function expectNotFoundPage(page: Page) {
     page.locator('meta[name="robots"][content*="noindex"]').first(),
   ).toBeAttached();
 }
+
+/**
+ * A message about our side, as an element's whole text: `message`, then its reference line
+ * (LG-1): "Reference: <a UUID v7> Copy". Nothing else (no codes or status).
+ */
+export function withReference(message: string): RegExp {
+  const escaped = message.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(
+    `^${escaped}Reference: [0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12} Copy$`,
+  );
+}
