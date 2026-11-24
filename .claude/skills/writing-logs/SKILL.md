@@ -28,7 +28,8 @@ success or failure. Stripe calls it a canonical log line; the blog calls it a wi
 1. **One wide event per unit of work.** A request to a service, a Pub/Sub job, a worker job, a
    scheduled run. Start it at the edge (NestJS middleware, Next.js `proxy.ts`, the job handler),
    pass it down, add fields as you learn things, emit it once when the work ends (response closed,
-   job `finally`). Lines inside a request or job are folded into its event (LG-2 C, Joel 22 Nov). Only three kinds of line stay on their own:
+   job `finally`). Lines inside a request or job are folded into its event (LG-2 C, Joel 22 Nov). A search also writes its own small `event: "search"`
+   beside the request's wide event (LG-2g A, below). Otherwise only three kinds of line stay on their own:
    start-up/settings, background work outside any request (health checks, queue state), and the
    **immediate** unexpected-error line with `stack_trace` (Error Reporting groups errors from it).
 2. **No breadcrumbs.** No `console.log`, no "got here", no "calling Bunny…" then "Bunny answered".
@@ -43,15 +44,16 @@ success or failure. Stripe calls it a canonical log line; the blog calls it a wi
    Resend call adds to `db` / `external.<name>`: call count, total ms, slowest, status.
 6. **Errors are fields.** `outcome: "error"` and `error: { type, code, retriable }` on the event.
    Messages never quote what someone sent; database errors are reduced to their kind.
-7. **One id end to end.** Every event carries `ref`: the request's UUID v7 (LG-1b A), made by the
-   browser before it sends (or by the first service if no browser sent one), travelling as the W3C
-   `traceparent` trace id (the same 128 bits without dashes), shown to people as their error
-   "Reference". How it crosses services is **pending Joel (LG-4, recommended:** also write it as
-   `logging.googleapis.com/trace` so Google groups our line with Cloud Run's own request line, and
-   carry it to jobs as a Pub/Sub attribute**)**.
-8. **Sampling: pending Joel (LG-6, recommended:** no sampling, keep everything for 30 days**).** The
-   blog's tail sampling (keep all errors and slow requests, a few % of the rest) only matters at
-   volumes far above ours. Until LG-6 is answered, don't add sampling.
+7. **One id end to end (LG-4 A, Joel 24 Nov).** Every event carries `ref` (except search events,
+   below): the request's UUID v7 (LG-1b A), made by the browser before it sends (or by the first
+   service if no browser sent one), travelling as the W3C `traceparent` trace id (the same 128 bits
+   without dashes), shown to people as their error "Reference". One trace id goes browser → website
+   and APIs → Pub/Sub job (as a message attribute) → the worker's `event: "job"`, which the worker
+   writes to Cloud Logging. Each service also writes it as `logging.googleapis.com/trace` so Google
+   groups our line with Cloud Run's own request line. Timings go in the wide event (`db`,
+   `external`). **No tracing library**: no OpenTelemetry SDK or spans.
+8. **No sampling (LG-6 A, Joel 24 Nov).** Every event is kept, for 30 days. Don't add sampling
+   ("for now, but we may revisit sampling at larger scale").
 9. **A failed log send must never fail, slow or change the request.** Write to stdout first; send to
    Axiom after the response, without awaiting it on the request path; swallow and count send
    errors. Logging code never throws into business code.
@@ -66,7 +68,8 @@ success or failure. Stripe calls it a canonical log line; the blog calls it a wi
 
 - `severity`, `message`, `timestamp` first (Cloud Logging's names; `libs/logging` writes them).
   `message` is a short human summary of the event: `POST /stories/:id/submit 200 in 412 ms`.
-- Then `event` (`request` | `job` | `startup` | `health` | `error_report`), `ref`, the trace field.
+- Then `event` (`request` | `job` | `search` | `startup` | `health` | `error_report`), `ref`, the
+  trace field (neither on `search`).
 - Group by area as nested objects: `service`, `http`, `user`, `client`, `story`, `upload`,
   `consent`, `moderation`, `db`, `external`, `rate_limit`, `cache`, `error`, `job`.
 - `snake_case`; units as suffixes (`_ms`, `_bytes`, `_count`); booleans read as yes/no
@@ -105,13 +108,20 @@ An input refusal (`input_refused`) or a rate limit is not an error: it logs the 
 size and the failed check, never the value. An event holding content in plain sets
 `debug: { plain_content: true }` (only ever on error).
 
-**Search events (Joel, 23 Nov):** "for privacy, only for search terms and filters always hash the
+**Search events (Joel, 23 Nov; LG-2g A, 24 Nov):** "for privacy, only for search terms and filters always hash the
 ip, email, user id anything that links search terms to a specific user. The terms themselves in
 plain text are essential for us to build the site but we dont need to know who is searching for
 them."
 
-- On any event that carries search terms or filters (`search.q`, `search.tags`, `search.filters`,
-  `search.result_count`), the terms, filters, result count, timing and outcome are plain.
+- A search is **its own event**, `event: "search"`, written alongside the route's normal wide
+  event and not joined to it: **no `ref`, no trace field, no `user.session_hash` or
+  `user.token_hash`**. It holds the terms, filters, result count, timing and outcome (plain) and who
+  searched (hashed, below).
+- The route's normal wide event **never carries the terms**: no `search.q`, `search.tags` or
+  `search.filters` on it. An error during a search is recorded there as usual (with its `ref`),
+  without the words.
+- Cloud Run's own request lines for search addresses (`q=` or tag filters, which hold the terms next
+  to a plain IP) are dropped from the London bucket by a Cloud Logging exclusion in OpenTofu.
 - Every field that ties the search to one person is a keyed hash, under its `_hash` name with the
   plain name left off: `client.ip_hash`, `user.email_hash`, `user.id_hash`. **Never plain, not even
   on error.** `user.role`, `client.user_agent` and `client.browser / os / device` stay plain;
@@ -120,12 +130,6 @@ them."
   never used for any other field, so a search can't be matched to the same person's other events by
   accident or by joining fields. Holding that key, someone could still hash a known email on purpose
   and find that person's searches; don't build tooling that does.
-- **Pending Joel (LG-2g):** the other links back to the person: `user.session_hash` /
-  `user.token_hash` and `ref` on the search, and Cloud Run's own request line (full URL with the
-  terms, plain IP). Recommended: each search as its own small `event: "search"` with no `ref` and no
-  session or token hash, the route's normal wide event without the terms, and search URLs excluded
-  from Cloud Run's request log. Until answered, leave `user.session_hash` and `user.token_hash` off
-  search events (the safer reading) and don't build the separate event.
 
 Stack traces are fine (Joel: they help us find abuse); make sure no error message you write
 embeds a value from the request.
@@ -177,8 +181,10 @@ function contentField(value: string, { failed }: { failed: boolean }) {
 const body = contentField(JSON.stringify(withoutSecrets(req.body)), { failed });
 // finish(): outcome === 'error' → story.body (full) + debug.plain_content true;
 // otherwise → story.body_hash + story.body_length.
-// user.session_hash = sensitiveField(sid) and user.token_hash = sensitiveField(token), always.
-// On a search event: client.ip_hash / user.email_hash / user.id_hash = searchIdentityField(...).
+// user.session_hash = sensitiveField(sid) and user.token_hash = sensitiveField(token), on every
+// event except search events.
+// On a search event: client.ip_hash / user.email_hash / user.id_hash = searchIdentityField(...);
+// no ref, no session_hash or token_hash.
 ```
 
 Where the event starts and ends (sketch; the `libs/logging` helper is part of the logging build
@@ -202,13 +208,16 @@ use(req: Request, res: Response, next: NextFunction) {
 
 ## Reading logs
 
-- **Axiom** (LG-3: free plan, US, Joel's account) holds the wide events; agents use Axiom's MCP.
-  Search by `ref`, `user.id`, `story.id`, `action`, `outcome`. What stats we keep and where is
-  **pending Joel (LG-8)**; meanwhile group by route/outcome and never list people in a stat.
-- **Google Cloud Logging, London, 30 days** holds the same lines plus Cloud Run's own request line
-  (status, latency, IP, browser): `gcloud logging read 'jsonPayload.ref="<ref>"' --project
+- **Read in Axiom by default (LG-5, Joel 24 Nov).** Axiom (LG-3: free plan, US, Joel's account)
+  holds the wide events; Joel and agents read them there first, through Axiom's MCP and the
+  runbook's saved Axiom queries. Search by `ref`, `user.id`, `story.id`, `action`, `outcome`.
+- **Stats are in Axiom only (LG-8, Joel 24 Nov):** Axiom queries and dashboards over the last 30
+  days. Nothing in Google for stats (no Log Analytics, BigQuery, log-based metrics or dashboards).
+  Stats group by route, service, outcome, action and day, **never by person, story or address**.
+- **`gcloud` stays (LG-5)** for Google Cloud Logging, London, 30 days: the same lines plus Cloud
+  Run's own request line (status, latency, IP, browser): `gcloud logging read 'jsonPayload.ref="<ref>"' --project
 heisreal-dev --freshness=1d --format=json`, then `trace="projects/heisreal-dev/traces/<ref
-without dashes>"` for Cloud Run's line (once the LG-4 trace field is in).
+without dashes>"` for Cloud Run's line (the LG-4 trace field).
 - A reference with no lines means the request never reached us; its UUID v7 still tells you the
   millisecond it was made. Browser crashes send an `error_report` event
   with the reference (requests that got no answer: pending Joel, LG-1c). A server-page crash is found by its time and route.
@@ -217,6 +226,8 @@ without dashes>"` for Cloud Run's line (once the LG-4 trace field is in).
 
 - One event per request/job; no new `console.*` or mid-request log lines.
 - Every new field has a stable name and a data class from the table; nothing from "Never".
-- Search events: terms plain, who searched only as `hs1:` hashes, never plain.
-- Outside calls timed; errors as fields; `ref` present.
+- Search events: their own `event: "search"`, no `ref` or session/token hash; terms plain, who
+  searched only as `hs1:` hashes, never plain; the route's own event has no terms.
+- No sampling; no tracing library.
+- Outside calls timed; errors as fields; `ref` present (except on search events).
 - Log sending can't throw or block.
