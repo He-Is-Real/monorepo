@@ -20,11 +20,15 @@ locals {
     "externalaudit.googleapis.com/access_transparency",
   ] : "NOT LOG_ID(\"${log_id}\")"])
 
-  # Cloud Run's request log for any address with a `q` or `theme` query parameter (RE2, `=~`).
+  # Cloud Run's request log for the search addresses only (RE2, `=~`): web's Stories and
+  # moderation pages, api-public-read's browse and api-admin's moderation list, each with a `q` or
+  # `theme` query parameter. Anchored to those paths so adding `?q=` to any other address can't
+  # hide its request line.
   search_request_lines_filter = join(" AND ", [
     "LOG_ID(\"run.googleapis.com/requests\")",
     "resource.type=\"cloud_run_revision\"",
-    "httpRequest.requestUrl=~\"[?&](q|theme)=\"",
+    "resource.labels.service_name=(\"web\" OR \"api-public-read\" OR \"api-admin\")",
+    "httpRequest.requestUrl=~\"^https?://[^/]+/(stories|moderation|v1/stories|v1/moderation/stories)[?]([^#]*&)?(q|theme)=\"",
   ])
 }
 
@@ -55,8 +59,9 @@ resource "google_logging_project_sink" "default" {
   # every request's full address next to the visitor's IP, and a search address carries the words
   # (`/stories?q=…`, `/v1/stories?q=…`) or the chosen themes, our tags (`?theme=…`). Our own
   # `event: "search"` keeps the words without who searched (libs/logging). Narrow on purpose: only
-  # Cloud Run's request log, only addresses with a `q` or `theme` query parameter; everything else,
-  # our services' own lines included, is stored as before. Excluded entries are never stored.
+  # Cloud Run's request log, only the four search paths with a `q` or `theme` query parameter;
+  # everything else, our services' own lines included, is stored as before. Excluded entries are
+  # never stored. A new search address needs adding here.
   exclusions {
     name        = "cloud-run-search-requests"
     description = "Cloud Run request lines for search addresses (q= or theme=), LG-2g A."
