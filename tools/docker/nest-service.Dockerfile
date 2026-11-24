@@ -20,5 +20,10 @@ WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
 COPY *.js ./
+# The git commit this image was built from, written on every log line as service.version
+# (LG-10): Release Images passes the commit's first 12 hex digits (snapshot-<sha> for a snapshot
+# image). After the COPYs, so it never invalidates their layer cache.
+ARG SERVICE_VERSION=dev
+ENV SERVICE_VERSION=$SERVICE_VERSION
 USER nonroot
 CMD ["main.js"]

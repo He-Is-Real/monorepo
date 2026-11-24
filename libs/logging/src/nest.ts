@@ -6,10 +6,16 @@
  * (`START_UP_OPTIONS` in libs/database) or the static logger (`Logger.overrideLogger`).
  *
  * Nest level → severity: verbose and debug → DEBUG, log → INFO, warn → WARNING, error → ERROR,
- * fatal → CRITICAL. An error's stack goes in `stack_trace`, in the same entry.
+ * fatal → CRITICAL. An error's stack goes in `stack_trace`, in the same entry. Each line carries
+ * the `service` group (deployment details, LG-10) like every other entry.
  */
 import { ConsoleLogger, type LogLevel } from '@nestjs/common';
-import { minimumSeverity, SEVERITIES, type Severity } from './index';
+import {
+  minimumSeverity,
+  serviceFields,
+  SEVERITIES,
+  type Severity,
+} from './index';
 
 export const NEST_SEVERITY: Record<LogLevel, Severity> = {
   verbose: 'DEBUG',
@@ -50,6 +56,7 @@ export class JsonLogger extends ConsoleLogger {
       severity: NEST_SEVERITY[level as LogLevel] ?? 'DEFAULT',
       message,
       timestamp: new Date(timestamp as number).toISOString(),
+      service: serviceFields(),
       ...context,
     };
     if (error && typeof error === 'object') {

@@ -96,7 +96,10 @@ resource "terraform_data" "image" {
       # Pin the engine of the current Docker context (e.g. Docker Desktop):
       # the throwaway DOCKER_CONFIG below would otherwise reset it to default.
       export DOCKER_HOST="$(docker context inspect --format '{{.Endpoints.docker.Host}}')"
-      docker build -t "$IMAGE" "$CONTEXT"
+      # service.version on its log lines (LG-10): this checkout's commit, marked as a snapshot.
+      docker build -t "$IMAGE" \
+        --build-arg "SERVICE_VERSION=snapshot-$(git -C "$CONTEXT" rev-parse --short=12 HEAD 2>/dev/null || echo local)" \
+        "$CONTEXT"
       export DOCKER_CONFIG="$(mktemp -d)"
       trap 'rm -rf "$DOCKER_CONFIG"' EXIT
       printf '%s' "$TOKEN" | docker login -u oauth2accesstoken --password-stdin "https://$REGISTRY"

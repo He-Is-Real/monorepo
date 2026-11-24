@@ -42,6 +42,7 @@ describe('the shared log line', () => {
       severity: 'WARNING',
       message: 'renewal failed',
       timestamp: '2026-11-14T12:00:00.000Z',
+      service: { version: 'dev', env: 'local' },
       step: 'identity_renewal_failed',
     });
   });
@@ -91,6 +92,7 @@ describe("Nest's logger", () => {
         /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/,
       );
       expect(l).not.toHaveProperty('level');
+      expect(l['service']).toEqual({ version: 'dev', env: 'local' });
     }
   });
 

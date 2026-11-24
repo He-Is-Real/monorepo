@@ -106,6 +106,7 @@ function push(
         EXPECT: String(expect ?? services.length - existing.length),
         REPO,
         GITHUB_SHA: 'f'.repeat(40),
+        SERVICE_VERSION: 'snapshot-ffffffffffff',
         GITHUB_SERVER_URL: 'https://github.com',
         GITHUB_REPOSITORY: 'o/r',
       },
@@ -158,7 +159,7 @@ test('builds the missing images at once and skips tags that exist, rows in the g
   for (const row of r.rows) assert.match(row, /@sha256:[0-9a-f]{64}`/);
 });
 
-test('each build keeps its own layer cache scope, its content tag and the commit label', () => {
+test('each build keeps its own layer cache scope, its content tag, the commit label and the version for its logs', () => {
   const r = push(['api-admin']);
   assert.equal(r.status, 0, r.err);
   const [build] = r.builds;
@@ -177,6 +178,10 @@ test('each build keeps its own layer cache scope, its content tag and the commit
   assert.ok(build.includes('--provenance=false --sbom=false'), build);
   assert.ok(
     build.includes(`org.opencontainers.image.revision=${'f'.repeat(40)}`),
+    build,
+  );
+  assert.ok(
+    build.includes('--build-arg SERVICE_VERSION=snapshot-ffffffffffff'),
     build,
   );
 });

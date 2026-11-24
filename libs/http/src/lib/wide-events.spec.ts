@@ -108,6 +108,8 @@ describe('the request’s wide event (writing-logs skill; LG-2, LG-4, LG-9)', ()
 
   beforeAll(async () => {
     process.env['GCP_PROJECT'] = 'heisreal-test';
+    process.env['SERVICE_VERSION'] = '1fb357f4c0de';
+    process.env['K_REVISION'] = 'api-user-00042-xyz';
     LOG_SINKS.splice(0, LOG_SINKS.length, sink);
     const moduleRef = await Test.createTestingModule({
       imports: [ProbeModule],
@@ -127,6 +129,8 @@ describe('the request’s wide event (writing-logs skill; LG-2, LG-4, LG-9)', ()
   afterAll(async () => {
     await app.close();
     delete process.env['GCP_PROJECT'];
+    delete process.env['SERVICE_VERSION'];
+    delete process.env['K_REVISION'];
     resetLogKeys();
   });
 
@@ -177,7 +181,13 @@ describe('the request’s wide event (writing-logs skill; LG-2, LG-4, LG-9)', ()
         /^POST \/v1\/stories\/:id\/submit 201 in \d+ ms$/,
       ),
       'logging.googleapis.com/trace': `projects/heisreal-test/traces/${traceId(1)}`,
-      service: { name: 'api-user', env: 'test' },
+      // Deployment details (LG-10): which build, revision and environment answered.
+      service: {
+        name: 'api-user',
+        version: '1fb357f4c0de',
+        revision: 'api-user-00042-xyz',
+        env: 'test',
+      },
       http: {
         method: 'POST',
         route: '/v1/stories/:id/submit',
@@ -319,6 +329,7 @@ describe('the request’s wide event (writing-logs skill; LG-2, LG-4, LG-9)', ()
     const [request] = await events(ref(5));
     expect(search).toMatchObject({
       message: 'search 0 results in ' + search['http'].duration_ms + ' ms',
+      service: { name: 'api-user', version: '1fb357f4c0de', env: 'test' },
       search: { q: 'healing', tags: ['healing'], result_count: 0 },
       http: { route: '/v1/stories' },
       client: {

@@ -9,12 +9,14 @@
 # (image-tag.sh): a tag that already exists is `unchanged`; otherwise the image is built from
 # apps/<service>/dist and pushed (Docker layer cache in the Actions cache, one scope per
 # service). All services build at once; each one's output is printed afterwards, in order.
+# SERVICE_VERSION (default `dev`) is baked into each image built, for its log lines'
+# service.version; it isn't part of the tag, so an unchanged image keeps the commit it was built from.
 # Prints one Markdown table row per service (image by digest, and pushed|unchanged|failed).
 # Exits 1 if any build, push or digest lookup failed (the others still finish); 64 usage.
 set -uo pipefail
 
 if [ $# -eq 0 ] || [ -z "${REPO:-}" ]; then
-  sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' >&2
   exit 64
 fi
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -33,6 +35,7 @@ one() {
     # keep_count counts builds.
     docker buildx build "apps/$svc/dist" --push --tag "$image" \
       --provenance=false --sbom=false \
+      --build-arg "SERVICE_VERSION=${SERVICE_VERSION:-dev}" \
       --label "org.opencontainers.image.revision=${GITHUB_SHA:-unknown}" \
       --label "org.opencontainers.image.source=${GITHUB_SERVER_URL:-}/${GITHUB_REPOSITORY:-}" \
       --cache-from "type=gha,version=2,scope=$svc" \

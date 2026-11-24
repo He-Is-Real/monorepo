@@ -15,6 +15,11 @@ ENV NODE_ENV=production \
 # Root-owned and read-only to the server: no ISR or image cache is written yet.
 COPY node_modules ./node_modules
 COPY apps ./apps
+# The git commit this image was built from, written on every log line as service.version
+# (LG-10): Release Images passes the commit's first 12 hex digits (snapshot-<sha> for a snapshot
+# image). After the COPYs, so it never invalidates their layer cache.
+ARG SERVICE_VERSION=dev
+ENV SERVICE_VERSION=$SERVICE_VERSION
 WORKDIR /app/apps/web
 USER nonroot
 CMD ["server.js"]

@@ -3,9 +3,12 @@ import { performance } from 'node:perf_hooks';
 import {
   type LogFields,
   logEntry,
+  type ServiceFields,
+  serviceFields,
   type Severity,
   severityEnabled,
 } from '../index';
+import './instance';
 import { logHash, searchHash } from './keys';
 import {
   cloudTrace,
@@ -15,6 +18,8 @@ import {
   traceparentFor,
 } from './trace';
 import { clientKind } from './user-agent';
+
+export { type ServiceFields, serviceFields };
 
 /**
  * One wide event per request or job (the writing-logs skill; LG-2 C, Joel 22 Nov 2026): started
@@ -41,29 +46,6 @@ const PLAIN_LONG_TEXT: ReadonlySet<Outcome> = new Set([
 ]);
 
 export type EventKind = 'request' | 'job';
-
-export interface ServiceFields {
-  name: string;
-  version?: string;
-  revision?: string;
-  env?: string;
-}
-
-/**
- * The `service` group: our name, Cloud Run's revision (`K_REVISION`) and the environment
- * (`GCP_PROJECT` without `heisreal-`; `local` without one).
- */
-export function serviceFields(
-  name: string,
-  env: Record<string, string | undefined> = globalThis.process?.env ?? {},
-): ServiceFields {
-  const project = env['GCP_PROJECT']?.trim();
-  return {
-    name,
-    ...(env['K_REVISION'] ? { revision: env['K_REVISION'] } : {}),
-    env: project ? project.replace(/^heisreal-/, '') : 'local',
-  };
-}
 
 /** `error.*` on the event: our own words, never what someone sent. */
 export interface ErrorFields {
