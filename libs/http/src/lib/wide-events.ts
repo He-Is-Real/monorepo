@@ -101,11 +101,19 @@ function routeOf(req: Request): string | undefined {
 }
 
 /**
- * The request's path as sent, without its query (routers may rewrite `req.url`), lower case and
- * without a trailing slash, as Express matches routes.
+ * The request's path as Express routes it (its `parseurl` pathname: the absolute form
+ * `POST http://host/v1/…` routes like `/v1/…`), without its query, lower case and without a
+ * trailing slash. From `originalUrl`: routers may rewrite `req.url`.
  */
 function pathOf(req: Request): string {
-  const url = req.originalUrl ?? req.url ?? '';
+  let url = req.originalUrl ?? req.url ?? '';
+  if (!url.startsWith('/')) {
+    try {
+      url = new URL(url).pathname;
+    } catch {
+      return '';
+    }
+  }
   const end = url.search(/[?#]/);
   const path = end === -1 ? url : url.slice(0, end);
   return (path.length > 1 ? path.replace(/\/+$/, '') : path).toLowerCase();

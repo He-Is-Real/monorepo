@@ -1,5 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { request as httpRequest } from 'node:http';
 
 import { CLERK_CONFIG, parseClerkConfig } from '@heisreal/auth';
 import { newTestClerk } from '@heisreal/auth/testing';
@@ -173,5 +174,41 @@ describe('api-user error reports', () => {
         ],
       ],
     );
+  });
+
+  it('never logs it either when the request names the whole address (absolute form)', async () => {
+    const trace = '0193a7c4-5e19-7d03-b2c4-91f0e7a6d203';
+    const body = JSON.stringify({
+      reference: 'free money',
+      route: '/',
+      kind: 'no_answer',
+    });
+    const status = await new Promise<number | undefined>((done, fail) => {
+      const req = httpRequest(
+        url,
+        {
+          method: 'POST',
+          // The request line carries the whole address, which Express routes like the path.
+          path: `${url}/v1/error-reports`,
+          headers: {
+            'content-type': 'application/json',
+            traceparent: `00-${trace.replace(/-/g, '')}-0123456789abcdef-01`,
+          },
+        },
+        (res) => {
+          res.resume();
+          res.on('end', () => done(res.statusCode));
+        },
+      );
+      req.on('error', fail);
+      req.end(body);
+    });
+    expect(status).toBe(400);
+    const event = await requestEvent(trace);
+    expect(event['input']).toEqual({
+      failed_fields: ['reference'],
+      failed_checks: ['invalid'],
+    });
+    expect(JSON.stringify(lines)).not.toContain('free money');
   });
 });
