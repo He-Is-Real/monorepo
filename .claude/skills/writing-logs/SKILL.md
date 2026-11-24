@@ -28,7 +28,8 @@ success or failure. Stripe calls it a canonical log line; the blog calls it a wi
 1. **One wide event per unit of work.** A request to a service, a Pub/Sub job, a worker job, a
    scheduled run. Start it at the edge (NestJS middleware, Next.js `proxy.ts`, the job handler),
    pass it down, add fields as you learn things, emit it once when the work ends (response closed,
-   job `finally`). Lines inside a request or job are folded into its event (LG-2 C, Joel 22 Nov). Only three kinds of line stay on their own:
+   job `finally`). Lines inside a request or job are folded into its event (LG-2 C, Joel 22 Nov). A search also writes its own small `event: "search"`
+   beside the request's wide event (LG-2g A, below). Otherwise only three kinds of line stay on their own:
    start-up/settings, background work outside any request (health checks, queue state), and the
    **immediate** unexpected-error line with `stack_trace` (Error Reporting groups errors from it).
 2. **No breadcrumbs.** No `console.log`, no "got here", no "calling Bunny…" then "Bunny answered".
@@ -180,7 +181,8 @@ function contentField(value: string, { failed }: { failed: boolean }) {
 const body = contentField(JSON.stringify(withoutSecrets(req.body)), { failed });
 // finish(): outcome === 'error' → story.body (full) + debug.plain_content true;
 // otherwise → story.body_hash + story.body_length.
-// user.session_hash = sensitiveField(sid) and user.token_hash = sensitiveField(token), always.
+// user.session_hash = sensitiveField(sid) and user.token_hash = sensitiveField(token), on every
+// event except search events.
 // On a search event: client.ip_hash / user.email_hash / user.id_hash = searchIdentityField(...);
 // no ref, no session_hash or token_hash.
 ```
@@ -227,5 +229,5 @@ without dashes>"` for Cloud Run's line (the LG-4 trace field).
 - Search events: their own `event: "search"`, no `ref` or session/token hash; terms plain, who
   searched only as `hs1:` hashes, never plain; the route's own event has no terms.
 - No sampling; no tracing library.
-- Outside calls timed; errors as fields; `ref` present.
+- Outside calls timed; errors as fields; `ref` present (except on search events).
 - Log sending can't throw or block.

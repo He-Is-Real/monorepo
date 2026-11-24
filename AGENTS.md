@@ -106,7 +106,7 @@ source of truth, so change them in the same PR as the code.
   Must-follow:
   - One wide event per request or job, built up during the work and written once at the end; fold
     facts into it as fields. No `console.*` and no mid-request "breadcrumb" lines (only start-up,
-    background work and the immediate unexpected-error line stand alone).
+    background work, the immediate unexpected-error line and the separate search event stand alone).
   - Stable `snake_case` field names grouped by area (`http`, `user`, `story`, `db`, `external`, `error`…),
     units as suffixes (`_ms`, `_bytes`); time every SurrealDB and outside call.
   - Every event carries `ref`, the request's UUID v7 that is also the `traceparent` trace id and the
@@ -127,7 +127,7 @@ source of truth, so change them in the same PR as the code.
     the session id and token are logged, as keyed hashes; cookies, API keys, passwords and auth headers
     are not logged at all (the session hash is enough).
     Log both `user.session_hash` (HMAC of Clerk's session id `sid`, for journeys) and `user.token_hash`
-    (HMAC of the whole token, for "was this exact token used?"); never the raw token.
+    (HMAC of the whole token, for "was this exact token used?") on every event except search events; never the raw token.
   - Errors are fields on the event (`outcome`, `error.type/code`); messages never quote request data.
     Server errors are logged by the servers only; the browser reports only its own failures (LG-1c).
   - A failed log send must never fail, slow or change the request; same JSON on stdout locally, in CI and on Google.
