@@ -123,6 +123,19 @@ resource "google_cloud_run_v2_service" "signed_in_api" {
         name  = "CORS_ALLOWED_ORIGINS"
         value = join(",", var.web_origins)
       }
+      # Logs (libs/logging): the name of the HMAC key for keyed hashes (`hk1:`), and for
+      # api-admin's moderation search also the search-only key (`hs1:`); values through
+      # libs/secrets (secrets.tf).
+      dynamic "env" {
+        for_each = merge(
+          { LOG_HMAC_SECRET = google_secret_manager_secret.log_hmac["log-hmac"].secret_id },
+          each.key == "api-admin" ? { LOG_SEARCH_HMAC_SECRET = google_secret_manager_secret.log_hmac["log-search-hmac"].secret_id } : {},
+        )
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
       # Hearts (M2): api-user signs the media links on favourites' cards like api-public-read
       # (D52). Uploads (M2 plan PR 7): it creates and signs Stream uploads with the library key;
       # images (PR 10): it signs S3 presigned PUTs with the images zone's password.
@@ -219,6 +232,7 @@ resource "google_cloud_run_v2_service" "signed_in_api" {
     google_secret_manager_secret_iam_member.signed_in_api,
     google_secret_manager_secret_iam_member.api_user_clerk,
     google_secret_manager_secret_iam_member.api_admin_clerk_key,
+    google_secret_manager_secret_iam_member.log_hmac,
   ]
 }
 

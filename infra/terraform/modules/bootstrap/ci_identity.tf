@@ -392,16 +392,18 @@ resource "google_project_iam_member" "tf_deployer_log_metrics" {
   member  = google_service_account.tf_deployer.member
 }
 
-# Project IAM admin, limited to granting the GKE node role (modules/gcp/gke.tf),
-# so the deployer can't grant itself or anyone else more.
+# Project IAM admin, limited to granting the GKE node role (modules/gcp/gke.tf) and the media
+# worker's permission to write log entries (modules/gcp/media.tf; logging build, LG-4 A), so the
+# deployer can't grant itself or anyone else more. Log Writer only adds log entries: it can't
+# read, change or delete logs or their settings.
 resource "google_project_iam_member" "tf_deployer_project_iam" {
   project = google_project.this.project_id
   role    = "roles/resourcemanager.projectIamAdmin"
   member  = google_service_account.tf_deployer.member
 
   condition {
-    title      = "only-gke-node-role"
-    expression = "api.getAttribute('iam.googleapis.com/modifiedGrantsByRole', []).hasOnly(['roles/container.defaultNodeServiceAccount'])"
+    title      = "only-gke-node-and-log-writer-roles"
+    expression = "api.getAttribute('iam.googleapis.com/modifiedGrantsByRole', []).hasOnly(['roles/container.defaultNodeServiceAccount', 'roles/logging.logWriter'])"
   }
 }
 

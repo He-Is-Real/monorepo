@@ -95,6 +95,12 @@ variable "website_key_rotation" {
   default     = 1
 }
 
+variable "log_hmac_rotation" {
+  description = "Bump to make new log HMAC keys (log-hmac, log-search-hmac; secrets.tf), together with a new hash prefix in libs/logging."
+  type        = number
+  default     = 1
+}
+
 variable "root_secret_rotation" {
   description = "Bump to rotate the SurrealDB root password. SurrealDB only reads it on first start, so an existing database must be told with the previous version: see infra/k8s/surrealdb/README.md 'Rotating passwords'."
   type        = number

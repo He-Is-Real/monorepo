@@ -19,6 +19,13 @@ locals {
     "cloudaudit.googleapis.com/access_transparency",
     "externalaudit.googleapis.com/access_transparency",
   ] : "NOT LOG_ID(\"${log_id}\")"])
+
+  # Cloud Run's request log for any address with a `q` or `theme` query parameter (RE2, `=~`).
+  search_request_lines_filter = join(" AND ", [
+    "LOG_ID(\"run.googleapis.com/requests\")",
+    "resource.type=\"cloud_run_revision\"",
+    "httpRequest.requestUrl=~\"[?&](q|theme)=\"",
+  ])
 }
 
 resource "google_logging_project_bucket_config" "default" {
@@ -43,6 +50,18 @@ resource "google_logging_project_sink" "default" {
     "buckets", google_logging_project_bucket_config.default.bucket_id,
   ])
   filter = local.default_sink_filter
+
+  # Search words stay off Cloud Run's own request lines (LG-2g A, Joel 2026-11-24): Cloud Run logs
+  # every request's full address next to the visitor's IP, and a search address carries the words
+  # (`/stories?q=…`, `/v1/stories?q=…`) or the chosen themes, our tags (`?theme=…`). Our own
+  # `event: "search"` keeps the words without who searched (libs/logging). Narrow on purpose: only
+  # Cloud Run's request log, only addresses with a `q` or `theme` query parameter; everything else,
+  # our services' own lines included, is stored as before. Excluded entries are never stored.
+  exclusions {
+    name        = "cloud-run-search-requests"
+    description = "Cloud Run request lines for search addresses (q= or theme=), LG-2g A."
+    filter      = local.search_request_lines_filter
+  }
 
   deletion_policy = "PREVENT"
 }

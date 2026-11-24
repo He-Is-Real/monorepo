@@ -14,7 +14,7 @@ Background and decisions (project docs, `context/research/`): `terraform-state-o
 
 ```
 modules/
-  bootstrap/   project, APIs, state bucket, KMS keys, CI identities (keyless), budget, Bunny account key secret, log bucket (London)
+  bootstrap/   project, APIs, state bucket, KMS keys, CI identities (keyless), budget, Bunny account key secret, log bucket (London) and its filter for search addresses
   org/         organisation-wide UK settings and the roles to set them (live/org only; its README)
   gcp/         network, Artifact Registry, GKE Autopilot, secrets, backups, Cloud Run, dev-seed Job (dev), media ready's Pub/Sub
   cluster/     inside GKE: External Secrets Operator, SurrealDB (Kustomize overlay), migrations

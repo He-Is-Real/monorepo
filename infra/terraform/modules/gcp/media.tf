@@ -107,6 +107,17 @@ resource "google_pubsub_subscription_iam_member" "media_worker" {
   member       = google_service_account.media_worker[0].member
 }
 
+# The worker runs off Google Cloud, so nothing collects its stdout: it writes its `event: "job"`
+# lines to Cloud Logging itself (logging build, LG-4 A). Log Writer only adds entries; they land
+# in the London bucket through the `_Default` sink like every other line (modules/bootstrap).
+resource "google_project_iam_member" "media_worker_log_writer" {
+  count = local.media_ready ? 1 : 0
+
+  project = var.project_id
+  role    = "roles/logging.logWriter"
+  member  = google_service_account.media_worker[0].member
+}
+
 # D126: the named people (Joel) may act as the worker with their own gcloud login, so no key file
 # exists. On church hardware this becomes Workload Identity Federation (a decision for then).
 resource "google_service_account_iam_member" "media_worker_impersonators" {
@@ -257,6 +268,11 @@ resource "google_cloud_run_v2_service" "result_writer" {
         name  = "BUNNY_SOUND_TOKEN_KEY_SECRET"
         value = var.media_ready.sound_token_key_secret
       }
+      # Logs (libs/logging): the name of the HMAC key for keyed hashes (`hk1:`; secrets.tf).
+      env {
+        name  = "LOG_HMAC_SECRET"
+        value = google_secret_manager_secret.log_hmac["log-hmac"].secret_id
+      }
 
       startup_probe {
         tcp_socket {
@@ -268,7 +284,10 @@ resource "google_cloud_run_v2_service" "result_writer" {
     }
   }
 
-  depends_on = [google_secret_manager_secret_iam_member.result_writer]
+  depends_on = [
+    google_secret_manager_secret_iam_member.result_writer,
+    google_secret_manager_secret_iam_member.log_hmac,
+  ]
 }
 
 # Only the worker may call the result writer (J5).

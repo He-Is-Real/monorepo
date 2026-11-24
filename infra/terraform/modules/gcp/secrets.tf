@@ -173,3 +173,77 @@ resource "google_secret_manager_secret_iam_member" "website_key" {
   role      = "roles/secretmanager.secretAccessor"
   member    = each.value
 }
+
+# The logs' HMAC keys (logging build, decision doc logging.html: LG-2d and round 6). `log-hmac`
+# makes the `hk1:` keyed hashes on every event (the session id, the token, long text such as
+# story text and transcripts); `log-search-hmac` makes the `hs1:` hashes of who searched, on
+# search events only, and nothing else, so the two never line up. Generated ephemerally and sent
+# write-only, so neither value is ever in state or plans. Services read the latest version
+# through libs/secrets (the env var holds the name); web gets its key as an environment variable
+# from Secret Manager, like the website key. Changing a key changes every hash after it, so a
+# new key comes with a new prefix in libs/logging (`hk2:`, `hs2:`) and a bump of
+# var.log_hmac_rotation in the same PR.
+locals {
+  log_hmac_secrets = toset(["log-hmac", "log-search-hmac"])
+
+  # Who reads which key: everything that writes wide events reads the general key; only the
+  # services with a search route (browse in api-public-read, moderation in api-admin) read the
+  # search key. The media worker and the result writer exist only with media ready.
+  log_hmac_readers = merge(
+    {
+      "log-hmac/api-public-read"        = { secret = "log-hmac", member = google_service_account.api_public_read.member }
+      "log-hmac/api-user"               = { secret = "log-hmac", member = google_service_account.signed_in_api["api-user"].member }
+      "log-hmac/api-admin"              = { secret = "log-hmac", member = google_service_account.signed_in_api["api-admin"].member }
+      "log-hmac/web"                    = { secret = "log-hmac", member = google_service_account.web.member }
+      "log-search-hmac/api-public-read" = { secret = "log-search-hmac", member = google_service_account.api_public_read.member }
+      "log-search-hmac/api-admin"       = { secret = "log-search-hmac", member = google_service_account.signed_in_api["api-admin"].member }
+    },
+    local.media_ready ? {
+      "log-hmac/media-worker" = { secret = "log-hmac", member = google_service_account.media_worker[0].member }
+      "log-hmac/workflow"     = { secret = "log-hmac", member = google_service_account.result_writer[0].member }
+    } : {},
+    var.housekeeping == null ? {} : {
+      "log-hmac/housekeeping" = { secret = "log-hmac", member = google_service_account.housekeeping[0].member }
+    },
+  )
+}
+
+resource "google_secret_manager_secret" "log_hmac" {
+  for_each = local.log_hmac_secrets
+
+  project   = var.project_id
+  secret_id = each.value
+  labels    = merge(local.labels, { component = "logging" })
+
+  replication {
+    user_managed {
+      replicas {
+        location = var.region # GDPR: stays in the UK
+      }
+    }
+  }
+}
+
+ephemeral "random_password" "log_hmac" {
+  for_each = local.log_hmac_secrets
+
+  length  = 64
+  special = false
+}
+
+resource "google_secret_manager_secret_version" "log_hmac" {
+  for_each = local.log_hmac_secrets
+
+  secret                 = google_secret_manager_secret.log_hmac[each.value].id
+  secret_data_wo         = ephemeral.random_password.log_hmac[each.value].result
+  secret_data_wo_version = var.log_hmac_rotation
+}
+
+resource "google_secret_manager_secret_iam_member" "log_hmac" {
+  for_each = local.log_hmac_readers
+
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.log_hmac[each.value.secret].secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = each.value.member
+}
