@@ -110,15 +110,19 @@ source of truth, so change them in the same PR as the code.
   - Stable `snake_case` field names grouped by area (`http`, `user`, `story`, `db`, `external`, `error`…),
     units as suffixes (`_ms`, `_bytes`); time every SurrealDB and outside call.
   - Every event carries `ref`, the request's UUID v7 that is also the `traceparent` trace id and the
-    "Reference" people see.
+    "Reference" people see (except search events). One trace id goes browser → services → Pub/Sub job →
+    the worker's `job` event; timings go in the wide event; no tracing library (LG-4 A).
+  - No sampling: every event is kept for 30 days (LG-6 A).
   - Every field has a data class: plain (incl. email, IP, browser user agent for bot detection, story title), keyed hash (HMAC, key from
     Secret Manager, `_hash` suffix), content, or never (tokens, cookies, keys, secrets, card data). Open
     points are marked "pending Joel" in the skill; don't decide them.
   - Content fields (story text, transcripts, request bodies) are hashed by default and logged in full
     whenever the request or job ends in an error. No debug window or switch. That hashing only keeps log
     volume down for long, many-paragraph fields; it is not a privacy measure.
-  - Search events: terms and filters plain; IP, email and user id only as keyed hashes with the
-    search-only key (`log-search-hmac`), never plain, not on error (LG-2g pending Joel, see the skill).
+  - Search events: each search is its own `event: "search"` with no `ref` and no session or token hash;
+    terms and filters plain; IP, email and user id only as keyed hashes with the search-only key
+    (`log-search-hmac`), never plain, not on error. The route's own wide event never carries the terms;
+    Cloud Run's request lines for search URLs are excluded in OpenTofu (LG-2g A).
   - Sensitive fields are never plain, not even on error; strip them from bodies. Only
     the session id and token are logged, as keyed hashes; cookies, API keys, passwords and auth headers
     are not logged at all (the session hash is enough).
@@ -127,6 +131,9 @@ source of truth, so change them in the same PR as the code.
   - Errors are fields on the event (`outcome`, `error.type/code`); messages never quote request data.
     Server errors are logged by the servers only; the browser reports only its own failures (LG-1c).
   - A failed log send must never fail, slow or change the request; same JSON on stdout locally, in CI and on Google.
+  - Read logs in Axiom by default (`gcloud logging read` for Google's copy and Cloud Run's own lines, LG-5).
+    Stats are Axiom queries only, grouped by route, service, outcome, action or day, never by person,
+    story or address (LG-8).
 - Budget guardrail: £15/month budget with alert emails at £3/£7.50/£15 (no automatic stop). Never
   unlink billing; storage is always kept.
 
