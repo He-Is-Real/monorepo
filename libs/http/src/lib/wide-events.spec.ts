@@ -202,10 +202,25 @@ describe('the request’s wide event (writing-logs skill; LG-2, LG-4, LG-9)', ()
   });
 
   it('writes long text in full on an input refusal, with the failed fields, and never a secret', async () => {
+    const secrets = {
+      password: 'hunter2',
+      sid: 'sess_2NfXsid',
+      key: 'plain-key-value',
+      accessKey: 'access-key-value',
+      nested: {
+        API_KEY: 'api-key-value',
+        'X-Session-Id': 'session-id-value',
+        clerkSid: 'clerk-sid-value',
+        Authorization: 'Bearer auth-value',
+        list: [{ refresh_token: 'refresh-value', Cookie: 'cookie-value' }],
+        uploadSignature: 'signature-value',
+        client_secret: 'client-secret-value',
+      },
+    };
     const res = await submit(2, {
       title: 'too long',
       body: STORY,
-      password: 'hunter2',
+      ...secrets,
     });
     expect(res.status).toBe(400);
     const [event] = await events(ref(2));
@@ -216,7 +231,28 @@ describe('the request’s wide event (writing-logs skill; LG-2, LG-4, LG-9)', ()
       debug: { plain_content: true },
     });
     expect(event['request'].body).toContain(STORY);
-    expect(JSON.stringify(event)).not.toContain('hunter2');
+    const text = JSON.stringify(event);
+    for (const value of [
+      'hunter2',
+      'sess_2NfXsid',
+      'plain-key-value',
+      'access-key-value',
+      'api-key-value',
+      'session-id-value',
+      'clerk-sid-value',
+      'auth-value',
+      'refresh-value',
+      'cookie-value',
+      'signature-value',
+      'client-secret-value',
+    ]) {
+      expect(text).not.toContain(value);
+    }
+    expect(JSON.parse(event['request'].body)).toEqual({
+      title: 'too long',
+      body: STORY,
+      nested: { list: [{}] },
+    });
   });
 
   it('writes the immediate error line with the same reference, then the event as an error', async () => {

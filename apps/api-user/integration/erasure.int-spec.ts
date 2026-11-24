@@ -17,6 +17,8 @@ import {
   submit,
   TestDatabase,
 } from '@heisreal/database/integration-testing';
+import { wideEvents } from '@heisreal/http';
+import { LOG_SINKS, type LogSink } from '@heisreal/logging/event';
 import { SECRET_MANAGER_CLIENT, SECRETS_PROJECT } from '@heisreal/secrets';
 import type { Surreal } from 'surrealdb';
 import { AppModule } from '../src/app/app.module';
@@ -92,20 +94,48 @@ class FakeClerk implements ClerkBackend {
 
 /**
  * api-user's database login, made to fail on demand: `failing` names a piece of SurrealQL whose
- * queries throw (the database half of erasure, or the deletion queue).
+ * queries throw (the database half of erasure, or the deletion queue), after the first `skip` of
+ * them have run. `holding` keeps a matching query's answer back (after it has run) until
+ * `release` is called.
  */
 function breakable(db: Surreal) {
-  const breaks = { failing: null as string | null };
+  const breaks = {
+    failing: null as string | null,
+    skip: 0,
+    holding: null as {
+      sql: string;
+      reached: () => void;
+      release: Promise<void>;
+    } | null,
+  };
   const proxy = new Proxy(db, {
     get(target, prop) {
       if (prop === 'query') {
-        return (sql: string, vars?: Record<string, unknown>) =>
-          target.query(
-            breaks.failing && sql.includes(breaks.failing)
-              ? `THROW 'the database is unavailable'`
-              : sql,
+        return (sql: string, vars?: Record<string, unknown>) => {
+          let fail = false;
+          if (breaks.failing && sql.includes(breaks.failing)) {
+            if (breaks.skip > 0) breaks.skip--;
+            else fail = true;
+          }
+          const query = target.query(
+            fail ? `THROW 'the database is unavailable'` : sql,
             vars,
           );
+          const hold = breaks.holding;
+          if (!hold || !sql.includes(hold.sql)) return query;
+          breaks.holding = null;
+          // runQuery reads `query(…).json().responses()`: answer once released.
+          return {
+            json: () => ({
+              responses: async () => {
+                const answer = await query.json().responses();
+                hold.reached();
+                await hold.release;
+                return answer;
+              },
+            }),
+          };
+        };
       }
       const value = Reflect.get(target, prop, target);
       return typeof value === 'function' ? value.bind(target) : value;
@@ -113,6 +143,8 @@ function breakable(db: Surreal) {
   });
   return { db: proxy, breaks };
 }
+
+type Entry = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 describe('erasure: delete my account and Clerk’s user.deleted', () => {
   const contract = new Contract('api-user.yaml');
@@ -124,7 +156,7 @@ describe('erasure: delete my account and Clerk’s user.deleted', () => {
     region: 'uk',
   });
   const clerkApi = new FakeClerk();
-  let breaks: { failing: string | null };
+  let breaks: ReturnType<typeof breakable>['breaks'];
   let t: TestDatabase;
   let clerk: TestClerk;
   let migrator: Surreal;
@@ -132,6 +164,36 @@ describe('erasure: delete my account and Clerk’s user.deleted', () => {
   let apiUser: Surreal;
   let app: INestApplication;
   let url: string;
+  const entries: Entry[] = [];
+  const waiting: (() => void)[] = [];
+  const sink: LogSink = {
+    write: (_severity, entry) => {
+      entries.push(entry);
+      waiting.splice(0).forEach((wake) => wake());
+    },
+  };
+  const sinksBefore = [...LOG_SINKS];
+
+  /** The log entries matching `pick`, once `count` of them have been written. */
+  async function written(pick: (e: Entry) => boolean, count = 1) {
+    while (entries.filter(pick).length < count) {
+      await new Promise<void>((wake) => waiting.push(wake));
+    }
+    return entries.filter(pick);
+  }
+
+  /** A traceparent whose trace id makes the request's ref `ref(n)`. */
+  const traceId = (n: number) =>
+    `0e1a5e00000070008000${String(n).padStart(12, '0')}`;
+  const ref = (n: number) =>
+    traceId(n).replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5');
+  const traced = (n: number) => ({
+    traceparent: `00-${traceId(n)}-00f067aa0ba902b7-01`,
+  });
+  const requestEvent = (n: number) =>
+    written((e) => e['ref'] === ref(n) && e['event'] === 'request').then(
+      ([e]) => e,
+    );
 
   async function call(
     method: string,
@@ -281,6 +343,8 @@ describe('erasure: delete my account and Clerk’s user.deleted', () => {
       .useValue(clerkApi)
       .compile();
     app = moduleRef.createNestApplication({ logger: false, rawBody: true });
+    LOG_SINKS.splice(0, LOG_SINKS.length, sink);
+    app.use(wideEvents('api-user'));
     await app.listen(0, '127.0.0.1');
     url = await app.getUrl();
     await createPeople(t, { admin: 'user_admin', bob: 'user_bob' });
@@ -289,6 +353,7 @@ describe('erasure: delete my account and Clerk’s user.deleted', () => {
   afterAll(async () => {
     await app?.close();
     await t?.close();
+    LOG_SINKS.splice(0, LOG_SINKS.length, ...sinksBefore);
   });
 
   it('deletes my account: stories, hearts, video, picture, agreements and Clerk account go; my token is refused', async () => {
@@ -395,6 +460,98 @@ describe('erasure: delete my account and Clerk’s user.deleted', () => {
     expect(bunny.deleted).not.toContain(video);
     expect(images.deleted).not.toContain(folders[1]);
     expect((await call('GET', '/v1/account', 'ida')).status).toBe(401);
+    await run(migrator, `DELETE pendingDeletion`);
+  });
+
+  it('logs the erasure record even when the person hangs up before it is done (D40: backups replay from it)', async () => {
+    await personWithStories('jo');
+    let reached!: () => void;
+    let release!: () => void;
+    const committed = new Promise<void>((r) => (reached = r));
+    breaks.holding = {
+      sql: 'fn::account::erase',
+      reached,
+      release: new Promise<void>((r) => (release = r)),
+    };
+    const hangUp = new AbortController();
+    const asked = fetch(`${url}/v1/account`, {
+      method: 'DELETE',
+      headers: {
+        authorization: `Bearer ${clerk.token('user_jo')}`,
+        ...traced(1),
+      },
+      signal: hangUp.signal,
+    }).catch(() => undefined);
+    // The database half has committed; the person hangs up before the answer.
+    await committed;
+    hangUp.abort();
+    await asked;
+    const event = await requestEvent(1);
+    expect(event['erasure']).toBeUndefined();
+    release();
+    const [line] = await written(
+      (e) => e['ref'] === ref(1) && e['message'] === 'Account erased',
+    );
+    expect(line).toMatchObject({
+      ref: ref(1),
+      service: { name: 'api-user' },
+      action: 'account.erase',
+      erasure: {
+        user_record: expect.stringContaining('jo'),
+        reason: 'account_deleted',
+        queued_count: 4,
+      },
+    });
+    // The rest of the erasure carries on without the caller.
+    await vi.waitFor(async () =>
+      expect(await left('jo')).toMatchObject({ queued: [] }),
+    );
+    expect(clerkApi.deleted).toContain('user_jo');
+    await run(migrator, `DELETE pendingDeletion`);
+  });
+
+  it('logs every failed deletion from both of an erasure’s passes, and those before a database error', async () => {
+    clerkApi.failing = true;
+    try {
+      await personWithStories('kim');
+      expect(
+        (await call('DELETE', '/v1/account', 'kim', traced(2))).status,
+      ).toBe(202);
+      // Kim's Clerk deletion is due again when Lee is erased: Lee's pass, then the others'.
+      await run(
+        migrator,
+        `UPDATE pendingDeletion SET nextAttemptAt = time::now() - 1s WHERE ref = 'user_kim'`,
+      );
+      await personWithStories('lee');
+      expect(
+        (await call('DELETE', '/v1/account', 'lee', traced(3))).status,
+      ).toBe(202);
+      const failedClerk = {
+        kind: 'clerk_user',
+        key: expect.any(String),
+        reason: 'Error',
+      };
+      expect((await requestEvent(3))['erasure']).toMatchObject({
+        reason: 'account_deleted',
+        deletions_failed: [failedClerk, failedClerk],
+      });
+
+      // Mia's own pass fails at Clerk; the database then fails the second pass.
+      await personWithStories('mia');
+      breaks.failing = 'nextAttemptAt <= time::now()';
+      breaks.skip = 1;
+      expect(
+        (await call('DELETE', '/v1/account', 'mia', traced(4))).status,
+      ).toBe(202);
+      expect((await requestEvent(4))['erasure']).toMatchObject({
+        drain_failed: 'DatabaseQueryError',
+        deletions_failed: [failedClerk],
+      });
+    } finally {
+      clerkApi.failing = false;
+      breaks.failing = null;
+      breaks.skip = 0;
+    }
     await run(migrator, `DELETE pendingDeletion`);
   });
 

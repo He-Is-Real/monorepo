@@ -5,7 +5,6 @@ import {
   logEntry,
   type Severity,
   severityEnabled,
-  writeLog,
 } from '../index';
 import { logHash, searchHash } from './keys';
 import { cloudTrace, newTrace, type Trace, TRACE_FIELD } from './trace';
@@ -168,9 +167,20 @@ function readPath(root: Record<string, unknown>, path: string): unknown {
   return at;
 }
 
-/** Fields that are left out of a logged body, at any depth (the "Never" class). */
-const SECRET_KEY =
-  /pass(word)?|secret|token|authori[sz]ation|cookie|api[-_]?key|signature|card|cvc|cvv/i;
+/**
+ * Field names left out of a logged body, at any depth (the "Never" class): every credential,
+ * key, signature and session id, whatever its case or separators (`accessKey`, `api_key`,
+ * `X-Session-Id`, `sid`).
+ */
+const SECRET_PART =
+  /token|secret|passw|passphrase|passcode|authori[sz]ation|cookie|signature|session|credential|key|bearer|jwt|card|cvc|cvv/;
+const SECRET_WHOLE = /^(pass|pwd|auth|sig|sid|otp|pin)$|sid$/;
+
+/** Whether a field with this name holds a secret or a session id (never logged). */
+export function isSecretField(name: string): boolean {
+  const flat = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return SECRET_PART.test(flat) || SECRET_WHOLE.test(flat);
+}
 
 /** A request body with every secret-looking field removed (the skill: "strip them from bodies"). */
 export function withoutSecrets(value: unknown, depth = 0): unknown {
@@ -180,7 +190,7 @@ export function withoutSecrets(value: unknown, depth = 0): unknown {
   if (!isObject(value)) return value;
   const out: Record<string, unknown> = {};
   for (const [key, v] of Object.entries(value)) {
-    if (!SECRET_KEY.test(key) && !UNSAFE_KEYS.has(key))
+    if (!isSecretField(key) && !UNSAFE_KEYS.has(key))
       out[key] = withoutSecrets(v, depth + 1);
   }
   return out;
@@ -439,16 +449,35 @@ export function currentEvent(): WideEvent | undefined {
 }
 
 /**
- * A fact about the current work: a field on its event when there is one (LG-2 C: lines inside a
- * request are folded into it); otherwise, for background work outside any request, one line.
+ * A fact about the current work: a field on its event while there is one still open (LG-2 C:
+ * lines inside a request are folded into it). Otherwise its own line: for background work outside
+ * any request, or for work that goes on after its request's event was written (the caller hung
+ * up), in which case the line carries that request's `ref`, trace and service so it still joins.
  */
 export function note(
   fields: LogFields,
   line: { severity: Severity; message: string },
 ): void {
   const event = currentEvent();
-  if (event && !event.isFinished) event.set(fields);
-  else writeLog(line.severity, line.message, fields);
+  if (event && !event.isFinished) {
+    event.set(fields);
+    return;
+  }
+  try {
+    const entry: Record<string, unknown> = {};
+    if (event) {
+      const trace = cloudTrace(event.traceId);
+      merge(entry, {
+        ref: event.ref,
+        ...(trace ? { [TRACE_FIELD]: trace } : {}),
+        service: event.service,
+      });
+    }
+    merge(entry, fields);
+    emit(line.severity, logEntry(line.severity, line.message, entry));
+  } catch {
+    failedWrites++;
+  }
 }
 
 /** Times one SurrealDB query or function into the current event's `db` group. */

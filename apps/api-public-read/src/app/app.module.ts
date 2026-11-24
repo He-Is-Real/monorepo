@@ -26,6 +26,7 @@ import { BrowseController } from './stories/browse.controller';
 import { StoriesController, StoriesModule } from './stories/stories.controller';
 import { ThemesController, ThemesModule } from './themes/themes.controller';
 import { PublicAnswerCache, PublicCacheInterceptor } from './public-cache';
+import { SearchEventInterceptor } from './stories/search-events';
 import { websiteKeyFromSecret } from './website-key';
 
 @Module({
@@ -53,6 +54,8 @@ import { websiteKeyFromSecret } from './website-key';
   providers: [
     { provide: APP_FILTER, useClass: ProblemFilter },
     { provide: PublicAnswerCache, useFactory: () => new PublicAnswerCache() },
+    // Before the cache, so a search answered from memory still writes its search event.
+    { provide: APP_INTERCEPTOR, useClass: SearchEventInterceptor },
     { provide: APP_INTERCEPTOR, useClass: PublicCacheInterceptor },
     // After the cache, so a remembered answer is still served while the database restarts;
     // anything else is `503 service_restarting` at once.

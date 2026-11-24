@@ -53,7 +53,9 @@ decisions LG-1 to LG-9 in `../project/context/research/logging.html`). Node only
 work)` and `timedFetch(name, fetch)` for Clerk, Bunny, Stripe, Resend → `db { calls, total_ms,
 slowest { name, ms } }`, `external.<name> { calls, ms, status }`.
 - **Facts from shared code:** `note(fields, { severity, message })` puts the fields on the current
-  event, or writes one line when there is none (start-up, background work, a job without an event).
+  event, or writes one line when there is none (start-up, background work, a job without an event)
+  or when it was already written (the caller hung up mid-work): that line carries the request's
+  `ref`, trace field and `service`, so a record like an erasure is never lost.
 - **Errors:** `event.fail({ type, code, retriable, message })` (our own words); the immediate
   unexpected-error line is `writeErrorLine(err, { ref, traceId })` (`stack_trace`, for Error
   Reporting). `ProblemFilter` (libs/http) does both for the APIs.
@@ -65,16 +67,18 @@ slowest { name, ms } }`, `external.<name> { calls, ms, status }`.
 | Plain                         | as is: routes, timings, ids, `user.email`, `client.ip`, `story.title`…                                                                      | `event.set`                                    |
 | Keyed hash                    | HMAC-SHA-256, `hk1:` + 64 hex, under a `_hash` name, always                                                                                 | `event.sensitive('user.session_hash', sid)`    |
 | Long text (hash unless error) | `<field>_hash` + `<field>_length`; in full (and `debug.plain_content: true`) when the outcome is `error`, `input_refused` or `rate_limited` | `event.longText('story.body', text)`           |
-| Never                         | not written: tokens, cookies, keys, passwords, auth headers, card data                                                                      | `withoutSecrets(body)` strips them from bodies |
+| Never                         | not written: tokens, cookies, keys, passwords, auth headers, signatures, session ids, card data                                             | `withoutSecrets(body)` strips them from bodies |
 
 - **Search events** (`writeSearchEvent`, or `searchEvent(req, …)` in libs/http): `event: "search"`,
   no `ref`, no trace field, no session or token hash; terms and filters plain; who searched only as
   `client.ip_hash`, `user.email_hash`, `user.id_hash` with the search-only key (`hs1:`). The
-  request's own event never carries `search` (it is removed if set).
+  request's own event never carries `search` (it is removed if set). api-public-read writes it from
+  an interceptor around its answer cache, so a search answered from memory is still logged.
 - **Keys:** `log-hmac` (general, `hk1:`) and `log-search-hmac` (search only, `hs1:`) in Secret
   Manager, named by `LOG_HMAC_SECRET` and `LOG_SEARCH_HMAC_SECRET` and read at start-up by
-  `LogKeysModule` (libs/http). Unset (local runs, tests): fixed development keys (`DEV_LOG_KEYS`),
-  never a real one.
+  `LogKeysModule` (libs/http). A deployed service (`K_SERVICE` set) refuses to start without both.
+  Unset locally and in tests: fixed development keys (`DEV_LOG_KEYS`), never a real one, with a
+  start-up warning.
 - **Size:** Google refuses an entry over 256 KB. An entry over `MAX_ENTRY_BYTES` (200 000) has its
   plain long text cut, longest first (`debug.truncated_fields`; `_length` keeps the full length);
   if still too long, only the envelope, `http`, `action`, `outcome` and `error` are kept

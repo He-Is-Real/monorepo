@@ -6,6 +6,7 @@ import {
   RATE_LIMIT_CLOCK,
   RATE_LIMITS_ACTIVE,
   WEBSITE_KEY,
+  wideEvents,
 } from '@heisreal/http';
 import { SECRET_MANAGER_CLIENT, SECRETS_PROJECT } from '@heisreal/secrets';
 import type { Surreal } from 'surrealdb';
@@ -44,11 +45,14 @@ export async function startPublicRead(
     now,
     cacheCapacity,
     rateLimits,
+    wideEvents: withWideEvents = false,
   }: {
     siteVideos?: SiteVideos;
     now?: () => number;
     cacheCapacity?: number;
     rateLimits?: { now: () => number; websiteKey?: string };
+    /** Each request's wide event, as main.ts adds it (written to `LOG_SINKS`). */
+    wideEvents?: boolean;
   } = {},
 ): Promise<{
   app: INestApplication;
@@ -80,6 +84,7 @@ export async function startPublicRead(
     .compile();
   const app = moduleRef.createNestApplication({ logger: false });
   checkResponsesAgainstContract(app);
+  if (withWideEvents) app.use(wideEvents('api-public-read'));
   await app.listen(0, '127.0.0.1');
   return {
     app,
