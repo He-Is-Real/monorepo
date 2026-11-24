@@ -1,8 +1,8 @@
 # web (Next.js, apps/web) on Cloud Run (D4): same image pattern and scaling as
 # the APIs. It server-renders from api-public-read only (D32), so it has no VPC
 # access and no database login. Its secrets are the website key for
-# api-public-read's rate limits (RL-8 A, secrets.tf) and the logs' HMAC key
-# (`log-hmac`); its service account may read only those (Stripe's publishable key
+# api-public-read's rate limits (RL-8 A, secrets.tf) and the logs' HMAC keys
+# (`log-hmac`, `log-search-hmac`); its service account may read only those (Stripe's publishable key
 # and Buy Button IDs are public by design).
 # Public since the walking-skeleton page (0.9), together with api-public-read
 # (D31; was private, decision 8).
@@ -133,17 +133,18 @@ resource "google_cloud_run_v2_service" "web" {
         }
       }
 
-      # Logs (libs/logging): the HMAC key for keyed hashes (`hk1:`; secrets.tf), from Secret
-      # Manager when a copy starts, like the website key; the plan and state hold only its name
-      # and version.
-      env {
-        name = "LOG_HMAC"
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.log_hmac["log-hmac"].secret_id
-            version = google_secret_manager_secret_version.log_hmac["log-hmac"].version
-          }
+      # Logs (libs/logging): the names of the HMAC keys (secrets.tf), read through libs/secrets
+      # like the APIs (GCP_PROJECT below says which project).
+      dynamic "env" {
+        for_each = local.log_hmac_env
+        content {
+          name  = env.key
+          value = google_secret_manager_secret.log_hmac[env.value].secret_id
         }
+      }
+      env {
+        name  = "GCP_PROJECT"
+        value = var.project_id
       }
 
       # As for the APIs: ready = the port is open. GET /health exists for

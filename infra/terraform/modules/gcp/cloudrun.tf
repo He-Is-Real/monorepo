@@ -101,15 +101,14 @@ resource "google_cloud_run_v2_service" "api_public_read" {
         name  = "WEBSITE_KEY_SECRET"
         value = google_secret_manager_secret.website_key.secret_id
       }
-      # Logs (libs/logging): the names of the HMAC keys for keyed hashes (`hk1:`) and, for
-      # browse searches, who searched (`hs1:`); the values come through libs/secrets (secrets.tf).
-      env {
-        name  = "LOG_HMAC_SECRET"
-        value = google_secret_manager_secret.log_hmac["log-hmac"].secret_id
-      }
-      env {
-        name  = "LOG_SEARCH_HMAC_SECRET"
-        value = google_secret_manager_secret.log_hmac["log-search-hmac"].secret_id
+      # Logs (libs/logging): the names of the HMAC keys (`hk1:`, and `hs1:` for who searched);
+      # the values come through libs/secrets at start-up (secrets.tf).
+      dynamic "env" {
+        for_each = local.log_hmac_env
+        content {
+          name  = env.key
+          value = google_secret_manager_secret.log_hmac[env.value].secret_id
+        }
       }
       # D31: the browser may call it from web's origins only.
       env {

@@ -178,34 +178,41 @@ resource "google_secret_manager_secret_iam_member" "website_key" {
 # makes the `hk1:` keyed hashes on every event (the session id, the token, long text such as
 # story text and transcripts); `log-search-hmac` makes the `hs1:` hashes of who searched, on
 # search events only, and nothing else, so the two never line up. Generated ephemerally and sent
-# write-only, so neither value is ever in state or plans. Services read the latest version
-# through libs/secrets (the env var holds the name); web gets its key as an environment variable
-# from Secret Manager, like the website key. Changing a key changes every hash after it, so a
-# new key comes with a new prefix in libs/logging (`hk2:`, `hs2:`) and a bump of
-# var.log_hmac_rotation in the same PR.
+# write-only, so neither value is ever in state or plans. Each service gets the secrets' names
+# (`LOG_HMAC_SECRET`, `LOG_SEARCH_HMAC_SECRET`) and reads the latest versions at start-up through
+# libs/secrets (libs/http's LogKeysModule); a named key it can't read stops it starting. Changing
+# a key changes every hash after it, so a new key comes with a new prefix in libs/logging (`hk2:`,
+# `hs2:`) and a bump of var.log_hmac_rotation in the same PR.
 locals {
   log_hmac_secrets = toset(["log-hmac", "log-search-hmac"])
 
-  # Who reads which key: everything that writes wide events reads the general key; only the
-  # services with a search route (browse in api-public-read, moderation in api-admin) read the
-  # search key. The media worker and the result writer exist only with media ready.
-  log_hmac_readers = merge(
+  # The env vars that name them, on every service that writes wide events.
+  log_hmac_env = {
+    LOG_HMAC_SECRET        = "log-hmac"
+    LOG_SEARCH_HMAC_SECRET = "log-search-hmac"
+  }
+
+  # Who reads both keys: the APIs, cert-signer and web (libs/http's wide events), and the media
+  # worker, its result writer and housekeeping (job events). Those last four exist only with media
+  # ready, worker identity or housekeeping on.
+  log_hmac_reader_members = merge(
     {
-      "log-hmac/api-public-read"        = { secret = "log-hmac", member = google_service_account.api_public_read.member }
-      "log-hmac/api-user"               = { secret = "log-hmac", member = google_service_account.signed_in_api["api-user"].member }
-      "log-hmac/api-admin"              = { secret = "log-hmac", member = google_service_account.signed_in_api["api-admin"].member }
-      "log-hmac/web"                    = { secret = "log-hmac", member = google_service_account.web.member }
-      "log-search-hmac/api-public-read" = { secret = "log-search-hmac", member = google_service_account.api_public_read.member }
-      "log-search-hmac/api-admin"       = { secret = "log-search-hmac", member = google_service_account.signed_in_api["api-admin"].member }
+      api-public-read = google_service_account.api_public_read.member
+      api-user        = google_service_account.signed_in_api["api-user"].member
+      api-admin       = google_service_account.signed_in_api["api-admin"].member
+      web             = google_service_account.web.member
     },
+    local.worker_identity ? { cert-signer = google_service_account.cert_signer[0].member } : {},
     local.media_ready ? {
-      "log-hmac/media-worker" = { secret = "log-hmac", member = google_service_account.media_worker[0].member }
-      "log-hmac/workflow"     = { secret = "log-hmac", member = google_service_account.result_writer[0].member }
+      media-worker = google_service_account.media_worker[0].member
+      workflow     = google_service_account.result_writer[0].member
     } : {},
-    var.housekeeping == null ? {} : {
-      "log-hmac/housekeeping" = { secret = "log-hmac", member = google_service_account.housekeeping[0].member }
-    },
+    var.housekeeping == null ? {} : { housekeeping = google_service_account.housekeeping[0].member },
   )
+  log_hmac_readers = {
+    for pair in setproduct(local.log_hmac_secrets, keys(local.log_hmac_reader_members)) :
+    "${pair[0]}/${pair[1]}" => { secret = pair[0], member = local.log_hmac_reader_members[pair[1]] }
+  }
 }
 
 resource "google_secret_manager_secret" "log_hmac" {
