@@ -12,6 +12,7 @@ import {
   expectTarget,
   expectNoHorizontalOverflow,
   shots,
+  withReference,
 } from './helpers';
 import { fixtureToken, STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 
@@ -1084,7 +1085,9 @@ test.describe('behaviour', () => {
       );
       await page.getByRole('button', { name: 'Submit for review' }).click();
       await expect(page.getByRole('main').getByRole('alert')).toHaveText(
-        'Something went wrong. Please try again later. Your story is saved.',
+        withReference(
+          'Something went wrong. Please try again later. Your story is saved.',
+        ),
       );
       const text = await page.locator('body').innerText();
       for (const hidden of [
@@ -1136,24 +1139,32 @@ test.describe('behaviour', () => {
     const notice = page.locator('[data-restarting-notice]');
     const restarting = 'Our compute is currently restarting.';
     await expect(said).toHaveText(
-      `${restarting} Please try again in about 2 minutes. Your story is saved.`,
+      withReference(
+        `${restarting} Please try again in about 2 minutes. Your story is saved.`,
+      ),
     );
     await expect(notice).toHaveText(
-      `${restarting} Please try again in about 2 minutes.`,
+      withReference(`${restarting} Please try again in about 2 minutes.`),
     );
     await page.clock.fastForward('00:02');
     await expect(said).toHaveText(
-      `${restarting} Please try again in about 1 minute. Your story is saved.`,
+      withReference(
+        `${restarting} Please try again in about 1 minute. Your story is saved.`,
+      ),
     );
     await expect(notice).toHaveText(
-      `${restarting} Please try again in about 1 minute.`,
+      withReference(`${restarting} Please try again in about 1 minute.`),
     );
     // Run out: no "about 1 minute" floor, never 0.
     await page.clock.fastForward('01:00');
     await expect(said).toHaveText(
-      `${restarting} Please try again later. Your story is saved.`,
+      withReference(
+        `${restarting} Please try again later. Your story is saved.`,
+      ),
     );
-    await expect(notice).toHaveText(`${restarting} Please try again later.`);
+    await expect(notice).toHaveText(
+      withReference(`${restarting} Please try again later.`),
+    );
     const text = await page.locator('body').innerText();
     for (const hidden of [body.code, body.title]) {
       expect(text).not.toContain(hidden);
