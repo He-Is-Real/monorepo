@@ -328,7 +328,7 @@ function BlockEntry({
               {e.note}
             </p>
           ) : (
-            <Text tone="quiet" data-block-note-empty="">
+            <Text tone="quiet" italic data-block-note-empty="">
               No note yet
             </Text>
           ))}

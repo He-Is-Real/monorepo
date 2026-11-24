@@ -199,7 +199,9 @@ function GreatestStoryContent() {
           <Card className="p-6 sm:p-10">
             <Text as="div" size="story" className="space-y-4">
               {PRAYER.map((line) => (
-                <p key={line}>{line}</p>
+                <Text key={line} size="inherit" italic>
+                  {line}
+                </Text>
               ))}
               <p>
                 <strong>Amen.</strong>

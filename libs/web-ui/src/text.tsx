@@ -107,14 +107,24 @@ const textVariants = cva('', {
       /** Words that stand out without being emphasis (a name, a count, a label). */
       bold: 'font-semibold',
     },
+    /**
+     * Italic, for quotes, speech and subtle hints only (TX-8 C, Joel, 24 November 2026): a prayer,
+     * a quoted note, a spoken line, "No note yet".
+     */
+    italic: { true: 'italic', false: '' },
   },
-  defaultVariants: { size: 'body', tone: 'inherit', weight: 'normal' },
+  defaultVariants: {
+    size: 'body',
+    tone: 'inherit',
+    weight: 'normal',
+    italic: false,
+  },
 });
 
 /**
  * Text: `size` (`intro`, `story`, `body`, `small`, `inherit`), `tone` (`normal`, `quiet`,
  * `danger`, `success`, `warning`, `media`, `media-quiet`, or the colour around it) and `weight`
- * (`bold`, or `regular` inside a bold line).
+ * (`bold`, or `regular` inside a bold line); `italic` for quotes, speech and subtle hints only.
  * A `p` unless `as` says otherwise; `asChild` puts the look on its child. Bold words inside a
  * sentence stay plain `<strong>`.
  */
@@ -122,6 +132,7 @@ function Text({
   size,
   tone,
   weight,
+  italic,
   as,
   asChild = false,
   className,
@@ -138,7 +149,7 @@ function Text({
   return (
     <Comp
       data-slot="text"
-      className={cn(textVariants({ size, tone, weight }), className)}
+      className={cn(textVariants({ size, tone, weight, italic }), className)}
       {...props}
     />
   );

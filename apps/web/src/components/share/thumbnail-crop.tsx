@@ -288,6 +288,7 @@ export function ThumbnailCropper({
       <Text
         size="small"
         tone="quiet"
+        italic
         aria-live="polite"
         data-crop-spoken=""
         className="min-h-[1.5em]"

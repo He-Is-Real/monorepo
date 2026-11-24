@@ -933,6 +933,7 @@ function History({
                 <Text
                   as="blockquote"
                   tone="quiet"
+                  italic
                   className="whitespace-pre-line"
                 >
                   {e.comment}

@@ -119,11 +119,14 @@ Text (round 3, TX-1 to TX-6 A, Joel, 21 November 2026): pages hold no text looks
   hints, captions, dates, tables) or `inherit`; `tone` `normal`, `quiet` (the one grey for quieter
   text), `danger`, `success`, `warning`, `media` / `media-quiet` (white words on pictures, video and the dark
   hero), or the colour around it (default); `weight` `bold` for a name, count or label that stands
-  out, `regular` for words inside a bold line ("(optional)") (bold words inside a sentence stay plain `<strong>`). A `p` unless `as` says otherwise;
+  out, `regular` for words inside a bold line ("(optional)") (bold words inside a sentence stay plain `<strong>`); `italic` for
+  quotes, speech and subtle hints only (TX-8 C, Joel, 24 November 2026: a prayer, a quoted note, a
+  spoken line, "No note yet"). A `p` unless `as` says otherwise;
   `asChild` puts the look on its child. `textVariants(…)` gives the classes.
 - `Quote`: a pull quote (a written story's page, About, Greatest Story's verses): a brand bar on the
-  left, 22 px italic in the normal text colour; `source` adds who said it as a small caption. The
-  only italics on the site.
+  left, 22 px italic in the normal text colour; `source` adds who said it as a small caption.
+  Italic is for quotes, speech and subtle hints only: `Quote`, or `Text italic`; never an `italic`
+  class or `font-style` in a page.
 - `TextLink` and `textLinkVariants`: a link that looks like a link (TX-6 A): `kind` `inline` (in a
   sentence: always underlined, so it never relies on colour) or `standalone` (on its own or beside a
   value, "Back to the list", "Change": semibold, underlined on hover, at least 44 px). An `<a>`, or
