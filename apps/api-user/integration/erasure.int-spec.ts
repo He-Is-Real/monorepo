@@ -26,6 +26,7 @@ import {
   CLERK_BACKEND,
   type ClerkBackend,
 } from '../src/app/erasure/clerk-backend';
+import { Erasure } from '../src/app/erasure/erasure';
 import {
   BUNNY_STORAGE,
   BunnyImageStore,
@@ -465,6 +466,13 @@ describe('erasure: delete my account and Clerk’s user.deleted', () => {
 
   it('logs the erasure record even when the person hangs up before it is done (D40: backups replay from it)', async () => {
     await personWithStories('jo');
+    // The whole erasure, both drain passes included, so the test knows when it is done.
+    const erasure = app.get(Erasure);
+    const erase = erasure.erase.bind(erasure);
+    let finished!: Promise<void>;
+    const spy = vi
+      .spyOn(erasure, 'erase')
+      .mockImplementationOnce((...args) => (finished = erase(...args)));
     let reached!: () => void;
     let release!: () => void;
     const committed = new Promise<void>((r) => (reached = r));
@@ -503,9 +511,9 @@ describe('erasure: delete my account and Clerk’s user.deleted', () => {
       },
     });
     // The rest of the erasure carries on without the caller.
-    await vi.waitFor(async () =>
-      expect(await left('jo')).toMatchObject({ queued: [] }),
-    );
+    await finished;
+    spy.mockRestore();
+    expect(await left('jo')).toMatchObject({ queued: [] });
     expect(clerkApi.deleted).toContain('user_jo');
     await run(migrator, `DELETE pendingDeletion`);
   });
