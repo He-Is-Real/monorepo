@@ -115,9 +115,11 @@ source of truth, so change them in the same PR as the code.
   - No sampling: every event is kept for 30 days (LG-6 A).
   - Every entry carries deployment details, `service.name / version / revision / env` and on Cloud Run
     `region / instance` (LG-10); `libs/logging` adds them, `version` is the commit baked into the image.
+    Request and job events also carry `process.cold_start / uptime_ms`, and api-public-read's
+    `cache.hit / stale / age_ms / not_modified` (LG-12); don't write them by hand.
   - Every field has a data class: plain (incl. email, IP, browser user agent for bot detection, story title), keyed hash (HMAC, key from
     Secret Manager, `_hash` suffix), long text (hash unless error), or never (tokens, cookies, keys,
-    secrets, card data). LG-1 to LG-10 are all decided; ask Joel about anything new.
+    secrets, card data). LG-1 to LG-10 and LG-12 are decided; ask Joel about anything new.
   - Long text: hashed unless the request ends in an error, a refusal or a rate limit. Story text,
     transcripts and request bodies are hashed by default and logged in full whenever the request or job
     ends in an error, an input refusal or a rate limit (LG-9b); not found and restarting stay hashed.

@@ -112,6 +112,12 @@ function emit(severity: Severity, entry: Record<string, unknown>): void {
  */
 export const MAX_ENTRY_BYTES = 200_000;
 
+/**
+ * Whether this process has written a request or job event yet (LG-12, Joel 24 Nov 2026): the
+ * first one it writes is its cold start (`process.cold_start: true`), every later one `false`.
+ */
+let eventWritten = false;
+
 const bytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value));
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -192,6 +198,10 @@ export class WideEvent {
   private readonly db: Timing = { calls: 0, total_ms: 0 };
   private readonly external: Record<string, ExternalTiming> = {};
   private readonly startedAt = performance.now();
+  /** How long the process had been up when this work started (`process.uptime_ms`, LG-12). */
+  private readonly uptimeMs = Math.round(process.uptime() * 1000);
+  /** Set by {@link write}: whether this is the first event the process writes. */
+  private coldStart?: boolean;
   private finished = false;
   private messageText?: string;
 
@@ -331,6 +341,9 @@ export class WideEvent {
       merge(body, { debug: { plain_content: plain } });
     }
     if (this.db.calls) merge(body, { db: this.db });
+    merge(body, {
+      process: { cold_start: this.coldStart, uptime_ms: this.uptimeMs },
+    });
     if (Object.keys(this.external).length) {
       merge(body, { external: this.external });
     }
@@ -358,6 +371,8 @@ export class WideEvent {
   write(): void {
     if (this.finished) return;
     this.finished = true;
+    this.coldStart = !eventWritten;
+    eventWritten = true;
     try {
       const { severity, entry } = this.build();
       emit(severity, entry);
@@ -397,6 +412,7 @@ export class WideEvent {
       'ref',
       TRACE_FIELD,
       'service',
+      'process',
       'http',
       'action',
       'outcome',

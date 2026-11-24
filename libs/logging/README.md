@@ -120,5 +120,14 @@ deployment details too"): wide, job and search events, `note` and error lines, a
   of the two lands on its own as soon as it arrives. Locally and on the media worker's machine they
   are never written; the media worker names itself (`serviceFields('media-worker')` at start-up).
 
+### Cold starts (`process`, LG-12)
+
+Every request and job event carries `process.cold_start` and `process.uptime_ms` (Joel, 24 Nov
+2026: "add both"). The first such event a process writes is its cold start (`true`), every later
+one `false`; `uptime_ms` is how long the process had been up when that request or job started
+(`process.uptime()`, read when the event starts: no extra start-up work, nothing waits). Search
+events, `note` and error lines don't carry them. api-public-read adds its memory cache's part
+(`cache.hit`, `cache.stale`, `cache.age_ms`, `cache.not_modified`) from `PublicCacheInterceptor`.
+
 Outside a request or job (start-up, background work), use `writeLog` / `createLog` / `JsonLogger`
 as above. Their lines carry no personal data, tokens, keys or story content.
