@@ -7,7 +7,7 @@
 //   pnpm -s logs -v < saved.log                     # also every other field, as compact JSON
 //   gcloud logging read '…' --format=json | pnpm -s logs   # Google's entries work too
 //
-// A line that isn't JSON is printed as it came. Colour only on a terminal (and never with
+// A line that isn't JSON, or that can't be summed up, is printed as it came. Colour only on a terminal (and never with
 // NO_COLOR set).
 import { createInterface } from 'node:readline';
 
@@ -94,12 +94,20 @@ function print(text) {
     console.log(text);
     return;
   }
-  for (const item of Array.isArray(parsed) ? parsed : [parsed]) {
-    console.log(
-      item && typeof item === 'object'
-        ? formatLine(item, { verbose })
-        : String(item),
-    );
+  const items = Array.isArray(parsed) ? parsed : [parsed];
+  for (const item of items) {
+    // An entry the summary can't be made from (a field that won't turn into text) is printed as
+    // it came, and the rest carry on.
+    let out;
+    try {
+      out =
+        item && typeof item === 'object'
+          ? formatLine(item, { verbose })
+          : String(item);
+    } catch {
+      out = items.length === 1 ? text : JSON.stringify(item);
+    }
+    console.log(out);
   }
 }
 

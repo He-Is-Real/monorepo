@@ -107,7 +107,11 @@ gcloud logging read 'jsonPayload.external.bunny.ms>1000' --project heisreal-dev 
 The worker writes one `event: "job"` per delivery (`job.id`, `job.name` `media.check` or
 `media.render`, `job.steps` with each step's time and outcome, `job.output_bytes`,
 `job.delivery`: `SUCCESS`, `RETRY` or `DROP`). It sends its `ref` to the result writer, so the
-writer's events for that delivery carry the same `ref`. To follow one job across its deliveries:
+writer's events for that delivery carry the same `ref`. The writer's answer events keep
+`job.arrived_at`, the time stale answers are ordered by. If the worker hung up while the writer was
+still busy, the writer's last facts (`job.failure_code`, `job.retry`, `job.result`) come on their own
+line ("Media job call finished after the worker hung up") with the same `ref` and `job.id`, so the
+query below still finds them. To follow one job across its deliveries:
 
 ```sh
 gcloud logging read 'jsonPayload.job.id="01JC00000000000000000000AB"' --project heisreal-dev --freshness=7d --order=asc --format=json | pnpm -s logs -v

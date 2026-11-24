@@ -11,7 +11,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { SURREAL } from '@heisreal/database';
-import { currentEvent } from '@heisreal/logging/event';
+import { currentEvent, note } from '@heisreal/logging/event';
 import type { Surreal } from 'surrealdb';
 import { BunnyCallFailed, WRITER_BUNNY, type WriterBunny } from './bunny';
 import {
@@ -76,6 +76,8 @@ export class MediaJobsController {
     // When the answer reached the writer (F1): taken first, before anything can wait.
     const arrivedAt = new Date().toISOString();
     const [job, video, answer] = this.parse(jobParam, body, parseMediaAnswer);
+    // The time stale answers are ordered by (F1), so a late or out-of-order answer is explained.
+    jobFields({ arrived_at: arrivedAt });
     const bunny = this.bunny;
     let result: AnswerResult;
     if (answer.outcome === 'failed') {
@@ -261,9 +263,27 @@ export class MediaJobsController {
 /**
  * Facts about the job on this call's event (`event: "job"`, wideEvents in main.ts; the writer's
  * own lines folded in, LG-2 C): ids, outcomes and codes only, never a pass, a link or a key.
+ * If the worker hung up while the database was still busy, the event is already written: the
+ * facts then go on their own line with the same `ref` and the job's ids, so the failure code,
+ * the retry decision and the result are never lost.
  */
 function jobFields(fields: Record<string, unknown>): void {
-  currentEvent()?.set({ job: { name: 'media', ...fields } });
+  const event = currentEvent();
+  if (!event) return;
+  note(
+    {
+      job: {
+        name: 'media',
+        id: event.get('job.id'),
+        video_id: event.get('job.video_id'),
+        ...fields,
+      },
+    },
+    {
+      severity: 'INFO',
+      message: 'Media job call finished after the worker hung up',
+    },
+  );
 }
 
 /** A counted failure's answer: try again or give up, and how the job ended. */

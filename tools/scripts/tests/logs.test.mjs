@@ -39,3 +39,14 @@ test("reads gcloud's JSON array of entries", () => {
   );
   assert.match(out, /^12:00:00\.123 WARNING {2}api-public-read request GET/);
 });
+
+test('prints an entry it can’t sum up as it came, and carries on', () => {
+  const broken = '{"message":{"toString":null}}';
+  const out = run(`${broken}\n${JSON.stringify(event)}\n`);
+  const lines = out.split('\n');
+  assert.equal(lines[0], broken);
+  assert.match(
+    lines[1],
+    /^12:00:00\.123 WARNING {2}api-public-read request GET/,
+  );
+});
