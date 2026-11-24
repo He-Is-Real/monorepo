@@ -1,6 +1,6 @@
 import { cacheLife } from 'next/cache';
 import { ButtonLink } from '@/components/page/button-link';
-import { Card } from '@heisreal/web-ui';
+import { Card, Text } from '@heisreal/web-ui';
 import { NarrowColumn, PageHeader } from '@/components/page/page-header';
 import { cachedPage, type PageCacheLife } from '@/lib/page-cache';
 import { pageMetadata } from '@/lib/seo';
@@ -31,10 +31,10 @@ function ContactContent() {
           lead="Got a question, an idea, or just want to say hello? A real person will read your message."
         />
         <Card className="p-6 text-center sm:p-8">
-          <p className="mb-6 text-secondary-text">
+          <Text tone="quiet" className="mb-6">
             Our contact form is coming soon. Until then, email us and we’ll get
             back to you.
-          </p>
+          </Text>
           <ButtonLink
             href={`mailto:${EMAIL}`}
             className="w-full [overflow-wrap:anywhere]"

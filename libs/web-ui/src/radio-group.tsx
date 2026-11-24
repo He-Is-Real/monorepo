@@ -2,6 +2,7 @@
 
 import { useId, useLayoutEffect, useRef } from 'react';
 import { cn } from './cn';
+import { headingVariants } from './text';
 
 export interface RadioOption {
   value: string;
@@ -65,7 +66,7 @@ export function RadioGroup({
 
   return (
     <fieldset ref={fieldset} className={className}>
-      <legend className="mb-2 block text-xs font-semibold tracking-wide text-secondary-text uppercase">
+      <legend className={cn('mb-2 block', headingVariants({ size: 'small' }))}>
         {legend}
       </legend>
       {options.map((o) => (

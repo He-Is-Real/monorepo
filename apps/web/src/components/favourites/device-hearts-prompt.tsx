@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { deviceHeartCards } from '@/app/stories/actions';
 import { useAccountState } from '@/components/auth/account-bootstrap';
-import { Button, Notice } from '@heisreal/web-ui';
+import { Button, Notice, Text } from '@heisreal/web-ui';
 import { MAX_IDS } from '@/lib/browse';
 import {
   deviceHeartIdsToOffer,
@@ -132,14 +132,14 @@ export function DeviceHeartsPrompt() {
       aria-labelledby={headingId}
       className="pointer-events-none fixed inset-x-0 bottom-0 z-40 px-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
     >
-      <div className="pointer-events-auto mx-auto w-full max-w-[32rem] rounded-2xl border border-border-hover bg-card p-4 text-card-foreground shadow-2xl">
-        <p id={headingId} aria-live="polite" className="text-[0.9375rem]">
+      <div className="pointer-events-auto mx-auto w-full max-w-[32rem] rounded-2xl border border-border-hover bg-card p-4 shadow-2xl">
+        <Text id={headingId} aria-live="polite">
           {count === 1
             ? 'Add the story you hearted on this device to your account?'
             : `Add the ${count} stories you hearted on this device to your account?`}
-        </p>
+        </Text>
         {adding === 'failed' && (
-          <Notice kind="danger" as="p" role="alert" className="mt-2 text-sm">
+          <Notice kind="danger" as="p" role="alert" className="mt-2">
             {TRY_AGAIN_LATER}
           </Notice>
         )}

@@ -4,7 +4,7 @@ import { SignOutButton, useAuth, useUser } from '@clerk/react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { Popover } from 'radix-ui';
 import { cloneElement, type ReactElement, useEffect, useState } from 'react';
-import { Button, PopoverPanel } from '@heisreal/web-ui';
+import { Button, PopoverPanel, Text } from '@heisreal/web-ui';
 import { useAccountBootstrap } from '@/components/auth/account-bootstrap';
 import { usePublishPersonalSession } from '@/lib/personal-session';
 import { signInHref } from '@/lib/return-path';
@@ -90,6 +90,8 @@ export function SignedInAccount({
   signOut: (button: React.ReactElement) => React.ReactNode;
 }) {
   const initial = [...name.trim()][0]?.toUpperCase() ?? '?';
+  /* eslint-disable @heisreal/web-ui/no-text-look -- the header's account menu keeps its own look
+     (round 3: the site's menus and footer keep their own links, one component each). */
   return (
     <Popover.Root>
       <Popover.Trigger
@@ -118,10 +120,16 @@ export function SignedInAccount({
         </svg>
       </Popover.Trigger>
       <PopoverPanel aria-label="Account" className="p-4">
-        <p className="mb-3 text-sm text-secondary-text [overflow-wrap:anywhere]">
+        <Text
+          size="small"
+          tone="quiet"
+          className="mb-3 [overflow-wrap:anywhere]"
+        >
           Signed in as{' '}
-          <span className="font-medium text-foreground">{name}</span>
-        </p>
+          <Text as="span" size="inherit" tone="normal" weight="bold">
+            {name}
+          </Text>
+        </Text>
         <a
           href="/account"
           className="mb-2 flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -146,6 +154,7 @@ export function SignedInAccount({
       </PopoverPanel>
     </Popover.Root>
   );
+  /* eslint-enable @heisreal/web-ui/no-text-look */
 }
 
 /**

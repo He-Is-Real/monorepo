@@ -57,6 +57,15 @@ depends on `"@heisreal/web-ui": "workspace:*"`.
      `/* eslint-disable @heisreal/web-ui/no-raw-colour -- why */` and `eslint-enable`
      (`apps/web` share-menu.tsx: WhatsApp, Facebook and Instagram).
 
+   - `@heisreal/web-ui/no-text-look` (TX-7 A, Joel, 21 November 2026): a text colour, size,
+     weight, line height, letter spacing, capitals or italics class (`text-sm`,
+     `text-secondary-text`, `font-semibold`, `leading-relaxed`, `tracking-wide`, `uppercase`,
+     `italic`) in page code fails; use `Heading`, `Text`, `Quote` or `TextLink`. Only strings that
+     read as class lists count. Alignment and wrapping (`text-center`, `text-balance`,
+     `line-clamp-2`) are layout and pass. A page that truly needs its own look (the styling
+     order's last step) wraps it in `/* eslint-disable-next-line @heisreal/web-ui/no-text-look --
+why */`. Box looks (borders, corners, fills, shadows) get their check next round.
+
    Tests, e2e and config files are skipped. `eslint/rules.test.mjs` probes both rules (the
    `lint-rules` target, run before `lint`).
 
@@ -71,7 +80,7 @@ means. Pages use only these names, as Tailwind classes (`bg-danger`, `text-dange
 | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `background`, `foreground`             | The page and its text.                                                                                                  |
 | `raised`, `card`, `surface`, `popover` | Surfaces above the page: raised strips, bordered panels, filled areas, pop-up menus.                                    |
-| `secondary-text`, `muted-foreground`   | Quieter text (hints, captions).                                                                                         |
+| `secondary-text`                       | Quieter text (hints, captions, dates, card text): one grey (TX-1 A). Pages use `Text tone="quiet"`.                     |
 | `faint`                                | The quietest: large text, placeholders and icons only.                                                                  |
 | `link`, `link-hover`                   | Links.                                                                                                                  |
 | `primary`, `primary-foreground`        | The main action (filled buttons) and its text.                                                                          |
@@ -94,6 +103,37 @@ means. Pages use only these names, as Tailwind classes (`bg-danger`, `text-dange
 | `--art-1-…` to `--art-5-…`             | A story card without a picture: five quiet artworks (`-from`, `-to`, `-accent`), CSS variables only.                    |
 
 ## Components
+
+Text (round 3, TX-1 to TX-6 A, Joel, 21 November 2026): pages hold no text looks, only layout.
+
+- `Heading`: `level` (1–6) picks the tag; `size` picks the look, with a default per level:
+  `display` (the two hero pages, Home and Greatest Story: 40 px on a phone growing to 64 px),
+  `title` (every other page's title, level 1's default: 32 px, 44 px wider, normal weight),
+  `section` (level 2's default: 24 px, 28 px wider, normal weight, public and admin pages alike),
+  `sub` (levels 3 and 4: 18 px semibold, a heading inside a panel, dialog or list), `small` (the
+  grey capitals over filters and list groups) and `eyebrow` (the teal capitals above a title, or
+  naming a section: "In their words"). `as` draws the look on another element (a `p`, a
+  `legend`). `headingVariants({ size })` gives the classes.
+- `Text`: `size` `intro` (the paragraph under a title, 18 px), `story` (a story's text and Greatest
+  Story's, 18 px with roomy lines), `body` (default, 16 px, card paragraphs too), `small` (14 px:
+  hints, captions, dates, tables) or `inherit`; `tone` `normal`, `quiet` (the one grey for quieter
+  text), `danger`, `success`, `warning`, `media` / `media-quiet` (white words on pictures, video and the dark
+  hero), or the colour around it (default); `weight` `bold` for a name, count or label that stands
+  out, `regular` for words inside a bold line ("(optional)") (bold words inside a sentence stay plain `<strong>`); `italic` for
+  quotes, speech and subtle hints only (TX-8 C, Joel, 24 November 2026: a prayer, a quoted note, a
+  spoken line, "No note yet"). A `p` unless `as` says otherwise;
+  `asChild` puts the look on its child. `textVariants(…)` gives the classes.
+- `Quote`: a pull quote (a written story's page, About, Greatest Story's verses): a brand bar on the
+  left, 22 px italic in the normal text colour; `source` adds who said it as a small caption.
+  Italic is for quotes, speech and subtle hints only: `Quote`, or `Text italic`; never an `italic`
+  class or `font-style` in a page.
+- `TextLink` and `textLinkVariants`: a link that looks like a link (TX-6 A): `kind` `inline` (in a
+  sentence: always underlined, so it never relies on colour) or `standalone` (on its own or beside a
+  value, "Back to the list", "Change": semibold, underlined on hover, at least 44 px). An `<a>`, or
+  `asChild` round a router's link (`apps/web`'s `TextLink` does this for internal and external
+  links). The site's menus and footer keep their own links.
+- `proseClasses`: the looks of text written in Markdown, one class string per element (`apps/web`'s
+  renderer for the legal texts and consents).
 
 - `Select`: the site's drop-down. Every drop-down is this one. Closed, a theme field with the
   theme's chevron. Open on a computer (mouse or trackpad) once JavaScript runs: the themed list

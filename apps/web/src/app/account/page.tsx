@@ -9,7 +9,7 @@ import { ClerkYourData, FixtureYourData } from '@/components/account/your-data';
 import { NarrowColumn, PageHeader } from '@/components/page/page-header';
 import { clerkPublishableKey, e2eFixtures } from '@/lib/config';
 import { pageMetadata } from '@/lib/seo';
-import { Card } from '@heisreal/web-ui';
+import { Card, Heading, Text } from '@heisreal/web-ui';
 
 /** Never indexed: it's personal, and the same empty shell for every visitor. */
 export function generateMetadata(): Metadata {
@@ -54,14 +54,14 @@ export default async function ProfilePage() {
         <MySubmissions />
         {manage && (
           <section aria-labelledby="your-account" className="mb-12">
-            <h2 id="your-account" className="mb-5 text-2xl font-normal">
+            <Heading level={2} id="your-account" className="mb-5">
               Your account
-            </h2>
+            </Heading>
             <Card className="p-5 sm:p-6">
-              <p className="mb-4 text-secondary-text">
+              <Text tone="quiet" className="mb-4">
                 Your name, email address, password and Google sign-in are kept
                 by our sign-in provider, Clerk. Change them there.
-              </p>
+              </Text>
               {manage}
             </Card>
           </section>

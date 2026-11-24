@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { DM_Sans } from 'next/font/google';
 import { connection } from 'next/server';
-import { browserThemeColour } from '@heisreal/web-ui';
+import { browserThemeColour, buttonVariants } from '@heisreal/web-ui';
 import { ClerkBrowser } from '@/components/auth/clerk-browser';
 import { DeviceHeartsPrompt } from '@/components/favourites/device-hearts-prompt';
 import { JsonLd } from '@/components/page/json-ld';
@@ -85,7 +85,10 @@ export default async function RootLayout({
     <>
       <a
         href="#main"
-        className="sr-only rounded-b-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground hover:text-primary-foreground focus:not-sr-only focus:absolute focus:top-0 focus:left-4 focus:z-50"
+        className={buttonVariants({
+          className:
+            'sr-only rounded-t-none focus:not-sr-only focus:absolute focus:top-0 focus:left-4 focus:z-50',
+        })}
       >
         Skip to content
       </a>

@@ -25,19 +25,22 @@ const eslint = new ESLint({
   ],
 });
 
-async function rules(code) {
+/** The library's rules that fail on `code` (only `rule`, when given). */
+async function ruleHits(code, rule) {
   const [result] = await eslint.lintText(code, {
     filePath: `${cwd}/src/app/probe/page.tsx`,
   });
   return result.messages
     .map((m) => m.ruleId)
-    .filter((id) => id?.startsWith('@heisreal/web-ui/'));
+    .filter((id) => id?.startsWith('@heisreal/web-ui/'))
+    .filter((id) => rule === undefined || id === `@heisreal/web-ui/${rule}`);
 }
 
 const page = (className) =>
   `export default function P() { return <p className=${className}>x</p>; }`;
 
 describe('no-raw-colour', () => {
+  const rules = (code) => ruleHits(code, 'no-raw-colour');
   for (const [what, cls] of [
     ['a palette class', '"text-red-600"'],
     [
@@ -178,11 +181,95 @@ describe('no-raw-colour', () => {
 });
 
 describe('field-look', () => {
+  const rules = (code) => ruleHits(code, 'field-look');
   it('fails on a copied field look', async () =>
     assert.deepEqual(
       await rules(
         page('"h-11 border-input bg-input-background focus-visible:ring-2"'),
       ),
       ['@heisreal/web-ui/field-look'],
+    ));
+});
+
+describe('no-text-look', () => {
+  const rules = (code) => ruleHits(code, 'no-text-look');
+  for (const [what, cls] of [
+    ['a text size', '"mb-2 text-sm"'],
+    ['an arbitrary size with a variant', '"sm:text-[1.75rem]"'],
+    ['a text colour', '"text-secondary-text"'],
+    ['a weight', '"font-semibold"'],
+    ['a line height', '"leading-relaxed"'],
+    ['letter spacing', '"tracking-[0.2em]"'],
+    ['capitals', '"uppercase"'],
+    ['italics in a selector variant', '"[&_p]:italic"'],
+    ['a size from a variable', '"text-(length:--card-font)"'],
+    ['a constant', "{'block text-xs'}"],
+    ['a template literal', '{`p-2 ${"x"} font-medium`}'],
+    ['a look beside a named group', '"group/Story text-lg"'],
+    [
+      'a look beside a quoted attribute selector',
+      `'[&[data-state="open"]]:block font-bold'`,
+    ],
+    [
+      'a look in a class helper beside a named group',
+      `{cn('group/Story italic')}`,
+    ],
+    ['negative tracking', '"-tracking-[0.05em]"'],
+    ['negative tracking with a variant', '"sm:-tracking-wide"'],
+    ['negative leading', '"-leading-1"'],
+    ['an arbitrary colour property', '"[color:var(--danger)]"'],
+    ['an arbitrary font size', '"[font-size:40px]"'],
+    ['an arbitrary weight', '"[font-weight:600]"'],
+    ['an arbitrary line height', '"[line-height:1.1]"'],
+    ['an arbitrary letter spacing', '"[letter-spacing:0.1em]"'],
+    ['an arbitrary text transform', '"[text-transform:uppercase]"'],
+    ['an arbitrary font style', '"hover:[font-style:italic]"'],
+  ])
+    it(`fails on ${what}`, async () =>
+      assert.deepEqual(await rules(page(cls)), [
+        '@heisreal/web-ui/no-text-look',
+      ]));
+
+  for (const [what, cls] of [
+    ['layout only', '"mx-auto mt-3 max-w-measure text-center text-balance"'],
+    ['a single word of text', '"Bold"'],
+    ['wrapping and clamps', '"line-clamp-2 truncate text-pretty"'],
+    [
+      'a named group and a quoted selector, layout only',
+      `'group/Story [&[data-state="open"]]:block mt-2'`,
+    ],
+    [
+      'an arbitrary layout property',
+      '"[grid-area:main] [mask-type:luminance]"',
+    ],
+  ])
+    it(`passes ${what}`, async () =>
+      assert.deepEqual(await rules(page(cls)), []));
+
+  it('fails on a look in a class constant beside a quoted selector and a named group', async () =>
+    assert.deepEqual(
+      await rules(
+        `export const look = 'group/Story [&[data-state="open"]]:block text-sm';`,
+      ),
+      ['@heisreal/web-ui/no-text-look'],
+    ));
+
+  it('passes a sentence that names a look, outside a class list', async () => {
+    assert.deepEqual(
+      await rules(`export const hint = 'Make it italic or bold';`),
+      [],
+    );
+    assert.deepEqual(
+      await rules(
+        `export const P = () => <p title="Use italic sparingly.">x</p>;`,
+      ),
+      [],
+    );
+  });
+
+  it('passes a link to an id', async () =>
+    assert.deepEqual(
+      await rules(`export const P = () => <a href="italic">x</a>;`),
+      [],
     ));
 });

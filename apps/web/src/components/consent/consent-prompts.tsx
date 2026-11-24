@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useSyncExternalStore } from 'react';
 import { useAccountState } from '@/components/auth/account-bootstrap';
-import { Button, Notice } from '@heisreal/web-ui';
+import { Button, Notice, Text } from '@heisreal/web-ui';
 import { SIGN_IN_PATH, stepReturnPath } from '@/lib/return-path';
 
 /** The terms of use on the person's account: at sign-up, and after the terms change (plan 4e). */
@@ -122,16 +122,13 @@ export function ConsentPrompts() {
       >
         <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
           <div className="min-w-0 flex-[1_1_20rem]">
-            <h2
-              id="consent-banner-title"
-              className="text-base font-semibold text-foreground"
-            >
+            <Text as="h2" weight="bold" tone="normal" id="consent-banner-title">
               Our testimony consent has changed
-            </h2>
-            <p className="text-sm">
+            </Text>
+            <Text size="small">
               Please read what’s changed and agree before you start or change a
               story. Your published stories stay up either way.
-            </p>
+            </Text>
           </div>
           <div className="flex min-w-0 max-w-full flex-wrap gap-2">
             <Button asChild wrap>

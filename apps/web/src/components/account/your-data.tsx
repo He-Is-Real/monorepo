@@ -8,8 +8,10 @@ import {
   Card,
   DangerZone,
   FieldLabel,
+  Heading,
   Input,
   Notice,
+  Text,
 } from '@heisreal/web-ui';
 import {
   type ApiUser,
@@ -86,9 +88,9 @@ export function YourData({ afterDeletion }: { afterDeletion: AfterDeletion }) {
   if (session.status === 'signed-out') return null;
   return (
     <section aria-labelledby="your-data" className="mb-12">
-      <h2 id="your-data" className="mb-5 text-2xl font-normal">
+      <Heading level={2} id="your-data" className="mb-5">
         Your data
-      </h2>
+      </Heading>
       {/* A fresh one for each person: nobody inherits the last person's confirmation or key. */}
       <ul key={owner ?? 'unknown'} className="flex flex-col gap-4">
         <DownloadMyData />
@@ -162,14 +164,16 @@ function DownloadMyData() {
   return (
     <Card asChild className="p-5 sm:p-6">
       <li data-download-data="">
-        <h3 className="mb-1 text-lg font-semibold">Download my data</h3>
-        <p className="mb-4 text-secondary-text">
+        <Heading level={3} className="mb-1">
+          Download my data
+        </Heading>
+        <Text size="inherit" tone="quiet" className="mb-4">
           Get a copy of everything we hold about you, in one file (JSON) that
           explains each part: your account and sign-in details, every story
           you’ve started or shared, what you agreed to, favourites and limits.
           Your videos, audio and pictures are in it as links that work for 7
           days, including a link to download each video or audio as an MP4 file.
-        </p>
+        </Text>
         <Button
           variant="outline"
           wrap
@@ -180,12 +184,14 @@ function DownloadMyData() {
           {busy ? 'Preparing your file…' : 'Download my data'}
         </Button>
         {notice && (
-          <p
+          <Text
             role={notice.alert ? 'alert' : 'status'}
-            className={`mt-3 text-sm ${notice.alert ? 'text-danger-text' : ''}`}
+            size="small"
+            tone={notice.alert ? 'danger' : 'inherit'}
+            className="mt-3"
           >
             {notice.text}
-          </p>
+          </Text>
         )}
       </li>
     </Card>
@@ -249,12 +255,14 @@ function DeleteAccount({ afterDeletion }: { afterDeletion: AfterDeletion }) {
   return (
     <Card asChild className="p-5 sm:p-6">
       <li data-delete-account="">
-        <h3 className="mb-1 text-lg font-semibold">Delete my account</h3>
-        <p className="mb-4 text-secondary-text">
+        <Heading level={3} className="mb-1">
+          Delete my account
+        </Heading>
+        <Text size="inherit" tone="quiet" className="mb-4">
           This withdraws your consent and deletes your stories, your account and
           everything else we hold about you. To take down just one story, use
           Edit or Delete on it in My submissions.
-        </p>
+        </Text>
         {done ? (
           <Notice kind="success" as="p" role="status" data-deleted="">
             Your account is deleted. Signing you out…
@@ -268,7 +276,9 @@ function DeleteAccount({ afterDeletion }: { afterDeletion: AfterDeletion }) {
             actionLabel="Delete my account"
           >
             <div>
-              <p className="mb-2 font-semibold">This deletes, for good:</p>
+              <Text size="inherit" weight="bold" className="mb-2">
+                This deletes, for good:
+              </Text>
               <ul className="mb-3 list-disc pl-5">
                 <li>your account and your sign-in;</li>
                 <li>
@@ -293,8 +303,7 @@ function DeleteAccount({ afterDeletion }: { afterDeletion: AfterDeletion }) {
                 }}
               >
                 <FieldLabel htmlFor={inputId}>
-                  Type <span className="font-bold">{CONFIRM_WORD}</span> to
-                  confirm
+                  Type <strong>{CONFIRM_WORD}</strong> to confirm
                 </FieldLabel>
                 <Input
                   id={inputId}
@@ -334,9 +343,9 @@ function DeleteAccount({ afterDeletion }: { afterDeletion: AfterDeletion }) {
           </DangerZone>
         )}
         {error && (
-          <p role="alert" className="mt-3 text-sm text-danger-text">
+          <Text role="alert" size="small" tone="danger" className="mt-3">
             {error}
-          </p>
+          </Text>
         )}
       </li>
     </Card>

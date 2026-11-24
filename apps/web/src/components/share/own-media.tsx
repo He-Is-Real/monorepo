@@ -1,3 +1,4 @@
+import { Text } from '@heisreal/web-ui';
 import { StoryMedia } from '@/components/stories/story-media';
 import type { StoryContent } from '@/components/stories/story-view';
 import type { MyStory } from './share-api';
@@ -44,13 +45,14 @@ export function PreviewLater({
   const media = story.media[0];
   if (!media || media.playbackUrl) return null;
   return (
-    <p
+    <Text
+      tone="quiet"
       data-preview-later={media.format}
-      className={`rounded-xl bg-surface px-4 py-3 text-secondary-text ${className}`}
+      className={`rounded-xl bg-surface px-4 py-3 ${className}`}
     >
       Check back later for your {media.format === 'audio' ? 'audio' : 'video'}{' '}
       preview.
-    </p>
+    </Text>
   );
 }
 

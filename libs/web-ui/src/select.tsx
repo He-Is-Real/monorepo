@@ -279,7 +279,7 @@ export function Select({
         data-chevron=""
         viewBox="0 0 24 24"
         aria-hidden="true"
-        className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 fill-none stroke-muted-foreground"
+        className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 fill-none stroke-secondary-text"
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"

@@ -851,6 +851,25 @@ for (const scheme of ['light', 'dark'] as const) {
   });
 }
 
+// Signed out, My profile and an own story's preview each ask people to sign in; that link
+// starts a short line but is still a 44 px target (Codex, PR 273).
+test('signed out: My profile and a preview ask to sign in, with 44 px targets', async ({
+  page,
+}) => {
+  for (const [path, words] of [
+    ['/account', /to see the stories you’ve shared/],
+    ['/account/stories/v1/preview', /to see your story’s preview/],
+  ] as const) {
+    await page.goto(path);
+    await expect(page.getByRole('main').getByText(words)).toBeVisible();
+    await expect(
+      page.getByRole('main').getByRole('link', { name: 'Sign in' }),
+    ).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await expectAllTargets(page);
+  }
+});
+
 test('200% text on the smallest phone: My profile still fits', async ({
   page,
   request,

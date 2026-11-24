@@ -37,3 +37,13 @@ export { Tabs, tabId, type TabItem } from './tabs';
 export { Disclosure } from './disclosure';
 export { Accordion, type AccordionItem } from './accordion';
 export { Dialog, type DialogProps } from './dialog';
+export {
+  Heading,
+  headingVariants,
+  Quote,
+  Text,
+  TextLink,
+  textLinkVariants,
+  textVariants,
+} from './text';
+export { proseClasses } from './prose';

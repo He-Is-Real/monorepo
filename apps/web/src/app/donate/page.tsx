@@ -1,13 +1,13 @@
 import { cacheLife } from 'next/cache';
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { DonateChooser } from '@/components/donate/donate-chooser';
 import { StripeBuyButtonScript } from '@/components/donate/stripe-buy-button';
 import { NarrowColumn } from '@/components/page/page-header';
 import { stripeDonations, type StripeDonations } from '@/lib/config';
 import { cachedPage, type PageCacheLife } from '@/lib/page-cache';
 import { pageMetadata } from '@/lib/seo';
-import { Notice } from '@heisreal/web-ui';
+import { Heading, Notice, Text } from '@heisreal/web-ui';
+import { TextLink } from '@/components/page/text-link';
 
 /** At request time: the site's address (SITE_URL) and the Stripe settings are read per request. */
 export async function generateMetadata(): Promise<Metadata> {
@@ -39,20 +39,15 @@ function DonateContent() {
 function NotOpenYet() {
   return (
     <>
-      <h1 className="text-3xl leading-tight font-normal sm:text-4xl">
-        Giving isn’t open yet
-      </h1>
-      <p className="mt-4 text-lg text-secondary-text">
+      <Heading level={1}>Giving isn’t open yet</Heading>
+      <Text size="intro" tone="quiet" className="mt-4">
         He Is Real Today is a not-for-profit. Online giving opens with a later
         version of this site. Thank you for wanting to help.
-      </p>
+      </Text>
       <p className="mt-8">
-        <Link
-          href="/stories"
-          className="inline-flex min-h-11 items-center font-medium"
-        >
+        <TextLink href="/stories" kind="standalone">
           Read the stories
-        </Link>
+        </TextLink>
       </p>
     </>
   );
@@ -62,23 +57,21 @@ function Giving({ stripe }: { stripe: StripeDonations }) {
   return (
     <>
       <StripeBuyButtonScript />
-      <h1 className="text-3xl leading-tight font-normal sm:text-4xl">
-        Support this work
-      </h1>
-      <p className="mt-4 text-lg text-secondary-text">
+      <Heading level={1}>Support this work</Heading>
+      <Text size="intro" tone="quiet" className="mt-4">
         He Is Real Today is a not-for-profit. We rely on the generosity of
         people who believe these stories matter.
-      </p>
-      <p className="mt-3 text-secondary-text">
+      </Text>
+      <Text tone="quiet" className="mt-3">
         Every donation goes directly to publishing more stories and reaching
         more people searching for answers about faith.
-      </p>
+      </Text>
       {stripe.publishableKey.startsWith('pk_test_') && (
         <Notice
           kind="warning"
           as="p"
           role="note"
-          className="mt-6 text-sm"
+          className="mt-6"
           title="Test mode — dev only."
         >
           These buttons use Stripe’s sandbox: no real money is taken. Pay with
@@ -88,17 +81,18 @@ function Giving({ stripe }: { stripe: StripeDonations }) {
 
       <DonateChooser stripe={stripe} />
 
-      <p className="mt-10 border-t border-border pt-8 text-sm text-secondary-text">
+      <Text
+        size="small"
+        tone="quiet"
+        className="mt-10 border-t border-border pt-8"
+      >
         Stripe, our payment provider, takes your payment on its own secure page
         and emails your receipt; we never see your card details. See our{' '}
-        <Link
-          href="/privacy#donations"
-          className="inline-flex min-h-11 items-center"
-        >
+        <TextLink href="/privacy#donations" touch>
           privacy notice
-        </Link>
+        </TextLink>
         .
-      </p>
+      </Text>
     </>
   );
 }

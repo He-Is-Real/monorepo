@@ -19,13 +19,13 @@
  * in <head> sets the class before first paint (apps/web src/lib/theme.ts), so there's no flash.
  *
  * Light, WCAG 2.1 on --background (#ffffff): foreground #1a1a1a 17.4:1, secondary text
- * #55555c 7.4:1, muted #6b6b73 5.3:1, links #3d7a7e 4.9:1, primary button #2f6467 with white
+ * #55555c 7.4:1 (the one grey for quieter text, TX-1 A), links #3d7a7e 4.9:1, primary button #2f6467 with white
  * text 6.7:1, faint #8a8a93 3.4:1 (large text and input borders only, 3:1 for UI), danger
  * #c62828 5.6:1 (4.8:1 on the surface; white on it 5.6:1), success #1e7e45 5.1:1, warning
  * #8a5a00 5.9:1 (and white on it 5.9:1). Brand teal #4e9ba0 is 3.2:1 on white: logo and
  * decoration only, never text.
  *
- * Dark, on --background (#111113): foreground 16.6:1, muted-foreground 5.5:1, primary and
+ * Dark, on --background (#111113): foreground 16.6:1, secondary text #a0a0a8 about 7:1, primary and
  * links (teal) 5.9:1, faint 3.5:1 (large text only). White on teal is 3.2:1 (fails AA), so
  * text on teal is dark: 5.9:1 (Joel kept dark buttons this way). Danger: moderation's checked
  * reds (OT-1): danger text 6.3:1 on the background and 4.8:1 or more on every surface; a danger
@@ -65,7 +65,6 @@
   /* Text */
   --foreground: #1a1a1a;
   --secondary-text: #55555c;
-  --muted-text: #6b6b73;
   --faint: #8a8a93;
   --link: #3d7a7e;
   --link-hover: #2f6467;
@@ -79,7 +78,6 @@
   --secondary: var(--surface);
   --secondary-foreground: var(--foreground);
   --muted: var(--raised);
-  --muted-foreground: var(--muted-text);
   --accent: var(--brand-subtle);
   --accent-foreground: var(--foreground);
   --border: rgb(0 0 0 / 0.1);
@@ -153,7 +151,6 @@
   /* Text (design: --text, --text-secondary, --text-muted, --text-faint) */
   --foreground: #f0f0f2;
   --secondary-text: #a0a0a8;
-  --muted-text: #8a8a94;
   --faint: #6a6a74;
   --link: var(--brand);
   --link-hover: var(--brand-bright);
@@ -192,7 +189,6 @@
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-danger: var(--danger);

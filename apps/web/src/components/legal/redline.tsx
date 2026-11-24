@@ -1,3 +1,4 @@
+import { cn, Text, textVariants } from '@heisreal/web-ui';
 import { Fragment } from 'react';
 import { foldLabel, type RedlineItem, type Segment } from '@/lib/redline';
 
@@ -22,29 +23,34 @@ export function Redline({
     <section
       aria-label={label}
       data-redline=""
-      className={`space-y-3 rounded-xl border border-border bg-card px-4 py-4 leading-relaxed text-secondary-text [overflow-wrap:anywhere] sm:px-5 ${className}`.trim()}
+      className={cn(
+        'space-y-3 rounded-xl border border-border bg-card px-4 py-4 [overflow-wrap:anywhere] sm:px-5',
+        textVariants({ tone: 'quiet' }),
+        className,
+      )}
     >
       {items.length === 0 ? (
         <p data-redline-empty="">No words have changed.</p>
       ) : (
         items.map((item, i) =>
           item.type === 'fold' ? (
-            <p
+            <Text
               key={i}
+              size="small"
+              tone="quiet"
               data-redline-fold=""
-              className="text-center text-sm text-muted-foreground"
+              className="text-center"
             >
               {foldLabel(item)}
-            </p>
+            </Text>
           ) : (
-            <p
+            <Text
               key={i}
-              className={
-                item.heading ? 'font-semibold text-foreground' : undefined
-              }
+              size="inherit"
+              {...(item.heading ? { tone: 'normal', weight: 'bold' } : {})}
             >
               <Segments segments={item.segments} />
-            </p>
+            </Text>
           ),
         )
       )}
@@ -61,11 +67,16 @@ function Segments({ segments }: { segments: Segment[] }) {
     return (
       <Fragment key={i}>
         {s.kind === 'added' ? (
-          <ins className="rounded-sm bg-success/10 text-foreground underline decoration-success decoration-2 underline-offset-[3px]">
+          <Text
+            as="ins"
+            size="inherit"
+            tone="normal"
+            className="rounded-sm bg-success/10 underline decoration-success decoration-2 underline-offset-[3px]"
+          >
             <span className="sr-only">[added: </span>
             {s.text}
             <span className="sr-only">]</span>
-          </ins>
+          </Text>
         ) : (
           <del className="rounded-sm bg-danger/10 line-through decoration-danger decoration-2">
             <span className="sr-only">[removed: </span>

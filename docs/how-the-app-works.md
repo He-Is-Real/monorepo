@@ -1374,6 +1374,20 @@ For developers. Details are in the linked documents.
   the check box's 22 px and every pressable piece shows the same keyboard outline, text boxes
   keeping their glow (MG-4 A). One field label, semibold (MG-5 A). Card's unused coloured edges are
   gone.
+  **Text (TX-1 to TX-7 A, Joel, 21 November 2026):** headings, text and links are the library's
+  `Heading`, `Text`, `Quote` and `TextLink`, and lint refuses text colours, sizes, weights, line
+  heights, letter spacing, capitals and italics in page code (box looks follow next round). One grey
+  for quieter text (TX-1). One page-title size (32 px, 44 px wider) on every page, plus one hero size
+  for Home and Greatest Story (TX-2). One section-heading look everywhere (24 px, 28 px wider,
+  normal weight), headings inside panels and dialogs the 18 px semibold sub-heading (TX-3). Intros
+  and a story's text 18 px (TX-4). Small text 14 px; card paragraphs normal 16 px text (TX-5). Links
+  inside a sentence always underlined; links on their own semibold with an underline on hover, 44 px
+  to press (TX-6). The pull quotes share one look (a brand bar, 22 px italic), "In their words" is a
+  teal eyebrow heading, and story cards' "NEW" pill is unchanged. Italic is for quotes, speech and
+  subtle hints only (TX-8 C, Joel, 24 November 2026: "allow italics for quotes, speech and subtle
+  guidance/hints"): the pull quotes, and `Text italic` for Greatest Story's prayer lines, the block
+  list's "No note yet", moderation history's quoted note to the person and the thumbnail crop's
+  spoken line.
 - **Logs are JSON everywhere** (Joel, 2026-11-14: "yes add JSON formatting to all logs with
   severity levels eg DEBUG INFO WARNING including the worker with timestamps. dont force surrealdb
   to do this if it does not support it out of the box"). Every service, job and the media worker

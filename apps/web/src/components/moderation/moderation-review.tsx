@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { TextLink } from '@/components/page/text-link';
 import {
   type ReactNode,
   useCallback,
@@ -24,7 +24,10 @@ import {
   Field,
   FieldHint,
   FieldLabel,
+  Heading,
   Notice,
+  proseClasses,
+  Text,
   Textarea,
 } from '@heisreal/web-ui';
 import { type ApiUser, ApiUserProblem } from '@/lib/api-user';
@@ -228,10 +231,10 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
       ref={noticeRef}
       tabIndex={-1}
       role="status"
-      className="mx-auto mb-6 max-w-measure font-semibold outline-none"
+      className="mx-auto mb-6 max-w-measure outline-none"
       data-review-notice={notice.tone}
     >
-      {notice.text}
+      <strong>{notice.text}</strong>
     </Notice>
   );
 
@@ -239,7 +242,7 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
     return (
       <>
         {noticeLine}
-        <p className="text-secondary-text">Loading the story…</p>
+        <Text tone="quiet">Loading the story…</Text>
       </>
     );
   }
@@ -250,7 +253,9 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
         <Card asChild className="p-6">
           <p data-review-gone="">
             This story isn’t here any more. It may have been deleted.{' '}
-            <Link href="/moderation">Back to the list</Link>
+            <TextLink href="/moderation" touch>
+              Back to the list
+            </TextLink>
           </p>
         </Card>
       </>
@@ -277,9 +282,9 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
           className="mx-auto mb-6 max-w-measure"
           data-review-stale=""
         >
-          <p className="mb-3 font-semibold">
+          <Text weight="bold" className="mb-3">
             This story changed while you had it open.
-          </p>
+          </Text>
           <Button
             variant="outline"
             wrap
@@ -293,12 +298,14 @@ function Review({ id, client }: { id: string; client: ApiUser }) {
           </Button>
         </Notice>
       )}
-      <p
-        className="mx-auto mb-8 max-w-measure text-sm font-semibold text-link"
+      <Heading
+        as="p"
+        size="eyebrow"
+        className="mx-auto mb-8 max-w-measure"
         data-review-status={story.status}
       >
         {statusLabel(story)}
-      </p>
+      </Heading>
       <Sender
         key={`${story.id} ${story.senderEmailBlocked} ${story.senderIpBlocked}`}
         story={story}
@@ -365,8 +372,9 @@ function Sender({
           startNote={startNote}
           client={client}
         >
-          Sent with email <span className="font-mono">{story.senderEmail}</span>
-          . Only admins see this.
+          Sent with email{' '}
+          <code className={proseClasses.code}>{story.senderEmail}</code>. Only
+          admins see this.
         </SenderLine>
       )}
       {story.senderIp && (
@@ -378,8 +386,8 @@ function Sender({
           client={client}
         >
           Sent from IP address{' '}
-          <span className="font-mono">{story.senderIp}</span>. Only admins see
-          this, for 30 days.
+          <code className={proseClasses.code}>{story.senderIp}</code>. Only
+          admins see this, for 30 days.
         </SenderLine>
       )}
     </Card>
@@ -459,9 +467,9 @@ function SenderLine({
     <div {...{ [attr]: value }}>
       <p>{children}</p>
       {step === 'done' ? (
-        <p className="mt-1 font-semibold" data-sender-blocked="">
+        <Text weight="bold" className="mt-1" data-sender-blocked="">
           Blocked
-        </p>
+        </Text>
       ) : step === 'idle' ? (
         <Button
           variant="outline"
@@ -474,8 +482,8 @@ function SenderLine({
       ) : (
         <div className="mt-2" role="group" aria-label={`Block ${value}`}>
           <p className="mb-2">
-            Block <span className="font-mono">{value}</span>? It stays until an
-            Admin removes it.
+            Block <code className={proseClasses.code}>{value}</code>? It stays
+            until an Admin removes it.
           </p>
           <div className="mb-3">
             <BlockNoteField
@@ -485,9 +493,9 @@ function SenderLine({
             />
           </div>
           {error && (
-            <p role="alert" className="mb-2 text-danger-text">
+            <Text role="alert" tone="danger" className="mb-2">
               {error}
-            </p>
+            </Text>
           )}
           <div className="flex flex-col gap-2 sm:flex-row">
             <Button
@@ -602,10 +610,10 @@ export function NoteForm({
           onChange={(e) => setNote(e.target.value)}
         />
       </Field>
-      <p id={`${noteId}-count`} className="mt-1 text-sm text-secondary-text">
+      <Text id={`${noteId}-count`} size="small" tone="quiet" className="mt-1">
         {noteLength.toLocaleString('en-GB')} /{' '}
         {NOTE_MAX.toLocaleString('en-GB')} characters
-      </p>
+      </Text>
       <div className="mt-4 flex flex-wrap gap-3">
         <Button
           type="submit"
@@ -710,7 +718,7 @@ function Decisions({
 
         data-decisions={story.status}
       >
-        <h2 id="decide-heading" className="mb-4 text-xl font-semibold">
+        <Heading level={2} id="decide-heading" className="mb-4">
           {story.status === 'pending'
             ? 'Your decision'
             : story.status === 'rejected'
@@ -718,7 +726,7 @@ function Decisions({
               : decidable
                 ? 'On the site'
                 : 'Admin'}
-        </h2>
+        </Heading>
         {!open && decidable && (
           <div className="flex flex-wrap gap-3">
             {story.status === 'hidden' && (
@@ -877,9 +885,9 @@ function History({
       aria-labelledby="history-heading"
       className="mx-auto mt-12 w-full max-w-measure min-w-0"
     >
-      <h2 id="history-heading" className="mb-4 text-xl font-semibold">
+      <Heading level={2} id="history-heading" className="mb-4">
         History
-      </h2>
+      </Heading>
       <ol className="space-y-4" data-history="">
         {entries.map((e, i) => (
           <li
@@ -888,14 +896,14 @@ function History({
             data-history-entry={e.action}
           >
             <p>
-              <span className="font-semibold">
+              <strong>
                 {e.action === 'sent' &&
                 entries.slice(0, i).some((p) => p.action === 'sent')
                   ? 'Sent again'
                   : e.action === 'fileUnusable' && format === 'audio'
                     ? 'Sent back automatically: the recording couldn’t be processed'
                     : (STEP_LABEL[e.action] ?? e.action)}
-              </span>
+              </strong>
               {e.action !== 'fileUnusable' &&
                 (e.actor === 'moderator' && e.staffEmail ? (
                   <>
@@ -912,19 +920,24 @@ function History({
                   <> {ACTOR_LABEL[e.actor]}</>
                 ))}
             </p>
-            <p className="text-sm text-secondary-text">
+            <Text size="small" tone="quiet">
               <time dateTime={e.at}>{sentAt(e.at)}</time>
-            </p>
+            </Text>
             {e.comment && (
               <div className="mt-2">
-                <p className="text-sm font-semibold">
+                <Text size="small" weight="bold">
                   {e.action === 'hiddenByModerator'
                     ? 'Why it was taken down'
                     : 'Note to the person'}
-                </p>
-                <blockquote className="whitespace-pre-line text-secondary-text italic">
+                </Text>
+                <Text
+                  as="blockquote"
+                  tone="quiet"
+                  italic
+                  className="whitespace-pre-line"
+                >
                   {e.comment}
-                </blockquote>
+                </Text>
               </div>
             )}
           </li>

@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import { TextLink } from '@/components/page/text-link';
 import { connection } from 'next/server';
 import { AdminPage } from '@/components/admin/admin-page';
 import { ModerationReview } from '@/components/moderation/moderation-review';
@@ -34,12 +34,9 @@ export default async function ModerationReviewPage({ params }: Props) {
       width="story"
       header={
         <p className="mb-6">
-          <Link
-            href="/moderation"
-            className="inline-flex min-h-11 items-center"
-          >
+          <TextLink kind="standalone" href="/moderation">
             ← Back to the list
-          </Link>
+          </TextLink>
         </p>
       }
     >

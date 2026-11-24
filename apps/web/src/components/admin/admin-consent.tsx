@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import {
   useCallback,
@@ -19,11 +18,17 @@ import {
   Button,
   Confirm,
   Disclosure,
+  cn,
   FieldLabel,
+  Heading,
   Notice,
+  proseClasses,
   Tabs,
+  Text,
   Textarea,
+  textVariants,
 } from '@heisreal/web-ui';
+import { TextLink } from '@/components/page/text-link';
 import { type ApiUser, ApiUserProblem } from '@/lib/api-user';
 import {
   DOCUMENT_NAMES,
@@ -298,7 +303,7 @@ function ConsentTexts({ client }: { client: ApiUser }) {
           </Notice>
         )}
         {loaded.status === 'loading' && (
-          <p className="text-secondary-text">Loading the versions…</p>
+          <Text tone="quiet">Loading the versions…</Text>
         )}
         {loaded.status === 'failed' && (
           <Notice kind="danger" as="p" role="alert">
@@ -407,43 +412,44 @@ function EditVersion({
 
   return (
     <section aria-labelledby={`${id}-heading`} className="space-y-6">
-      <h2
-        id={`${id}-heading`}
-        className="text-2xl font-normal sm:text-[1.75rem]"
-      >
+      <Heading level={2} id={`${id}-heading`}>
         {DOCUMENT_TITLES[document]}
-      </h2>
+      </Heading>
       <div data-current-version={current.version}>
-        <p className="text-secondary-text">
-          Current: <b className="text-foreground">version {current.version}</b>,
-          in force since{' '}
+        <Text tone="quiet">
+          Current:{' '}
+          <Text as="b" size="inherit" tone="normal" weight="bold">
+            version {current.version}
+          </Text>
+          , in force since{' '}
           <time dateTime={current.releaseDate}>
             {shortDate(current.releaseDate)}
           </time>
-        </p>
+        </Text>
         <Disclosure summary="See all versions" className="mt-1">
           <ol className="space-y-1" data-versions={document}>
             {list.data.map((v) => (
-              <li
+              <Text
+                as="li"
+                tone="quiet"
                 key={v.version}
                 data-version={v.version}
-                className="text-secondary-text"
               >
                 {isPublicDocument(document) ? (
-                  <Link
+                  <TextLink
+                    kind="standalone"
                     href={documentVersionHref(document, v.version)}
-                    className="inline-flex min-h-11 items-center font-medium text-foreground underline-offset-4 hover:underline"
                   >
                     Version {v.version}
-                  </Link>
+                  </TextLink>
                 ) : (
-                  <span className="font-medium text-foreground">
+                  <Text as="span" size="inherit" tone="normal" weight="bold">
                     Version {v.version}
-                  </span>
+                  </Text>
                 )}
                 , in force since {shortDate(v.releaseDate)}
                 {v.version === current.version ? ' (current)' : ''}
-              </li>
+              </Text>
             ))}
           </ol>
         </Disclosure>
@@ -457,7 +463,10 @@ function EditVersion({
             </FieldLabel>
             <Disclosure
               summary="How to format it"
-              className="mb-2 text-sm text-secondary-text"
+              className={cn(
+                'mb-2',
+                textVariants({ size: 'small', tone: 'quiet' }),
+              )}
             >
               <dl
                 className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-[auto_1fr]"
@@ -466,7 +475,9 @@ function EditVersion({
                 {CHEAT_SHEET.map(([mark, meaning]) => (
                   <div key={mark} className="contents">
                     <dt>
-                      <code className="font-mono whitespace-pre-wrap text-foreground [overflow-wrap:anywhere]">
+                      <code
+                        className={cn(proseClasses.code, 'whitespace-pre-wrap')}
+                      >
                         {mark}
                       </code>
                     </dt>
@@ -486,29 +497,34 @@ function EditVersion({
                 setText(e.target.value);
                 if (status.kind !== 'busy') setStatus({ kind: 'idle' });
               }}
+              // eslint-disable-next-line @heisreal/web-ui/no-text-look -- a Markdown editor: monospace so the marks line up; no piece has a code box yet
               className="font-mono text-sm"
             />
           </div>
           <div className="min-w-0 space-y-6">
             <div>
-              <p
+              <Text
                 id={`${id}-changes`}
-                className="mb-1 font-medium text-foreground"
+                tone="normal"
+                weight="bold"
+                className="mb-1"
               >
                 What changes (redline against version {current.version})
-              </p>
+              </Text>
               <Redline
                 items={changes}
                 label={`What changes against version ${current.version}`}
               />
             </div>
             <div>
-              <p
+              <Text
                 id={`${id}-preview`}
-                className="mb-1 font-medium text-foreground"
+                tone="normal"
+                weight="bold"
+                className="mb-1"
               >
                 Preview: as people will see it
-              </p>
+              </Text>
               <div
                 role="region"
                 aria-labelledby={`${id}-preview`}
@@ -522,9 +538,9 @@ function EditVersion({
         </div>
         <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
           {whoSees ? (
-            <p className="text-sm text-secondary-text" data-who-sees="">
+            <Text size="small" tone="quiet" data-who-sees="">
               {whoSees}
-            </p>
+            </Text>
           ) : (
             <span />
           )}

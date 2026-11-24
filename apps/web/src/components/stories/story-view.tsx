@@ -6,7 +6,7 @@ import { StoryHeart } from './heart-button';
 import { ShareMenu } from './share-menu';
 import { StoryMedia } from './story-media';
 import { StoryText } from './story-text';
-import { Button, Card, Chip } from '@heisreal/web-ui';
+import { Button, Card, Chip, Heading, Quote, Text } from '@heisreal/web-ui';
 
 /** The reading column (Joel's R1): at most 80 characters a line, centred. */
 const COLUMN = 'mx-auto w-full max-w-measure min-w-0';
@@ -28,9 +28,9 @@ function Meta({
 }) {
   return (
     <>
-      <p className="mt-3 text-sm text-muted-foreground">
+      <Text size="small" tone="quiet" className="mt-3">
         {dateLine} by {story.bylineName ?? 'Anonymous'}
-      </p>
+      </Text>
       {story.themes.length > 0 && (
         <ul
           className={`mt-5 flex flex-wrap gap-2 ${center ? 'justify-center' : ''}`}
@@ -59,12 +59,12 @@ function KeepExploring({ related }: { related: StorySummary[] }) {
       <RelatedStories stories={related} />
       <Card asChild className="mx-auto max-w-measure p-5">
         <section aria-labelledby="resonate">
-          <h2 id="resonate" className="mb-2 font-semibold">
+          <Heading level={2} size="sub" id="resonate" className="mb-2">
             Does this resonate?
-          </h2>
-          <p className="mb-4 text-sm text-muted-foreground">
+          </Heading>
+          <Text size="small" tone="quiet" className="mb-4">
             If this story has touched you, there are ways to keep exploring.
-          </p>
+          </Text>
           <Button asChild className="w-full">
             <Link href="/next-steps">Next steps</Link>
           </Button>
@@ -135,17 +135,19 @@ export function StoryArticle({
               {!story.image?.url && (
                 <span
                   aria-hidden="true"
+                  // eslint-disable-next-line @heisreal/web-ui/no-text-look -- the initial drawn in place of a picture, decoration no piece draws
                   className="mx-auto mb-6 flex size-20 items-center justify-center rounded-full bg-brand-strong text-3xl font-bold text-on-media shadow-lg"
                 >
                   {initial}
                 </span>
               )}
-              <h1
+              <Heading
+                level={1}
                 id={`story-${story.id}`}
-                className="mx-auto max-w-[24ch] text-[clamp(2rem,5vw,2.75rem)] leading-tight font-normal"
+                className="mx-auto max-w-[24ch]"
               >
                 {story.title}
-              </h1>
+              </Heading>
               <Meta story={story} dateLine={dateLine} center />
             </header>
             {media}
@@ -156,12 +158,9 @@ export function StoryArticle({
             {media}
             {toolbar}
             <header className={`${COLUMN} mt-8`}>
-              <h1
-                id={`story-${story.id}`}
-                className="text-[clamp(2rem,5vw,2.75rem)] leading-tight font-normal"
-              >
+              <Heading level={1} id={`story-${story.id}`}>
                 {story.title}
-              </h1>
+              </Heading>
               <Meta story={story} dateLine={dateLine} />
             </header>
           </>
@@ -170,18 +169,18 @@ export function StoryArticle({
 
       <div data-story-text="" className={`${COLUMN} mt-10`}>
         {written ? (
-          <blockquote className="border-l-[3px] border-brand pl-6 text-[1.375rem] leading-relaxed text-foreground italic">
-            {story.description}
-          </blockquote>
+          <Quote>{story.description}</Quote>
         ) : (
-          <p className="text-lg text-secondary-text">{story.description}</p>
+          <Text size="intro" tone="quiet">
+            {story.description}
+          </Text>
         )}
         {paragraphs.length > 0 && (
           <>
             {!written && (
-              <h2 className="mt-10 text-sm font-semibold text-link">
+              <Heading level={2} size="eyebrow" className="mt-10">
                 In their words
-              </h2>
+              </Heading>
             )}
             <StoryText id={`story-${story.id}-text`} paragraphs={paragraphs} />
           </>

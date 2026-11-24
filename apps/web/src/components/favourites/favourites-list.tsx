@@ -1,10 +1,10 @@
 'use client';
 
-import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { deviceHeartCards } from '@/app/stories/actions';
 import { StoryMasonry } from '@/components/stories/story-masonry';
-import { Button } from '@heisreal/web-ui';
+import { Button, Text } from '@heisreal/web-ui';
+import { TextLink } from '@/components/page/text-link';
 import { type ApiSummary, MAX_IDS, type StorySummary } from '@/lib/browse';
 import { type BrowseFilters, browseHref } from '@/lib/browse-query';
 import { deviceHeartIds } from '@/lib/device-hearts';
@@ -213,18 +213,18 @@ export function FavouritesList({
   if (shown.length === 0)
     return (
       <Notice>
-        <p className="mb-3 text-lg text-foreground">
+        <Text size="intro" tone="normal" className="mb-3">
           None of your favourites match these filters.
-        </p>
-        <Link
+        </Text>
+        <TextLink
           href={browseHref(
             { q: '', themes: [], format: null, sort: 'latest' },
             { favourites: true },
           )}
-          className="inline-flex min-h-11 items-center font-medium"
+          kind="standalone"
         >
           Clear filters
-        </Link>
+        </TextLink>
       </Notice>
     );
 
@@ -237,8 +237,13 @@ export function FavouritesList({
 
 function Notice({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mx-auto flex min-h-[24rem] max-w-measure flex-col items-center justify-center text-center text-secondary-text">
+    <Text
+      as="div"
+      size="inherit"
+      tone="quiet"
+      className="mx-auto flex min-h-[24rem] max-w-measure flex-col items-center justify-center text-center"
+    >
       {children}
-    </div>
+    </Text>
   );
 }

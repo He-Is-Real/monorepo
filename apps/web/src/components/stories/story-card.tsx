@@ -1,3 +1,6 @@
+/* eslint-disable @heisreal/web-ui/no-text-look -- a card's text is sized from the masonry's
+   measured metrics (lib/card-metrics.ts, the --card-* variables), so the story grid's predicted
+   heights stay right; its NEW pill is unchanged (web library round 3). The quiet grey is TX-1 A's. */
 import Image from 'next/image';
 import Link from 'next/link';
 import type { StorySummary } from '@/lib/browse';
@@ -180,7 +183,7 @@ export function StoryCard({
 
   const top = (
     <p
-      className={`mb-(--card-meta-after) flex flex-wrap items-center justify-between gap-x-(--card-meta-gap) gap-y-(--card-meta-row-gap) text-(length:--card-meta-font) leading-(--card-meta-line) text-muted-foreground ${media ? '' : 'pr-(--card-meta-heart)'}`}
+      className={`mb-(--card-meta-after) flex flex-wrap items-center justify-between gap-x-(--card-meta-gap) gap-y-(--card-meta-row-gap) text-(length:--card-meta-font) leading-(--card-meta-line) text-secondary-text ${media ? '' : 'pr-(--card-meta-heart)'}`}
     >
       <span
         data-card-label=""

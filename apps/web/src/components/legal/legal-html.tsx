@@ -1,6 +1,10 @@
-/** The class of the element a rendered legal text goes in. */
-export const LEGAL_PROSE_CLASS =
-  'space-y-4 leading-relaxed text-secondary-text [&_p]:text-pretty';
+import { cn, textVariants } from '@heisreal/web-ui';
+
+/** The class of the element a rendered legal text goes in: quiet text (TX-1 A), spaced paragraphs. */
+export const LEGAL_PROSE_CLASS = cn(
+  'space-y-4 [&_p]:text-pretty',
+  textVariants({ tone: 'quiet' }),
+);
 
 /**
  * A legal text rendered by lib/markdown.ts (D125): the same element and styles everywhere. The

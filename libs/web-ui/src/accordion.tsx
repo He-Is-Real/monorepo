@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { cn } from './cn';
+import { textVariants } from './text';
 
 export interface AccordionItem {
   /** Unique on the page; used for the element ids. */
@@ -84,7 +85,7 @@ export function Accordion({
               hidden={!expanded}
               className="px-5 pb-5 sm:px-6"
             >
-              <p className="text-[0.9375rem] leading-relaxed text-secondary-text">
+              <p className={textVariants({ size: 'body', tone: 'quiet' })}>
                 {content}
               </p>
             </div>

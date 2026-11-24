@@ -10,7 +10,9 @@ import {
   FieldHint,
   FieldLabel,
   Input,
+  Heading,
   Notice,
+  Text,
   Textarea,
 } from '@heisreal/web-ui';
 import type { ApiUser } from '@/lib/api-user';
@@ -96,10 +98,10 @@ export function BlockNoteField({
         Only Admins see this note. Write only what explains the block, as if the
         person could read it. Don’t copy their story.
       </FieldHint>
-      <p id={`${id}-count`} className="mt-1 text-sm text-secondary-text">
+      <Text id={`${id}-count`} size="small" tone="quiet" className="mt-1">
         {length.toLocaleString('en-GB')} /{' '}
         {BLOCK_NOTE_MAX.toLocaleString('en-GB')} characters
-      </p>
+      </Text>
       <FieldError className="mt-1" />
     </Field>
   );
@@ -227,7 +229,7 @@ function Blocks({
     );
 
   if (loaded.status === 'loading') {
-    return <p className="text-secondary-text">Loading the block list…</p>;
+    return <Text tone="quiet">Loading the block list…</Text>;
   }
   if (loaded.status === 'failed') {
     return (
@@ -314,7 +316,9 @@ function BlockEntry({
   return (
     <li className="space-y-3 p-4" data-blocked={e.value}>
       <div className="min-w-0 space-y-1">
-        <p className="font-medium [overflow-wrap:anywhere]">{e.value}</p>
+        <Text weight="bold" className="[overflow-wrap:anywhere]">
+          {e.value}
+        </Text>
         {editing === null &&
           (e.note ? (
             <p
@@ -324,13 +328,13 @@ function BlockEntry({
               {e.note}
             </p>
           ) : (
-            <p className="text-secondary-text italic" data-block-note-empty="">
+            <Text tone="quiet" italic data-block-note-empty="">
               No note yet
-            </p>
+            </Text>
           ))}
-        <p className="text-sm text-secondary-text [overflow-wrap:anywhere]">
+        <Text size="small" tone="quiet" className="[overflow-wrap:anywhere]">
           Blocked {e.addedBy ? `by ${e.addedBy} ` : ''}on {day(e.addedAt)}.
-        </p>
+        </Text>
       </div>
       {editing !== null ? (
         <form
@@ -444,9 +448,9 @@ function BlockPart({
 
   return (
     <section aria-labelledby={`${id}-heading`} className="space-y-4">
-      <h2 id={`${id}-heading`} className="text-lg font-semibold">
+      <Heading level={2} id={`${id}-heading`}>
         {heading}
-      </h2>
+      </Heading>
       <Card asChild className="space-y-4 p-4 sm:p-6">
         <form onSubmit={submit} noValidate>
           <Field id={`${id}-value`} hint error={error}>
@@ -474,7 +478,7 @@ function BlockPart({
         </form>
       </Card>
       {entries.length === 0 ? (
-        <p className="text-secondary-text">{empty}</p>
+        <Text tone="quiet">{empty}</Text>
       ) : (
         <Card asChild className="divide-y divide-border">
           <ul>

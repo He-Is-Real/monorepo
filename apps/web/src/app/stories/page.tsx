@@ -1,12 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { cacheLife } from 'next/cache';
 import {
   BrowseChoices,
   BrowseSearch,
   BrowseSortFormat,
-  FILTER_HEADING,
 } from '@/components/browse/browse-filters';
 import { BrowseResults } from '@/components/browse/browse-results';
 import { BrowseView } from '@/components/browse/browse-view';
@@ -23,7 +21,8 @@ import { RestartingMessage } from '@/components/restarting/restarting-message';
 import { cachedPage, type PageCacheLife } from '@/lib/page-cache';
 import { pageMetadata } from '@/lib/seo';
 import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
-import { Notice } from '@heisreal/web-ui';
+import { Heading, Notice, Text } from '@heisreal/web-ui';
+import { TextLink } from '@/components/page/text-link';
 
 type Props = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -148,13 +147,13 @@ async function Browse({
         <BrowseView
           heading={
             <header className="mb-8 max-w-measure">
-              <p className="mb-3 text-sm font-semibold tracking-[0.2em] text-link uppercase">
+              <Heading as="p" size="eyebrow" className="mb-3">
                 Explore
-              </p>
-              <h1 className="text-4xl leading-tight font-normal sm:text-5xl">
-                {TITLE}
-              </h1>
-              <p className="mt-3 text-lg text-secondary-text">{INTRO}</p>
+              </Heading>
+              <Heading level={1}>{TITLE}</Heading>
+              <Text size="intro" tone="quiet" className="mt-3">
+                {INTRO}
+              </Text>
             </header>
           }
           query={filters}
@@ -166,9 +165,14 @@ async function Browse({
               <BrowseSortFormat filters={filters} />
               {categories.length > 0 && (
                 <section aria-labelledby="browse-themes">
-                  <h2 id="browse-themes" className={FILTER_HEADING}>
+                  <Heading
+                    level={2}
+                    size="small"
+                    id="browse-themes"
+                    className="mb-2 block"
+                  >
                     Themes
-                  </h2>
+                  </Heading>
                   <ThemeFilter
                     categories={categories}
                     filters={filters}
@@ -180,11 +184,9 @@ async function Browse({
           }
           summary={
             summary && (
-              <p className="mt-6 text-sm text-muted-foreground">
-                <strong className="font-semibold text-foreground">
-                  {summary}
-                </strong>
-              </p>
+              <Text size="small" tone="normal" className="mt-6">
+                <strong>{summary}</strong>
+              </Text>
             )
           }
           results={
@@ -205,21 +207,18 @@ async function Browse({
               </Notice>
             ) : result.cards.length === 0 ? (
               <div className="mx-auto max-w-measure rounded-xl bg-raised px-4 py-10 text-center">
-                <p className="text-lg">
+                <Text size="intro">
                   {/* A highlighted theme no story uses yet says so plainly (A14); stacked
                       themes that no story carries together are filters that match nothing. */}
                   {filters.q || filters.format || chosenThemes.length > 1
                     ? 'No stories match these filters yet.'
                     : 'No stories yet.'}
-                </p>
+                </Text>
                 {filtered && (
                   <p className="mt-3">
-                    <Link
-                      href="/stories"
-                      className="inline-flex min-h-11 items-center font-medium"
-                    >
+                    <TextLink href="/stories" kind="standalone">
                       Clear filters
-                    </Link>
+                    </TextLink>
                   </p>
                 )}
               </div>

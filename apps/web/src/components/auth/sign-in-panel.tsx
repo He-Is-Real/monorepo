@@ -5,7 +5,7 @@ import {
   TERMS_AGREEMENT_PATH,
   withReturn,
 } from '@/components/consent/consent-prompts';
-import { Card } from '@heisreal/web-ui';
+import { Card, Text } from '@heisreal/web-ui';
 
 /**
  * Clerk's own sign-in, with sign-up in the same flow (`withSignUp`: an email without an account
@@ -92,9 +92,11 @@ export function FixtureSignInPanel({ returnTo }: { returnTo: string }) {
     <Card
       data-sign-in-fixture=""
       data-return-to={returnTo}
-      className="flex min-h-[28rem] w-full items-center justify-center p-8 text-center text-secondary-text"
+      className="flex min-h-[28rem] w-full items-center justify-center p-8 text-center"
     >
-      Clerk’s sign-in (e2e stand-in)
+      <Text as="span" size="inherit" tone="quiet">
+        Clerk’s sign-in (e2e stand-in)
+      </Text>
     </Card>
   );
 }

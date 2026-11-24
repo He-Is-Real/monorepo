@@ -47,6 +47,8 @@ export function CardHeart({
 }) {
   const { state, failed, busy, press } = useHeart(storyId);
   const on = pressed(state);
+  /* eslint-disable @heisreal/web-ui/no-text-look -- the favourite toggle's own pressed and
+     unpressed colours (a control's look; it moves to a library piece with the box looks next round). */
   return (
     <>
       <button
@@ -61,7 +63,7 @@ export function CardHeart({
         className={`absolute top-2 right-2 z-10 flex size-11 group-has-[[data-card-playing]]:hidden items-center justify-center rounded-full transition-colors motion-reduce:transition-none ${
           overPicture
             ? 'border border-on-media/20 bg-media/55 text-on-media backdrop-blur-sm hover:bg-media/70'
-            : `bg-card hover:bg-accent ${on ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`
+            : `bg-card hover:bg-accent ${on ? 'text-primary' : 'text-secondary-text hover:text-foreground'}`
         } ${failed ? 'ring-2 ring-danger' : ''}`}
       >
         <HeartIcon on={on} className="size-5" />
@@ -71,12 +73,15 @@ export function CardHeart({
       </span>
     </>
   );
+  /* eslint-enable @heisreal/web-ui/no-text-look */
 }
 
 /** The story page's heart, beside Share (mockups: "♡ Favourite"). */
 export function StoryHeart({ storyId }: { storyId: string }) {
   const { state, failed, busy, press } = useHeart(storyId);
   const on = pressed(state);
+  /* eslint-disable @heisreal/web-ui/no-text-look -- the favourite toggle's own pressed and
+     unpressed colours (a control's look; it moves to a library piece with the box looks next round). */
   return (
     <>
       <button
@@ -101,4 +106,5 @@ export function StoryHeart({ storyId }: { storyId: string }) {
       </span>
     </>
   );
+  /* eslint-enable @heisreal/web-ui/no-text-look */
 }

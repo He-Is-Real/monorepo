@@ -1,3 +1,4 @@
+import { Text } from '@heisreal/web-ui';
 import type { SubmissionLimits } from './share-api';
 
 /**
@@ -68,13 +69,13 @@ export function SubmissionsLeft({
   if (!week) return null;
   if (until) {
     return (
-      <p id={id} data-allowance="submissions" className="text-foreground">
+      <Text tone="normal" id={id} data-allowance="submissions">
         You’ve sent{' '}
         {week.of === 1 ? 'your story' : plural(week.of, 'story', 'stories')} for
         review this week, which is all for now. You can send another from{' '}
         {formatWhen(until)}. Until then, you’re welcome to keep writing: it’s
         saved as a draft.
-      </p>
+      </Text>
     );
   }
   return (
@@ -100,13 +101,13 @@ export function UploadsLeft({
   const { week, until, weekly } = uploadsState(limits);
   if (until) {
     return (
-      <p id={id} data-allowance="uploads" className="text-foreground">
+      <Text tone="normal" id={id} data-allowance="uploads">
         {weekly && week
           ? `You’ve used this week’s ${plural(week.of, 'upload', 'uploads')}, which is all for now.`
           : 'You’ve started quite a few uploads in the last hour.'}{' '}
         You can upload your {noun} from {formatWhen(until)}. Anything you’ve
         saved stays saved.
-      </p>
+      </Text>
     );
   }
   if (!week) return null;

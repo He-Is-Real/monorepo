@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { tryAgainIn } from '@/lib/restarting';
-import { Notice } from '@heisreal/web-ui';
+import { Heading, Notice, Text } from '@heisreal/web-ui';
 
 // While the database restarts (SurrealDB on Spot; Joel, 2026-11-07), web says so, with when to
 // try again: the one error web names (Joel, 2026-11-09: "reveal when compute is restarting with a
@@ -61,10 +61,10 @@ export function RestartingMessage({
       data-restarting=""
       className="mx-auto flex w-full max-w-measure flex-1 flex-col items-center justify-center gap-4 px-4 py-16 text-center"
     >
-      <h1 className="text-3xl font-semibold">{RESTARTING_HEADING}</h1>
-      <p role="status" className="text-secondary-text">
+      <Heading level={1}>{RESTARTING_HEADING}</Heading>
+      <Text role="status" tone="quiet">
         <span data-restarting-estimate="">{when}</span>
-      </p>
+      </Text>
     </main>
   );
 }
@@ -122,7 +122,7 @@ export function RestartingNotice() {
 
 function NoticeText({ seconds }: { seconds: number }) {
   return (
-    <Notice kind="info" as="p" role="status" className="text-[0.9375rem]">
+    <Notice kind="info" as="p" role="status">
       <RestartingText seconds={seconds} />
     </Notice>
   );

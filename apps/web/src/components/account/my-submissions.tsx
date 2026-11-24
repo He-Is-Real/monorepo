@@ -9,10 +9,14 @@ import {
   Card,
   Confirm,
   DangerZone,
+  Heading,
+  headingVariants,
   Notice,
   Quiet,
   StatusBadge,
   type StatusTone,
+  Text,
+  TextLink,
 } from '@heisreal/web-ui';
 import {
   type Agreement,
@@ -216,15 +220,12 @@ export function MySubmissions() {
   let body: React.ReactNode;
   if (state.status === 'signed-out') {
     body = (
-      <p className="text-secondary-text">
-        <a
-          href={signInHref('/account')}
-          className="inline-flex min-h-11 items-center font-semibold"
-        >
+      <Text size="inherit" tone="quiet">
+        <TextLink href={signInHref('/account')} touch>
           Sign in
-        </a>{' '}
+        </TextLink>{' '}
         to see the stories you’ve shared.
-      </p>
+      </Text>
     );
   } else if (state.status === 'loading') {
     body = (
@@ -237,9 +238,9 @@ export function MySubmissions() {
   } else if (state.status === 'failed') {
     body = (
       <div className="min-h-48">
-        <p role="alert" className="mb-4 text-secondary-text">
+        <Text role="alert" size="inherit" tone="quiet" className="mb-4">
           {TRY_AGAIN_LATER}
-        </p>
+        </Text>
         <Button
           variant="outline"
           wrap
@@ -273,11 +274,15 @@ export function MySubmissions() {
   return (
     <section aria-labelledby="my-submissions" className="mb-12">
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        {/* Heading's look on the h2 itself: focus moves to it (a ref). */}
         <h2
           id="my-submissions"
           ref={heading}
           tabIndex={-1}
-          className="text-2xl font-normal outline-none"
+          className={headingVariants({
+            size: 'section',
+            className: 'outline-none',
+          })}
         >
           My submissions
         </h2>
@@ -341,89 +346,100 @@ function StoryRow({
     <Card asChild className="p-5 sm:p-6">
       <li data-submission={label} aria-labelledby={titleId}>
         <div className="mb-2 flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-          <h3
+          <Heading
+            level={3}
             id={titleId}
-            className="min-w-0 flex-1 text-lg font-semibold [overflow-wrap:anywhere]"
+            className="min-w-0 flex-1 [overflow-wrap:anywhere]"
           >
             {story.title}
-          </h3>
+          </Heading>
           <StatusBadge data-status="" tone={status.tone}>
             {status.label}
           </StatusBadge>
         </div>
-        <p className="mb-3 text-sm text-secondary-text [overflow-wrap:anywhere]">
+        <Text
+          size="small"
+          tone="quiet"
+          className="mb-3 [overflow-wrap:anywhere]"
+        >
           {meta.join(' · ')}
-        </p>
+        </Text>
         {story.rejectionFeedback && (
           <Notice
             kind="info"
             data-feedback=""
-            className="mb-4 text-[0.9375rem]"
+            className="mb-4"
             title="What our team said"
           >
-            <p className="whitespace-pre-line">{story.rejectionFeedback}</p>
+            <Text className="whitespace-pre-line">
+              {story.rejectionFeedback}
+            </Text>
           </Notice>
         )}
         {label === 'draft' && story.deletesAt && (
-          <p data-draft-expiry="" className="mb-3 text-sm text-secondary-text">
+          <Text data-draft-expiry="" size="small" tone="quiet" className="mb-3">
             If you don’t change this draft, we’ll delete it after{' '}
             {LONG_DATE.format(new Date(story.deletesAt))}.
-          </p>
+          </Text>
         )}
         {(label === 'sent_back' ||
           label === 'editing' ||
           label === 'needs_file' ||
           label === 'ready_again') &&
           story.deletesAt && (
-            <p
+            <Text
               data-draft-expiry=""
-              className="mb-3 text-sm text-secondary-text"
+              size="small"
+              tone="quiet"
+              className="mb-3"
             >
               If you don’t change this story, we’ll delete it after{' '}
               {LONG_DATE.format(new Date(story.deletesAt))}.
-            </p>
+            </Text>
           )}
         {label === 'rejected' && story.deletesAt && (
-          <p data-draft-expiry="" className="mb-3 text-sm text-secondary-text">
+          <Text data-draft-expiry="" size="small" tone="quiet" className="mb-3">
             We’ll delete this story after{' '}
             {LONG_DATE.format(new Date(story.deletesAt))}. To keep our team’s
             note, download your data before then.
-          </p>
+          </Text>
         )}
         {label === 'editing' && (
-          <p className="mb-3 text-sm text-secondary-text">
+          <Text size="small" tone="quiet" className="mb-3">
             It isn’t on the site or waiting for review. Send it again when
             you’re ready, and our team will look at it.
-          </p>
+          </Text>
         )}
         {label === 'needs_file' && (
-          <p data-media-problem="" className="mb-3 text-[0.9375rem]">
+          <Text data-media-problem="" className="mb-3">
             {unusable === 'picture'
               ? // P1-6 A (Joel, 2026-11-14): the recording again, a picture if they like.
                 'We couldn’t use your picture. Please upload your recording again, and a picture if you like.'
               : `We couldn’t use your ${unusable}. Please upload another file.`}
-          </p>
+          </Text>
         )}
         {label === 'ready_again' && (
-          <p data-media-problem="replaced" className="mb-3 text-[0.9375rem]">
+          <Text data-media-problem="replaced" className="mb-3">
             Thanks, your new file is in. Send it when you’re ready.
-          </p>
+          </Text>
         )}
         {label === 'hidden' && (
-          <p className="mb-3 text-sm text-secondary-text">
+          <Text size="small" tone="quiet" className="mb-3">
             {story.primaryFormat === 'written'
               ? 'It isn’t on the site right now. You can edit it or delete it.'
               : `We’re fixing your ${media}. It will be back by itself.`}
-          </p>
+          </Text>
         )}
         {shared && (
-          <p
+          <Text
             data-shared-on-social=""
-            className="mb-3 text-sm text-secondary-text"
+            size="small"
+            tone="quiet"
+            className="mb-3"
           >
             You allowed us to share it on social media (on{' '}
             {shortDate(shared.agreedAt)}).
-          </p>
+          </Text>
         )}
 
         {confirm === 'edit' ? (
@@ -513,9 +529,9 @@ function StoryRow({
           onConfirm={() => void go('delete')}
         />
         {error && (
-          <p role="alert" className="mt-3 text-sm text-danger-text">
+          <Text role="alert" size="small" tone="danger" className="mt-3">
             {error}
-          </p>
+          </Text>
         )}
       </li>
     </Card>

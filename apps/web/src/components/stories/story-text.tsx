@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { Text, textLinkVariants } from '@heisreal/web-ui';
 import { previewCut } from '@/lib/story-preview';
 
 /**
@@ -35,9 +36,12 @@ export function StoryText({
   const rest = collapsed ? 'hidden' : undefined;
   return (
     <>
-      <div
+      <Text
+        as="div"
+        size="story"
+        tone="quiet"
         id={id}
-        className="mt-6 space-y-5 text-[1.0625rem] leading-8 text-secondary-text"
+        className="mt-6 space-y-5"
         data-collapsed={collapsed ? '' : undefined}
       >
         {paragraphs.map((p, i) => {
@@ -63,7 +67,7 @@ export function StoryText({
             </p>
           );
         })}
-      </div>
+      </Text>
       {cut && (
         <>
           <noscript>
@@ -83,7 +87,10 @@ export function StoryText({
               toggled.current = true;
               setExpanded((e) => !e);
             }}
-            className="mt-2 inline-flex min-h-11 min-w-11 items-center rounded-md px-1 -mx-1 font-medium text-link underline-offset-4 transition-colors hover:text-link-hover hover:underline"
+            className={textLinkVariants({
+              kind: 'standalone',
+              className: '-mx-1 mt-2 rounded-md px-1',
+            })}
           >
             {expanded ? 'Show less' : 'Continue reading'}
           </button>

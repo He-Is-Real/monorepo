@@ -24,7 +24,7 @@ import {
   useRuns,
   useUploadRequest,
 } from './upload-request';
-import { buttonVariants, Tabs, tabId } from '@heisreal/web-ui';
+import { buttonVariants, Tabs, tabId, Text } from '@heisreal/web-ui';
 import { clampAspect, encodeWebp, type Encoded } from './picture-encode';
 import { ThumbnailCropper, VideoMoment } from './thumbnail-crop';
 
@@ -915,11 +915,11 @@ export function ImagePanel({
         if (!busy) void choose(file);
       }}
     >
-      <p className="text-secondary-text">
+      <Text tone="quiet">
         {shown || cropping
           ? `Want to use a different ${noun}? Drag it here, or`
           : 'Drag it here, or'}
-      </p>
+      </Text>
       <label
         className={`${shown || cropping ? secondary : primary} cursor-pointer has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ring ${busy ? 'pointer-events-none opacity-60' : ''}`}
       >
@@ -938,11 +938,11 @@ export function ImagePanel({
         />
       </label>
       {!shown && !cropping && phase.at === 'idle' && (
-        <p className="text-sm text-secondary-text">
+        <Text size="small" tone="quiet">
           {format === 'video'
             ? 'A JPEG, PNG or WebP photo. We cut it to your video’s shape, and remove the photo’s hidden details, such as where it was taken, before it leaves your device.'
             : 'A JPEG, PNG or WebP photo, no more than 3 times as wide as it is tall (or as tall as it is wide). We remove the photo’s hidden details, such as where it was taken, before it leaves your device.'}
-        </p>
+        </Text>
       )}
     </DropZone>
   );
@@ -959,9 +959,9 @@ export function ImagePanel({
       )}
       {(shown?.name || cropping) && (
         <p data-attached-name="" className="[overflow-wrap:anywhere]">
-          <span className="font-semibold">
+          <Text as="span" size="inherit" weight="bold">
             {cropping ? 'Chosen:' : 'Attached:'}
-          </span>{' '}
+          </Text>{' '}
           {cropping ? cropping.photo.file.name : shown?.name}
         </p>
       )}
@@ -983,11 +983,11 @@ export function ImagePanel({
         />
       )}
       {waiting ? (
-        <p data-thumbnail-waiting="" className="text-secondary-text">
+        <Text tone="quiet" data-thumbnail-waiting="">
           {video?.inTab
             ? 'We can’t read your video’s shape in this browser, so we’ll ask for your thumbnail once our video host has it ready (usually a few minutes). You can carry on with your story and come back to this step.'
             : 'We’ll ask for your thumbnail once our video host has your video ready (usually a few minutes), so it can be cut to your video’s shape. You can carry on with your story and come back to this step.'}
-        </p>
+        </Text>
       ) : moment ? (
         <div>
           <Tabs
@@ -1074,37 +1074,37 @@ export function ImagePanel({
         </div>
       )}
       {phase.at === 'reading' && (
-        <p className="text-sm text-secondary-text" role="status">
+        <Text size="small" tone="quiet" role="status">
           Preparing your {noun}…
-        </p>
+        </Text>
       )}
       {phase.at === 'sending' && (
-        <p className="text-sm text-secondary-text" role="status">
+        <Text size="small" tone="quiet" role="status">
           Uploading your {noun}…
-        </p>
+        </Text>
       )}
       {phase.at === 'done' && !pending && phase.arrived && (
-        <p className="text-sm font-semibold" role="status">
+        <Text size="small" weight="bold" role="status">
           <span aria-hidden="true">✓ </span>
           {noun[0].toUpperCase()}
           {noun.slice(1)} added. You can continue.
-        </p>
+        </Text>
       )}
       {phase.at === 'done' && !pending && !phase.arrived && (
-        <p className="text-sm font-semibold" role="status">
+        <Text size="small" weight="bold" role="status">
           Your story has this {noun}, but it didn’t finish uploading. Choose it
           again, or remove it.
-        </p>
+        </Text>
       )}
       {notice && (
-        <p className="text-sm text-secondary-text" role="status">
+        <Text size="small" tone="quiet" role="status">
           {notice}
-        </p>
+        </Text>
       )}
       {problem && (
-        <p role="alert" className="text-danger-text">
+        <Text role="alert" tone="danger">
           {problem}
-        </p>
+        </Text>
       )}
     </div>
   );

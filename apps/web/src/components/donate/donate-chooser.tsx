@@ -1,7 +1,7 @@
 'use client';
 
-import Link from 'next/link';
-import { SegmentedChoice } from '@heisreal/web-ui';
+import { Heading, SegmentedChoice, Text } from '@heisreal/web-ui';
+import { TextLink } from '@/components/page/text-link';
 import { useSearchParams } from 'next/navigation';
 import type { StripeDonations } from '@/lib/config';
 import { type Frequency, frequencyFor } from './frequency';
@@ -40,9 +40,9 @@ export function DonateChooser({ stripe }: { stripe: StripeDonations }) {
     <>
       {options.length > 1 && (
         <div className="mt-10 text-center">
-          <p id="frequency-label" className="mb-3 font-semibold">
+          <Text id="frequency-label" weight="bold" className="mb-3">
             How often would you like to give?
-          </p>
+          </Text>
           <SegmentedChoice
             aria-labelledby="frequency-label"
             name="frequency"
@@ -55,12 +55,12 @@ export function DonateChooser({ stripe }: { stripe: StripeDonations }) {
 
       {frequency === 'one-off' && stripe.oneOffButtonId && (
         <section aria-labelledby="give-once" className="mt-8 text-center">
-          <h2 id="give-once" className="text-2xl font-normal sm:text-[1.75rem]">
+          <Heading level={2} id="give-once">
             Give once
-          </h2>
-          <p className="mt-2 mb-5 text-secondary-text">
+          </Heading>
+          <Text tone="quiet" className="mt-2 mb-5">
             Choose any amount from £1.
-          </p>
+          </Text>
           <StripeBuyButton
             buttonId={stripe.oneOffButtonId}
             publishableKey={stripe.publishableKey}
@@ -70,41 +70,31 @@ export function DonateChooser({ stripe }: { stripe: StripeDonations }) {
 
       {frequency === 'monthly' && stripe.monthlyButtonId && (
         <section aria-labelledby="give-monthly" className="mt-8 text-center">
-          <h2
-            id="give-monthly"
-            className="text-2xl font-normal sm:text-[1.75rem]"
-          >
+          <Heading level={2} id="give-monthly">
             Give monthly
-          </h2>
-          <p className="mt-2 text-secondary-text">
+          </Heading>
+          <Text tone="quiet" className="mt-2">
             Choose how many £1s a month: 10 is £10 a month. On Stripe’s page,
             the quantity is the number of pounds you give each month.
-          </p>
-          <p className="mt-2 mb-5 text-secondary-text">
+          </Text>
+          <Text tone="quiet" className="mt-2 mb-5">
             You can change or stop it at any time:{' '}
             {stripe.donorPortalUrl ? (
               <>
-                <a
-                  href={stripe.donorPortalUrl}
-                  rel="noreferrer"
-                  className="inline-flex min-h-11 items-center"
-                >
+                <TextLink href={stripe.donorPortalUrl} touch>
                   manage your monthly gift
-                </a>{' '}
+                </TextLink>{' '}
                 (Stripe emails you a sign-in link).
               </>
             ) : (
               <>
-                <Link
-                  href="/contact"
-                  className="inline-flex min-h-11 items-center"
-                >
+                <TextLink href="/contact" touch>
                   contact us
-                </Link>
+                </TextLink>
                 .
               </>
             )}
-          </p>
+          </Text>
           <StripeBuyButton
             buttonId={stripe.monthlyButtonId}
             publishableKey={stripe.publishableKey}

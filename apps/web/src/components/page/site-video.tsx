@@ -1,4 +1,5 @@
 import { Suspense } from 'react';
+import { Text } from '@heisreal/web-ui';
 import {
   PLAYER_ALLOW,
   PLAYER_MIN_HEIGHT,
@@ -60,9 +61,12 @@ async function Player({ videoKey, title, label, keep }: Props) {
 
 function Placeholder({ label }: { label: string }) {
   return (
-    <div
+    <Text
+      as="div"
+      size="inherit"
+      tone="media-quiet"
       data-video-placeholder=""
-      className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-2xl bg-media px-4 text-center text-on-media/70"
+      className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-2xl bg-media px-4 text-center"
     >
       <svg
         aria-hidden="true"
@@ -71,8 +75,8 @@ function Placeholder({ label }: { label: string }) {
       >
         <polygon points="8,5 19,12 8,19" fill="currentColor" />
       </svg>
-      <p className="text-sm">{label}</p>
-      <p className="text-xs text-on-media/60">Video coming soon</p>
-    </div>
+      <Text size="small">{label}</Text>
+      <Text size="small">Video coming soon</Text>
+    </Text>
   );
 }

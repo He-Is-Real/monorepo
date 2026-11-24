@@ -9,6 +9,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
+import { Text } from '@heisreal/web-ui';
 import { cardPlayer } from '@/app/stories/actions';
 import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 import { PLAYER_ALLOW, PLAYER_MIN_HEIGHT } from './story-media';
@@ -180,6 +181,7 @@ export function CardPlayer({
           type="button"
           onClick={stop}
           aria-label="Close player"
+          // eslint-disable-next-line @heisreal/web-ui/no-text-look -- the player's close button over the video (a media control's look)
           className="absolute top-2 right-2 z-10 flex size-11 items-center justify-center rounded-full border border-on-media/20 bg-media/60 text-on-media backdrop-blur-sm hover:bg-media/80"
         >
           <svg
@@ -242,17 +244,19 @@ export function CardPlayer({
       {/* Always present, so screen readers hear the message when it appears. Drawn on the
           media overlay, not as a Notice: it sits on top of the story's picture (libs/web-ui
           README, Notice). */}
-      <p
+      <Text
         id={`${id}-error`}
         role="status"
+        size="small"
+        tone={error ? 'media' : 'inherit'}
         className={
           error
-            ? 'pointer-events-none absolute inset-x-3 top-3 rounded-lg bg-media/75 px-3 py-2 text-sm leading-5 text-on-media backdrop-blur-sm'
+            ? 'pointer-events-none absolute inset-x-3 top-3 rounded-lg bg-media/75 px-3 py-2 backdrop-blur-sm'
             : 'sr-only'
         }
       >
         {error}
-      </p>
+      </Text>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { Popover } from 'radix-ui';
-import { PopoverPanel } from '@heisreal/web-ui';
+import { Heading, PopoverPanel, Text } from '@heisreal/web-ui';
 import { type ReactNode, useId, useState } from 'react';
 import { shareLinks } from '@/lib/share';
 
@@ -17,7 +17,9 @@ const NETWORK = {
 } as const;
 /* eslint-enable @heisreal/web-ui/no-raw-colour */
 
+// The share menu's own look (round 3: the site's menus keep their own items; a control's look).
 const option =
+  // eslint-disable-next-line @heisreal/web-ui/no-text-look -- as above
   'flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm text-secondary-text transition-colors hover:bg-surface hover:text-foreground focus-visible:bg-surface';
 
 function Icon({ children }: { children: ReactNode }) {
@@ -52,6 +54,7 @@ export function ShareMenu({ title }: { title: string }) {
         setMessage('');
       }}
     >
+      {/* eslint-disable-next-line @heisreal/web-ui/no-text-look -- the Share toggle's own look, beside Favourite (a control's look; box looks move to pieces next round) */}
       <Popover.Trigger className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-border-hover px-4 text-sm font-semibold text-secondary-text transition-colors hover:border-brand hover:bg-accent hover:text-foreground data-[state=open]:border-brand">
         <svg
           viewBox="0 0 24 24"
@@ -69,12 +72,14 @@ export function ShareMenu({ title }: { title: string }) {
         aria-labelledby={`${gradient}-title`}
         className="overscroll-contain p-3"
       >
-        <h2
+        <Heading
+          level={2}
+          size="small"
           id={`${gradient}-title`}
-          className="px-3 pt-1 pb-2 text-sm font-semibold text-muted-foreground"
+          className="px-3 pt-1 pb-2"
         >
           Share this story
-        </h2>
+        </Heading>
         <ul>
           <li>
             <a href={links.whatsapp} className={option} {...external}>
@@ -164,9 +169,9 @@ export function ShareMenu({ title }: { title: string }) {
             </button>
           </li>
         </ul>
-        <p role="status" className="px-3 pt-1 text-sm text-link empty:hidden">
+        <Text role="status" size="small" className="px-3 pt-1 empty:hidden">
           {message}
-        </p>
+        </Text>
       </PopoverPanel>
     </Popover.Root>
   );

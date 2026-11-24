@@ -1,3 +1,4 @@
+import { Text, TextLink } from '@heisreal/web-ui';
 import { documentHref } from '@/lib/legal-text';
 
 /**
@@ -6,17 +7,16 @@ import { documentHref } from '@/lib/legal-text';
  */
 export function PrivacyNoticeLink({ className = '' }: { className?: string }) {
   return (
-    <p
+    <Text
+      size="small"
+      tone="quiet"
       data-privacy-notice-link=""
-      className={`text-sm text-secondary-text ${className}`.trim()}
+      className={className || undefined}
     >
       How we use your data:{' '}
-      <a
-        href={documentHref('privacy-notice')}
-        className="inline-flex min-h-11 items-center font-medium text-link underline-offset-4 hover:text-link-hover hover:underline"
-      >
+      <TextLink href={documentHref('privacy-notice')} touch>
         privacy notice
-      </a>
-    </p>
+      </TextLink>
+    </Text>
   );
 }

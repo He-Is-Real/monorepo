@@ -1,7 +1,7 @@
 'use client';
 
 import { type ReactNode, useId, useState } from 'react';
-import { Input } from '@heisreal/web-ui';
+import { Heading, Input, Text, textLinkVariants } from '@heisreal/web-ui';
 import type { Theme, ThemeCategory } from '@/lib/browse';
 
 /**
@@ -61,9 +61,9 @@ export function ThemePicker({
         {open &&
           needle &&
           !rows.some((c) => c.themes.some((t) => !kept(t))) && (
-            <p role="status" className="mb-3 text-sm text-muted-foreground">
+            <Text role="status" size="small" tone="quiet" className="mb-3">
               No themes match “{search.trim()}”.
-            </p>
+            </Text>
           )}
       </div>
       {(hasMore || open) && (
@@ -73,7 +73,10 @@ export function ThemePicker({
             aria-expanded={open}
             aria-controls={`${id}-themes`}
             onClick={toggle}
-            className="inline-flex min-h-11 items-center gap-1.5 rounded-md text-sm font-medium text-link hover:text-link-hover"
+            className={textLinkVariants({
+              kind: 'standalone',
+              className: 'gap-1.5 rounded-md',
+            })}
           >
             {open ? 'Fewer themes' : 'More themes'}
             <svg
@@ -118,9 +121,9 @@ function Group({
   const id = useId();
   return (
     <div className="mb-3">
-      <h3 id={id} className="mb-2 text-sm text-muted-foreground">
+      <Heading level={3} size="small" id={id} className="mb-2">
         {category.name}
-      </h3>
+      </Heading>
       <ul aria-labelledby={id} className="flex flex-wrap gap-2">
         {category.themes.map((t) => (
           <li key={t.id}>{renderTheme(t)}</li>

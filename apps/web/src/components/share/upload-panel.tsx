@@ -30,7 +30,7 @@ import {
   useRuns,
   useUploadRequest,
 } from './upload-request';
-import { buttonVariants } from '@heisreal/web-ui';
+import { buttonVariants, Text, textLinkVariants } from '@heisreal/web-ui';
 
 /**
  * A video or audio story's file (M2 plan PR 7; D68, D80, D113): drag and drop or choose a file,
@@ -402,7 +402,7 @@ export function UploadPanel({
               {agreeFirstMessage(which, `upload your ${noun}`)}{' '}
               <button
                 type="button"
-                className="min-h-11 font-semibold text-link underline"
+                className={textLinkVariants({ kind: 'standalone' })}
                 onClick={() => void run(file, contentType, facts, begin())}
               >
                 Try again
@@ -566,11 +566,11 @@ export function UploadPanel({
   return (
     <div data-upload-phase={phase.at}>
       <DropZone onFile={(file) => void choose(file)}>
-        <p className="text-secondary-text">
+        <Text tone="quiet">
           {phase.at === 'done'
             ? `Want to use a different ${noun}? Drag it here, or`
             : `Drag your ${noun} here, or`}
-        </p>
+        </Text>
         <label
           className={`${phase.at === 'done' ? secondary : primary} cursor-pointer has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ring ${busy || held ? 'pointer-events-none opacity-60' : ''}`}
         >
@@ -590,41 +590,41 @@ export function UploadPanel({
             }}
           />
         </label>
-        <p id="upload-limits" className="text-sm text-secondary-text">
+        <Text id="upload-limits" size="small" tone="quiet">
           {fileLimits(limits, format)}
-        </p>
-        <div className="text-sm text-secondary-text">
+        </Text>
+        <Text as="div" size="small" tone="quiet">
           <UploadsLeft limits={limits} noun={noun} id="upload-allowance" />
-        </div>
+        </Text>
       </DropZone>
 
       {kept && !kept.done && phase.at === 'idle' && (
-        <p className="mt-4 text-sm text-foreground" role="status">
+        <Text size="small" tone="normal" className="mt-4" role="status">
           Your upload of “{kept.name}” didn’t finish. Choose the same file again
           to carry on from where it stopped.
-        </p>
+        </Text>
       )}
       {hasEarlierFile && !kept && !cancelled && phase.at === 'idle' && (
-        <p className="mt-4 text-sm text-secondary-text">
+        <Text size="small" tone="quiet" className="mt-4">
           This story already has a {noun}. Choose a file only if you want to
           replace it.
-        </p>
+        </Text>
       )}
 
       {phase.at === 'checking' && (
-        <p className="mt-4 text-sm text-secondary-text" role="status">
+        <Text size="small" tone="quiet" className="mt-4" role="status">
           Getting “{phase.name}” ready…
-        </p>
+        </Text>
       )}
 
       {(phase.at === 'uploading' ||
         phase.at === 'paused' ||
         phase.at === 'failed') && (
         <div className="mt-4">
-          <p className="mb-2 text-sm [overflow-wrap:anywhere]">
+          <Text size="small" className="mb-2 [overflow-wrap:anywhere]">
             {phase.name}: {formatBytes(phase.sent)} of{' '}
             {formatBytes(phase.total)}
-          </p>
+          </Text>
           <div
             role="progressbar"
             aria-label={`Uploading ${phase.name}`}
@@ -639,18 +639,18 @@ export function UploadPanel({
               style={{ width: `${percent}%` }}
             />
           </div>
-          <p className="mt-2 text-sm text-secondary-text" role="status">
+          <Text size="small" tone="quiet" className="mt-2" role="status">
             {phase.at === 'uploading'
               ? `${percent}% uploaded. Keep this page open until it’s done.`
               : phase.at === 'paused'
                 ? `Paused at ${percent}%.`
                 : ''}
-          </p>
+          </Text>
           {phase.at === 'failed' && (
-            <p role="alert" className="mt-2 text-danger-text">
+            <Text role="alert" tone="danger" className="mt-2">
               The upload stopped. Your story is saved, and you can carry on from
               where it stopped.
-            </p>
+            </Text>
           )}
           <div className="mt-3 flex flex-wrap gap-3">
             {phase.at === 'uploading' && (
@@ -676,22 +676,23 @@ export function UploadPanel({
       )}
 
       {phase.at === 'done' && (
-        <p
-          className="mt-4 font-semibold [overflow-wrap:anywhere]"
+        <Text
+          weight="bold"
+          className="mt-4 [overflow-wrap:anywhere]"
           role="status"
         >
           Uploaded: {phase.name} ({formatBytes(phase.total)})
-        </p>
+        </Text>
       )}
       {notice && (
-        <p className="mt-4 text-sm text-secondary-text" role="status">
+        <Text size="small" tone="quiet" className="mt-4" role="status">
           {notice}
-        </p>
+        </Text>
       )}
       {problem && (
-        <p role="alert" className="mt-4 text-danger-text">
+        <Text role="alert" tone="danger" className="mt-4">
           {problem}
-        </p>
+        </Text>
       )}
     </div>
   );
