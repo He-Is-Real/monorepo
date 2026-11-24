@@ -2750,7 +2750,7 @@ async function handle(req, res) {
     if (!(document in LEGAL_VERSIONS))
       return problem(res, 404, 'Not found', 'not_found');
     if (what === 'versions' && req.method === 'POST')
-      return void publishDocument(req, res, token, document);
+      return publishDocument(req, res, token, document);
     if (what === 'versions')
       return cached(req, res, listOf(document, versionsFor(token, document)));
     return problem(res, 404, 'Not found', 'not_found');
@@ -2764,7 +2764,7 @@ async function handle(req, res) {
       return problem(res, 403, 'Forbidden', 'role_required');
     return req.method === 'GET'
       ? sendSettings(req, res, token)
-      : void saveSettings(req, res, token);
+      : saveSettings(req, res, token);
   }
   if (
     path === '/v1/admin/themes' &&
@@ -2775,7 +2775,7 @@ async function handle(req, res) {
       return problem(res, 403, 'Forbidden', 'role_required');
     return req.method === 'GET'
       ? sendAdminThemes(res, token)
-      : void saveAdminThemes(req, res, token);
+      : saveAdminThemes(req, res, token);
   }
   if (path === '/v1/admin/staff' && req.method === 'GET') {
     if (!signedIn()) return;
@@ -2811,7 +2811,7 @@ async function handle(req, res) {
     if (!signedIn()) return;
     if (!token.startsWith('admin'))
       return problem(res, 403, 'Forbidden', 'role_required');
-    return void changeStaff(req, res, token, staffMember[1]);
+    return changeStaff(req, res, token, staffMember[1]);
   }
   if (path === '/v1/moderation/stories' && req.method === 'GET') {
     if (!signedIn()) return;
@@ -2863,7 +2863,7 @@ async function handle(req, res) {
     if (!signedIn()) return;
     if (roleOf(token) === 'User')
       return problem(res, 403, 'Forbidden', 'role_required');
-    return void decideStory(
+    return decideStory(
       req,
       res,
       token,
