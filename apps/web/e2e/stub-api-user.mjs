@@ -152,8 +152,9 @@ const send = (res, status, body) => {
 };
 
 const readBytes = (req) =>
-  new Promise((done) => {
+  new Promise((done, fail) => {
     const chunks = [];
+    req.on('error', fail);
     req.on('data', (chunk) => chunks.push(chunk));
     req.on('end', () => done(Buffer.concat(chunks)));
   });
@@ -1250,8 +1251,9 @@ function sendList(req, res, url, token) {
 }
 
 const readBody = (req) =>
-  new Promise((done) => {
+  new Promise((done, fail) => {
     let text = '';
+    req.on('error', fail);
     req.on('data', (chunk) => (text += chunk));
     req.on('end', () => done(text));
   });
@@ -1544,8 +1546,9 @@ const collection = (req, res, body) => {
   return sendJson(res, 200, body, { etag });
 };
 const readJson = (req) =>
-  new Promise((resolve) => {
+  new Promise((resolve, fail) => {
     let raw = '';
+    req.on('error', fail);
     req.on('data', (c) => (raw += c));
     req.on('end', () => {
       try {
@@ -2550,7 +2553,7 @@ const shareSession = (id) => {
   return sessions.get(id);
 };
 
-createServer(async (req, res) => {
+async function handle(req, res) {
   const origin = req.headers.origin;
   if (origin && origins.includes(origin)) {
     res.setHeader('access-control-allow-origin', origin);
@@ -2747,7 +2750,7 @@ createServer(async (req, res) => {
     if (!(document in LEGAL_VERSIONS))
       return problem(res, 404, 'Not found', 'not_found');
     if (what === 'versions' && req.method === 'POST')
-      return void publishDocument(req, res, token, document);
+      return publishDocument(req, res, token, document);
     if (what === 'versions')
       return cached(req, res, listOf(document, versionsFor(token, document)));
     return problem(res, 404, 'Not found', 'not_found');
@@ -2761,7 +2764,7 @@ createServer(async (req, res) => {
       return problem(res, 403, 'Forbidden', 'role_required');
     return req.method === 'GET'
       ? sendSettings(req, res, token)
-      : void saveSettings(req, res, token);
+      : saveSettings(req, res, token);
   }
   if (
     path === '/v1/admin/themes' &&
@@ -2772,7 +2775,7 @@ createServer(async (req, res) => {
       return problem(res, 403, 'Forbidden', 'role_required');
     return req.method === 'GET'
       ? sendAdminThemes(res, token)
-      : void saveAdminThemes(req, res, token);
+      : saveAdminThemes(req, res, token);
   }
   if (path === '/v1/admin/staff' && req.method === 'GET') {
     if (!signedIn()) return;
@@ -2808,7 +2811,7 @@ createServer(async (req, res) => {
     if (!signedIn()) return;
     if (!token.startsWith('admin'))
       return problem(res, 403, 'Forbidden', 'role_required');
-    return void changeStaff(req, res, token, staffMember[1]);
+    return changeStaff(req, res, token, staffMember[1]);
   }
   if (path === '/v1/moderation/stories' && req.method === 'GET') {
     if (!signedIn()) return;
@@ -2860,7 +2863,7 @@ createServer(async (req, res) => {
     if (!signedIn()) return;
     if (roleOf(token) === 'User')
       return problem(res, 403, 'Forbidden', 'role_required');
-    return void decideStory(
+    return decideStory(
       req,
       res,
       token,
@@ -2909,4 +2912,13 @@ createServer(async (req, res) => {
     if (handled !== false) return;
   }
   return problem(res, 404, 'Not found');
+}
+
+// A client that drops its connection part-way (a test ending, the browser cancelling) ends that
+// one request: its body read fails or the response can't be written, and the request is closed
+// instead of the error taking the whole stub down for every later test.
+createServer((req, res) => {
+  req.on('error', () => res.destroy());
+  res.on('error', () => res.destroy());
+  handle(req, res).catch(() => res.destroy());
 }).listen(port, '127.0.0.1');
