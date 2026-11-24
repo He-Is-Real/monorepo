@@ -47,3 +47,36 @@ describe('the size guard (Google’s 256 KB entry limit)', () => {
     });
   });
 });
+
+describe('cold starts (LG-12, Joel 24 Nov 2026)', () => {
+  it('marks only the first request or job event a process writes as its cold start', async () => {
+    vi.resetModules();
+    const events = await import('./index.js');
+    const written: Record<string, unknown>[] = [];
+    events.LOG_SINKS.splice(0, events.LOG_SINKS.length, {
+      write: (_severity, entry) => written.push(entry),
+    });
+    const first = events.startEvent('request', 'api-user');
+    const second = events.startEvent('request', 'api-user');
+    // A search event is not a request's event: it neither takes nor carries the cold start.
+    events.writeSearchEvent({
+      service: 'api-user',
+      durationMs: 1,
+      outcome: 'ok',
+      search: { q: 'healing' },
+      who: {},
+    });
+    first.write();
+    second.write();
+    events.startEvent('job', 'workflow').write();
+    const [search, ...rest] = written;
+    expect(search).not.toHaveProperty('process');
+    expect(
+      rest.map((e) => (e['process'] as { cold_start: boolean }).cold_start),
+    ).toEqual([true, false, false]);
+    const uptime = (rest[0]?.['process'] as { uptime_ms: number }).uptime_ms;
+    expect(Number.isInteger(uptime)).toBe(true);
+    expect(uptime).toBeGreaterThan(0);
+    expect(uptime).toBeLessThanOrEqual(Math.round(process.uptime() * 1000));
+  });
+});

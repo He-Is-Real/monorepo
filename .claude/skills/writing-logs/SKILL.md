@@ -14,7 +14,7 @@ description: >
 # Writing logs
 
 Based on [loggingsucks.com](https://loggingsucks.com/) (Boris Tane) and Joel's logging decisions
-in `../project/context/research/logging.html` (LG-1 to LG-10). Every point is decided; if something new comes up that the rules below don't
+in `../project/context/research/logging.html` (LG-1 to LG-10, LG-12). Every point is decided; if something new comes up that the rules below don't
 cover, don't invent an answer: ask Joel.
 
 ## The idea in one line
@@ -76,8 +76,23 @@ success or failure. Stripe calls it a canonical log line; the blog calls it a wi
   `message` is a short human summary of the event: `POST /stories/:id/submit 200 in 412 ms`.
 - Then `event` (`request` | `job` | `search` | `startup` | `health` | `error_report`), `ref`, the
   trace field (neither on `search`).
-- Group by area as nested objects: `service` (on every entry, rule 11), `http`, `user`, `client`,
-  `story`, `upload`, `consent`, `moderation`, `db`, `external`, `rate_limit`, `cache`, `error`, `job`.
+- Group by area as nested objects: `service` (on every entry, rule 11), `process`, `http`, `user`,
+  `client`, `story`, `upload`, `consent`, `moderation`, `db`, `external`, `rate_limit`, `cache`,
+  `error`, `job`.
+- Cold starts and memory-cache reads (LG-12, Joel 24 Nov: "add both"; plain, nothing about a person):
+
+  | Field                | Example | What                                                                                |
+  | -------------------- | ------- | ----------------------------------------------------------------------------------- |
+  | `process.cold_start` | `true`  | the first request or job event this running copy writes; `false` on every later one |
+  | `process.uptime_ms`  | `812`   | how long the process had been up when this request or job started                   |
+  | `cache.hit`          | `true`  | api-public-read: answered from its memory cache (fresh, or the stale copy below)    |
+  | `cache.stale`        | `false` | the copy kept for a database restart was served because the database was away       |
+  | `cache.age_ms`       | `4000`  | how old the answer from memory was (only when `cache.hit`)                          |
+  | `cache.not_modified` | `true`  | the browser already had it: a `304` (left off when no cacheable answer was sent)    |
+
+  `libs/logging` writes `process.*` on every request and job event (never on search events);
+  `PublicCacheInterceptor` writes `cache.*`. Never write them by hand.
+
 - Deployment details (`service`, LG-10; plain; `libs/logging` writes them):
 
   | Field              | Example              | What                                                                      |

@@ -7,6 +7,7 @@ import {
   type NestInterceptor,
 } from '@nestjs/common';
 import { DatabaseAvailability } from '@heisreal/database';
+import { currentEvent } from '@heisreal/logging/event';
 import type { Request, Response } from 'express';
 import { catchError, map, type Observable, of, throwError } from 'rxjs';
 import {
@@ -150,7 +151,11 @@ export class PublicCacheInterceptor implements NestInterceptor {
     if (req.method !== 'GET' && req.method !== 'HEAD') return next.handle();
     const key = answerKey(req);
     const hit = this.cache.get(key);
-    if (hit) return of(this.send(req, res, hit));
+    if (hit) {
+      record({ hit: true, stale: false, age_ms: this.ageMs(hit) });
+      return of(this.send(req, res, hit));
+    }
+    record({ hit: false, stale: false });
     const startedAt = this.cache.now();
     return next.handle().pipe(
       map((body) => {
@@ -168,6 +173,12 @@ export class PublicCacheInterceptor implements NestInterceptor {
           ? this.cache.fallback(key)
           : undefined;
         if (!copy) return throwError(() => err);
+        record({
+          hit: true,
+          stale: true,
+          age_ms: this.ageMs(copy),
+          not_modified: false,
+        });
         res
           .status(HttpStatus.OK)
           .setHeader('ETag', copy.etag)
@@ -185,10 +196,34 @@ export class PublicCacheInterceptor implements NestInterceptor {
         publicCacheControl(this.cache.secondsLeft(answer)),
       );
     represented.set(res, answer.body);
-    if (ifNoneMatchHits(req.headers['if-none-match'], answer.etag)) {
+    const notModified = ifNoneMatchHits(
+      req.headers['if-none-match'],
+      answer.etag,
+    );
+    record({ not_modified: notModified });
+    if (notModified) {
       res.status(HttpStatus.NOT_MODIFIED);
       return undefined;
     }
     return answer.body;
   }
+
+  private ageMs(answer: Answer): number {
+    return Math.max(0, this.cache.now() - answer.storedAt);
+  }
+}
+
+/**
+ * The memory cache's part of the request's wide event (LG-12, Joel 24 Nov 2026): `cache.hit`
+ * (answered from memory, fresh or as the restart fallback), `cache.stale` (the fallback, served
+ * because the database was away), `cache.age_ms` (how old the answer from memory was) and
+ * `cache.not_modified` (the browser already had it: a `304`). Plain; nothing about a person.
+ */
+function record(cache: {
+  hit?: boolean;
+  stale?: boolean;
+  age_ms?: number;
+  not_modified?: boolean;
+}): void {
+  currentEvent()?.set({ cache });
 }

@@ -30,7 +30,10 @@ gets its saved queries and `gcloud` stays for Google's copy and Cloud Run's own 
 Main fields: `ref`, `service.name`, `http.route`, `http.status_code`, `http.duration_ms`,
 `outcome` (`ok`, `input_refused`, `not_found`, `rate_limited`, `restarting`, `refused`, `error`),
 `action`, `error.type` / `error.code`, `user.id`, `user.session_hash`, `story.id`,
-`db.total_ms` / `db.slowest`, `external.<bunny|clerk|stripe|resend>.ms`, `job.id`, `job.steps`.
+`db.total_ms` / `db.slowest`, `external.<bunny|clerk|stripe|resend>.ms`, `job.id`, `job.steps`,
+`process.cold_start` / `process.uptime_ms` (the first request or job a running copy handled, and how
+long it had been up), and on api-public-read `cache.hit`, `cache.stale`, `cache.age_ms`,
+`cache.not_modified` (LG-12).
 The full list is LG-2 of the decision doc.
 
 ## Reading with gcloud
@@ -143,7 +146,18 @@ gcloud logging read 'jsonPayload.action:*' --project heisreal-dev --freshness=1d
 # Searches per day and outcome, and how many found nothing
 gcloud logging read 'jsonPayload.event="search"' --project heisreal-dev --freshness=7d --format=json \
   | jq -r '.[] | "\(.timestamp[0:10]) \(.jsonPayload.outcome) \(if .jsonPayload.search.result_count == 0 then "no_results" else "results" end)"' | sort | uniq -c
+# Cold starts per service and day: how many, and their average and slowest time (LG-12)
+gcloud logging read 'jsonPayload.process.cold_start=true' --project heisreal-dev --freshness=7d --format=json \
+  | jq -r 'map({k: "\(.timestamp[0:10]) \(.jsonPayload.service.name)", ms: .jsonPayload.http.duration_ms}) | group_by(.k)[]
+      | "\(.[0].k) cold_starts=\(length) avg_ms=\(map(.ms // 0) | add / length | floor) max_ms=\(map(.ms // 0) | max)"'
+# Memory-cache hit rate on api-public-read, per route and day (stale = served while the database was away)
+gcloud logging read 'jsonPayload.service.name="api-public-read" AND jsonPayload.cache.hit:*' --project heisreal-dev --freshness=1d --format=json \
+  | jq -r 'map({k: "\(.timestamp[0:10]) \(.jsonPayload.http.route)", c: .jsonPayload.cache}) | group_by(.k)[]
+      | "\(.[0].k) requests=\(length) hit_pct=\((map(select(.c.hit)) | length) * 100 / length | floor) stale=\(map(select(.c.stale)) | length) not_modified=\(map(select(.c.not_modified)) | length)"'
 ```
+
+A job's cold start (the result writer, the media worker) has no `http.duration_ms`; use
+`job.steps` there. Axiom gets these as saved queries once the account exists.
 
 `gcloud logging read` returns every matching entry unless you add `--limit`; keep `--freshness`
 short (reading is free within Google's quotas, but keep it to what you need).

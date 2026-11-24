@@ -15,6 +15,7 @@ import {
   SECRETS_PROJECT,
   SecretsService,
 } from '@heisreal/secrets';
+import { LOG_SINKS } from '@heisreal/logging/event';
 import { Surreal } from 'surrealdb';
 import { AppModule } from '../src/app/app.module';
 import { startPublicRead } from './app';
@@ -122,6 +123,83 @@ describe('a database restart', () => {
       })
       .toBe(200);
     expect((await get('/health')).status).toBe(200);
+  });
+
+  it('says on each request’s event how the memory cache answered it (LG-12, Joel 24 Nov 2026)', async () => {
+    const events: Record<string, unknown>[] = [];
+    const sinksBefore = [...LOG_SINKS];
+    LOG_SINKS.splice(0, LOG_SINKS.length, {
+      write: (_severity, entry) => {
+        if (entry['event'] === 'request') events.push(entry);
+      },
+    });
+    try {
+      t = await TestDatabase.create();
+      database = await databaseRelay(t.url);
+      const password = t.servicePasswords.get('api_public_read');
+      db = await connectDatabase(
+        new Surreal(),
+        {
+          url: database.url,
+          namespace: t.namespace,
+          database: t.database,
+          username: 'api_public_read',
+          passwordSecret: 'unused',
+        },
+        { get: async () => password } as unknown as SecretsService,
+      );
+      const started = await startPublicRead(t, undefined, db, {
+        wideEvents: true,
+      });
+      app = started.app;
+      /** The request's status and its event's `cache` group (written once the response closes). */
+      const cacheOf = async (headers: Record<string, string> = {}) => {
+        const seen = events.length;
+        const res = await fetch(`${started.url}/v1/stories?limit=1`, {
+          headers,
+        });
+        await res.arrayBuffer();
+        await expect.poll(() => events.length).toBe(seen + 1);
+        return {
+          status: res.status,
+          etag: res.headers.get('etag') ?? '',
+          cache: events[seen]?.['cache'],
+        };
+      };
+
+      const miss = await cacheOf();
+      expect(miss).toMatchObject({
+        status: 200,
+        cache: { hit: false, stale: false, not_modified: false },
+      });
+      expect(miss.cache).not.toHaveProperty('age_ms');
+
+      started.passTime(4_000);
+      expect(await cacheOf()).toMatchObject({
+        status: 200,
+        cache: { hit: true, stale: false, age_ms: 4_000, not_modified: false },
+      });
+
+      // The browser already holds it: a 304, still from memory.
+      expect(await cacheOf({ 'If-None-Match': miss.etag })).toMatchObject({
+        status: 304,
+        cache: { hit: true, stale: false, age_ms: 4_000, not_modified: true },
+      });
+
+      // Past its 30 seconds with the database away: the kept copy, stale.
+      database.stop();
+      started.passTime(60_000);
+      await expect
+        .poll(async () => (await cacheOf()).cache)
+        .toEqual({
+          hit: true,
+          stale: true,
+          age_ms: 64_000,
+          not_modified: false,
+        });
+    } finally {
+      LOG_SINKS.splice(0, LOG_SINKS.length, ...sinksBefore);
+    }
   });
 
   /**
