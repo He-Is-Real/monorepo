@@ -6,7 +6,6 @@ import {
   HttpCode,
   HttpStatus,
   Inject,
-  Logger,
   Module,
   Post,
   Req,
@@ -27,6 +26,7 @@ import {
 import { BUNNY_STORAGE } from '../stories/bunny-storage';
 import { Erasure, IMAGE_DELETER } from './erasure';
 import { SvixVerificationError, verifySvix } from './svix';
+import { currentEvent } from '@heisreal/logging/event';
 
 const SVIX_ID = /^[A-Za-z0-9_-]{1,100}$/;
 
@@ -41,8 +41,6 @@ const SVIX_ID = /^[A-Za-z0-9_-]{1,100}$/;
 @NoRoleRequired('Clerk webhooks are signed by Svix, not by a person’s token')
 @Controller('v1/webhooks/clerk')
 export class ClerkWebhookController {
-  private readonly logger = new Logger(ClerkWebhookController.name);
-
   constructor(
     @Inject(SURREAL) private readonly db: Surreal,
     @Inject(CLERK_BACKEND) private readonly clerk: ClerkBackend,
@@ -66,7 +64,9 @@ export class ClerkWebhookController {
       verifySvix(key, { id, timestamp, signature }, req.rawBody);
     } catch (err) {
       if (!(err instanceof SvixVerificationError)) throw err;
-      this.logger.warn(`Refused a Clerk webhook: ${err.message}`);
+      currentEvent()?.set({
+        error: { type: 'WebhookRefused', message: err.message },
+      });
       throw new BadRequestException({
         code: 'invalid_signature',
         message: 'The webhook signature was refused',

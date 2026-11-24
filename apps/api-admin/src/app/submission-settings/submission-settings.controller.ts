@@ -5,7 +5,6 @@ import {
   Headers,
   HttpStatus,
   Inject,
-  Logger,
   Module,
   Put,
   Req,
@@ -22,6 +21,7 @@ import { ifNoneMatches, ProblemException } from '@heisreal/http';
 import { RequiresRole } from '@heisreal/roles';
 import type { Request, Response } from 'express';
 import type { Surreal } from 'surrealdb';
+import { currentEvent } from '@heisreal/logging/event';
 
 const MIB = 1_048_576;
 
@@ -147,8 +147,6 @@ const missing = () =>
  */
 @Controller('v1/admin/submission-settings')
 export class SubmissionSettingsController {
-  private readonly logger = new Logger(SubmissionSettingsController.name);
-
   constructor(
     @Inject(SURREAL) private readonly db: Surreal,
     private readonly people: PersonSessions,
@@ -244,7 +242,10 @@ export class SubmissionSettingsController {
       results[results.length - 2], // the UPDATE's; COMMIT is last
       'submission settings',
     );
-    this.logger.log(`Submission settings saved as version ${row.version}`);
+    currentEvent()?.set({
+      action: 'settings.save',
+      settings: { version: row.version },
+    });
     res.setHeader('ETag', `"${row.version}"`);
     return { id: 'current', version: row.version };
   }

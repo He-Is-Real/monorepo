@@ -6,3 +6,5 @@ export * from './lib/server-error';
 export * from './lib/rate-limit/limits';
 export * from './lib/rate-limit/sliding-window';
 export * from './lib/rate-limit/rate-limit.module';
+export * from './lib/log-keys';
+export * from './lib/wide-events';

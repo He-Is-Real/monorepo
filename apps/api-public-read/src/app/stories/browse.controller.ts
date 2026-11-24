@@ -30,6 +30,7 @@ import {
   parseBrowseQuery,
   refuseQueryParameters,
 } from './browse.query';
+import { SearchesStories } from './search-events';
 import { isSlug, notFound } from './slug';
 
 // Published stories and themes, on the read-only login. Its rules let it read approved stories'
@@ -195,7 +196,9 @@ export class BrowseController {
     @Inject(MediaUrls) private readonly urls: MediaUrls,
   ) {}
 
+  /** A search (words or themes) writes its own search event: SearchEventInterceptor. */
   @Get()
+  @SearchesStories()
   async browseStories(
     @Query() query: Record<string, unknown>,
     @Res({ passthrough: true }) res: Response,
@@ -210,6 +213,13 @@ export class BrowseController {
       };
       return withETag(res, page, collectionETag(page));
     }
+    return this.browse(browse, res);
+  }
+
+  private async browse(
+    browse: BrowseQuery,
+    res: Response,
+  ): Promise<StoryPage | undefined> {
     const results = await runQuery(this.db, queryFor(browse), {
       q: browse.q ?? undefined,
       themes: browse.themes,

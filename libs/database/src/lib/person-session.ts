@@ -1,3 +1,4 @@
+import { timeDb } from '@heisreal/logging/event';
 import type { Surreal, SurrealSession } from 'surrealdb';
 
 /** SurrealDB refused the person's token (expired, wrong key, unknown or erased person). */
@@ -33,7 +34,7 @@ export async function withPersonSession<T>(
   const session = await connection.newSession();
   try {
     try {
-      await session.authenticate(token);
+      await timeDb('authenticate', () => session.authenticate(token));
     } catch (err) {
       throw new PersonSessionRefusedError(err);
     }

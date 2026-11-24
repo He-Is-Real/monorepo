@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import {
   ERASE_ACCOUNT,
   type ErasureReason,
@@ -16,6 +16,13 @@ import {
   type BunnyStream,
 } from '@heisreal/story-cards/bunny-stream';
 import { CLERK_BACKEND, type ClerkBackend } from './clerk-backend';
+import { note } from '@heisreal/logging/event';
+
+interface FailedDeletion {
+  kind: string;
+  key: string;
+  reason: string;
+}
 
 /**
  * Deletes a deleted story's whole folder from the images storage zone, every picture in it (an
@@ -43,8 +50,6 @@ const RETRY_EARLIER = 10;
  */
 @Injectable()
 export class Erasure {
-  private readonly logger = new Logger(Erasure.name);
-
   constructor(
     @Inject(SURREAL) private readonly db: Surreal,
     @Inject(BUNNY_STREAM) private readonly bunny: BunnyStream | null,
@@ -64,17 +69,35 @@ export class Erasure {
       { attempts: 8 },
     );
     if (user) {
-      this.logger.log(
-        `Erased ${user} (${reason}); ${pending.length} deletion(s) queued`,
+      // The record backup recovery replays from (D40): on the request's event, or its own line
+      // (same ref) if the caller already hung up and the event was written.
+      note(
+        {
+          action: 'account.erase',
+          erasure: {
+            user_record: user,
+            reason,
+            queued_count: pending.length,
+          },
+        },
+        { severity: 'INFO', message: 'Account erased' },
       );
     }
+    const failed: FailedDeletion[] = [];
     try {
-      if (pending.length > 0) await this.drain(pending);
-      await this.drain();
+      if (pending.length > 0) await this.drain(pending, failed);
+      await this.drain(undefined, failed);
     } catch (err) {
-      this.logger.warn(
-        `Erased, but couldn’t work through the deletion queue; housekeeping retries it: ${err instanceof Error ? err.message : 'error'}`,
+      // Housekeeping retries it.
+      note(
+        { erasure: { drain_failed: errorName(err) } },
+        {
+          severity: 'WARNING',
+          message: 'Erased, but couldn’t work through the deletion queue',
+        },
       );
+    } finally {
+      this.noteFailed(failed);
     }
   }
 
@@ -82,10 +105,11 @@ export class Erasure {
    * Works through queued deletions that are due: `keys` (those of one erasure), or else a few of
    * the others. Each row goes once its deletion is done, except a story folder's before its final
    * pass: a PUT link signed before the story went may still put a picture there, so the row waits
-   * for housekeeping's last delete (fn::erasure::pending_done). A failure is logged, counted and
-   * pushed back (fn::erasure::retry_after).
+   * for housekeeping's last delete (fn::erasure::pending_done). A failure is pushed back
+   * (fn::erasure::retry_after) and added to `failed`, which the caller logs once, after every pass
+   * (so a later pass, or a database error, never loses an earlier pass's failures).
    */
-  async drain(keys?: string[]): Promise<void> {
+  async drain(keys?: string[], failed: FailedDeletion[] = []): Promise<void> {
     const [rows] = (await runQuery(this.db, PENDING_DELETIONS_DUE, {
       kinds: ['bunny_video', 'image', 'clerk_user'],
       keys: keys ?? null,
@@ -95,14 +119,24 @@ export class Erasure {
       try {
         await this.delete(row);
       } catch (err) {
-        this.logger.warn(
-          `Couldn’t delete queued ${row.kind} pendingDeletion:${row.key}; it stays queued: ${err instanceof Error ? err.message : 'error'}`,
-        );
+        // It stays queued.
+        failed.push({ kind: row.kind, key: row.key, reason: errorName(err) });
         await runQuery(this.db, PENDING_DELETION_FAILED, { key: row.key });
         continue;
       }
       await runQuery(this.db, PENDING_DELETION_DONE, { key: row.key });
     }
+  }
+
+  private noteFailed(failed: FailedDeletion[]): void {
+    if (!failed.length) return;
+    note(
+      { erasure: { deletions_failed: failed } },
+      {
+        severity: 'WARNING',
+        message: 'Couldn’t delete queued deletions; they stay queued',
+      },
+    );
   }
 
   private async delete({ kind, ref }: PendingDeletion): Promise<void> {
@@ -117,3 +151,5 @@ export class Erasure {
     return this.clerk.deleteUser(ref);
   }
 }
+
+const errorName = (err: unknown) => (err instanceof Error ? err.name : 'error');

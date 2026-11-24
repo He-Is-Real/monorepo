@@ -1,3 +1,4 @@
+import { timedFetch } from '@heisreal/logging/event';
 import { Logger } from '@nestjs/common';
 import type { SecretsService } from '@heisreal/secrets';
 import { loadImagesZone } from '@heisreal/story-cards/images-zone';
@@ -73,7 +74,7 @@ export class BunnyImageStore implements ImageStore {
    * arrives through its PUT (one use), so once there it's the picture the grant named.
    */
   async exists(path: string): Promise<boolean> {
-    const res = await this.fetcher(
+    const res = await timedFetch('bunny', this.fetcher)(
       presignStorageUrl(this.zone, {
         method: 'HEAD',
         key: path,
@@ -95,7 +96,7 @@ export class BunnyImageStore implements ImageStore {
    * check never passes on an answer it can't trust.
    */
   async start(path: string): Promise<PictureStart | null> {
-    const res = await this.fetcher(
+    const res = await timedFetch('bunny', this.fetcher)(
       presignStorageUrl(this.zone, { method: 'GET', key: path, expiresIn: 60 }),
       {
         headers: { Range: `bytes=0-${PICTURE_START_BYTES - 1}` },

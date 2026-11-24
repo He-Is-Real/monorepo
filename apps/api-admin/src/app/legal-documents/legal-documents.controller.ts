@@ -5,7 +5,6 @@ import {
   Headers,
   HttpStatus,
   Inject,
-  Logger,
   Module,
   Param,
   Post,
@@ -23,6 +22,7 @@ import { ifNoneMatches, ProblemException, weakETag } from '@heisreal/http';
 import { RequiresRole } from '@heisreal/roles';
 import type { Request, Response } from 'express';
 import type { Surreal } from 'surrealdb';
+import { currentEvent } from '@heisreal/logging/event';
 
 /** Plan 4e: the four legal texts (`LegalDocumentName`) and the table each one's versions live in. */
 const DOCUMENTS = {
@@ -144,8 +144,6 @@ const iso = (d: string) => new Date(d).toISOString();
  */
 @Controller('v1/admin/legal-documents')
 export class LegalDocumentsController {
-  private readonly logger = new Logger(LegalDocumentsController.name);
-
   constructor(
     @Inject(SURREAL) private readonly db: Surreal,
     private readonly people: PersonSessions,
@@ -238,7 +236,10 @@ export class LegalDocumentsController {
       results[results.length - 2],
       'legal text version',
     );
-    this.logger.log(`Saved ${document} version ${row.version}`);
+    currentEvent()?.set({
+      action: 'legal.publish',
+      legal: { document, version: row.version },
+    });
     res.status(HttpStatus.CREATED);
     res.setHeader('Location', `/v1/admin/legal-documents/${document}/versions`);
     return { version: row.version, releaseDate: iso(row.release_date) };

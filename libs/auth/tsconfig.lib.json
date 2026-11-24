@@ -18,13 +18,16 @@
   "include": ["src/**/*.ts"],
   "references": [
     {
+      "path": "../roles/tsconfig.lib.json"
+    },
+    {
+      "path": "../logging/tsconfig.lib.json"
+    },
+    {
       "path": "../secrets/tsconfig.lib.json"
     },
     {
       "path": "../database/tsconfig.lib.json"
-    },
-    {
-      "path": "../roles/tsconfig.lib.json"
     }
   ],
   "exclude": ["vitest.config.mts", "src/**/*.spec.ts", "src/**/*.test.ts"]

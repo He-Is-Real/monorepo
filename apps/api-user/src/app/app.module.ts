@@ -12,6 +12,7 @@ import {
 } from '@heisreal/database';
 import { HealthController, HealthModule } from '@heisreal/health';
 import {
+  LogKeysModule,
   ProblemFilter,
   RateLimitModule,
   RateLimits,
@@ -36,6 +37,8 @@ import {
 @Module({
   imports: [
     SecretsModule,
+    // The log keys (log-hmac, log-search-hmac) for the request's wide event (libs/http).
+    LogKeysModule,
     DatabaseModule,
     RateLimitModule.forRoot(),
     // Task 0.5: Clerk session tokens, verified without the network. The person's `user` row

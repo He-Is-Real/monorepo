@@ -1,3 +1,4 @@
+import { timedFetch } from '@heisreal/logging/event';
 import type { SecretsService } from '@heisreal/secrets';
 import { signCdnUrl, tusSignature } from '@heisreal/story-cards';
 
@@ -154,7 +155,7 @@ export class BunnyLibrary implements WriterBunny {
     await this.refreshKeys();
     const timeout = AbortSignal.timeout(TIMEOUT_MS);
     try {
-      return await this.fetcher(
+      return await timedFetch('bunny', this.fetcher)(
         `${API}/library/${this.config.libraryId}/videos${path}`,
         {
           method,

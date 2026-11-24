@@ -20,6 +20,7 @@ import {
   STORY_MEDIA_BUDGET_MS,
 } from '@heisreal/story-cards/story-media';
 import { deleteStoryFolder } from '@heisreal/story-cards/upload-signing';
+import { currentEvent } from '@heisreal/logging/event';
 
 /**
  * A deleted story's picture folder in the images zone, `stories/<id>/` (null when the zone is
@@ -51,8 +52,6 @@ export interface RecordedVideo {
  */
 @Injectable()
 export class StoryMedia {
-  private readonly logger = new Logger(StoryMedia.name);
-
   constructor(
     @Inject(BUNNY_STREAM) private readonly stream: BunnyStream | null,
     @Inject(STORY_FOLDERS) private readonly folders: StoryFolders | null,
@@ -93,17 +92,22 @@ export class StoryMedia {
       if (!found) throw new Error('Bunny has no such video');
       shown = found.thumbnailFileName;
     } catch (err) {
-      this.logger.warn(
-        `Couldn’t check video ${video.id}’s picture at Bunny before approval: ${err instanceof Error ? err.message : 'error'}`,
-      );
+      currentEvent()?.set({
+        upload: { video_id: video.id },
+        error: {
+          type: 'PictureCheckUnavailable',
+          message: err instanceof Error ? err.message : 'error',
+        },
+      });
       throw bunnyUnavailable();
     } finally {
       clearTimeout(timer);
     }
     if (shown !== name) {
-      this.logger.warn(
-        `Video ${video.id}: Bunny shows another picture than the one recorded at send; approval refused`,
-      );
+      currentEvent()?.set({
+        upload: { video_id: video.id },
+        error: { type: 'PictureChanged' },
+      });
       throw pictureChanged();
     }
   }
@@ -114,7 +118,6 @@ export class StoryMedia {
         stream: this.stream,
         folders: this.folders,
         budgetMs: this.budgetMs,
-        logger: this.logger,
       },
       storyId,
       videos,

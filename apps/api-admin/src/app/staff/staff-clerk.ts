@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { timedFetch } from '@heisreal/logging/event';
 import type { SecretsService } from '@heisreal/secrets';
 
 /**
@@ -42,8 +42,6 @@ type Secrets = Pick<SecretsService, 'get'>;
 type Json = Record<string, unknown>;
 
 export class ClerkStaffApi implements StaffClerk {
-  private readonly logger = new Logger('StaffClerk');
-
   constructor(
     private readonly secrets: Secrets,
     private readonly keySecret: string | null,
@@ -95,7 +93,7 @@ export class ClerkStaffApi implements StaffClerk {
     if (!/^sk_(test|live)_/.test(key)) {
       throw new Error(`Secret ${this.keySecret} isn't a Clerk secret key`);
     }
-    const res = await this.fetcher(`${API}${path}`, {
+    const res = await timedFetch('clerk', this.fetcher)(`${API}${path}`, {
       method,
       headers: {
         Authorization: `Bearer ${key}`,
@@ -108,7 +106,6 @@ export class ClerkStaffApi implements StaffClerk {
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     if (!res.ok) {
-      this.logger.warn(`Clerk ${method} answered ${res.status}`);
       throw new Error(`Clerk ${method} answered ${res.status}`);
     }
     const text = await res.text();

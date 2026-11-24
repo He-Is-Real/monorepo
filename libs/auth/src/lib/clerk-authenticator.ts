@@ -2,11 +2,11 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
-  Logger,
   Optional,
   UnauthorizedException,
 } from '@nestjs/common';
 import { DatabaseAvailability, SURREAL } from '@heisreal/database';
+import { currentEvent } from '@heisreal/logging/event';
 import type { Request } from 'express';
 import type { Surreal } from 'surrealdb';
 import { CLERK_CONFIG, type ClerkConfig } from './clerk-config';
@@ -69,7 +69,6 @@ class KnownPeople {
  * check fails.
  */
 abstract class ClerkAuthenticator implements PersonAuthenticator {
-  protected readonly logger = new Logger(this.constructor.name);
   private readonly known = new KnownPeople();
 
   constructor(
@@ -80,14 +79,27 @@ abstract class ClerkAuthenticator implements PersonAuthenticator {
 
   async authenticate(request: Request): Promise<AuthenticatedPerson> {
     const token = bearerToken(request);
+    const event = currentEvent();
+    // LG-2d C: the whole token only as a keyed hash ("was this exact token used?").
+    event?.sensitive('user.token_hash', token);
     let verified: VerifiedClerkToken;
     try {
       verified = verifyClerkToken(token, this.config, this.config.clock?.());
     } catch (err) {
       const reason = err instanceof ClerkTokenError ? err.reason : 'error';
-      this.logger.warn(`Refused a session token: ${reason}`);
+      event?.set({ error: { type: 'SessionTokenRefused', code: reason } });
       throw new UnauthorizedException('The session token was refused');
     }
+    // Plain: id, role and email (LG-2c); the session id (`sid`) only as a keyed hash.
+    event
+      ?.set({
+        user: {
+          id: verified.clerkUserId,
+          role: verified.role,
+          email: verified.email,
+        },
+      })
+      .sensitive('user.session_hash', verified.sessionId);
     if (!this.known.has(verified.clerkUserId)) {
       // Guards run before DatabaseAvailabilityInterceptor: a lookup during an outage, or one
       // still waiting when it starts, answers `503 service_restarting` at once rather than wait
@@ -133,7 +145,9 @@ export class ApiUserAuthenticator extends ClerkAuthenticator {
       await provisionPerson(this.db, clerkUserId, { email });
     } catch (err) {
       if (err instanceof BlockedEmailError) {
-        this.logger.warn('Refused a new account: its email is blocked');
+        currentEvent()?.set({
+          error: { type: 'NewAccountRefused', code: 'blocked' },
+        });
         throw new ForbiddenException({
           code: 'blocked',
           message: 'This account can’t be used',
@@ -141,7 +155,9 @@ export class ApiUserAuthenticator extends ClerkAuthenticator {
       }
       // D82: the account was deleted; its leftover token (or Clerk account) is refused.
       if (err instanceof ErasedIdentityError) {
-        this.logger.warn('Refused a session token: the account was erased');
+        currentEvent()?.set({
+          error: { type: 'SessionTokenRefused', code: 'account_erased' },
+        });
         throw new UnauthorizedException('The session token was refused');
       }
       throw err;

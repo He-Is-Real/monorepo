@@ -34,10 +34,13 @@
       "path": "../../libs/roles/tsconfig.lib.json"
     },
     {
-      "path": "../../libs/http/tsconfig.lib.json"
+      "path": "../../libs/logging/tsconfig.lib.json"
     },
     {
       "path": "../../libs/health/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/http/tsconfig.lib.json"
     },
     {
       "path": "../../libs/story-cards/tsconfig.lib.json"

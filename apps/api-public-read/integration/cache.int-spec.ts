@@ -1,5 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
 import { run, TestDatabase } from '@heisreal/database/integration-testing';
+import { LOG_SINKS } from '@heisreal/logging/event';
 import { startPublicRead } from './app';
 
 /**
@@ -70,6 +71,51 @@ describe('the public answer cache (R13)', () => {
     else process.env['PUBLIC_RESPONSE_CACHING'] = saved;
     await Promise.all(apps.splice(0).map((a) => a.close()));
     await t?.close();
+  });
+
+  it('writes one search event for every search, also one answered from memory or as a 304 (LG-2g A)', async () => {
+    const searches: Record<string, unknown>[] = [];
+    const before = [...LOG_SINKS];
+    LOG_SINKS.splice(0, LOG_SINKS.length, {
+      write: (_severity, entry) => {
+        if (entry['event'] === 'search') searches.push(entry);
+      },
+    });
+    try {
+      const started = await startPublicRead(t, undefined, undefined, {
+        wideEvents: true,
+      });
+      apps.push(started.app);
+      const search = async () => {
+        const res = await fetch(`${started.url}/v1/stories?q=placeholder`);
+        expect(res.status).toBe(200);
+        return ((await res.json()) as { data: { title: string }[] }).data[0]
+          ?.title;
+      };
+      expect(await search()).toBe('Before');
+      await retitle(FIRST, 'After');
+      // Same request within 30 seconds: answered from memory, still a search.
+      expect(await search()).toBe('Before');
+      // The browser already holds that answer: a 304 with no body is still one search, of one story.
+      const first = await fetch(`${started.url}/v1/stories?q=placeholder`);
+      const etag = first.headers.get('ETag') ?? '';
+      expect(etag).not.toBe('');
+      const unchanged = await fetch(`${started.url}/v1/stories?q=placeholder`, {
+        headers: { 'If-None-Match': etag },
+      });
+      expect(unchanged.status).toBe(304);
+      expect(searches).toHaveLength(4);
+      for (const entry of searches) {
+        expect(entry).toMatchObject({
+          service: { name: 'api-public-read' },
+          outcome: 'ok',
+          search: { q: 'placeholder', result_count: 1 },
+        });
+        expect(entry['ref']).toBeUndefined();
+      }
+    } finally {
+      LOG_SINKS.splice(0, LOG_SINKS.length, ...before);
+    }
   });
 
   it('answers the same request from memory for 30 seconds, then asks the database again', async () => {

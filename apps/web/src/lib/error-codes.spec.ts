@@ -486,7 +486,14 @@ function scanFiles(
   };
 
   const visit = (node: ts.Node) => {
-    if (ts.isObjectLiteralExpression(node)) {
+    // `error: { type, code }` is a log field on the request's wide event (libs/logging), never
+    // an answer, so its `code` isn't one of the APIs' codes.
+    const parent = node.parent as ts.Node | undefined;
+    const logField =
+      !!parent &&
+      ts.isPropertyAssignment(parent) &&
+      propertyName(parent) === 'error';
+    if (ts.isObjectLiteralExpression(node) && !logField) {
       const names = node.properties.map(propertyName);
       const code = node.properties.find((p) => propertyName(p) === 'code');
       if (code && !names.includes('pointer')) {

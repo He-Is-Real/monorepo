@@ -1,3 +1,4 @@
+import { timeDb } from '@heisreal/logging/event';
 import type { SurrealQueryable } from 'surrealdb';
 
 /**
@@ -28,7 +29,9 @@ export async function runQuery(
   sql: string,
   vars?: Record<string, unknown>,
 ): Promise<unknown[]> {
-  const responses = await db.query(sql, vars).json().responses();
+  const responses = await timeDb(queryName(sql), () =>
+    db.query(sql, vars).json().responses(),
+  );
   const failed = responses.flatMap((r, i) =>
     r.success ? [] : [{ i, message: errorMessage(r.error) }],
   );
@@ -37,6 +40,25 @@ export async function runQuery(
     throw new DatabaseQueryError(root.message, root.i);
   }
   return responses.map((r) => (r.success ? r.result : undefined));
+}
+
+/**
+ * A short name for a query on the request's event (`db.slowest.name`): its first function
+ * (`fn::submit_story`), else its first statement and table (`SELECT story`). Our own SurrealQL
+ * only, never the variables.
+ */
+export function queryName(sql: string): string {
+  const fn = /\bfn::[\w:]+/.exec(sql);
+  if (fn) return fn[0];
+  const verb = /\b(SELECT|CREATE|UPDATE|UPSERT|DELETE|INSERT|RELATE)\b/i.exec(
+    sql,
+  );
+  if (!verb) return 'query';
+  const rest = sql.slice(verb.index + verb[0].length);
+  const table = (/\b(?:FROM|INTO)\s+(?:ONLY\s+)?([A-Za-z_]\w*)/i.exec(rest) ??
+    /^\s+(?:ONLY\s+)?([A-Za-z_]\w*)/i.exec(rest))?.[1];
+  const name = verb[1].toUpperCase();
+  return table ? `${name} ${table}` : name;
 }
 
 function errorMessage(error: unknown): string {

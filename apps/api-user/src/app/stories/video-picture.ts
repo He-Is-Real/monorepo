@@ -1,4 +1,4 @@
-import { BadRequestException, Logger } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 import {
   DatabaseQueryError,
   retryOnConflict,
@@ -11,6 +11,7 @@ import type {
   StreamVideo,
 } from '@heisreal/story-cards/bunny-stream';
 import { StaleVersionException } from './story-store';
+import { currentEvent } from '@heisreal/logging/event';
 
 /**
  * A video's picture, set at Bunny when the story is sent (Joel, 2026-11-17, P1-13 A: "remove the
@@ -72,8 +73,6 @@ export const BUNNY_UNTOUCHED = 'thumbnail.jpg';
 /** What the person sees when Bunny wouldn't take the picture (Joel, P1-13 A). */
 export const PICTURE_FAILED =
   'We couldn’t add your picture. Please add it again, then submit.';
-
-const logger = new Logger('VideoPicture');
 
 class PictureNotTaken extends Error {
   override name = 'PictureNotTaken';
@@ -183,9 +182,13 @@ export async function setVideoPicture({
     }
     shown = name;
   } catch (err) {
-    logger.warn(
-      `Bunny didn’t take video ${videoId}’s picture: ${err instanceof Error ? err.message : 'error'}`,
-    );
+    currentEvent()?.set({
+      upload: { video_id: videoId },
+      error: {
+        type: 'PictureNotTaken',
+        message: err instanceof Error ? err.message : 'error',
+      },
+    });
     throw pictureFailed();
   }
   await record(service, videoId, {

@@ -1,3 +1,4 @@
+import { timedFetch } from '@heisreal/logging/event';
 import { Logger } from '@nestjs/common';
 import type { SecretsService } from '@heisreal/secrets';
 import { tusSignature } from './upload-signing';
@@ -102,7 +103,7 @@ export class BunnyStreamApi implements BunnyStream {
     signal?: AbortSignal,
   ) {
     const timeout = AbortSignal.timeout(TIMEOUT_MS);
-    const res = await this.fetcher(
+    const res = await timedFetch('bunny', this.fetcher)(
       `${API}/library/${this.libraryId}/videos${path}`,
       {
         method,

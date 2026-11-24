@@ -11,6 +11,7 @@ import {
   SURREAL,
   withPersonSession,
 } from '@heisreal/database';
+import { note } from '@heisreal/logging/event';
 import type { Request } from 'express';
 import type { RecordId, Surreal, SurrealSession } from 'surrealdb';
 
@@ -275,8 +276,14 @@ export class PersonSessions {
         throw new UnauthorizedException('The session has ended');
       }
       // The issuer's messages name a status or a timeout at most: never a token, key or person.
-      this.logger.warn(
-        `Clerk couldn’t issue a fresh pass: ${err instanceof Error ? err.message : 'error'}`,
+      note(
+        {
+          error: {
+            type: 'FreshPassUnavailable',
+            message: `Clerk couldn’t issue a fresh pass: ${err instanceof Error ? err.message : 'error'}`,
+          },
+        },
+        { severity: 'WARNING', message: 'Clerk couldn’t issue a fresh pass' },
       );
       throw signInUnavailable();
     }

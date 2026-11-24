@@ -9,7 +9,6 @@ import {
   Headers,
   HttpStatus,
   Inject,
-  Logger,
   type MiddlewareConsumer,
   Module,
   type NestModule,
@@ -185,7 +184,6 @@ export class StoriesController {
       stream: bunny,
       folders: images,
       budgetMs,
-      logger: new Logger('DeleteStory'),
     };
   }
 

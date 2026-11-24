@@ -5,7 +5,7 @@
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { failedToStart, START_UP_OPTIONS } from '@heisreal/database';
-import { corsOptions } from '@heisreal/http';
+import { corsOptions, wideEvents } from '@heisreal/http';
 import { AppModule } from './app/app.module';
 
 async function bootstrap() {
@@ -19,6 +19,8 @@ async function bootstrap() {
     ...START_UP_OPTIONS,
   }).catch(failedToStart);
   app.flushLogs();
+  // One wide event per request, started before anything else can refuse it (libs/http).
+  app.use(wideEvents('api-user'));
   app.enableShutdownHooks();
   const port = process.env.PORT ?? 3002;
   await app.listen(port);

@@ -3,7 +3,6 @@ import {
   Get,
   HttpStatus,
   Inject,
-  Logger,
   Module,
   Req,
   Res,
@@ -23,6 +22,7 @@ import {
   type BunnyStream,
 } from '@heisreal/story-cards/bunny-stream';
 import { heldVideoIds, LINK_SECONDS, readHeld, toExport } from './my-data';
+import { currentEvent } from '@heisreal/logging/event';
 
 /**
  * "Download my data" (GDPR Art 15 and Art 20; M2 plan PR 12): `GET /v1/account/export`, the
@@ -37,8 +37,6 @@ import { heldVideoIds, LINK_SECONDS, readHeld, toExport } from './my-data';
  */
 @Controller('v1/account/export')
 export class ExportController {
-  private readonly logger = new Logger(ExportController.name);
-
   constructor(
     private readonly people: PersonSessions,
     private readonly urls: MediaUrls,
@@ -98,9 +96,12 @@ export class ExportController {
       );
     } catch (err) {
       // The message names a status at most, never the person or the video.
-      this.logger.warn(
-        `Bunny's video read failed: ${err instanceof Error ? err.message : 'error'}`,
-      );
+      currentEvent()?.set({
+        error: {
+          type: 'BunnyReadFailed',
+          message: err instanceof Error ? err.message : 'error',
+        },
+      });
       throw new ProblemException(
         HttpStatus.SERVICE_UNAVAILABLE,
         'export_unavailable',
@@ -115,9 +116,12 @@ export class ExportController {
       return await this.clerk.getUser(clerkUserId);
     } catch (err) {
       // The message names a status at most, never the person.
-      this.logger.warn(
-        `Clerk's user read failed: ${err instanceof Error ? err.message : 'error'}`,
-      );
+      currentEvent()?.set({
+        error: {
+          type: 'ClerkReadFailed',
+          message: err instanceof Error ? err.message : 'error',
+        },
+      });
       throw new ProblemException(
         HttpStatus.SERVICE_UNAVAILABLE,
         'export_unavailable',

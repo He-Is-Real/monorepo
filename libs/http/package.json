@@ -15,6 +15,11 @@
       "import": "./src/rate-limits.ts",
       "default": "./src/rate-limits.ts"
     },
+    "./wide-events": {
+      "types": "./src/lib/wide-events.ts",
+      "import": "./src/lib/wide-events.ts",
+      "default": "./src/lib/wide-events.ts"
+    },
     "./package.json": "./package.json"
   },
   "nx": {
@@ -27,6 +32,7 @@
   "dependencies": {
     "@heisreal/database": "workspace:*",
     "@heisreal/logging": "workspace:*",
+    "@heisreal/secrets": "workspace:*",
     "@nestjs/common": "^12.3.2",
     "@nestjs/core": "^12.3.2",
     "express-rate-limit": "^8.7.5"

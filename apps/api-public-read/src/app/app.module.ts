@@ -9,7 +9,12 @@ import {
   DatabaseModule,
 } from '@heisreal/database';
 import { HealthController, HealthModule } from '@heisreal/health';
-import { ProblemFilter, RateLimitModule, RateLimits } from '@heisreal/http';
+import {
+  LogKeysModule,
+  ProblemFilter,
+  RateLimitModule,
+  RateLimits,
+} from '@heisreal/http';
 import { SecretsModule, SecretsService } from '@heisreal/secrets';
 import { LegalController, LegalModule } from './legal/legal.controller';
 import { MediaUrlsModule } from '@heisreal/story-cards';
@@ -21,11 +26,14 @@ import { BrowseController } from './stories/browse.controller';
 import { StoriesController, StoriesModule } from './stories/stories.controller';
 import { ThemesController, ThemesModule } from './themes/themes.controller';
 import { PublicAnswerCache, PublicCacheInterceptor } from './public-cache';
+import { SearchEventInterceptor } from './stories/search-events';
 import { websiteKeyFromSecret } from './website-key';
 
 @Module({
   imports: [
     SecretsModule,
+    // The log keys (log-hmac, log-search-hmac) for the request's wide event (libs/http).
+    LogKeysModule,
     DatabaseModule,
     // RL-8 A: web's own server carries the website key and shares one large allowance.
     RateLimitModule.forRoot({
@@ -46,6 +54,8 @@ import { websiteKeyFromSecret } from './website-key';
   providers: [
     { provide: APP_FILTER, useClass: ProblemFilter },
     { provide: PublicAnswerCache, useFactory: () => new PublicAnswerCache() },
+    // Before the cache, so a search answered from memory still writes its search event.
+    { provide: APP_INTERCEPTOR, useClass: SearchEventInterceptor },
     { provide: APP_INTERCEPTOR, useClass: PublicCacheInterceptor },
     // After the cache, so a remembered answer is still served while the database restarts;
     // anything else is `503 service_restarting` at once.

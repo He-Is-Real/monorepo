@@ -9,6 +9,7 @@ import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { writeLog } from '@heisreal/logging';
 import { JsonLogger } from '@heisreal/logging/nest';
+import { wideEvents } from '@heisreal/http/wide-events';
 import { AppModule } from './app/app.module';
 
 async function bootstrap() {
@@ -19,6 +20,8 @@ async function bootstrap() {
     logger: new JsonLogger(),
   });
   app.flushLogs();
+  // One wide event per request, started before anything else can refuse it (libs/http).
+  app.use(wideEvents('cert-signer'));
   app.enableShutdownHooks();
   const port = process.env.PORT ?? 3005;
   await app.listen(port);

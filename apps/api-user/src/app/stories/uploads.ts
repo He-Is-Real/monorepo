@@ -4,7 +4,6 @@ import {
   ConflictException,
   HttpException,
   HttpStatus,
-  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -33,6 +32,7 @@ import type {
 import { StaleVersionException } from './story-store';
 import { agreementRefusalOf } from '../account/agreements';
 import { setVideoPicture } from './video-picture';
+import { currentEvent, note } from '@heisreal/logging/event';
 
 /**
  * Video and audio uploads (M2 plan PR 7; D65, D68, D80, D113): RequestUpload, and the checks
@@ -264,7 +264,6 @@ const EDITABLE = ['editing'];
 const ARRIVED_REMEMBERED = 10_000;
 
 export class Uploads {
-  private readonly logger = new Logger('Uploads');
   /**
    * Pictures this instance has seen arrive. A path is only ever written once (its PUT is one use,
    * and a new picture gets a new path), and its file goes only with its story, so once there it
@@ -516,9 +515,10 @@ export class Uploads {
       if (there) this.remember(path);
       return there;
     } catch (err) {
-      this.logger.warn(
-        `Couldn’t check whether picture ${path} arrived (counted as not): ${String(err)}`,
-      );
+      // Counted as not arrived.
+      currentEvent()?.set({
+        upload: { image_path: path, image_check_failed: errorName(err) },
+      });
       return false;
     }
   }
@@ -546,9 +546,11 @@ export class Uploads {
         throw new OutcomeUnknown();
       });
     } catch (err) {
-      this.logger.warn(
-        `Upload row${videoId ? ` for video ${videoId}` : ''} has no known outcome; video kept (an orphan until the sweep if it never committed): ${String(cause)}`,
-      );
+      // The video is kept: an orphan until the sweep if the row never committed.
+      currentEvent()?.set({
+        upload: { video_id: videoId },
+        error: { type: 'UploadOutcomeUnknown', code: errorName(cause) },
+      });
       if (err instanceof IdempotencyKeyReusedError) throw err;
       throw new ServiceUnavailableException({
         code: 'upload_outcome_unknown',
@@ -633,8 +635,19 @@ export class Uploads {
     await this.stream()
       .deleteVideo(videoId)
       .catch((e: unknown) =>
-        this.logger.warn(
-          `Couldn’t delete ${what} ${videoId} (an orphan until the sweep): ${String(e)}`,
+        // An orphan until the sweep.
+        note(
+          {
+            upload: {
+              orphaned_video_id: videoId,
+              orphaned: what,
+              delete_failed: errorName(e),
+            },
+          },
+          {
+            severity: 'WARNING',
+            message: 'Couldn’t delete a video (an orphan until the sweep)',
+          },
         ),
       );
   }
@@ -768,9 +781,10 @@ export class Uploads {
     try {
       start = await images.start(path);
     } catch (err) {
-      this.logger.warn(
-        `Couldn’t check picture ${path} before submit: ${String(err)}`,
-      );
+      currentEvent()?.set({
+        upload: { image_path: path },
+        error: { type: 'ImageCheckUnavailable', code: errorName(err) },
+      });
       throw new ServiceUnavailableException({
         code: 'uploads_unavailable',
         message:
@@ -779,7 +793,9 @@ export class Uploads {
     }
     const problem = pictureProblem(start, recorded);
     if (problem) {
-      this.logger.warn(`Picture ${path} refused at submit: ${problem}`);
+      currentEvent()?.set({
+        upload: { image_path: path, image_problem: problem },
+      });
       throw new BadRequestException({
         code: 'image_not_uploaded',
         message:
@@ -791,9 +807,14 @@ export class Uploads {
     // higher limit is refused like an unfinished one, with its own words.
     const maxBytes = await this.imageMaxBytes(person);
     if (recorded.sizeBytes > maxBytes) {
-      this.logger.warn(
-        `Picture ${path} refused at submit: over the limit (${recorded.sizeBytes} > ${maxBytes} bytes)`,
-      );
+      currentEvent()?.set({
+        upload: {
+          image_path: path,
+          image_problem: 'over_limit',
+          bytes: recorded.sizeBytes,
+          max_bytes: maxBytes,
+        },
+      });
       throw new BadRequestException({
         code: 'image_not_uploaded',
         message:
@@ -1038,3 +1059,5 @@ function limitReached(availableAt: string) {
     HttpStatus.CONFLICT,
   );
 }
+
+const errorName = (err: unknown) => (err instanceof Error ? err.name : 'error');
