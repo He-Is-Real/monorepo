@@ -2,8 +2,8 @@
 name: writing-logs
 description: >
   How we write logs in this monorepo: one wide event per request or job, stable field names, and
-  the data-handling class of every field (plain, keyed hash, content: hashed unless the work
-  failed, never), and search events that never say who searched. Use whenever you add or change logging, error handling, a
+  the data-handling class of every field (plain, keyed hash, long text: hashed unless the work
+  ends in an error, a refusal or a rate limit, never), and search events that never say who searched. Use whenever you add or change logging, error handling, a
   NestJS controller, interceptor, guard or filter, a Next.js route, server action or error page, a
   Pub/Sub job or worker step, or a call to SurrealDB, Clerk, Bunny, Stripe or Resend, and when you
   read logs to debug something.
@@ -14,8 +14,8 @@ description: >
 # Writing logs
 
 Based on [loggingsucks.com](https://loggingsucks.com/) (Boris Tane) and Joel's logging decisions
-in `../project/context/research/logging.html` (LG-1 to LG-8). Where a rule below says **pending
-Joel**, don't invent an answer: follow the safer reading given, and ask.
+in `../project/context/research/logging.html` (LG-1 to LG-9). Every point is decided; if something new comes up that the rules below don't
+cover, don't invent an answer: ask Joel.
 
 ## The idea in one line
 
@@ -58,9 +58,11 @@ success or failure. Stripe calls it a canonical log line; the blog calls it a wi
    Axiom after the response, without awaiting it on the request path; swallow and count send
    errors. Logging code never throws into business code.
 10. **Server errors are logged by servers only (LG-1c, Joel 22 Nov).** The browser never sends
-    details of a server-side error: anyone can read their own network traffic. Only a crash in
-    our JavaScript sends a small `error_report` (reference, route, kind) to api-user. Whether a
-    request that got no answer (offline, timeout) also sends one is pending Joel (LG-1c).
+    details of a server-side error: anyone can read their own network traffic. Only failures the
+    servers can't see send a small `error_report` (reference, route, kind) to api-user: a crash in
+    our JavaScript (`kind: "browser_crash"`), and a request that got no answer (offline, timeout;
+    `kind: "no_answer"`, Joel 24 Nov, LG-9a A), sent once the page can reach us again. Held in
+    memory only, never the browser's storage; if the page closes first, nothing is sent.
 11. **Same format everywhere.** One JSON object per line on stdout (`libs/logging`): locally, in CI
     and on Google Cloud. Don't add a "pretty" mode to services; pretty-print with `jq` when reading.
 
@@ -86,27 +88,33 @@ Joel decided (22–23 Nov 2026) which personal data we log and how. Until the lo
 (wide-event helper, hashing keys), the `libs/logging` README rule still holds for
 today's lines: no personal data, tokens, keys or story content.
 
-| Class          | How it is written                                                                                                                                                              | Fields                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Plain**      | as is, in Axiom and Google alike                                                                                                                                               | routes, status, timings, counts, outcomes, ids (`user.id`, `story.id`, job ids), roles, consent version numbers, search queries, tags and filters, and personal fields: `user.email`, `client.ip`, `story.title` (Joel, 23 Nov: plain for simplicity; the privacy wording is expanded to say so, LG-2f). No hashing or encryption for these, **except on search events**, where `user.email`, `client.ip` and `user.id` are keyed hashes (see "Search events"). The browser's user agent `client.user_agent` is plain everywhere, search events included: we need it to tell whether anyone is running bots on the site (Joel, 23 Nov), and the privacy notice says so. |
-| **Keyed hash** | HMAC-SHA-256 with a key from Secret Manager (`libs/secrets`), never plain SHA, `hk1:` prefix (search events: their own key, `hs1:`). **Always**: on success and on error alike | sensitive fields that must be matchable (Joel, 23 Nov, LG-2d C): `user.session_hash` = HMAC of Clerk's stable session id (`sid`, the same for the whole visit), to follow journeys; `user.token_hash` = HMAC of the whole Clerk token, to answer "was this exact token used?" (it changes about every minute, so it can't follow journeys). Never the raw token or `sid`. On search events, who searched (see "Search events").                                                                                                                                                                                                                                         |
-| **Content**    | keyed hash plus length by default; **in full whenever the request or job ends in an error**                                                                                    | long, many-paragraph, non-sensitive fields: story text, descriptions, captions, transcripts, request bodies (with any secret inside a body removed first). There is no debug window or switch (Joel, 23 Nov, LG-2e): if we ever really need the plain words of a field, we change the code to stop hashing it, in a normal PR.                                                                                                                                                                                                                                                                                                                                          |
-| **Never**      | not at all, not on error                                                                                                                                                       | session tokens, cookies, API keys, passwords, secrets, signed URLs, auth headers, card data, whole header sets.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Class                             | How it is written                                                                                                                                                              | Fields                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Plain**                         | as is, in Axiom and Google alike                                                                                                                                               | routes, status, timings, counts, outcomes, ids (`user.id`, `story.id`, job ids), roles, consent version numbers, search queries, tags and filters, and personal fields: `user.email`, `client.ip`, `story.title` (Joel, 23 Nov: plain for simplicity; the privacy wording is expanded to say so, LG-2f). No hashing or encryption for these, **except on search events**, where `user.email`, `client.ip` and `user.id` are keyed hashes (see "Search events"). The browser's user agent `client.user_agent` is plain everywhere, search events included: we need it to tell whether anyone is running bots on the site (Joel, 23 Nov), and the privacy notice says so. |
+| **Keyed hash**                    | HMAC-SHA-256 with a key from Secret Manager (`libs/secrets`), never plain SHA, `hk1:` prefix (search events: their own key, `hs1:`). **Always**: on success and on error alike | sensitive fields that must be matchable (Joel, 23 Nov, LG-2d C): `user.session_hash` = HMAC of Clerk's stable session id (`sid`, the same for the whole visit), to follow journeys; `user.token_hash` = HMAC of the whole Clerk token, to answer "was this exact token used?" (it changes about every minute, so it can't follow journeys). Never the raw token or `sid`. On search events, who searched (see "Search events").                                                                                                                                                                                                                                         |
+| **Long text (hash unless error)** | keyed hash plus length by default; **in full whenever the request or job ends in an error, an input refusal or a rate limit**                                                  | long, many-paragraph, non-sensitive fields: story text, descriptions, captions, transcripts, request bodies (with any secret inside a body removed first). There is no debug window or switch (Joel, 23 Nov, LG-2e): if we ever really need the plain words of a field, we change the code to stop hashing it, in a normal PR.                                                                                                                                                                                                                                                                                                                                          |
+| **Never**                         | not at all, not on error                                                                                                                                                       | session tokens, cookies, API keys, passwords, secrets, signed URLs, auth headers, card data, whole header sets.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 **Sensitive fields are never plain (Joel, 23 Nov).** Only the session id and the token are logged,
 as keyed hashes (`user.session_hash`, `user.token_hash`). Cookies, API keys, passwords and auth
 headers are not logged at all, hashed or not: the session hash is enough to follow a visit. Never plain, **not even when the request fails**: the
-content rule below is not an option for them. Strip them out of a request body before it is logged.
+long text rule below is not an option for them. Strip them out of a request body before it is logged.
 
-**The content rule (Joel, 23 Nov).** Write content fields through one helper, never by hand:
-hashed by default, and **the full value whenever the work ends in an error** (`outcome: "error"`: something failed on our side), so the failure can be reproduced.
+**The long text rule (Joel, 23 Nov; widened 24 Nov, LG-9b B).** Long text: hashed unless the
+request ends in an error, a refusal or a rate limit. Write long text fields through one helper,
+never by hand: hashed by default, and **the full value whenever the work ends in an error, an input
+refusal or a rate limit** (`outcome: "error"`, `"input_refused"` or `"rate_limited"`), so a failure
+can be reproduced and we see what the person was trying to do (Joel: "I want to see what users
+were attempting in detail when they hit a rate limit").
 The default hashing exists **only to keep log volume down** for long, many-paragraph fields such as
 story text and transcripts. It is not a privacy measure: the session id and token are keyed-hashed, other secrets are
 left out entirely (rule above), and short personal fields (email, IP, title) are simply plain
 (except who searched, on search events: below).
-An input refusal (`input_refused`) or a rate limit is not an error: it logs the failed field, its
-size and the failed check, never the value. An event holding content in plain sets
-`debug: { plain_content: true }` (only ever on error).
+An input refusal also logs the failed fields and checks (`input.failed_fields`,
+`input.failed_checks`). **Not found** (`not_found`) and **restarting** (`restarting`) keep long text
+hashed. An event holding long text in plain sets `debug: { plain_content: true }` (only ever on an
+error, an input refusal or a rate limit). Sensitive fields and who searched stay hashed or left out
+in every case.
 
 **Search events (Joel, 23 Nov; LG-2g A, 24 Nov):** "for privacy, only for search terms and filters always hash the
 ip, email, user id anything that links search terms to a specific user. The terms themselves in
@@ -147,14 +155,14 @@ event.set({
   action: 'story.submit',
   story: { id, type: dto.type, title: dto.title },
 });
-event.content('story.body', dto.body); // decided when the event is written, see below
+event.longText('story.body', dto.body); // decided when the event is written, see below
 const res = await event.timeDb('fn::submit_story', () =>
   this.db.query('fn::submit_story($id)', { id }),
 );
 event.set({ outcome: 'ok' });
 ```
 
-Content is resolved once, when the event is written, because only then is the outcome known:
+Long text is resolved once, when the event is written, because only then is the outcome known:
 
 ```ts
 // libs/logging (sketch). Two helpers, two different rules.
@@ -171,16 +179,17 @@ function searchIdentityField(value: string) {
   return searchHmac(value); // key `log-search-hmac`, prefix hs1:
 }
 
-// Long non-sensitive content: hashed only to keep log volume down.
-function contentField(value: string, { failed }: { failed: boolean }) {
-  if (failed) return { value, length: value.length }; // full text when the work ended in an error
+// Long non-sensitive text: hashed only to keep log volume down.
+function longTextField(value: string, { plain }: { plain: boolean }) {
+  if (plain) return { value, length: value.length }; // full text on error, input refusal or rate limit
   return { hash: hmac(value), length: value.length }; // default: fingerprint only
 }
 
-// A request body is content, but secrets inside it are removed first, even on error.
-const body = contentField(JSON.stringify(withoutSecrets(req.body)), { failed });
-// finish(): outcome === 'error' → story.body (full) + debug.plain_content true;
-// otherwise → story.body_hash + story.body_length.
+// A request body is long text, but secrets inside it are removed first, even when plain.
+const plain = ['error', 'input_refused', 'rate_limited'].includes(outcome);
+const body = longTextField(JSON.stringify(withoutSecrets(req.body)), { plain });
+// finish(): plain → story.body (full) + debug.plain_content true;
+// otherwise (ok, not_found, restarting) → story.body_hash + story.body_length.
 // user.session_hash = sensitiveField(sid) and user.token_hash = sensitiveField(token), on every
 // event except search events.
 // On a search event: client.ip_hash / user.email_hash / user.id_hash = searchIdentityField(...);
@@ -202,7 +211,7 @@ use(req: Request, res: Response, next: NextFunction) {
 // Guards, interceptors and the exception filter only add to req.event:
 //   guard        event.set({ user: { id, role } }); a refusal throws, and the filter records it
 //   interceptor  event.set({ http: { route } }) from the handler's route
-//   filter       event.fail(err): outcome ('refused' or 'error'), error.type/code/retriable;
+//   filter       event.fail(err): outcome ('input_refused', 'rate_limited', 'not_found', 'restarting' or 'error'), error.type/code/retriable;
 //                an unexpected error also writes the immediate error line here
 ```
 
@@ -219,13 +228,16 @@ use(req: Request, res: Response, next: NextFunction) {
 heisreal-dev --freshness=1d --format=json`, then `trace="projects/heisreal-dev/traces/<ref
 without dashes>"` for Cloud Run's line (the LG-4 trace field).
 - A reference with no lines means the request never reached us; its UUID v7 still tells you the
-  millisecond it was made. Browser crashes send an `error_report` event
-  with the reference (requests that got no answer: pending Joel, LG-1c). A server-page crash is found by its time and route.
+  millisecond it was made. Browser crashes and requests that got no answer send an
+  `error_report` event with the reference (LG-1c, LG-9a; a no-answer report only arrives if the
+  page reached us again before it closed). A server-page crash is found by its time and route.
 
 ## Before you finish
 
 - One event per request/job; no new `console.*` or mid-request log lines.
-- Every new field has a stable name and a data class from the table; nothing from "Never".
+- Every new field has a stable name and a data class from the table (Plain, Keyed hash, Long text,
+  Never); nothing from "Never".
+- Long text goes through the one helper: hashed, in full only on error, input refusal or rate limit.
 - Search events: their own `event: "search"`, no `ref` or session/token hash; terms plain, who
   searched only as `hs1:` hashes, never plain; the route's own event has no terms.
 - No sampling; no tracing library.
