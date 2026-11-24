@@ -197,6 +197,19 @@ describe('a database restart', () => {
           age_ms: 64_000,
           not_modified: false,
         });
+
+      // The same stale copy to a browser that already holds it: Express answers 304 itself,
+      // and the event says so. A browser revalidates with `max-age=0`; fetch would otherwise add
+      // `no-cache` to a conditional request, which Express never answers with a 304.
+      expect(
+        await cacheOf({
+          'If-None-Match': miss.etag,
+          'Cache-Control': 'max-age=0',
+        }),
+      ).toMatchObject({
+        status: 304,
+        cache: { hit: true, stale: true, age_ms: 64_000, not_modified: true },
+      });
     } finally {
       LOG_SINKS.splice(0, LOG_SINKS.length, ...sinksBefore);
     }
