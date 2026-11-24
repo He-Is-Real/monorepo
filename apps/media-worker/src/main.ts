@@ -15,7 +15,7 @@
  * renewed here every few hours.
  */
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
-import { type Severity } from '@heisreal/logging';
+import { type Severity, serviceFields } from '@heisreal/logging';
 import { LOG_SINKS, note } from '@heisreal/logging/event';
 import { JsonLogger } from '@heisreal/logging/nest';
 import { SecretsService } from '@heisreal/secrets';
@@ -52,6 +52,9 @@ function tokenEmail(token: string): unknown {
     }
   ).email;
 }
+
+// Off Cloud Run there is no K_SERVICE: name this process before anything logs (LG-10).
+serviceFields('media-worker');
 
 // libs/secrets' own Nest `Logger` lines in the same format.
 Logger.overrideLogger(new JsonLogger());

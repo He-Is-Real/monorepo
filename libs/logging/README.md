@@ -116,8 +116,9 @@ deployment details too"): wide, job and search events, `note` and error lines, a
 - **Region and instance:** read once, in the background, the first time a line is written where
   `K_SERVICE` or `CLOUD_RUN_JOB` is set (`event/instance.ts`, loaded with `@heisreal/logging/event`;
   `GCE_METADATA_HOST` points it elsewhere). Nothing waits for it: lines written before it answers,
-  or if it never does (2 s timeout), simply lack the two fields. Locally and on the media worker's
-  machine they are never written.
+  or if it never does (each request is cut off 2 s after it starts), simply lack the field; each
+  of the two lands on its own as soon as it arrives. Locally and on the media worker's machine they
+  are never written; the media worker names itself (`serviceFields('media-worker')` at start-up).
 
 Outside a request or job (start-up, background work), use `writeLog` / `createLog` / `JsonLogger`
 as above. Their lines carry no personal data, tokens, keys or story content.

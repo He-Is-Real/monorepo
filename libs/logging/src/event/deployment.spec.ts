@@ -15,25 +15,42 @@ const SET = [
   'GCE_METADATA_HOST',
 ];
 
-/** A stand-in metadata server; `answer: false` accepts requests and never replies. */
-async function metadataServer(answer: boolean): Promise<Server> {
+/**
+ * A stand-in metadata server. `answer`: `true` replies to everything; `false` accepts requests
+ * and never replies; `'trickle'` answers the region at once but trickles the instance id a byte
+ * at a time, forever. `requests` counts what arrived; `closed` counts requests whose connection
+ * the caller cut.
+ */
+async function metadataServer(answer: boolean | 'trickle') {
+  const seen = { requests: 0, closed: 0 };
+  const values: Record<string, string> = {
+    '/computeMetadata/v1/instance/region':
+      'projects/236063168938/regions/europe-west2',
+    '/computeMetadata/v1/instance/id': '0069c7a2b1f00d',
+  };
   const server = createServer((req, res) => {
+    seen.requests++;
+    res.on('close', () => {
+      if (!res.writableFinished) seen.closed++;
+    });
     if (!answer) return;
     if (req.headers['metadata-flavor'] !== 'Google') {
       res.writeHead(403).end();
       return;
     }
-    const values: Record<string, string> = {
-      '/computeMetadata/v1/instance/region':
-        'projects/236063168938/regions/europe-west2',
-      '/computeMetadata/v1/instance/id': '0069c7a2b1f00d',
-    };
     const value = values[req.url ?? ''];
-    if (value) res.writeHead(200).end(value);
-    else res.writeHead(404).end();
+    if (!value) {
+      res.writeHead(404).end();
+    } else if (answer === 'trickle' && req.url?.endsWith('/id')) {
+      res.writeHead(200);
+      const drip = setInterval(() => res.write('0'), 20);
+      res.on('close', () => clearInterval(drip));
+    } else {
+      res.writeHead(200).end(value);
+    }
   });
   await new Promise<void>((ready) => server.listen(0, '127.0.0.1', ready));
-  return server;
+  return Object.assign(server, { seen });
 }
 
 /** Each test gets fresh modules: the lookup runs once per process. */
@@ -88,17 +105,43 @@ describe('deployment details on every entry (LG-10)', () => {
   it('a metadata server that never answers holds up nothing, and the fields are left off', async () => {
     server = await metadataServer(false);
     const { startEvent, logEntry } = await onCloudRun(server);
-    const started = performance.now();
+    const first = logEntry('INFO', 'listening');
+    // Both questions are now open at the metadata server and stay unanswered…
+    const { seen } = server as Server & { seen: { requests: number } };
+    await vi.waitFor(() => expect(seen.requests).toBe(2));
+    // …and lines are still written there and then, without the two fields.
     const line = logEntry('INFO', 'listening');
     const { entry } = startEvent('request', 'api-user').build();
-    expect(performance.now() - started).toBeLessThan(100);
-    for (const written of [line, entry]) {
+    for (const written of [first, line, entry]) {
       expect(written['service']).toEqual({
         name: 'api-user',
         version: '1fb357f4c0de',
         revision: 'api-user-00042-xyz',
         env: 'dev',
       });
+    }
+  });
+
+  it('a metadata server that trickles one answer: the other field still lands, and the slow one is cut off', async () => {
+    server = await metadataServer('trickle');
+    const { seen } = server as Server & {
+      seen: { requests: number; closed: number };
+    };
+    // Only the lookup's own deadline is faked; sockets and the server's trickle run for real.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const { logEntry, serviceFields } = await onCloudRun(server);
+      logEntry('INFO', 'listening');
+      await vi.waitFor(() =>
+        expect(serviceFields().region).toBe('europe-west2'),
+      );
+      expect(serviceFields().instance).toBeUndefined();
+      expect(seen.closed).toBe(0);
+      vi.advanceTimersByTime(2_000);
+      await vi.waitFor(() => expect(seen.closed).toBe(1));
+      expect(serviceFields().instance).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
     }
   });
 

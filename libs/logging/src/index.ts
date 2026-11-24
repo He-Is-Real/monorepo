@@ -73,10 +73,15 @@ export interface ServiceFields {
 
 let processName: string | undefined;
 const instanceFields: { region?: string; instance?: string } = {};
+/**
+ * Reads the region and instance in the background and hands each over through `found` as soon as
+ * it arrives (one slow value never holds back the other). Must not throw or keep the process up.
+ */
 let instanceLookup:
   | ((
       env: Record<string, string | undefined>,
-    ) => Promise<typeof instanceFields>)
+      found: (fields: typeof instanceFields) => void,
+    ) => void)
   | undefined;
 let lookupStarted = false;
 
@@ -94,10 +99,7 @@ function startInstanceLookup(env: Record<string, string | undefined>): void {
   if (!env['K_SERVICE'] && !env['CLOUD_RUN_JOB']) return;
   lookupStarted = true;
   try {
-    instanceLookup(env).then(
-      (found) => Object.assign(instanceFields, found),
-      () => undefined,
-    );
+    instanceLookup(env, (found) => Object.assign(instanceFields, found));
   } catch {
     // Logging never throws; the fields are simply left off.
   }
