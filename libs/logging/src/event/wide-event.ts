@@ -130,13 +130,16 @@ const bytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value));
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
+/** Never copied: they would reach an object's prototype instead of a field. */
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 function merge(
   target: Record<string, unknown>,
   source: Record<string, unknown>,
 ): void {
   for (const [key, value] of Object.entries(source)) {
-    if (value === undefined) continue;
-    const current = target[key];
+    if (value === undefined || UNSAFE_KEYS.has(key)) continue;
+    const current = Object.hasOwn(target, key) ? target[key] : undefined;
     if (isObject(value) && isObject(current)) merge(current, value);
     else if (isObject(value)) {
       const copy: Record<string, unknown> = {};
@@ -177,7 +180,8 @@ export function withoutSecrets(value: unknown, depth = 0): unknown {
   if (!isObject(value)) return value;
   const out: Record<string, unknown> = {};
   for (const [key, v] of Object.entries(value)) {
-    if (!SECRET_KEY.test(key)) out[key] = withoutSecrets(v, depth + 1);
+    if (!SECRET_KEY.test(key) && !UNSAFE_KEYS.has(key))
+      out[key] = withoutSecrets(v, depth + 1);
   }
   return out;
 }
