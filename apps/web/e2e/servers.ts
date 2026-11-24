@@ -57,6 +57,11 @@ export const WEB_SIGNED_IN_URL = `http://localhost:${WEB_SIGNED_IN_PORT}`;
  */
 export const WEB_LIMITED_PORT = base + 6;
 export const WEB_LIMITED_URL = `http://localhost:${WEB_LIMITED_PORT}`;
+/**
+ * Deployed without log keys (startup.e2e.ts): started by the test itself, never by
+ * playwright.config.ts, because it must not start.
+ */
+export const WEB_NO_KEYS_PORT = base + 7;
 /** 40 characters: long names must truncate before anything in the header wraps. */
 export const SIGNED_IN_NAME = 'Bartholomew Montgomery-Fitzwilliam Smith';
 

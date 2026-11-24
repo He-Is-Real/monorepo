@@ -146,6 +146,7 @@ An input refusal also logs the failed fields and checks (`input.failed_fields`,
 hashed. An event holding long text in plain sets `debug: { plain_content: true }` (only ever on an
 error, an input refusal or a rate limit). Sensitive fields and who searched stay hashed or left out
 in every case.
+**One exception: anonymous report routes** (api-user's `POST /v1/error-reports`; coordinator decision, 24 Nov 2026): anyone may call them, so their request body is never logged, not hashed and not in full, even on a refusal or a rate limit (`wideEvents(…, { bodyNeverLogged })`); a refusal logs only the failed field names and checks, never a name the sender made up.
 
 **Search events (Joel, 23 Nov; LG-2g A, 24 Nov):** "for privacy, only for search terms and filters always hash the
 ip, email, user id anything that links search terms to a specific user. The terms themselves in

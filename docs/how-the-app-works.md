@@ -1176,7 +1176,8 @@ RL-10; `project/context/research/rate-limiting.html`).
   saved."). The logs keep the full detail.
 - **Every such error, and the restart countdown, shows a reference under it (LG-1, LG-1b A,
   LG-1c; Joel, 22 Nov 2026: "every error must have a reference and reference be unique")**: a
-  small quiet line "Reference: 0193…" with a Copy button. It is a UUID v7 that means nothing to
+  small quiet line "Reference: 0193…" with a Copy button (none on a card's player, whose message
+  sits over the picture and takes no presses; the reference can still be selected). It is a UUID v7 that means nothing to
   the person; we search the logs for it. The browser makes one before each call to our APIs and
   sends it as the call's trace id, so the API's log line has the same one; when there is nothing
   to link (a page that couldn't be made, a crash in the page) the error screen makes a fresh one.

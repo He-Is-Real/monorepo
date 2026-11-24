@@ -28,6 +28,14 @@ const KINDS: ReadonlySet<string> = new Set<ErrorReportKind>([
 ]);
 const FIELDS: ReadonlySet<string> = new Set(['reference', 'route', 'kind']);
 
+/**
+ * This route's path. Its request body is never logged (`apiUserWideEvents`), not even when
+ * refused or rate-limited: an exception to LG-9b's "refusals log the body" (coordinator
+ * decision, Codex review of #286), because anyone may call it and could otherwise write their
+ * own text into our logs. A refusal logs only fixed metadata: the failed field names and checks.
+ */
+export const ERROR_REPORTS_PATH = '/v1/error-reports';
+
 const invalid = (pointer: string, message: string) =>
   new ProblemException(
     HttpStatus.BAD_REQUEST,
@@ -47,8 +55,11 @@ function parseReport(body: unknown): {
     throw invalid('', 'a JSON object');
   }
   const b = body as Record<string, unknown>;
-  const unknown = Object.keys(b).find((k) => !FIELDS.has(k));
-  if (unknown) throw invalid(`/${unknown}`, 'not a field of this report');
+  // The whole report is refused, not the unknown field by name: a field name is the sender's
+  // text, and the refusal's field names go in the log.
+  if (Object.keys(b).some((k) => !FIELDS.has(k))) {
+    throw invalid('', 'only reference, route and kind');
+  }
   const { reference, route, kind } = b;
   if (typeof reference !== 'string' || !REFERENCE.test(reference)) {
     throw invalid('/reference', 'a UUID v7');
@@ -74,7 +85,7 @@ function parseReport(body: unknown): {
   'The browser reports its own crashes and unanswered calls, signed in or not; ids only',
 )
 @AvailableWithoutDatabase()
-@Controller('v1/error-reports')
+@Controller(ERROR_REPORTS_PATH.slice(1))
 export class ErrorReportsController {
   @Post()
   @HttpCode(HttpStatus.NO_CONTENT)

@@ -223,6 +223,14 @@ test.describe('behaviour', () => {
     await expect(
       down.getByText('Something went wrong. Please try again later.'),
     ).toBeVisible();
+    // Its reference sits inside the message's line (a span, not a paragraph in a paragraph)
+    // with no Copy button: the overlay on the picture takes no presses.
+    const reference = down.locator('span[data-reference]');
+    await expect(reference).toContainText('Reference:');
+    await expect(down.locator('p p')).toHaveCount(0);
+    await expect(
+      down.getByRole('button', { name: 'Copy the reference' }),
+    ).toHaveCount(0);
     await expectNoHorizontalOverflow(page);
 
     await down

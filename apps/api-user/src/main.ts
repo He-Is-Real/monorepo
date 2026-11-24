@@ -5,8 +5,9 @@
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { failedToStart, START_UP_OPTIONS } from '@heisreal/database';
-import { corsOptions, wideEvents } from '@heisreal/http';
+import { corsOptions } from '@heisreal/http';
 import { AppModule } from './app/app.module';
+import { apiUserWideEvents } from './app/wide-events';
 
 async function bootstrap() {
   // D31: the browser calls this service directly, from web's origin only (CORS_ALLOWED_ORIGINS).
@@ -20,7 +21,7 @@ async function bootstrap() {
   }).catch(failedToStart);
   app.flushLogs();
   // One wide event per request, started before anything else can refuse it (libs/http).
-  app.use(wideEvents('api-user'));
+  app.use(apiUserWideEvents());
   app.enableShutdownHooks();
   const port = process.env.PORT ?? 3002;
   await app.listen(port);

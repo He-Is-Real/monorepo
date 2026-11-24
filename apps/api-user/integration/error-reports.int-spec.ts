@@ -7,11 +7,14 @@ import { SURREAL } from '@heisreal/database';
 import { TestDatabase } from '@heisreal/database/integration-testing';
 import { SECRET_MANAGER_CLIENT, SECRETS_PROJECT } from '@heisreal/secrets';
 import { AppModule } from '../src/app/app.module';
+import { apiUserWideEvents } from '../src/app/wide-events';
 
 /**
  * The browser's error reports (LG-1c, LG-9a; `POST /v1/error-reports`) through api-user's real
  * AppModule: no sign-in, one `event: "error_report"` log line with the person's reference, and
- * anything but `{ reference, route, kind }` refused without a line.
+ * anything but `{ reference, route, kind }` refused without a line. Anyone may call it, so its
+ * body is never logged, not even on a refusal (an exception to LG-9b, Codex review of #286): the
+ * request's wide event keeps only the failed field names and checks.
  */
 describe('api-user error reports', () => {
   let t: TestDatabase;
@@ -42,6 +45,7 @@ describe('api-user error reports', () => {
       .useValue('test-project')
       .compile();
     app = moduleRef.createNestApplication({ logger: false });
+    app.use(apiUserWideEvents());
     await app.listen(0, '127.0.0.1');
     url = await app.getUrl();
   });
@@ -51,23 +55,35 @@ describe('api-user error reports', () => {
   });
   beforeEach(() => {
     lines.length = 0;
-    vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+    const keep = (line: unknown) => {
       if (typeof line === 'string' && line.startsWith('{'))
         lines.push(JSON.parse(line) as Record<string, unknown>);
-    });
+    };
+    vi.spyOn(console, 'log').mockImplementation(keep);
+    vi.spyOn(console, 'error').mockImplementation(keep);
   });
   afterEach(() => vi.restoreAllMocks());
 
-  const send = (body: unknown) =>
+  const send = (body: unknown, trace?: string) =>
     fetch(`${url}/v1/error-reports`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) Firefox/140.0',
+        ...(trace
+          ? { traceparent: `00-${trace.replace(/-/g, '')}-0123456789abcdef-01` }
+          : {}),
       },
       body: JSON.stringify(body),
     });
   const reports = () => lines.filter((l) => l['event'] === 'error_report');
+  /** The request's wide event with this trace, once written (after the answer has gone). */
+  const requestEvent = async (trace: string) => {
+    const find = () =>
+      lines.find((l) => l['event'] === 'request' && l['ref'] === trace);
+    await vi.waitFor(() => expect(find()).toBeDefined());
+    return find() ?? {};
+  };
 
   it('writes one line with the reference, the page and the kind, signed out', async () => {
     const reference = '0193a7c4-5e19-7d03-b2c4-91f0e7a6d258';
@@ -116,5 +132,46 @@ describe('api-user error reports', () => {
       ]);
     }
     expect(reports()).toEqual([]);
+  });
+
+  it('never logs what a refused report said, only which checks failed', async () => {
+    const said = 'Call 0800 000 000 now: free money';
+    const unknownField = '0193a7c4-5e19-7d03-b2c4-91f0e7a6d201';
+    const res = await send(
+      {
+        reference: '0193a7c4-5e19-7d03-b2c4-91f0e7a6d258',
+        route: '/',
+        kind: 'browser_crash',
+        [said]: said,
+      },
+      unknownField,
+    );
+    expect(res.status).toBe(400);
+    expect(await res.text()).not.toContain('free money');
+    const badValue = '0193a7c4-5e19-7d03-b2c4-91f0e7a6d202';
+    const res2 = await send(
+      { reference: said, route: '/', kind: 'no_answer' },
+      badValue,
+    );
+    expect(res2.status).toBe(400);
+    const events = [
+      await requestEvent(unknownField),
+      await requestEvent(badValue),
+    ];
+    expect(JSON.stringify(lines)).not.toContain('free money');
+    expect(events.map((e) => [e['outcome'], e['input'], e['request']])).toEqual(
+      [
+        [
+          'input_refused',
+          { failed_fields: [''], failed_checks: ['invalid'] },
+          undefined,
+        ],
+        [
+          'input_refused',
+          { failed_fields: ['reference'], failed_checks: ['invalid'] },
+          undefined,
+        ],
+      ],
+    );
   });
 });

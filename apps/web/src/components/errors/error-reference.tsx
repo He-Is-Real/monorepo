@@ -49,16 +49,31 @@ export function ErrorReference({
     );
   };
   return (
-    <Text size="small" tone="quiet" data-reference="" className={className}>
+    <Text
+      as={as}
+      size="small"
+      tone="quiet"
+      data-reference=""
+      className={className}
+    >
       Reference:{' '}
       <span className="break-all" data-reference-value="">
         {shown}
-      </span>{' '}
-      <TextLink asChild touch className="min-w-11 justify-center">
-        <button type="button" onClick={copy} aria-label="Copy the reference">
-          {copied ? 'Copied' : 'Copy'}
-        </button>
-      </TextLink>
+      </span>
+      {canCopy && (
+        <>
+          {' '}
+          <TextLink asChild touch className="min-w-11 justify-center">
+            <button
+              type="button"
+              onClick={copy}
+              aria-label="Copy the reference"
+            >
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+          </TextLink>
+        </>
+      )}
     </Text>
   );
 }
