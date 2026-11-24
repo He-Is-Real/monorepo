@@ -1,5 +1,6 @@
 'use client';
 
+import { ErrorReference } from '@/components/errors/error-reference';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useMemo } from 'react';
@@ -77,7 +78,8 @@ export function AgreementPage({
   if (account.status === 'failed') {
     return (
       <Notice kind="danger" role="alert">
-        <p className="mb-3">{TRY_AGAIN_LATER}</p>
+        <p>{TRY_AGAIN_LATER}</p>
+        <ErrorReference reference={account.reference} className="mt-1 mb-3" />
         <Button variant="outline" wrap onClick={() => window.location.reload()}>
           Try again
         </Button>

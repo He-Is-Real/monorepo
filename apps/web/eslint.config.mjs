@@ -72,15 +72,19 @@ const TOKEN_SELECTORS = [
 // to run on the server; cookies and every other rule above still apply to it.
 const API_USER_CLIENT = 'src/lib/api-user.ts';
 
-// The second carve-out (rate limiting, RL-8 A, Joel 2026-11-21; apps/web/README.md): the proxy's
-// counter key is the visitor's address, so this one file may read the `x-forwarded-for` request
-// header, written exactly as `<request>.headers.get('x-forwarded-for')`. Every other `.headers`
-// or `.cookies` use stays refused there, as do all the other rules.
+// The second carve-out (rate limiting, RL-8 A, Joel 2026-11-21; logging, LG-2 and LG-4 A, Joel
+// 22–24 Nov 2026; apps/web/README.md): the proxy's counter key is the visitor's address, and the
+// request's wide event carries the address, the browser's user agent and the trace Google's front
+// end gives it. So this one file may read exactly these request headers, by their literal names:
+// `x-forwarded-for`, `user-agent`, `traceparent` and `next-router-prefetch`, as
+// `<request>.headers.get('<name>')`, and the trace of a request Next reports an error on as
+// `<request>.headers.traceparent`. Every other `.headers` or `.cookies` use stays refused there,
+// as do all the other rules.
 const VISITOR_ADDRESS = 'src/lib/visitor-address.ts';
 const FORWARDED_FOR_ONLY = {
   selector:
-    'MemberExpression[property.name=/^(headers|cookies?)$/]:not(CallExpression[arguments.length=1][arguments.0.value="x-forwarded-for"] > MemberExpression.callee[property.name="get"] > MemberExpression.object[property.name="headers"])',
-  message: `${tokenBoundary}: this file may read only the x-forwarded-for header, as .headers.get('x-forwarded-for').`,
+    'MemberExpression[property.name=/^(headers|cookies?)$/]:not(CallExpression[arguments.length=1][arguments.0.value=/^(x-forwarded-for|user-agent|traceparent|next-router-prefetch)$/] > MemberExpression.callee[property.name="get"] > MemberExpression.object[property.name="headers"]):not(MemberExpression[property.name="traceparent"] > MemberExpression.object[property.name="headers"])',
+  message: `${tokenBoundary}: this file may read only the x-forwarded-for, user-agent, traceparent and next-router-prefetch headers, by name.`,
 };
 
 export default [

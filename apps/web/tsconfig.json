@@ -54,13 +54,16 @@
       "path": "../../libs/story-filters"
     },
     {
+      "path": "../../libs/secrets"
+    },
+    {
       "path": "../../libs/logging"
     },
     {
-      "path": "../../libs/http"
+      "path": "../../libs/web-ui"
     },
     {
-      "path": "../../libs/web-ui"
+      "path": "../../libs/http"
     },
     {
       "path": "../../libs/contracts"

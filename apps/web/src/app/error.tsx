@@ -1,19 +1,27 @@
 'use client';
 
 import { Button, Heading, Text } from '@heisreal/web-ui';
+import { ErrorReference } from '@/components/errors/error-reference';
 import { TextLink } from '@/components/page/text-link';
+import { reportBrowserCrash } from '@/lib/error-reports';
 
 /**
  * Anything a page couldn't render, most likely api-public-read being unreachable. Only "Something
  * went wrong. Please try again later." (Joel, 2026-11-09): no error details or backend state reach
- * the visitor (they're in Cloud Run's logs). Search engines are told not to index it (PC-3 A, Joel,
- * 2026-11-22), like the "not found" page: with page caching the answer is 200, so the tag is
- * what keeps a crash out of search results.
+ * the visitor (they're in our logs), and a reference made here, in the browser, under it (LG-1,
+ * LG-1c). Search engines are told not to index it (PC-3 A, Joel, 2026-11-22), like the "not
+ * found" page: with page caching the answer is 200, so the tag is what keeps a crash out of search
+ * results.
+ *
+ * A crash while the page was made on the server comes with Next's `digest`: the server logged it
+ * (onRequestError), so nothing is sent from here. A crash in the browser (no digest) is reported
+ * with the reference (`browser_crash`, LG-1c), from this page's memory only.
  */
 export default function ErrorPage({
+  error,
   reset,
 }: {
-  error: Error;
+  error: Error & { digest?: string };
   reset: () => void;
 }) {
   return (
@@ -30,6 +38,11 @@ export default function ErrorPage({
           Go to the home page
         </TextLink>
       </div>
+      <ErrorReference
+        onReference={(reference) => {
+          if (!error.digest) reportBrowserCrash(reference);
+        }}
+      />
     </main>
   );
 }

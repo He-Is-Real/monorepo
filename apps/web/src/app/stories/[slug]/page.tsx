@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound, permanentRedirect } from 'next/navigation';
 import { StoryTakeDown } from '@/components/moderation/story-take-down';
+import { ErrorReference } from '@/components/errors/error-reference';
 import { RestartingMessage } from '@/components/restarting/restarting-message';
 import { StoryView } from '@/components/stories/story-view';
 import { getRelatedStories, type StorySummary } from '@/lib/browse';
@@ -66,6 +67,7 @@ function StoryUnavailable({ slug }: { slug: string }) {
           Browse stories
         </TextLink>
       </div>
+      <ErrorReference />
     </main>
   );
 }

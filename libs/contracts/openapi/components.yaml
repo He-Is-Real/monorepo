@@ -1537,6 +1537,26 @@ components:
           type: string
           maxLength: 1000
 
+    ErrorReport:
+      type: object
+      description: |
+        The browser's report of a failure our servers couldn't see (LG-1c, LG-9a): ids only, never
+        details of an error.
+      required: [reference, route, kind]
+      additionalProperties: false
+      properties:
+        reference:
+          type: string
+          description: The reference the person was shown, a UUID v7 the browser made (LG-1b).
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        route:
+          type: string
+          description: The page's path, without its query or fragment.
+          pattern: '^/[^?#\s]{0,299}$'
+        kind:
+          type: string
+          enum: [browser_crash, no_answer]
+
     SetStaffRole:
       type: object
       additionalProperties: false

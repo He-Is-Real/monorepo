@@ -1,9 +1,11 @@
 'use client';
 
+import { newReference, referenceOf } from '@/lib/reference';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ApiUserProblem,
   ApiUserUnavailable,
+  isSystemError,
   newIdempotencyKey,
   plainMessage,
   StaleVersion,
@@ -90,6 +92,11 @@ export interface Draft {
    */
   submittedBefore: boolean;
   error: string | null;
+  /**
+   * The reference of the save that failed on our side (no answer, or "try again later"): the
+   * call's, or a fresh one; for the reference line under the message (LG-1). Null otherwise.
+   */
+  errorReference: string | null;
   /**
    * Counts the saves refused because a chosen theme no longer exists (themes plan v3, A7): the
    * choice is cleared and the flow reads the themes again.
@@ -237,6 +244,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
   const [, render] = useState(0);
   const [status, setStatus] = useState<SaveStatus>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [errorReference, setErrorReference] = useState<string | null>(null);
   const [themesChanged, setThemesChanged] = useState(0);
   const [agreementNeeded, setAgreementNeeded] =
     useState<Draft['agreementNeeded']>(null);
@@ -401,6 +409,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
         try {
           ok = await saveOnce();
           setError(null);
+          setErrorReference(null);
           setAgreementNeeded(null);
         } catch (err) {
           ok = false;
@@ -421,6 +430,11 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
                   : null
               : null;
           setAgreementNeeded(needs);
+          setErrorReference(
+            !needs && isSystemError(err)
+              ? (referenceOf(err) ?? newReference())
+              : null,
+          );
           if (err instanceof ApiUserUnavailable) {
             setStatus('offline');
           } else {
@@ -532,6 +546,9 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
       try {
         await saveOnce();
       } catch (err) {
+        setErrorReference(
+          isSystemError(err) ? (referenceOf(err) ?? newReference()) : null,
+        );
         setStatus(err instanceof ApiUserUnavailable ? 'offline' : 'error');
       }
     },
@@ -631,6 +648,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
     status,
     submittedBefore,
     error,
+    errorReference,
     themesChanged,
     agreementNeeded,
     conflict: conflict?.fields ?? null,

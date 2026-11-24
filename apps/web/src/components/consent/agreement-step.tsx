@@ -1,5 +1,7 @@
 'use client';
 
+import { ErrorReference } from '@/components/errors/error-reference';
+import { withReference } from '@/components/errors/problem';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { type AgreementTexts, agreementTexts } from '@/app/consent/actions';
 import { confirmAgreement } from '@/components/auth/account-bootstrap';
@@ -125,9 +127,8 @@ export function AgreementStep({
         {heading(title(document, agreed))}
         <div data-agreement-unavailable="">
           <Notice kind="danger">
-            <p role="alert" className="mb-3">
-              {TRY_AGAIN_LATER}
-            </p>
+            <p role="alert">{TRY_AGAIN_LATER}</p>
+            <ErrorReference className="mt-1 mb-3" />
             <Button
               variant="outline"
               wrap
@@ -345,5 +346,5 @@ function messageFor(err: unknown): React.ReactNode {
     (err instanceof ApiUserProblem && err.status === 401)
   )
     return 'You’ve been signed out. Sign in again to continue.';
-  return TRY_AGAIN_LATER;
+  return withReference(TRY_AGAIN_LATER, err);
 }

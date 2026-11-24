@@ -3,12 +3,14 @@ import { DM_Sans } from 'next/font/google';
 import { connection } from 'next/server';
 import { browserThemeColour, buttonVariants } from '@heisreal/web-ui';
 import { ClerkBrowser } from '@/components/auth/clerk-browser';
+import { ErrorReports } from '@/components/errors/error-reports';
 import { DeviceHeartsPrompt } from '@/components/favourites/device-hearts-prompt';
 import { JsonLd } from '@/components/page/json-ld';
 import { RestartingNotice } from '@/components/restarting/restarting-message';
 import { SiteFooter } from '@/components/site-footer';
 import { SiteHeader } from '@/components/site-header';
 import {
+  apiUserUrl,
   clerkPublishableKey,
   e2eFixtures,
   robotsNoindex,
@@ -100,6 +102,8 @@ export default async function RootLayout({
       <DeviceHeartsPrompt />
       {/* An action answered "restarting" (SurrealDB on Spot): when to try again. */}
       <RestartingNotice />
+      {/* Browser crashes and unanswered calls, reported to api-user (LG-1c, LG-9a). */}
+      <ErrorReports apiUserUrl={apiUserUrl()} />
     </>
   );
   return (

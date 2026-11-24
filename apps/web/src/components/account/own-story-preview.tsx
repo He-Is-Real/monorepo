@@ -1,12 +1,12 @@
 'use client';
 
+import { TryAgainLaterNotice } from '@/components/errors/try-again-later';
 import { useCallback } from 'react';
 import { PreviewLater, ownStoryContent } from '@/components/share/own-media';
 import type { MyStory } from '@/components/share/share-api';
 import { published, StoryArticle } from '@/components/stories/story-view';
 import { type ApiUser, ApiUserProblem } from '@/lib/api-user';
 import { signInHref } from '@/lib/return-path';
-import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 import { useOwnData } from './use-own-data';
 import {
   Card,
@@ -73,9 +73,11 @@ export function OwnStoryPreview({ id }: { id: string }) {
   }
   if (state.status === 'failed') {
     return (
-      <Notice kind="danger" as="p" role="alert" data-preview-error="">
-        {TRY_AGAIN_LATER}
-      </Notice>
+      <TryAgainLaterNotice
+        role="alert"
+        data-preview-error=""
+        reference={state.reference}
+      />
     );
   }
   if ('gone' in state.data) {

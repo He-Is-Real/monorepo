@@ -1,13 +1,12 @@
 'use client';
 
-import { useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { RestartingText } from '@/components/restarting/restarting-message';
 import {
-  ApiUserProblem,
-  plainMessage,
-  restartWait,
-  StaleVersion,
-} from '@/lib/api-user';
+  plainProblem,
+  restartingProblem,
+  withReference,
+} from '@/components/errors/problem';
+import { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { ApiUserProblem, restartWait, StaleVersion } from '@/lib/api-user';
 import { PREFIX } from '@/lib/share-storage';
 import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 import { DropZone } from './drop-zone';
@@ -708,7 +707,10 @@ export function ImagePanel({
       // 412: this very file is there already (a replay of a request whose PUT went through).
       // Otherwise the request stays kept, so trying again replays it for the same path.
       if (!res || (!res.ok && res.status !== 412)) {
-        return back(true, `${TRY_AGAIN_LATER} Your story is saved.`);
+        return back(
+          true,
+          withReference(`${TRY_AGAIN_LATER} Your story is saved.`, undefined),
+        );
       }
       forgetAttempt(owner, 'image-request', ready.draftId);
       held.current = null;
@@ -756,10 +758,10 @@ export function ImagePanel({
     try {
       if (!id) throw new Error('no draft');
       now = await read(id);
-    } catch {
+    } catch (err) {
       if (left()) return;
       setPhase({ at: 'preview', picture, granted: false });
-      setProblem(TRY_AGAIN_LATER);
+      setProblem(withReference(TRY_AGAIN_LATER, err));
       return;
     }
     if (left()) return;
@@ -803,7 +805,7 @@ export function ImagePanel({
       setProblem(
         err instanceof StaleVersion
           ? 'Your story was changed in another tab or window. Please try again.'
-          : plainMessage(
+          : plainProblem(
               err,
               `Your ${noun} couldn’t be changed. Your story is saved; please try again.`,
               'Your story is saved.',
@@ -838,9 +840,9 @@ export function ImagePanel({
       let now: Shown | null;
       try {
         now = await read(id);
-      } catch {
+      } catch (err) {
         if (gone() || current().draftId !== id) return;
-        setProblem(TRY_AGAIN_LATER);
+        setProblem(withReference(TRY_AGAIN_LATER, err));
         return;
       }
       if (gone() || current().draftId !== id) return;
@@ -1115,7 +1117,7 @@ function refusal(err: unknown, noun: string): React.ReactNode {
   const restarting = restartWait(err);
   if (restarting !== undefined) {
     // The database restarting: named, with when to try again (Joel, 2026-11-09).
-    return <RestartingText seconds={restarting} kept="Your story is saved." />;
+    return restartingProblem(err, restarting, 'Your story is saved.');
   }
   if (err instanceof StaleVersion) {
     return `Your story was changed in another tab or window. Please add your ${noun} again.`;
@@ -1143,7 +1145,7 @@ function refusal(err: unknown, noun: string): React.ReactNode {
     }
   }
   // On our side: only the plain message (Joel, 2026-11-09); else the refusal's own words.
-  return plainMessage(
+  return plainProblem(
     err,
     `Your ${noun} couldn’t be added. Your story is saved; please try again.`,
     'Your story is saved.',

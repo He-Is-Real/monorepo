@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  type ReactNode,
   useCallback,
   useEffect,
   useId,
@@ -189,7 +190,7 @@ const range = (s: Settings, field: Field) => {
 
 type Loaded =
   | { status: 'loading' }
-  | { status: 'failed'; message: string }
+  | { status: 'failed'; message: ReactNode }
   | { status: 'ready'; settings: Settings };
 
 /**
@@ -271,7 +272,7 @@ type Status =
   | { kind: 'confirm'; values: Values; changes: Field[] }
   | { kind: 'busy' }
   /** `field`: the first limit to fix, focused instead of the message. */
-  | { kind: 'error'; message: string; field?: Field }
+  | { kind: 'error'; message: ReactNode; field?: Field }
   /** Another admin saved meanwhile (412): reload, then change them again. */
   | { kind: 'stale' };
 

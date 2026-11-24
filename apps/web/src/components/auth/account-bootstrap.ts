@@ -1,5 +1,6 @@
 'use client';
 
+import { referenceOf } from '@/lib/reference';
 import { useEffect, useSyncExternalStore } from 'react';
 import {
   type Account,
@@ -23,7 +24,8 @@ export type AccountBootstrap =
   | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'ready'; account: Account }
-  | { status: 'failed' };
+  /** `reference`: the failed call's, for the reference line (LG-1). */
+  | { status: 'failed'; reference?: string };
 
 let state: { userId: string | null; bootstrap: AccountBootstrap } = {
   userId: null,
@@ -103,8 +105,9 @@ export function useAccountBootstrap(
           data ? { status: 'ready', account: data } : { status: 'failed' },
         );
       })
-      .catch(() => {
-        if (state.userId === userId) set(userId, { status: 'failed' });
+      .catch((err: unknown) => {
+        if (state.userId === userId)
+          set(userId, { status: 'failed', reference: referenceOf(err) });
       });
     // Not getToken: its identity changes on Clerk updates, and the person is what matters.
   }, [userId, baseUrl]);

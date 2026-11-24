@@ -24,6 +24,10 @@ import { AccountController, AccountModule } from './account/account.controller';
 import { ErasureModule } from './erasure/erasure.module';
 import { ExportController, ExportModule } from './export/export.controller';
 import {
+  ErrorReportsController,
+  ErrorReportsModule,
+} from './error-reports/error-reports.controller';
+import {
   FavouritesController,
   FavouritesModule,
 } from './favourites/favourites.controller';
@@ -65,6 +69,8 @@ import {
     ExportModule,
     // M2 plan PR 4: the submit flow for written stories.
     StoriesModule,
+    // The browser's error reports (LG-1c, LG-9a): one log line each, nothing stored.
+    ErrorReportsModule,
     HealthModule.forService('api-user'),
   ],
   // D30: every error as an RFC 9457 problem; unknown errors never say why.
@@ -99,6 +105,9 @@ export class AppModule implements NestModule {
       .apply(limits.for('uploadGrants'))
       .forRoutes(route('v1/stories/:id/upload-url', RequestMethod.POST));
     consumer.apply(limits.for('dataExport')).forRoutes(ExportController);
+    consumer
+      .apply(limits.for('errorReports'))
+      .forRoutes(ErrorReportsController);
     consumer.apply(limits.for('health')).forRoutes(HealthController);
   }
 }

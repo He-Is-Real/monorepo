@@ -1,0 +1,120 @@
+import type { INestApplication } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+
+import { CLERK_CONFIG, parseClerkConfig } from '@heisreal/auth';
+import { newTestClerk } from '@heisreal/auth/testing';
+import { SURREAL } from '@heisreal/database';
+import { TestDatabase } from '@heisreal/database/integration-testing';
+import { SECRET_MANAGER_CLIENT, SECRETS_PROJECT } from '@heisreal/secrets';
+import { AppModule } from '../src/app/app.module';
+
+/**
+ * The browser's error reports (LG-1c, LG-9a; `POST /v1/error-reports`) through api-user's real
+ * AppModule: no sign-in, one `event: "error_report"` log line with the person's reference, and
+ * anything but `{ reference, route, kind }` refused without a line.
+ */
+describe('api-user error reports', () => {
+  let t: TestDatabase;
+  let app: INestApplication;
+  let url: string;
+  const lines: Record<string, unknown>[] = [];
+
+  beforeAll(async () => {
+    t = await TestDatabase.create();
+    const clerk = newTestClerk(t.keys, {
+      namespace: t.namespace,
+      database: t.database,
+    });
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(SURREAL)
+      .useValue(await t.service('api_user'))
+      .overrideProvider(CLERK_CONFIG)
+      .useValue(
+        parseClerkConfig({
+          issuer: clerk.issuer,
+          publicKeyPem: clerk.publicKeyPem,
+          authorizedParties: clerk.authorizedParty,
+        }),
+      )
+      .overrideProvider(SECRET_MANAGER_CLIENT)
+      .useValue({})
+      .overrideProvider(SECRETS_PROJECT)
+      .useValue('test-project')
+      .compile();
+    app = moduleRef.createNestApplication({ logger: false });
+    await app.listen(0, '127.0.0.1');
+    url = await app.getUrl();
+  });
+  afterAll(async () => {
+    await app?.close();
+    await t?.close();
+  });
+  beforeEach(() => {
+    lines.length = 0;
+    vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+      if (typeof line === 'string' && line.startsWith('{'))
+        lines.push(JSON.parse(line) as Record<string, unknown>);
+    });
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  const send = (body: unknown) =>
+    fetch(`${url}/v1/error-reports`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) Firefox/140.0',
+      },
+      body: JSON.stringify(body),
+    });
+  const reports = () => lines.filter((l) => l['event'] === 'error_report');
+
+  it('writes one line with the reference, the page and the kind, signed out', async () => {
+    const reference = '0193a7c4-5e19-7d03-b2c4-91f0e7a6d258';
+    const res = await send({ reference, route: '/share', kind: 'no_answer' });
+    expect(res.status).toBe(204);
+    expect(reports()).toEqual([
+      expect.objectContaining({
+        severity: 'WARNING',
+        ref: reference,
+        report: { route: '/share', kind: 'no_answer' },
+        client: expect.objectContaining({ browser: 'Firefox 140' }),
+      }),
+    ]);
+  });
+
+  it('refuses anything but a reference, a path and a known kind', async () => {
+    for (const body of [
+      { reference: 'not-a-uuid', route: '/', kind: 'browser_crash' },
+      // A UUID v4 isn't one the browser makes.
+      {
+        reference: '3bb2b3aa-ef40-4364-8e17-8e519e0e9580',
+        route: '/',
+        kind: 'browser_crash',
+      },
+      {
+        reference: '0193a7c4-5e19-7d03-b2c4-91f0e7a6d258',
+        route: '/stories?q=hope',
+        kind: 'browser_crash',
+      },
+      {
+        reference: '0193a7c4-5e19-7d03-b2c4-91f0e7a6d258',
+        route: '/',
+        kind: 'server_error',
+      },
+      {
+        reference: '0193a7c4-5e19-7d03-b2c4-91f0e7a6d258',
+        route: '/',
+        kind: 'browser_crash',
+        detail: 'TypeError: x is undefined',
+      },
+    ]) {
+      const res = await send(body);
+      expect([JSON.stringify(body), res.status]).toEqual([
+        JSON.stringify(body),
+        400,
+      ]);
+    }
+    expect(reports()).toEqual([]);
+  });
+});

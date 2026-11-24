@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
+  type ReactNode,
   type MouseEvent,
   startTransition,
   useCallback,
@@ -57,14 +58,14 @@ import {
 
 type Loaded =
   | { status: 'loading' }
-  | { status: 'failed'; message: string }
+  | { status: 'failed'; message: ReactNode }
   | {
       status: 'ready';
       items: ListItem[];
       next: string | null;
       /** When the page was read: the Waiting column counts from here (no live updates, OQ-2). */
       now: number;
-      more?: 'loading' | string;
+      more?: ReactNode;
     };
 
 /**

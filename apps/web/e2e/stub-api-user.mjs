@@ -13,6 +13,8 @@
 //   submission's sharing box) answers that 409 once, as if a newer version had just been saved.
 //   `POST /__e2e/sessions/<id>/agreements` moves a session's versions after its page loaded, and
 //   `GET /__e2e/sessions/<id>/agreed` reads back what the page sent.
+// - `POST /v1/error-reports` (LG-1c, LG-9a): the browser's crash and no-answer reports, no sign-in;
+//   `GET /__e2e/error-reports` reads back every one received.
 // - The submit flow (M2 plan PR 4): the account, limits, themes, the person's stories, and
 //   create, edit and submit, per test session (see the section below).
 // - Video and audio (M2 plan PR 7): `POST /v1/stories/{id}/upload-url` (RequestUpload, with the
@@ -2553,6 +2555,9 @@ const shareSession = (id) => {
   return sessions.get(id);
 };
 
+/** Every error report received (`POST /v1/error-reports`). */
+const errorReports = [];
+
 async function handle(req, res) {
   const origin = req.headers.origin;
   if (origin && origins.includes(origin)) {
@@ -2573,7 +2578,7 @@ async function handle(req, res) {
       );
       res.setHeader(
         'access-control-allow-headers',
-        'Authorization,Content-Type,If-Match,If-None-Match,Idempotency-Key,' +
+        'Authorization,Content-Type,If-Match,If-None-Match,Idempotency-Key,traceparent,' +
           // Bunny Stream's TUS headers (the stand-in at /tusupload)
           'Tus-Resumable,Upload-Length,Upload-Metadata,Upload-Offset,AuthorizationSignature,AuthorizationExpire,VideoId,LibraryId',
       );
@@ -2588,6 +2593,16 @@ async function handle(req, res) {
       JSON.stringify({ status: 'ok', service: 'api-user', db: 'up' }),
     );
   }
+  // The browser's error reports (LG-1c, LG-9a): no sign-in. Kept in memory for the tests to read
+  // back (`GET /__e2e/error-reports`, not part of api-user).
+  if (path === '/v1/error-reports' && req.method === 'POST') {
+    const report = await readJson(req);
+    if (report && typeof report === 'object') errorReports.push(report);
+    res.writeHead(204);
+    return res.end();
+  }
+  if (path === '/__e2e/error-reports' && req.method === 'GET')
+    return sendJson(res, 200, { reports: errorReports });
   // Test set-up only (not part of api-user): a session's starting state for the submit flow.
   const seed = /^\/__e2e\/sessions\/([a-z0-9-]{1,64})$/.exec(path);
   if (seed && req.method === 'POST') {

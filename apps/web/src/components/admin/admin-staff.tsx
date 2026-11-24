@@ -1,6 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from 'react';
 import { AdminAccess, problemText } from '@/components/admin/admin-access';
 import {
   Button,
@@ -44,10 +51,10 @@ const path = (email: string) => `/v1/admin/staff/${encodeURIComponent(email)}`;
 
 type Loaded =
   | { status: 'loading' }
-  | { status: 'failed'; message: string }
+  | { status: 'failed'; message: ReactNode }
   | { status: 'ready'; members: StaffMember[] };
 
-type Note = { kind: 'done' | 'error'; text: string } | null;
+type Note = { kind: 'done' | 'error'; text: ReactNode } | null;
 
 /**
  * The Staff page (S-1 to S-4, G7, G8 B, G24; Joel 2026-11-11), Admins only (api-admin checks it

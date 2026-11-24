@@ -1,5 +1,6 @@
 'use client';
 
+import { ErrorReference } from '@/components/errors/error-reference';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { loadMoreStories } from '@/app/stories/actions';
 import {
@@ -201,6 +202,7 @@ function BrowseList({ filters, cards, nextCursor, pagesLoaded }: ListProps) {
             <Text role="alert" size="inherit" tone="quiet">
               {TRY_AGAIN_LATER}
             </Text>
+            <ErrorReference />
             <Button
               variant="outline"
 

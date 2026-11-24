@@ -1145,7 +1145,8 @@ RL-10; `project/context/research/rate-limiting.html`).
     allowance; images, scripts and other static files aren't counted;
   - api-user counts each caller, by groups of routes (reads, ordinary changes, upload requests,
     "Download my data", deleting); deleting has its own count, so a busy account can still
-    delete its story or itself;
+    delete its story or itself; the browser's error reports (below, "When something goes wrong on
+    our side") have their own count too, signed in or not, at the same number as ordinary changes;
   - api-admin counts only refused sign-ins, per address (above);
   - api-public-read counts each caller, except the website's own server: its calls carry a
     private key and share one large allowance.
@@ -1170,9 +1171,23 @@ RL-10; `project/context/research/rate-limiting.html`).
   reveal when compute is restarting with a count down but for any other error it should be
   generic"; "When the database restarts", below). Whatever else went wrong on our side (a server
   error, no answer, a technical refusal), web says only "Something went wrong. Please try again
-  later." on every page, admin pages included: no HTTP status, error code, error type, request
-  id or what the server is doing. Where it helps, it adds what of the person's is safe ("Your
-  story is saved."). The logs keep the full detail.
+  later." on every page, admin pages included: no HTTP status, error code, error type or what
+  the server is doing. Where it helps, it adds what of the person's is safe ("Your story is
+  saved."). The logs keep the full detail.
+- **Every such error, and the restart countdown, shows a reference under it (LG-1, LG-1b A,
+  LG-1c; Joel, 22 Nov 2026: "every error must have a reference and reference be unique")**: a
+  small quiet line "Reference: 0193…" with a Copy button. It is a UUID v7 that means nothing to
+  the person; we search the logs for it. The browser makes one before each call to our APIs and
+  sends it as the call's trace id, so the API's log line has the same one; when there is nothing
+  to link (a page that couldn't be made, a crash in the page) the error screen makes a fresh one.
+  It replaces the "no request id" part of the rule above; codes, status and error types stay
+  hidden. Messages about the person's own input have none.
+- **The browser reports only its own failures (LG-1c, LG-9a; Joel, 22 and 24 Nov 2026).** A crash
+  in the page's JavaScript, and a call that got no answer (offline, a timeout), send api-user one
+  small report: the reference, the page's path and which of the two it was. A "no answer" report
+  goes once the page can reach us again. Reports are kept in the page's memory only, never the
+  browser's storage, and are lost if the page closes first. Server errors are never reported from
+  the browser: the servers log them.
 - **Mistakes people can fix stay visible** (Joel, 2026-11-09: "errors caused by user mistakes
   should be visible. errors where the backend is crashing or would be useful for attackers should
   be generic to the public (except for the restart countdown)"): a field too long, a file too

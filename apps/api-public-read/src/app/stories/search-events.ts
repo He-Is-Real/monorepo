@@ -6,7 +6,7 @@ import {
   SetMetadata,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { searchEvent } from '@heisreal/http';
+import { fromWebsite, searchEvent } from '@heisreal/http';
 import type { Outcome } from '@heisreal/logging/event';
 import type { Request, Response } from 'express';
 import { type Observable, tap } from 'rxjs';
@@ -23,7 +23,8 @@ export const SearchesStories = () => SetMetadata(SEARCHES, true);
  * before PublicCacheInterceptor, so it wraps it: a search answered from memory (or as the
  * restart fallback) is still a search someone made, and gets its own event from the final
  * answer. The terms go there only, never on the request's event; whoever searched only as
- * search-key hashes. A request that isn't a search (no words, no themes, `ids`) or that is
+ * search-key hashes. A search web's server makes for a visitor (carrying the website key) writes
+ * none here: web's proxy wrote it, with the visitor's address. A request that isn't a search (no words, no themes, `ids`) or that is
  * refused before it runs (a bad parameter, a rate limit) writes none.
  */
 @Injectable()
@@ -43,6 +44,9 @@ export class SearchEventInterceptor implements NestInterceptor {
     }
     if (browse.ids || (!browse.q && !browse.themes.length))
       return next.handle();
+    // Web's own server, searching for a visitor: web wrote this search's event already, with the
+    // visitor's address (its proxy), so each search is logged once.
+    if (fromWebsite(req)) return next.handle();
     const write = (outcome: Outcome, body?: unknown) =>
       searchEvent(req, {
         outcome,

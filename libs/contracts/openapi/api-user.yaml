@@ -63,6 +63,8 @@ tags:
     description: 'The terms of use and the testimony consent the person agrees to (plan 4e).'
   - name: Community
     description: '"This helped me" and concerns.'
+  - name: Logging
+    description: "The browser's reports of failures our servers can't see (LG-1c, LG-9a)."
   - name: Webhooks
     description: 'Inbound from Clerk, Bunny and Stripe. Signature-verified, no Clerk JWT.'
 
@@ -1070,6 +1072,37 @@ paths:
           $ref: './components.yaml#/components/responses/IdempotencyKeyReused'
         '503':
           $ref: './components.yaml#/components/responses/ServiceRestarting'
+
+  # ------------------------------------------------------------------ logging
+  /v1/error-reports:
+    post:
+      tags: [Logging]
+      operationId: sendErrorReport
+      summary: The browser reports a failure our servers couldn't see
+      description: |
+        LG-1c and LG-9a (Joel, 22 and 24 Nov 2026; `project/context/research/logging.html`). When the
+        page crashes in the browser (`browser_crash`), or one of its calls got no answer (`no_answer`,
+        sent once the page can reach us again), the browser sends the reference it showed the person,
+        the page's path and the kind. api-user writes one `event: "error_report"` log line with that
+        reference and stores nothing. Server errors are never reported this way: the servers log
+        them. No sign-in needed (no `Authorization`); rate-limited per address like other public
+        calls, and a limited caller gets the generic `500` (RL-5). It answers while the database is
+        restarting too.
+      security: []
+      x-milestone: M3
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './components.yaml#/components/schemas/ErrorReport'
+      responses:
+        '204':
+          description: Written to the logs.
+        '400':
+          $ref: './components.yaml#/components/responses/BadRequest'
+        '5XX':
+          $ref: './components.yaml#/components/responses/ServerError'
 
   # ------------------------------------------------------------------ webhooks
   /v1/webhooks/clerk:

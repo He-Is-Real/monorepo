@@ -507,6 +507,9 @@ importers:
       '@heisreal/logging':
         specifier: workspace:*
         version: link:../../libs/logging
+      '@heisreal/secrets':
+        specifier: workspace:*
+        version: link:../../libs/secrets
       '@heisreal/story-filters':
         specifier: workspace:*
         version: link:../../libs/story-filters

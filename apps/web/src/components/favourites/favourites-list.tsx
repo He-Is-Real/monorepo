@@ -1,5 +1,7 @@
 'use client';
 
+import { ErrorReference } from '@/components/errors/error-reference';
+import { referenceOf } from '@/lib/reference';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { deviceHeartCards } from '@/app/stories/actions';
 import { StoryMasonry } from '@/components/stories/story-masonry';
@@ -24,7 +26,7 @@ const DEVICE = 'device';
 
 type List =
   | { status: 'loading' }
-  | { status: 'failed'; owner: string }
+  | { status: 'failed'; owner: string; reference?: string }
   | {
       status: 'ready';
       /** Whose list this is: Clerk's user id, or {@link DEVICE}. Shown only to them. */
@@ -141,8 +143,13 @@ export function FavouritesList({
             );
           setList({ status: 'ready', owner: who, cards });
         },
-        () => {
-          if (stillFor(who, mine)) setList({ status: 'failed', owner: who });
+        (err: unknown) => {
+          if (stillFor(who, mine))
+            setList({
+              status: 'failed',
+              owner: who,
+              reference: referenceOf(err),
+            });
         },
       );
     },
@@ -186,9 +193,8 @@ export function FavouritesList({
   if (list.status === 'failed')
     return (
       <Notice>
-        <p className="mb-5" role="alert">
-          {TRY_AGAIN_LATER}
-        </p>
+        <p role="alert">{TRY_AGAIN_LATER}</p>
+        <ErrorReference reference={list.reference} className="mt-1 mb-5" />
         <Button
           variant="outline"
 

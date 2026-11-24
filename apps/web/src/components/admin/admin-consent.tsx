@@ -2,6 +2,7 @@
 
 import { useSearchParams } from 'next/navigation';
 import {
+  type ReactNode,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -77,7 +78,7 @@ const tabDate = (iso: string): string => {
 
 type Loaded =
   | { status: 'loading' }
-  | { status: 'failed'; message: string }
+  | { status: 'failed'; message: ReactNode }
   | { status: 'ready'; list: VersionList };
 
 /** The marks the text box understands: what lib/markdown.ts renders. */
@@ -339,7 +340,7 @@ type Status =
   | { kind: 'idle' }
   | { kind: 'confirm' }
   | { kind: 'busy' }
-  | { kind: 'error'; message: string }
+  | { kind: 'error'; message: ReactNode }
   /** Another admin saved that version meanwhile (409): reload, then edit again. */
   | { kind: 'stale' };
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useEffect, useState } from 'react';
+import { type ReactNode, useMemo, useRef, useEffect, useState } from 'react';
 import { useRole } from '@/components/admin/admin-access';
 import { Button, Card, Heading, Notice } from '@heisreal/web-ui';
 import { TextLink } from '@/components/page/text-link';
@@ -17,9 +17,9 @@ import { NoteForm } from './moderation-review';
 type State =
   | { step: 'closed' }
   | { step: 'opening' }
-  | { step: 'open'; story: ModerationStory; busy: boolean; refusal?: string }
+  | { step: 'open'; story: ModerationStory; busy: boolean; refusal?: ReactNode }
   | { step: 'done' }
-  | { step: 'problem'; message: string };
+  | { step: 'problem'; message: ReactNode };
 
 /**
  * MD-1 (Joel, 2026-11-14): "Take down" on a published story's public page, for a signed-in

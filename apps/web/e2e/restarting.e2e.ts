@@ -65,7 +65,7 @@ test('the countdown runs down, then says “Please try again later.”', async (
 
 // An action answered "restarting" (here a heart, against the stub api-user): the notice fixed at
 // the bottom of the screen says when to try again, and goes after the next successful answer
-// (Codex review of #194). The countdown itself is checked above, on a controlled clock; here the
+// (Codex review of #194), with the reference of the call that was answered so. The countdown itself is checked above, on a controlled clock; here the
 // real clock runs, so only the notice's steady wording is checked.
 test('the notice after an action goes once an answer succeeds', async ({
   page,
@@ -81,12 +81,14 @@ test('the notice after an action goes once an answer succeeds', async ({
   );
   const id = `heart_test_${project.replace('-', '_')}`;
   let restarting = true;
+  let traceparent: string | undefined;
   await page.route(
     `${STUB_USER_URL}/v1/account/favourites/${id}`,
     async (route) => {
       if (route.request().method() === 'GET' || !restarting)
         return route.fallback();
       restarting = false;
+      traceparent = route.request().headers()['traceparent'];
       await route.fulfill({
         status: 503,
         contentType: 'application/problem+json',
@@ -115,6 +117,18 @@ test('the notice after an action goes once an answer succeeds', async ({
   await heart.click();
   await expect(notice).toContainText(
     'Our compute is currently restarting. Please try again in about',
+  );
+  // Its reference is the one the call carried as its trace id (LG-1, LG-4 A): the API's log line
+  // for that call has the same one.
+  const traceId = /^00-([0-9a-f]{32})-[0-9a-f]{16}-01$/.exec(
+    traceparent ?? '',
+  )?.[1];
+  expect(traceId).toBeDefined();
+  await expect(notice.locator('[data-reference-value]')).toHaveText(
+    (traceId ?? '').replace(
+      /^(.{8})(.{4})(.{4})(.{4})(.{12})$/,
+      '$1-$2-$3-$4-$5',
+    ),
   );
   // Trying again succeeds: the notice goes.
   await heart.click();

@@ -1,4 +1,6 @@
 import type { StatusTone } from '@heisreal/web-ui';
+import type { ReactNode } from 'react';
+import { withReference } from '@/components/errors/problem';
 import {
   sanitizeStoryFilters,
   type StoryFilters,
@@ -300,7 +302,7 @@ const fileOf = (story: Pick<ModerationStory, 'primaryFormat'>) =>
  * an Admin may approve anyway (only while the media is still being processed; G11 B, G24).
  */
 export interface Refusal {
-  message: string;
+  message: ReactNode;
   refresh?: boolean;
   anyway?: boolean;
 }
@@ -374,12 +376,15 @@ export function decisionRefusal(
   return { message: moderationProblem(err) };
 }
 
-/** What to tell a moderator when api-admin refused or couldn't answer. */
-export function moderationProblem(err: unknown): string {
+/**
+ * What to tell a moderator when api-admin refused or couldn't answer; "try again later" with its
+ * reference line (LG-1).
+ */
+export function moderationProblem(err: unknown): ReactNode {
   if (err instanceof NotSignedIn) return 'You’re signed out. Sign in again.';
   if (err instanceof ApiUserProblem && err.status === 403)
     return 'This page is for moderators.';
-  return TRY_AGAIN_LATER;
+  return withReference(TRY_AGAIN_LATER, err);
 }
 
 const when = new Intl.DateTimeFormat('en-GB', {

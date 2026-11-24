@@ -23,6 +23,10 @@
  * - Commands that modify an existing resource send `If-Match` with its `version`
  *   ({@link ifMatch}); non-idempotent `POST`s send an `Idempotency-Key`
  *   ({@link newIdempotencyKey}), kept and reused when retrying the same command (D29).
+ * - **One reference per call (LG-1, LG-4 A; Joel 22–24 Nov 2026):** each call makes a UUID v7 and
+ *   sends it as the W3C `traceparent` trace id, so the API's wide event has it as `ref`. Its
+ *   errors carry it (`reference`) for the "Reference:" line under the message; a call that got no
+ *   answer is reported, by that reference, once the page can reach us again (`error-reports.ts`).
  * - **api-admin too:** staff pages (`/admin/consent`) call api-admin with this same client at
  *   api-admin's origin (`API_ADMIN_URL`): the same token, the same rules (D31).
  */
@@ -31,6 +35,8 @@ import {
   clearRestarting,
   reportRestarting,
 } from '@/components/restarting/restarting-message';
+import { flushErrorReports, reportNoAnswer } from './error-reports';
+import { newReference, traceparent } from './reference';
 import { restartingSeconds } from './restarting';
 import { TRY_AGAIN_LATER } from './try-again-later';
 
@@ -84,6 +90,8 @@ export class ApiUserProblem extends Error {
   constructor(
     readonly problem: Problem,
     readonly restartingSeconds?: number,
+    /** The call's reference (its trace id), shown under the message. */
+    readonly reference?: string,
   ) {
     super(
       `api-user answered ${problem.status}${problem.code ? ` ${problem.code}` : ''}`,
@@ -106,6 +114,13 @@ export class StaleVersion extends ApiUserProblem {
 /** api-user couldn't be reached (network, CORS or a timeout). */
 export class ApiUserUnavailable extends Error {
   override name = 'ApiUserUnavailable';
+  constructor(
+    message: string,
+    /** The call's reference (its trace id), shown under the message. */
+    readonly reference?: string,
+  ) {
+    super(message);
+  }
 }
 
 /** There is no Clerk session, so no request was sent. */
@@ -303,8 +318,10 @@ export function apiUser(baseUrl: string, getToken: GetToken): ApiUser {
   ): Promise<ApiUserResponse<T>> {
     const token = await getToken();
     if (!token) throw new NotSignedIn('Not signed in');
+    const reference = newReference();
     const headers = new Headers();
     headers.set('Authorization', `Bearer ${token}`);
+    headers.set('traceparent', traceparent(reference));
     headers.set('Accept', 'application/json, application/problem+json');
     set(headers);
     let res: Response;
@@ -319,11 +336,17 @@ export function apiUser(baseUrl: string, getToken: GetToken): ApiUser {
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
     } catch (err) {
+      // No answer (offline, a timeout): nothing on our side saw it, so the page reports it
+      // once it can reach us again (LG-9a).
+      reportNoAnswer(reference);
       throw new ApiUserUnavailable(
         `api-user could not be reached: ${err instanceof Error ? err.name : 'error'}`,
+        reference,
       );
     }
-    if (!res.ok && res.status !== 304) throw await problemOf(res);
+    // Answered: any "no answer" reports waiting can go now.
+    void flushErrorReports();
+    if (!res.ok && res.status !== 304) throw await problemOf(res, reference);
     // Answered: if the database was restarting, it's back.
     clearRestarting();
     // A success whose body is cut off or isn't JSON tells us nothing about what was done: the
@@ -336,6 +359,7 @@ export function apiUser(baseUrl: string, getToken: GetToken): ApiUser {
     } catch (err) {
       throw new ApiUserUnavailable(
         `api-user's answer could not be read: ${err instanceof Error ? err.name : 'error'}`,
+        reference,
       );
     }
     return {
@@ -374,7 +398,10 @@ export function apiUser(baseUrl: string, getToken: GetToken): ApiUser {
 }
 
 /** The answer's problem, or a bare one when the body isn't a problem (e.g. a proxy's 502). */
-async function problemOf(res: Response): Promise<ApiUserProblem> {
+async function problemOf(
+  res: Response,
+  reference: string,
+): Promise<ApiUserProblem> {
   let problem: Problem = {
     type: 'about:blank',
     title: res.statusText || 'Error',
@@ -400,13 +427,13 @@ async function problemOf(res: Response): Promise<ApiUserProblem> {
       (problem as { retryAfterSeconds?: unknown }).retryAfterSeconds,
       res.headers.get('Retry-After'),
     );
-    reportRestarting(restarting);
+    reportRestarting(restarting, reference);
   }
   if (res.status === 428) {
     // Our bug: a command that modifies a resource went without If-Match.
     console.error('api-user: If-Match was missing on a command (428)');
   }
   return res.status === 412
-    ? new StaleVersion(problem)
-    : new ApiUserProblem(problem, restarting);
+    ? new StaleVersion(problem, undefined, reference)
+    : new ApiUserProblem(problem, restarting, reference);
 }

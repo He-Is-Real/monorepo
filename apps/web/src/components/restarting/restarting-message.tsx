@@ -3,6 +3,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { tryAgainIn } from '@/lib/restarting';
 import { Heading, Notice, Text } from '@heisreal/web-ui';
+import { ErrorReference } from '@/components/errors/error-reference';
 
 // While the database restarts (SurrealDB on Spot; Joel, 2026-11-07), web says so, with when to
 // try again: the one error web names (Joel, 2026-11-09: "reveal when compute is restarting with a
@@ -46,12 +47,14 @@ export function RestartingMessage({
     return (
       <Notice
         kind="info"
-        as="p"
         role="status"
         data-restarting=""
         className="mx-auto max-w-measure"
       >
-        {RESTARTING_HEADING}. <span data-restarting-estimate="">{when}</span>
+        <p>
+          {RESTARTING_HEADING}. <span data-restarting-estimate="">{when}</span>
+        </p>
+        <ErrorReference className="mt-1" />
       </Notice>
     );
   }
@@ -65,17 +68,21 @@ export function RestartingMessage({
       <Text role="status" tone="quiet">
         <span data-restarting-estimate="">{when}</span>
       </Text>
+      <ErrorReference />
     </main>
   );
 }
 
 // The browser's own calls (api-user, api-admin) report a restart here; RestartingNotice shows it.
-let reported: { seconds: number; at: number } | null = null;
+let reported: { seconds: number; at: number; reference?: string } | null = null;
 const listeners = new Set<() => void>();
 
-/** Called by api-user's client when an answer is `503 service_restarting`. */
-export function reportRestarting(seconds: number): void {
-  reported = { seconds, at: Date.now() };
+/**
+ * Called by api-user's client when an answer is `503 service_restarting`, with that call's
+ * reference (shown under the notice, LG-1).
+ */
+export function reportRestarting(seconds: number, reference?: string): void {
+  reported = { seconds, at: Date.now(), reference };
   for (const listener of listeners) listener();
 }
 
@@ -114,16 +121,29 @@ export function RestartingNotice() {
     >
       {/* The notice on the card colour, so the page doesn't show through it. */}
       <div className="pointer-events-auto mx-auto w-full max-w-[32rem] rounded-xl bg-card shadow-2xl">
-        <NoticeText key={restart.at} seconds={restart.seconds} />
+        <NoticeText
+          key={restart.at}
+          seconds={restart.seconds}
+          reference={restart.reference}
+        />
       </div>
     </div>
   );
 }
 
-function NoticeText({ seconds }: { seconds: number }) {
+function NoticeText({
+  seconds,
+  reference,
+}: {
+  seconds: number;
+  reference?: string;
+}) {
   return (
-    <Notice kind="info" as="p" role="status">
-      <RestartingText seconds={seconds} />
+    <Notice kind="info" role="status">
+      <p>
+        <RestartingText seconds={seconds} />
+      </p>
+      <ErrorReference reference={reference} className="mt-1" />
     </Notice>
   );
 }
@@ -132,7 +152,8 @@ function NoticeText({ seconds }: { seconds: number }) {
  * The restart in one sentence, counted down from `seconds`, for a message of its own (the notice
  * at the bottom of the screen, a share step's problem after a submit or an upload): "Our compute
  * is currently restarting. Please try again in about N minutes.", then "… Please try again
- * later." once it has run out, followed by `kept` if given (e.g. "Your story is saved.").
+ * later." once it has run out, followed by `kept` if given (e.g. "Your story is saved."). Its
+ * reference line is the message's own (`ErrorReference`), placed by whoever shows it.
  */
 export function RestartingText({
   seconds,

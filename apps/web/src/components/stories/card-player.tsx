@@ -11,6 +11,7 @@ import {
 } from 'react';
 import { Text } from '@heisreal/web-ui';
 import { cardPlayer } from '@/app/stories/actions';
+import { ErrorReference } from '@/components/errors/error-reference';
 import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 import { PLAYER_ALLOW, PLAYER_MIN_HEIGHT } from './story-media';
 
@@ -256,6 +257,11 @@ export function CardPlayer({
         }
       >
         {error}
+        {error &&
+          state.status === 'error' &&
+          state.reason === 'unavailable' && (
+            <ErrorReference as="span" copy={false} className="mt-1 block" />
+          )}
       </Text>
     </div>
   );

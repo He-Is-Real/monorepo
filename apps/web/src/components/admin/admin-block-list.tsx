@@ -1,6 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from 'react';
 import { AdminAccess, problemText } from '@/components/admin/admin-access';
 import {
   Button,
@@ -118,10 +125,10 @@ const path = (kind: Kind, value: string) =>
 
 type Loaded =
   | { status: 'loading' }
-  | { status: 'failed'; message: string }
+  | { status: 'failed'; message: ReactNode }
   | { status: 'ready'; list: BlockList };
 
-type Note = { kind: 'done' | 'error'; text: string } | null;
+type Note = { kind: 'done' | 'error'; text: ReactNode } | null;
 
 /**
  * The Block list page (G21 D, G24; Joel 2026-11-11), Admins only (api-admin checks it too): the

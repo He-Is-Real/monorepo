@@ -1,9 +1,10 @@
 'use client';
 
+import { TryAgainLaterNotice } from '@/components/errors/try-again-later';
 import { useEffect, useId, useRef, useState } from 'react';
 import { deviceHeartCards } from '@/app/stories/actions';
 import { useAccountState } from '@/components/auth/account-bootstrap';
-import { Button, Notice, Text } from '@heisreal/web-ui';
+import { Button, Text } from '@heisreal/web-ui';
 import { MAX_IDS } from '@/lib/browse';
 import {
   deviceHeartIdsToOffer,
@@ -12,7 +13,6 @@ import {
 } from '@/lib/device-hearts';
 import { addHeartsToAccount } from '@/lib/favourites';
 import { usePersonalSession } from '@/lib/personal-session';
-import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 
 /** People who said "Not now" on this page load: asked again on the next one. */
 const notNow = new Set<string>();
@@ -139,9 +139,7 @@ export function DeviceHeartsPrompt() {
             : `Add the ${count} stories you hearted on this device to your account?`}
         </Text>
         {adding === 'failed' && (
-          <Notice kind="danger" as="p" role="alert" className="mt-2">
-            {TRY_AGAIN_LATER}
-          </Notice>
+          <TryAgainLaterNotice role="alert" className="mt-2" />
         )}
         <div className="mt-3 flex flex-wrap justify-end gap-2">
           <Button
