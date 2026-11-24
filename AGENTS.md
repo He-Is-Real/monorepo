@@ -114,10 +114,12 @@ source of truth, so change them in the same PR as the code.
     the worker's `job` event; timings go in the wide event; no tracing library (LG-4 A).
   - No sampling: every event is kept for 30 days (LG-6 A).
   - Every field has a data class: plain (incl. email, IP, browser user agent for bot detection, story title), keyed hash (HMAC, key from
-    Secret Manager, `_hash` suffix), content, or never (tokens, cookies, keys, secrets, card data). Open
-    points are marked "pending Joel" in the skill; don't decide them.
-  - Content fields (story text, transcripts, request bodies) are hashed by default and logged in full
-    whenever the request or job ends in an error. No debug window or switch. That hashing only keeps log
+    Secret Manager, `_hash` suffix), long text (hash unless error), or never (tokens, cookies, keys,
+    secrets, card data). LG-1 to LG-9 are all decided; ask Joel about anything new.
+  - Long text: hashed unless the request ends in an error, a refusal or a rate limit. Story text,
+    transcripts and request bodies are hashed by default and logged in full whenever the request or job
+    ends in an error, an input refusal or a rate limit (LG-9b); not found and restarting stay hashed.
+    No debug window or switch. That hashing only keeps log
     volume down for long, many-paragraph fields; it is not a privacy measure.
   - Search events: each search is its own `event: "search"` with no `ref` and no session or token hash;
     terms and filters plain; IP, email and user id only as keyed hashes with the search-only key
@@ -129,7 +131,8 @@ source of truth, so change them in the same PR as the code.
     Log both `user.session_hash` (HMAC of Clerk's session id `sid`, for journeys) and `user.token_hash`
     (HMAC of the whole token, for "was this exact token used?") on every event except search events; never the raw token.
   - Errors are fields on the event (`outcome`, `error.type/code`); messages never quote request data.
-    Server errors are logged by the servers only; the browser reports only its own failures (LG-1c).
+    Server errors are logged by the servers only; the browser reports only its own failures: its
+    crashes and requests that got no answer (sent once it can reach us again, memory only; LG-1c, LG-9a).
   - A failed log send must never fail, slow or change the request; same JSON on stdout locally, in CI and on Google.
   - Read logs in Axiom by default (`gcloud logging read` for Google's copy and Cloud Run's own lines, LG-5).
     Stats are Axiom queries only, grouped by route, service, outcome, action or day, never by person,
