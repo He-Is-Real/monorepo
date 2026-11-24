@@ -28,7 +28,7 @@ locals {
     "LOG_ID(\"run.googleapis.com/requests\")",
     "resource.type=\"cloud_run_revision\"",
     "resource.labels.service_name=(\"web\" OR \"api-public-read\" OR \"api-admin\")",
-    "httpRequest.requestUrl=~\"^https?://[^/]+/(stories|moderation|v1/stories|v1/moderation/stories)[?]([^#]*&)?(q|theme)=\"",
+    "httpRequest.requestUrl=~\"(?i)^https?://[^/]+/+(stories|moderation|v1/stories|v1/moderation/stories)/?[?]([^#]*&)?(q|theme)=\"",
   ])
 }
 
