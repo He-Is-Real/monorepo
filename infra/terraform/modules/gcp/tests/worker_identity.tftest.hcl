@@ -181,8 +181,11 @@ run "only_cert_signer_signs_and_only_the_worker_calls_it" {
       ALLOWED_MACHINES           = "joel-pc,church-1"
       CERTIFICATE_LIFETIME_HOURS = "24"
       CERTIFICATE_RECORDS_BUCKET = "heisreal-dev-worker-certificates"
+      GCP_PROJECT                = "heisreal-dev"
+      LOG_HMAC_SECRET            = "log-hmac"
+      LOG_SEARCH_HMAC_SECRET     = "log-search-hmac"
     }
-    error_message = "cert-signer gets the key, the authority's certificate, the same machine list, the lifetime (24 h by default) and its records bucket."
+    error_message = "cert-signer gets the key, the authority's certificate, the same machine list, the lifetime (24 h by default), its records bucket and the log keys' names."
   }
 }
 

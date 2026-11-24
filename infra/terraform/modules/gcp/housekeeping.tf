@@ -148,6 +148,14 @@ resource "google_cloud_run_v2_job" "housekeeping" {
             value = env.value
           }
         }
+        # Logs (libs/logging): the names of the HMAC keys (secrets.tf), read through libs/secrets.
+        dynamic "env" {
+          for_each = local.log_hmac_env
+          content {
+            name  = env.key
+            value = google_secret_manager_secret.log_hmac[env.value].secret_id
+          }
+        }
         # true: only logs what it would delete.
         env {
           name  = "HOUSEKEEPING_DRY_RUN"
@@ -185,6 +193,7 @@ resource "google_cloud_run_v2_job" "housekeeping" {
   depends_on = [
     google_secret_manager_secret_iam_member.housekeeping,
     google_secret_manager_secret_iam_member.housekeeping_clerk,
+    google_secret_manager_secret_iam_member.log_hmac,
   ]
 }
 

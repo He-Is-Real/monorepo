@@ -1,8 +1,9 @@
 # web (Next.js, apps/web) on Cloud Run (D4): same image pattern and scaling as
 # the APIs. It server-renders from api-public-read only (D32), so it has no VPC
-# access and no database login. Its one secret is the website key for
-# api-public-read's rate limits (RL-8 A, secrets.tf); its service account may read
-# only that (Stripe's publishable key and Buy Button IDs are public by design).
+# access and no database login. Its secrets are the website key for
+# api-public-read's rate limits (RL-8 A, secrets.tf) and the logs' HMAC keys
+# (`log-hmac`, `log-search-hmac`); its service account may read only those (Stripe's publishable key
+# and Buy Button IDs are public by design).
 # Public since the walking-skeleton page (0.9), together with api-public-read
 # (D31; was private, decision 8).
 
@@ -132,6 +133,20 @@ resource "google_cloud_run_v2_service" "web" {
         }
       }
 
+      # Logs (libs/logging): the names of the HMAC keys (secrets.tf), read through libs/secrets
+      # like the APIs (GCP_PROJECT below says which project).
+      dynamic "env" {
+        for_each = local.log_hmac_env
+        content {
+          name  = env.key
+          value = google_secret_manager_secret.log_hmac[env.value].secret_id
+        }
+      }
+      env {
+        name  = "GCP_PROJECT"
+        value = var.project_id
+      }
+
       # As for the APIs: ready = the port is open. GET /health exists for
       # manual checks.
       startup_probe {
@@ -145,7 +160,10 @@ resource "google_cloud_run_v2_service" "web" {
   }
 
   # A new revision must be able to read the website key when it starts.
-  depends_on = [google_secret_manager_secret_iam_member.website_key]
+  depends_on = [
+    google_secret_manager_secret_iam_member.website_key,
+    google_secret_manager_secret_iam_member.log_hmac,
+  ]
 }
 
 resource "google_cloud_run_v2_service_iam_member" "web_invokers" {

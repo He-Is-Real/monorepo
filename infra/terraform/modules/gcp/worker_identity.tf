@@ -189,6 +189,18 @@ resource "google_cloud_run_v2_service" "cert_signer" {
         name  = "CERTIFICATE_RECORDS_BUCKET"
         value = google_storage_bucket.worker_certificates[0].name
       }
+      # Logs (libs/logging): the names of the HMAC keys, read through libs/secrets (secrets.tf).
+      env {
+        name  = "GCP_PROJECT"
+        value = var.project_id
+      }
+      dynamic "env" {
+        for_each = local.log_hmac_env
+        content {
+          name  = env.key
+          value = google_secret_manager_secret.log_hmac[env.value].secret_id
+        }
+      }
 
       startup_probe {
         tcp_socket {
@@ -203,6 +215,7 @@ resource "google_cloud_run_v2_service" "cert_signer" {
   depends_on = [
     google_kms_crypto_key_iam_policy.worker_ca,
     google_storage_bucket_iam_policy.worker_certificates,
+    google_secret_manager_secret_iam_member.log_hmac,
   ]
 }
 
