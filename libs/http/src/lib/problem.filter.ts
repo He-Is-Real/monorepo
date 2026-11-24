@@ -4,12 +4,17 @@ import {
   type ExceptionFilter,
   HttpException,
   HttpStatus,
-  Logger,
   Optional,
 } from '@nestjs/common';
 import { DatabaseAvailability } from '@heisreal/database';
+import {
+  currentEvent,
+  type WideEvent,
+  writeErrorLine,
+} from '@heisreal/logging/event';
 import type { Response } from 'express';
 import { sendProblem } from './server-error';
+import { outcomeForStatus } from './wide-events';
 
 /** An RFC 9457 problem (`components.yaml#/components/schemas/Problem`). */
 export interface Problem {
@@ -64,14 +69,21 @@ export class ProblemException extends HttpException {
  */
 @Catch()
 export class ProblemFilter implements ExceptionFilter {
-  private readonly logger = new Logger(ProblemFilter.name);
-
   constructor(@Optional() private readonly database?: DatabaseAvailability) {}
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const response = host.switchToHttp().getResponse<Response>();
+    const event = currentEvent();
     let problem: Problem;
     if (this.database?.noticeFailure(exception)) {
+      event?.fail(
+        {
+          type: 'DatabaseUnavailable',
+          code: 'service_restarting',
+          retriable: true,
+        },
+        'restarting',
+      );
       const restarting = this.database.restarting();
       problem = {
         type: 'about:blank',
@@ -97,10 +109,14 @@ export class ProblemFilter implements ExceptionFilter {
               status,
             });
       problem = { ...problem, title: titleCase(problem.title) };
+      if (event) recordHttpException(event, exception, problem);
     } else {
-      this.logger.error(
-        exception instanceof Error ? exception.stack : String(exception),
-      );
+      // The immediate error line (Error Reporting reads its stack), then the event's fields.
+      writeErrorLine(exception, { ref: event?.ref, traceId: event?.traceId });
+      event?.fail({
+        type: exception instanceof Error ? exception.name : 'Error',
+        retriable: false,
+      });
       problem = {
         type: 'about:blank',
         title: 'Internal server error',
@@ -109,6 +125,42 @@ export class ProblemFilter implements ExceptionFilter {
     }
     sendProblem(response, { ...problem });
   }
+}
+
+/**
+ * An answered refusal or failure on the request's event: its outcome; an input refusal's failed
+ * fields and checks (names only, never the values); otherwise `error.type` and our `code`.
+ * An `error` already recorded (e.g. why a token was refused) is kept.
+ */
+function recordHttpException(
+  event: WideEvent,
+  exception: HttpException,
+  problem: Problem,
+): void {
+  const outcome = outcomeForStatus(problem.status);
+  event.setOutcome(outcome, { force: true });
+  if (outcome === 'input_refused') {
+    const errors = problem.errors ?? [];
+    // A refusal without field errors (a refused signature, a picture Bunny wouldn't take) is
+    // one failed check: its code.
+    event.set({
+      input: {
+        failed_fields: errors.map((e) => e.pointer.replace(/^\//, '')),
+        failed_checks: errors.length
+          ? errors.map((e) => e.code ?? 'invalid')
+          : [problem.code ?? 'invalid'],
+      },
+    });
+    return;
+  }
+  if (outcome === 'not_found' || event.get('error') !== undefined) return;
+  event.set({
+    error: {
+      type: exception.name,
+      code: problem.code,
+      retriable: problem.status >= 500 ? true : undefined,
+    },
+  });
 }
 
 const titleCase = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);

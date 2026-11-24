@@ -14,7 +14,12 @@ import {
   DatabaseModule,
 } from '@heisreal/database';
 import { HealthController, HealthModule } from '@heisreal/health';
-import { ProblemFilter, RateLimitModule, RateLimits } from '@heisreal/http';
+import {
+  LogKeysModule,
+  ProblemFilter,
+  RateLimitModule,
+  RateLimits,
+} from '@heisreal/http';
 import { SecretsModule } from '@heisreal/secrets';
 import { MediaUrlsModule } from '@heisreal/story-cards';
 import {
@@ -44,6 +49,8 @@ import { ThemesController, ThemesModule } from './themes/themes.controller';
 @Module({
   imports: [
     SecretsModule,
+    // The log keys (log-hmac, log-search-hmac) for the request's wide event (libs/http).
+    LogKeysModule,
     DatabaseModule,
     RateLimitModule.forRoot(),
     // Task 0.5 + D1: Clerk session tokens, and every route must declare its minimum role

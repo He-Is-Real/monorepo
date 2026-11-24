@@ -199,6 +199,9 @@ importers:
       '@heisreal/http':
         specifier: workspace:*
         version: link:../../libs/http
+      '@heisreal/logging':
+        specifier: workspace:*
+        version: link:../../libs/logging
       '@heisreal/roles':
         specifier: workspace:*
         version: link:../../libs/roles
@@ -254,6 +257,9 @@ importers:
       '@heisreal/http':
         specifier: workspace:*
         version: link:../../libs/http
+      '@heisreal/logging':
+        specifier: workspace:*
+        version: link:../../libs/logging
       '@heisreal/secrets':
         specifier: workspace:*
         version: link:../../libs/secrets
@@ -315,6 +321,9 @@ importers:
       '@heisreal/http':
         specifier: workspace:*
         version: link:../../libs/http
+      '@heisreal/logging':
+        specifier: workspace:*
+        version: link:../../libs/logging
       '@heisreal/roles':
         specifier: workspace:*
         version: link:../../libs/roles
@@ -358,6 +367,9 @@ importers:
 
   apps/cert-signer:
     dependencies:
+      '@heisreal/http':
+        specifier: workspace:*
+        version: link:../../libs/http
       '@heisreal/logging':
         specifier: workspace:*
         version: link:../../libs/logging
@@ -553,6 +565,9 @@ importers:
       '@heisreal/http':
         specifier: workspace:*
         version: link:../../libs/http
+      '@heisreal/logging':
+        specifier: workspace:*
+        version: link:../../libs/logging
       '@heisreal/secrets':
         specifier: workspace:*
         version: link:../../libs/secrets
@@ -590,6 +605,9 @@ importers:
       '@heisreal/database':
         specifier: workspace:*
         version: link:../database
+      '@heisreal/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@heisreal/roles':
         specifier: workspace:*
         version: link:../roles
@@ -664,6 +682,9 @@ importers:
       '@heisreal/logging':
         specifier: workspace:*
         version: link:../logging
+      '@heisreal/secrets':
+        specifier: workspace:*
+        version: link:../secrets
       '@nestjs/common':
         specifier: ^12.3.2
         version: 12.3.2(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -704,6 +725,9 @@ importers:
       '@heisreal/database':
         specifier: workspace:*
         version: link:../database
+      '@heisreal/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@heisreal/secrets':
         specifier: workspace:*
         version: link:../secrets

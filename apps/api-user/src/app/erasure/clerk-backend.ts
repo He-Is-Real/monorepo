@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { note, timedFetch } from '@heisreal/logging/event';
 import {
   CLERK_SESSION_ID,
   type PersonPassIssuer,
@@ -74,8 +74,6 @@ type Secrets = Pick<SecretsService, 'get'>;
 const SECRET_NAME = /^[A-Za-z0-9_-]{1,255}$/;
 
 export class ClerkBackendApi implements ClerkBackend {
-  private readonly logger = new Logger('ClerkBackend');
-
   constructor(
     private readonly secrets: Secrets,
     private readonly keySecret: string | null,
@@ -164,7 +162,7 @@ export class ClerkBackendApi implements ClerkBackend {
     if (!/^sk_(test|live)_/.test(key)) {
       throw new Error(`Secret ${this.keySecret} isn't a Clerk secret key`);
     }
-    return this.fetcher(`${API}${path}`, {
+    return timedFetch('clerk', this.fetcher)(`${API}${path}`, {
       method,
       headers: {
         Authorization: `Bearer ${key}`,
@@ -188,8 +186,17 @@ export class ClerkBackendApi implements ClerkBackend {
       );
     } catch (err) {
       // No version yet, or not a whsec_ secret: Svix retries until the owner adds it.
-      this.logger.warn(
-        `Clerk webhooks are off: secret ${this.webhookSecret} isn't readable as a signing secret (${err instanceof Error ? err.name : 'error'})`,
+      note(
+        {
+          error: {
+            type: 'WebhookKeyUnreadable',
+            code: err instanceof Error ? err.name : 'error',
+          },
+        },
+        {
+          severity: 'WARNING',
+          message: 'Clerk webhooks are off: the signing secret isn’t readable',
+        },
       );
       return null;
     }

@@ -35,6 +35,7 @@ import {
   type StaffClerk,
   type StaffRole,
 } from './staff-clerk';
+import { note } from '@heisreal/logging/event';
 
 const STAFF_ROLES: readonly StaffRole[] = ['Moderator', 'Admin'];
 /** G7 (Joel, 2026-11-11): "just enforce @heisreal.today domain emails only". */
@@ -150,8 +151,6 @@ const isLastAdmin = (err: unknown) =>
  */
 @Injectable()
 export class Staff {
-  private readonly logger = new Logger(Staff.name);
-
   constructor(
     @Inject(SURREAL) private readonly db: Surreal,
     @Inject(STAFF_CLERK) private readonly clerk: StaffClerk,
@@ -251,28 +250,23 @@ export class Staff {
       try {
         ({ count: accounts } = await this.toClerk(email, role));
       } catch (err) {
-        this.logger.error(
-          "Clerk couldn't be made to match the staff list: a Clerk call failed; saving the person again fixes it",
-        );
+        // Saving the person again fixes it.
+        clerkMismatch('clerk_call_failed');
         throw err;
       }
       const now = await this.current(email);
       if (now === role) return accounts;
       role = now;
     }
-    this.logger.error(
-      "Clerk couldn't be made to match the staff list: the role kept changing; saving the person again fixes it",
-    );
+    clerkMismatch('role_kept_changing');
     throw clerkUnavailable();
   }
 
   private async toClerk(email: string, role: StaffRole | null) {
     try {
       return await this.clerk.setRole(email, role);
-    } catch (err) {
-      this.logger.warn(
-        `Clerk couldn't set a staff role: ${err instanceof Error ? err.message : 'error'}`,
-      );
+    } catch {
+      // Clerk's answer (its status, or a timeout) is on the event: external.clerk.
       throw clerkUnavailable();
     }
   }
@@ -443,3 +437,17 @@ export class StaffBaseline implements OnApplicationBootstrap {
   ],
 })
 export class StaffModule {}
+
+/**
+ * Clerk doesn't match the staff list (saving the person again fixes it): on the request's event,
+ * or one line when the start-up baseline runs it.
+ */
+function clerkMismatch(code: string): void {
+  note(
+    { error: { type: 'ClerkStaffMismatch', code } },
+    {
+      severity: 'ERROR',
+      message: "Clerk couldn't be made to match the staff list",
+    },
+  );
+}

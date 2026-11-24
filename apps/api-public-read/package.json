@@ -136,6 +136,7 @@
     "@heisreal/database": "workspace:*",
     "@heisreal/health": "workspace:*",
     "@heisreal/http": "workspace:*",
+    "@heisreal/logging": "workspace:*",
     "@heisreal/secrets": "workspace:*",
     "@heisreal/story-cards": "workspace:*",
     "@heisreal/story-filters": "workspace:*",

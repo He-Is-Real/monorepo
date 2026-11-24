@@ -11,7 +11,7 @@ import {
   RequestMethod,
 } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
-import { writeLog } from '@heisreal/logging';
+import { currentEvent } from '@heisreal/logging/event';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import {
   type ClientRateLimitInfo,
@@ -105,8 +105,8 @@ export interface MethodGroups {
  * headers and body as any unexpected failure), with no 429, no rate-limit or Retry-After
  * header and no wording of its own (RL-5, Joel 2026-11-21: "we dont want people experimenting
  * with breaking or bypassing the rate limiter and being shown their progress"). Only our logs
- * say it was a limit: one line when a caller first goes over, naming the group, never the
- * address or the path (a path can hold an email address).
+ * say it was a limit: the request's wide event gets `rate_limit.group` and `decision`
+ * (`allowed` or `refused`) and, when refused, `outcome: "rate_limited"` with its reference.
  */
 @Injectable()
 export class RateLimits implements OnModuleInit {
@@ -209,19 +209,14 @@ export class RateLimits implements OnModuleInit {
     if (!this.active) return (_req, _res, next) => next();
     const { limit, windowMs } = RATE_LIMITS[group];
     const counter = new SlidingWindowCounter({ windowMs, now: this.now });
-    const count = (key: string) => {
-      const total = counter.hit(key);
-      // One line as the caller reaches the limit, never the address or the path.
-      if (total >= limit && total - 1 < limit) {
-        writeLog('WARNING', 'Rate limit reached', {
-          event: 'rate_limited',
-          group,
-        });
-      }
-    };
+    const count = (key: string) => counter.hit(key);
     return (req: Request, res: Response, next: NextFunction) => {
       const key = callerKey(req.ip ?? 'unknown');
-      if (counter.peek(key) >= limit) return sendServerError(res);
+      if (counter.peek(key) >= limit) {
+        refused(group);
+        return sendServerError(res);
+      }
+      allowed(group);
       if (refusedOnArrival(req)) {
         count(key);
         return next();
@@ -259,21 +254,29 @@ export class RateLimits implements OnModuleInit {
       legacyHeaders: false,
       keyGenerator: (req) =>
         group === 'website' ? 'website' : callerKey(req.ip ?? 'unknown'),
-      handler: (req, res) => {
-        const info = (req as Request & { rateLimit?: { used: number } })
-          .rateLimit;
-        // One line per caller as they first go over, not one per refused request.
-        if (info?.used === limit + 1) {
-          writeLog('WARNING', 'Rate limit reached', {
-            event: 'rate_limited',
-            group,
-          });
-        }
+      handler: (_req, res) => {
+        refused(group);
         sendServerError(res);
       },
     };
-    return rateLimit(options);
+    const limiter = rateLimit(options);
+    return (req, res, next) => {
+      allowed(group);
+      return limiter(req, res, next);
+    };
   }
+}
+
+/** On the request's event: this group let the request through (a later refusal replaces it). */
+function allowed(group: RateLimitGroup): void {
+  currentEvent()?.set({ rate_limit: { group, decision: 'allowed' } });
+}
+
+/** On the request's event: refused by this group's limit (RL-5: the caller sees a plain 500). */
+function refused(group: RateLimitGroup): void {
+  currentEvent()
+    ?.set({ rate_limit: { group, decision: 'refused' } })
+    .setOutcome('rate_limited', { force: true });
 }
 
 /** Constant-time comparison of two keys of any length (their SHA-256 digests). */

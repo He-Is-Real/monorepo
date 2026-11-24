@@ -9,7 +9,12 @@ import {
   DatabaseModule,
 } from '@heisreal/database';
 import { HealthController, HealthModule } from '@heisreal/health';
-import { ProblemFilter, RateLimitModule, RateLimits } from '@heisreal/http';
+import {
+  LogKeysModule,
+  ProblemFilter,
+  RateLimitModule,
+  RateLimits,
+} from '@heisreal/http';
 import { SecretsModule, SecretsService } from '@heisreal/secrets';
 import { LegalController, LegalModule } from './legal/legal.controller';
 import { MediaUrlsModule } from '@heisreal/story-cards';
@@ -26,6 +31,8 @@ import { websiteKeyFromSecret } from './website-key';
 @Module({
   imports: [
     SecretsModule,
+    // The log keys (log-hmac, log-search-hmac) for the request's wide event (libs/http).
+    LogKeysModule,
     DatabaseModule,
     // RL-8 A: web's own server carries the website key and shares one large allowance.
     RateLimitModule.forRoot({

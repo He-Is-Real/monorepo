@@ -1,3 +1,4 @@
+import { timedFetch } from '@heisreal/logging/event';
 import { createHash, createHmac } from 'node:crypto';
 
 /**
@@ -133,7 +134,7 @@ export async function deleteStoryImage(
   path: string,
 ): Promise<void> {
   if (!STORY_IMAGE_PATH.test(path)) throw new Error('Not a story’s picture');
-  const res = await fetch(`${edgeStorageBase(zone)}/${path}`, {
+  const res = await timedFetch('bunny')(`${edgeStorageBase(zone)}/${path}`, {
     method: 'DELETE',
     headers: { AccessKey: zone.password },
     signal: AbortSignal.timeout(10_000),
@@ -161,11 +162,14 @@ export async function deleteStoryFolder(
 ): Promise<void> {
   const story = STORY_FOLDER.exec(folder)?.[1];
   if (!story) throw new Error('Not a story’s folder');
-  const res = await fetch(`${edgeStorageBase(zone)}/stories/${story}/`, {
-    method: 'DELETE',
-    headers: { AccessKey: zone.password },
-    signal: AbortSignal.timeout(10_000),
-  });
+  const res = await timedFetch('bunny')(
+    `${edgeStorageBase(zone)}/stories/${story}/`,
+    {
+      method: 'DELETE',
+      headers: { AccessKey: zone.password },
+      signal: AbortSignal.timeout(10_000),
+    },
+  );
   await res.body?.cancel().catch(() => undefined);
   if (res.status !== 200 && res.status !== 404) {
     throw new Error(

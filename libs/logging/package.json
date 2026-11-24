@@ -15,6 +15,11 @@
       "import": "./src/nest.ts",
       "default": "./src/nest.ts"
     },
+    "./event": {
+      "types": "./src/event/index.ts",
+      "import": "./src/event/index.ts",
+      "default": "./src/event/index.ts"
+    },
     "./package.json": "./package.json"
   },
   "nx": {

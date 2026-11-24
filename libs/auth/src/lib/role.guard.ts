@@ -4,9 +4,9 @@ import {
   ForbiddenException,
   Injectable,
   InternalServerErrorException,
-  Logger,
 } from '@nestjs/common';
 import { hasRole, isRole, resolveRolePolicy } from '@heisreal/roles';
+import { currentEvent } from '@heisreal/logging/event';
 import type { Request } from 'express';
 import { PersonSessions } from './person';
 import type { RegisteredRoute } from './routes';
@@ -42,8 +42,6 @@ export function describeRolePolicy(route: RegisteredRoute): {
  */
 @Injectable()
 export class RoleGuard implements CanActivate {
-  private readonly logger = new Logger(RoleGuard.name);
-
   constructor(private readonly people: PersonSessions) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -53,9 +51,12 @@ export class RoleGuard implements CanActivate {
       context.getClass(),
     );
     if (!resolved.ok) {
-      this.logger.error(
-        `${context.getClass().name}.${context.getHandler().name} has no valid role policy`,
-      );
+      currentEvent()?.set({
+        error: {
+          type: 'RolePolicyMissing',
+          message: `${context.getClass().name}.${context.getHandler().name} has no valid role policy`,
+        },
+      });
       throw new InternalServerErrorException();
     }
     const { policy } = resolved;

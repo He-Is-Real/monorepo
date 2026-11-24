@@ -5,6 +5,7 @@ import {
   Inject,
   Param,
   Query,
+  Req,
   Res,
 } from '@nestjs/common';
 import {
@@ -21,7 +22,9 @@ import {
   toSummary,
 } from '@heisreal/story-cards';
 import { STORY_FILTERS_LET, storyFiltersWhere } from '@heisreal/story-filters';
-import type { Response } from 'express';
+import { searchEvent } from '@heisreal/http';
+import type { Outcome } from '@heisreal/logging/event';
+import type { Request, Response } from 'express';
 import type { Surreal } from 'surrealdb';
 import { collectionETag, publicCacheControl, withETag } from '../caching';
 import {
@@ -198,6 +201,7 @@ export class BrowseController {
   @Get()
   async browseStories(
     @Query() query: Record<string, unknown>,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StoryPage | undefined> {
     const browse = parseBrowseQuery(query);
@@ -210,6 +214,36 @@ export class BrowseController {
       };
       return withETag(res, page, collectionETag(page));
     }
+    // A search (words or themes) writes its own search event (LG-2g A): the terms there only,
+    // never on this request's event, and whoever searched only as search-key hashes.
+    if (!browse.q && !browse.themes.length) return this.browse(browse, res);
+    let outcome: Outcome = 'error';
+    let count: number | undefined;
+    try {
+      const page = await this.browse(browse, res);
+      outcome = 'ok';
+      count = page?.data.length;
+      return page;
+    } finally {
+      searchEvent(req, {
+        outcome,
+        search: {
+          q: browse.q ?? undefined,
+          tags: browse.themes.length ? browse.themes : undefined,
+          filters: {
+            format: browse.format ?? undefined,
+            sort: browse.sort,
+          },
+          result_count: count,
+        },
+      });
+    }
+  }
+
+  private async browse(
+    browse: BrowseQuery,
+    res: Response,
+  ): Promise<StoryPage | undefined> {
     const results = await runQuery(this.db, queryFor(browse), {
       q: browse.q ?? undefined,
       themes: browse.themes,

@@ -1,0 +1,151 @@
+import {
+  clientKind,
+  currentEvent,
+  newTrace,
+  type Outcome,
+  runWithEvent,
+  type Searcher,
+  type SearchEventInput,
+  serviceFields,
+  startEvent,
+  traceFromHeader,
+  type WideEvent,
+  withoutSecrets,
+  writeSearchEvent,
+} from '@heisreal/logging/event';
+import type { NextFunction, Request, RequestHandler, Response } from 'express';
+import { canonicalIp } from './ip';
+
+/**
+ * The request's wide event for every API (writing-logs skill; LG-2 C, LG-4 A; Joel 22–24 Nov
+ * 2026). Express middleware, added first in each service's `main.ts` with
+ * `app.use(wideEvents('api-user'))`, so it runs before CORS, the rate limiters, guards,
+ * interceptors and the exception filter: a refusal at any of them still ends in the event.
+ *
+ * - The trace id comes from the browser's `traceparent` (CORS allows it), or a new UUID v7;
+ *   `ref` is that id with dashes, and `logging.googleapis.com/trace` groups our line with Cloud
+ *   Run's own request line.
+ * - Code the request runs adds to it through `currentEvent()` (`@heisreal/logging/event`); the
+ *   exception filter records errors; `timeDb` / `timeExternal` add timings.
+ * - It is written once, when the response is closed (also when the caller hangs up), after the
+ *   answer has gone; writing never throws into the request.
+ */
+export function wideEvents(service: string): RequestHandler {
+  const fields = serviceFields(service);
+  return (req: Request, res: Response, next: NextFunction) => {
+    let event: WideEvent;
+    try {
+      event = startEvent(
+        'request',
+        fields,
+        traceFromHeader(req.headers['traceparent']) ?? newTrace(),
+      );
+      const userAgent = req.headers['user-agent'];
+      const kind = clientKind(userAgent);
+      const requestBytes = Number(req.headers['content-length']);
+      event.set({
+        http: {
+          method: req.method,
+          request_bytes: Number.isFinite(requestBytes)
+            ? requestBytes
+            : undefined,
+        },
+        client: {
+          user_agent: userAgent,
+          browser: kind.browser,
+          os: kind.os,
+          device: kind.device,
+        },
+      });
+      res.once('close', () => finishRequest(event, req, res));
+    } catch {
+      return next();
+    }
+    runWithEvent(event, next);
+  };
+}
+
+/** What a status means when nothing more specific was recorded. */
+export function outcomeForStatus(status: number): Outcome {
+  if (status < 400) return 'ok';
+  if (status === 404) return 'not_found';
+  if ([400, 413, 415, 422].includes(status)) return 'input_refused';
+  if (status === 429) return 'rate_limited';
+  if (status >= 500) return 'error';
+  return 'refused';
+}
+
+/** The route template Express matched (`/v1/stories/:id`), never the address itself. */
+function routeOf(req: Request): string | undefined {
+  const path = (req.route as { path?: unknown } | undefined)?.path;
+  return typeof path === 'string' ? `${req.baseUrl ?? ''}${path}` : undefined;
+}
+
+function finishRequest(event: WideEvent, req: Request, res: Response): void {
+  try {
+    const status = res.statusCode;
+    const route = routeOf(req);
+    const responseBytes = Number(res.getHeader('content-length'));
+    const ms = event.elapsedMs();
+    event.set({
+      http: {
+        route,
+        status_code: status,
+        duration_ms: ms,
+        response_bytes: Number.isFinite(responseBytes)
+          ? responseBytes
+          : undefined,
+      },
+      // req.ip is only right once the rate limiter has told Express to trust Google's front end.
+      client: { ip: canonicalIp(req.ip) ?? req.ip },
+    });
+    event.setOutcome(outcomeForStatus(status));
+    const body = req.body as unknown;
+    if (
+      body &&
+      typeof body === 'object' &&
+      !Buffer.isBuffer(body) &&
+      Object.keys(body).length
+    ) {
+      event.longText('request.body', JSON.stringify(withoutSecrets(body)));
+    }
+    event.message(
+      `${req.method} ${route ?? '(no route)'} ${status} in ${ms} ms`,
+    );
+    event.write();
+  } catch {
+    // never throws into the request
+  }
+}
+
+/** The current request's event, if any (inside a request handled by {@link wideEvents}). */
+export const requestEvent = currentEvent;
+
+/**
+ * Writes the separate search event for a search on this request (LG-2g A): who searched is
+ * taken from the request (its address, user agent, and the signed-in person if any) and written
+ * only as search-key hashes; the terms go only here, never on the request's own event.
+ */
+export function searchEvent(
+  req: Request,
+  input: Omit<SearchEventInput, 'service' | 'who' | 'durationMs' | 'db'> & {
+    durationMs?: number;
+  },
+): void {
+  const event = currentEvent();
+  const who: Searcher = {
+    ip: canonicalIp(req.ip) ?? req.ip,
+    userAgent: req.headers['user-agent'],
+    userId: event?.get('user.id') as string | undefined,
+    email: event?.get('user.email') as string | undefined,
+    role: event?.get('user.role') as string | undefined,
+  };
+  writeSearchEvent({
+    ...input,
+    service: event?.service ?? serviceFields('unknown'),
+    route: input.route ?? routeOf(req),
+    durationMs: input.durationMs ?? event?.elapsedMs() ?? 0,
+    db: event?.dbTimings(),
+    who,
+  });
+}

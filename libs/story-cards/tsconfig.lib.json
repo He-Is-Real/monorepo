@@ -21,6 +21,9 @@
       "path": "../secrets/tsconfig.lib.json"
     },
     {
+      "path": "../logging/tsconfig.lib.json"
+    },
+    {
       "path": "../database/tsconfig.lib.json"
     },
     {

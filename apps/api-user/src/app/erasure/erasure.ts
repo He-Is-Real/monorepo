@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import {
   ERASE_ACCOUNT,
   type ErasureReason,
@@ -16,6 +16,7 @@ import {
   type BunnyStream,
 } from '@heisreal/story-cards/bunny-stream';
 import { CLERK_BACKEND, type ClerkBackend } from './clerk-backend';
+import { currentEvent, note } from '@heisreal/logging/event';
 
 /**
  * Deletes a deleted story's whole folder from the images storage zone, every picture in it (an
@@ -43,8 +44,6 @@ const RETRY_EARLIER = 10;
  */
 @Injectable()
 export class Erasure {
-  private readonly logger = new Logger(Erasure.name);
-
   constructor(
     @Inject(SURREAL) private readonly db: Surreal,
     @Inject(BUNNY_STREAM) private readonly bunny: BunnyStream | null,
@@ -64,16 +63,26 @@ export class Erasure {
       { attempts: 8 },
     );
     if (user) {
-      this.logger.log(
-        `Erased ${user} (${reason}); ${pending.length} deletion(s) queued`,
-      );
+      currentEvent()?.set({
+        action: 'account.erase',
+        erasure: {
+          user_record: user,
+          reason,
+          queued_count: pending.length,
+        },
+      });
     }
     try {
       if (pending.length > 0) await this.drain(pending);
       await this.drain();
     } catch (err) {
-      this.logger.warn(
-        `Erased, but couldn’t work through the deletion queue; housekeeping retries it: ${err instanceof Error ? err.message : 'error'}`,
+      // Housekeeping retries it.
+      note(
+        { erasure: { drain_failed: errorName(err) } },
+        {
+          severity: 'WARNING',
+          message: 'Erased, but couldn’t work through the deletion queue',
+        },
       );
     }
   }
@@ -91,17 +100,26 @@ export class Erasure {
       keys: keys ?? null,
       limit: keys ? keys.length : RETRY_EARLIER,
     })) as [PendingDeletion[]];
+    const failed: { kind: string; key: string; reason: string }[] = [];
     for (const row of rows) {
       try {
         await this.delete(row);
       } catch (err) {
-        this.logger.warn(
-          `Couldn’t delete queued ${row.kind} pendingDeletion:${row.key}; it stays queued: ${err instanceof Error ? err.message : 'error'}`,
-        );
+        // It stays queued.
+        failed.push({ kind: row.kind, key: row.key, reason: errorName(err) });
         await runQuery(this.db, PENDING_DELETION_FAILED, { key: row.key });
         continue;
       }
       await runQuery(this.db, PENDING_DELETION_DONE, { key: row.key });
+    }
+    if (failed.length) {
+      note(
+        { erasure: { deletions_failed: failed } },
+        {
+          severity: 'WARNING',
+          message: 'Couldn’t delete queued deletions; they stay queued',
+        },
+      );
     }
   }
 
@@ -117,3 +135,5 @@ export class Erasure {
     return this.clerk.deleteUser(ref);
   }
 }
+
+const errorName = (err: unknown) => (err instanceof Error ? err.name : 'error');

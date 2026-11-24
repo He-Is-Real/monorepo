@@ -37,6 +37,8 @@ export function corsOptions(
       'If-Match',
       'If-None-Match',
       'Idempotency-Key',
+      // The browser's W3C trace id, which is also the request's reference (LG-4 A).
+      'traceparent',
     ],
     exposedHeaders: ['ETag', 'Location'],
     maxAge: 600,

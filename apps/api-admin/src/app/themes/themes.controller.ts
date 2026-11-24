@@ -5,7 +5,6 @@ import {
   Headers,
   HttpStatus,
   Inject,
-  Logger,
   Module,
   Put,
   Req,
@@ -29,6 +28,7 @@ import {
   OTHER,
   parsePicture,
 } from './theme-picture';
+import { currentEvent } from '@heisreal/logging/event';
 
 /** The contract's `AdminThemes`. */
 export interface AdminThemes {
@@ -111,8 +111,6 @@ const byName = (a: { name: string }, b: { name: string }) =>
  */
 @Controller('v1/admin/themes')
 export class ThemesController {
-  private readonly logger = new Logger(ThemesController.name);
-
   constructor(
     @Inject(SURREAL) private readonly db: Surreal,
     private readonly people: PersonSessions,
@@ -216,10 +214,15 @@ export class ThemesController {
       results[results.length - 2], // the UPSERT's; COMMIT is last
       'themes',
     );
-    this.logger.log(
-      `Themes saved as version ${row.version}: ${changes.deleteThemes.length} deleted, ` +
-        `${changes.createThemes.length} added, ${changes.updateThemes.length} changed`,
-    );
+    currentEvent()?.set({
+      action: 'themes.save',
+      themes: {
+        version: row.version,
+        deleted_count: changes.deleteThemes.length,
+        added_count: changes.createThemes.length,
+        changed_count: changes.updateThemes.length,
+      },
+    });
     res.setHeader('ETag', `"${row.version}"`);
     return { id: 'current', version: row.version };
   }

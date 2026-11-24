@@ -6,7 +6,6 @@ import {
   HttpCode,
   HttpStatus,
   Inject,
-  Logger,
   Module,
   Post,
   Req,
@@ -19,6 +18,7 @@ import { SecretsService, withTimeout } from '@heisreal/secrets';
 import type { Request } from 'express';
 import type { Surreal } from 'surrealdb';
 import { VIDEO_ID } from '@heisreal/story-cards/bunny-stream';
+import { currentEvent, note } from '@heisreal/logging/event';
 
 /**
  * Bunny Stream's webhook (`POST /v1/webhooks/bunny`, M2 plan item 13, D78; media-worker-final.html):
@@ -115,7 +115,7 @@ export interface MediaJobs {
 }
 export const MEDIA_JOBS = Symbol('MEDIA_JOBS');
 
-const sendLogger = new Logger('MediaJobs');
+const errorName = (err: unknown) => (err instanceof Error ? err.name : 'error');
 
 /**
  * Sends a story's open jobs that haven't been sent yet. The database writes them itself when a
@@ -156,8 +156,10 @@ export async function sendStoryJobs(
       );
     }
   } catch (err) {
-    sendLogger.warn(
-      `Couldn't send story ${story}'s media jobs (${err instanceof Error ? err.name : 'error'}); the 18:00 resend sends them`,
+    // The 18:00 resend sends them.
+    note(
+      { story: { id: story }, media_job: { send_failed: errorName(err) } },
+      { severity: 'WARNING', message: "Couldn't send a story's media jobs" },
     );
   }
 }
@@ -178,8 +180,6 @@ const PUBLISH_TIMEOUT_MS = 10_000;
 )
 @Controller('v1/webhooks/bunny')
 export class BunnyWebhookController {
-  private readonly logger = new Logger(BunnyWebhookController.name);
-
   constructor(
     @Inject(BUNNY_WEBHOOK_CONFIG)
     private readonly config: BunnyWebhookConfig | null,
@@ -206,16 +206,24 @@ export class BunnyWebhookController {
       if (key.length < 16) throw new Error('EmptyKey');
     } catch (err) {
       // No version yet, or Secret Manager unreachable: Bunny retries for about 4 hours.
-      this.logger.warn(
-        `Bunny webhooks are off: the read-only key isn't readable (${err instanceof Error && err.message === 'EmptyKey' ? 'empty' : err instanceof Error ? err.name : 'error'})`,
-      );
+      currentEvent()?.set({
+        error: {
+          type: 'WebhookKeyUnreadable',
+          code:
+            err instanceof Error && err.message === 'EmptyKey'
+              ? 'empty'
+              : errorName(err),
+        },
+      });
       throw new ServiceUnavailableException('Bunny webhooks are off');
     }
     try {
       verifyBunnySignature(key, { signature, version, algorithm }, req.rawBody);
     } catch (err) {
       if (!(err instanceof BunnyWebhookVerificationError)) throw err;
-      this.logger.warn(`Refused a Bunny webhook: ${err.message}`);
+      currentEvent()?.set({
+        error: { type: 'WebhookRefused', message: err.message },
+      });
       throw new UnauthorizedException({
         code: 'invalid_signature',
         message: 'The webhook signature was refused',
@@ -254,9 +262,10 @@ export class BunnyWebhookController {
         // No file row names this video (another upload, or one long gone), or its waiting story's
         // file has used its nightly retries (Part 1a, P1-9: the database opens no new job, so
         // "a problem on our side" stays): nothing to check.
-        this.logger.log(
-          `Bunny video ${videoId} is no story's file, or its retries are used: dropped`,
-        );
+        currentEvent()?.set({
+          upload: { video_id: videoId },
+          media_job: { dropped: true },
+        });
         return;
       }
       const job: MediaJob = {
@@ -277,9 +286,10 @@ export class BunnyWebhookController {
         ),
       );
     } catch (err) {
-      this.logger.error(
-        `Couldn't queue a media job for video ${videoId} (${err instanceof Error ? err.message : 'error'}); Bunny retries`,
-      );
+      currentEvent()?.set({
+        upload: { video_id: videoId },
+        error: { type: 'MediaQueueUnavailable', code: errorName(err) },
+      });
       throw new ServiceUnavailableException('The media queue is unavailable');
     }
   }

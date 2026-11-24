@@ -1,3 +1,4 @@
+import { note } from '@heisreal/logging/event';
 import type { BunnyStream } from './bunny-stream';
 
 /**
@@ -15,7 +16,6 @@ export interface DeletedStoryMedia {
   /** The images zone, for the story's picture folder `stories/<id>/`. */
   folders: { deleteFolder(folder: string): Promise<void> } | null;
   budgetMs: number;
-  logger: { warn(message: string): void };
 }
 
 /**
@@ -23,58 +23,34 @@ export interface DeletedStoryMedia {
  * owner's, Joel 2026-11-14): its videos at Bunny Stream and its picture folder in the images zone.
  * Only after the delete has committed, and it never fails the Delete: the deletions run side by
  * side under one time budget, and a video or folder that couldn't go, or hadn't gone when the
- * budget ran out, is logged (internal ids only) and left to the nightly clean-up, the orphan sweep
+ * budget ran out, is recorded on the request's event (`story.media_left`, internal ids only) and left to the nightly clean-up, the orphan sweep
  * for videos and the queued folder (pendingDeletion, story_picture_folder) for pictures
  * (docs/media-runbook.md).
  */
 export async function discardDeletedStoryMedia(
-  { stream, folders, budgetMs, logger }: DeletedStoryMedia,
+  { stream, folders, budgetMs }: DeletedStoryMedia,
   storyId: string,
   videos: string[],
 ): Promise<void> {
   const folder = `stories/${storyId}/`;
+  // What is left to the nightly clean-up, and why (`off`, `timeout`, or the error's name).
+  const left = new Map<string, string>();
   const unfinished = new Set<string>();
   const track = (what: string, work: Promise<void>) => {
     unfinished.add(what);
-    return work.finally(() => unfinished.delete(what));
+    return work
+      .catch((e: unknown) => {
+        left.set(what, e instanceof Error ? e.name : 'error');
+      })
+      .finally(() => unfinished.delete(what));
   };
-  const reason = (e: unknown) => (e instanceof Error ? e.message : 'error');
-  const work: Promise<void>[] = videos.map((id) => {
-    if (!stream) {
-      logger.warn(
-        `Couldn’t delete the deleted story’s video ${id} (Bunny Stream is off here; an orphan until the sweep)`,
-      );
-      return Promise.resolve();
-    }
-    return track(
-      `the deleted story’s video ${id} (an orphan until the sweep)`,
-      stream
-        .deleteVideo(id)
-        .catch((e: unknown) =>
-          logger.warn(
-            `Couldn’t delete the deleted story’s video ${id} (an orphan until the sweep): ${reason(e)}`,
-          ),
-        ),
-    );
-  });
-  if (!folders) {
-    logger.warn(
-      `Couldn’t delete ${folder} (the images zone is off here; housekeeping deletes it from the queue)`,
-    );
-  } else {
-    work.push(
-      track(
-        `${folder} (housekeeping deletes it from the queue)`,
-        folders
-          .deleteFolder(folder)
-          .catch((e: unknown) =>
-            logger.warn(
-              `Couldn’t delete ${folder} (housekeeping deletes it from the queue): ${reason(e)}`,
-            ),
-          ),
-      ),
-    );
-  }
+  const work: Promise<void>[] = videos.map((id) =>
+    stream
+      ? track(id, stream.deleteVideo(id))
+      : (left.set(id, 'off'), Promise.resolve()),
+  );
+  if (!folders) left.set(folder, 'off');
+  else work.push(track(folder, folders.deleteFolder(folder)));
   let timer: ReturnType<typeof setTimeout> | undefined;
   const outOfTime = new Promise<'late'>((resolve) => {
     timer = setTimeout(() => resolve('late'), budgetMs);
@@ -85,10 +61,23 @@ export async function discardDeletedStoryMedia(
   ]);
   clearTimeout(timer);
   if (result === 'late') {
-    for (const what of unfinished) {
-      logger.warn(
-        `Couldn’t delete ${what}: Bunny hadn’t answered within ${budgetMs / 1000} s`,
-      );
-    }
+    for (const what of unfinished) left.set(what, 'timeout');
   }
+  if (!left.size) return;
+  // Videos: an orphan until the sweep; the folder: housekeeping deletes it from the queue.
+  note(
+    {
+      story: {
+        id: storyId,
+        media_left: [...left].map(([what, reason]) => ({
+          what: what === folder ? 'folder' : what,
+          reason,
+        })),
+      },
+    },
+    {
+      severity: 'WARNING',
+      message: 'A deleted story’s media is left to the nightly clean-up',
+    },
+  );
 }
