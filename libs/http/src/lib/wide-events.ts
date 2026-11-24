@@ -48,6 +48,11 @@ export function wideEvents(
   } = {},
 ): RequestHandler {
   const quiet = new Set(bodyNeverLogged.map((p) => p.toLowerCase()));
+  const bodyIsQuiet = (req: Request) => {
+    if (!quiet.size) return false;
+    const path = pathOf(req);
+    return path === undefined || quiet.has(path);
+  };
   const fields = serviceFields(service);
   return (req: Request, res: Response, next: NextFunction) => {
     let event: WideEvent;
@@ -74,9 +79,7 @@ export function wideEvents(
           device: client.device,
         },
       });
-      res.once('close', () =>
-        finishRequest(event, req, res, quiet.has(pathOf(req))),
-      );
+      res.once('close', () => finishRequest(event, req, res, bodyIsQuiet(req)));
     } catch {
       return next();
     }
@@ -103,15 +106,16 @@ function routeOf(req: Request): string | undefined {
 /**
  * The request's path as Express routes it (its `parseurl` pathname: the absolute form
  * `POST http://host/v1/…` routes like `/v1/…`), without its query, lower case and without a
- * trailing slash. From `originalUrl`: routers may rewrite `req.url`.
+ * trailing slash. From `originalUrl`: routers may rewrite `req.url`. `undefined` if it can't
+ * be read: such a request counts as one whose body is never logged (fail closed).
  */
-function pathOf(req: Request): string {
+function pathOf(req: Request): string | undefined {
   let url = req.originalUrl ?? req.url ?? '';
   if (!url.startsWith('/')) {
     try {
       url = new URL(url).pathname;
     } catch {
-      return '';
+      return undefined;
     }
   }
   const end = url.search(/[?#]/);
