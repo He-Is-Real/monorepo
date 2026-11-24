@@ -152,8 +152,9 @@ const send = (res, status, body) => {
 };
 
 const readBytes = (req) =>
-  new Promise((done) => {
+  new Promise((done, fail) => {
     const chunks = [];
+    req.on('error', fail);
     req.on('data', (chunk) => chunks.push(chunk));
     req.on('end', () => done(Buffer.concat(chunks)));
   });
@@ -1250,8 +1251,9 @@ function sendList(req, res, url, token) {
 }
 
 const readBody = (req) =>
-  new Promise((done) => {
+  new Promise((done, fail) => {
     let text = '';
+    req.on('error', fail);
     req.on('data', (chunk) => (text += chunk));
     req.on('end', () => done(text));
   });
@@ -1544,8 +1546,9 @@ const collection = (req, res, body) => {
   return sendJson(res, 200, body, { etag });
 };
 const readJson = (req) =>
-  new Promise((resolve) => {
+  new Promise((resolve, fail) => {
     let raw = '';
+    req.on('error', fail);
     req.on('data', (c) => (raw += c));
     req.on('end', () => {
       try {
@@ -2550,7 +2553,7 @@ const shareSession = (id) => {
   return sessions.get(id);
 };
 
-createServer(async (req, res) => {
+async function handle(req, res) {
   const origin = req.headers.origin;
   if (origin && origins.includes(origin)) {
     res.setHeader('access-control-allow-origin', origin);
@@ -2909,4 +2912,13 @@ createServer(async (req, res) => {
     if (handled !== false) return;
   }
   return problem(res, 404, 'Not found');
+}
+
+// A client that drops its connection part-way (a test ending, the browser cancelling) ends that
+// one request: its body read fails or the response can't be written, and the request is closed
+// instead of the error taking the whole stub down for every later test.
+createServer((req, res) => {
+  req.on('error', () => res.destroy());
+  res.on('error', () => res.destroy());
+  handle(req, res).catch(() => res.destroy());
 }).listen(port, '127.0.0.1');
