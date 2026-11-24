@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
+import { LogKeysModule } from '@heisreal/http';
+import { SecretsModule } from '@heisreal/secrets';
 import { gcsNewestRecords, kmsSigner } from '@heisreal/worker-identity';
 import { GoogleAuth } from 'google-auth-library';
 import { CertificatesController } from './certificates.controller';
@@ -26,6 +28,9 @@ const accessToken = async () => {
 };
 
 @Module({
+  // The log keys (log-hmac, log-search-hmac) for the request's wide event, read before it serves
+  // (libs/http): deployed, it won't start without them.
+  imports: [SecretsModule, LogKeysModule],
   controllers: [CertificatesController],
   providers: [
     { provide: APP_FILTER, useClass: ProblemFilter },

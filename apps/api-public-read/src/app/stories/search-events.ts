@@ -8,8 +8,9 @@ import {
 import { Reflector } from '@nestjs/core';
 import { searchEvent } from '@heisreal/http';
 import type { Outcome } from '@heisreal/logging/event';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { type Observable, tap } from 'rxjs';
+import { representationOf } from '../public-cache';
 import { type BrowseQuery, parseBrowseQuery } from './browse.query';
 
 const SEARCHES = Symbol('searches stories');
@@ -33,6 +34,7 @@ export class SearchEventInterceptor implements NestInterceptor {
     if (!this.reflector.get<boolean>(SEARCHES, context.getHandler()))
       return next.handle();
     const req = context.switchToHttp().getRequest<Request>();
+    const res = context.switchToHttp().getResponse<Response>();
     let browse: BrowseQuery;
     try {
       browse = parseBrowseQuery(req.query as Record<string, unknown>);
@@ -54,7 +56,8 @@ export class SearchEventInterceptor implements NestInterceptor {
       });
     return next.handle().pipe(
       tap({
-        next: (body) => write('ok', body),
+        // A 304 (If-None-Match) has no body: count the answer it stands for.
+        next: (body) => write('ok', body ?? representationOf(res)),
         error: () => write('error'),
       }),
     );

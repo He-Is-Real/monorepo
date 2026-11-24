@@ -118,6 +118,14 @@ export function answerKey(req: Request): string {
   return `${req.path}?${JSON.stringify(query)}`;
 }
 
+/** The answer a response stands for, kept before a `304` drops its body (the search event's count). */
+const represented = new WeakMap<Response, unknown>();
+
+/** The body this response stood for when the cache answered it, even as a `304`. */
+export function representationOf(res: Response): unknown {
+  return represented.get(res);
+}
+
 /**
  * R13: answers a GET from memory when it was answered in the last 30 seconds, otherwise asks the
  * handler. If the handler can't reach the database (it's restarting), the newest copy kept in the
@@ -176,6 +184,7 @@ export class PublicCacheInterceptor implements NestInterceptor {
         'Cache-Control',
         publicCacheControl(this.cache.secondsLeft(answer)),
       );
+    represented.set(res, answer.body);
     if (ifNoneMatchHits(req.headers['if-none-match'], answer.etag)) {
       res.status(HttpStatus.NOT_MODIFIED);
       return undefined;

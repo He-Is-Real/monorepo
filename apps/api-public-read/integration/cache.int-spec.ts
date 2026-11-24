@@ -73,7 +73,7 @@ describe('the public answer cache (R13)', () => {
     await t?.close();
   });
 
-  it('writes a search event for every search, also one answered from memory (LG-2g A)', async () => {
+  it('writes one search event for every search, also one answered from memory or as a 304 (LG-2g A)', async () => {
     const searches: Record<string, unknown>[] = [];
     const before = [...LOG_SINKS];
     LOG_SINKS.splice(0, LOG_SINKS.length, {
@@ -96,7 +96,15 @@ describe('the public answer cache (R13)', () => {
       await retitle(FIRST, 'After');
       // Same request within 30 seconds: answered from memory, still a search.
       expect(await search()).toBe('Before');
-      expect(searches).toHaveLength(2);
+      // The browser already holds that answer: a 304 with no body is still one search, of one story.
+      const first = await fetch(`${started.url}/v1/stories?q=placeholder`);
+      const etag = first.headers.get('ETag') ?? '';
+      expect(etag).not.toBe('');
+      const unchanged = await fetch(`${started.url}/v1/stories?q=placeholder`, {
+        headers: { 'If-None-Match': etag },
+      });
+      expect(unchanged.status).toBe(304);
+      expect(searches).toHaveLength(4);
       for (const entry of searches) {
         expect(entry).toMatchObject({
           service: { name: 'api-public-read' },
