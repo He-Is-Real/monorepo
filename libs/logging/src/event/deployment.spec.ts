@@ -88,7 +88,10 @@ describe('deployment details on every entry (LG-10)', () => {
       revision: 'api-user-00042-xyz',
       env: 'dev',
     });
-    await vi.waitFor(() => expect(serviceFields().region).toBeDefined());
+    await vi.waitFor(() => {
+      expect(serviceFields().region).toBeDefined();
+      expect(serviceFields().instance).toBeDefined();
+    });
     const details = {
       name: 'api-user',
       version: '1fb357f4c0de',
