@@ -140,4 +140,8 @@ jobs:
             echo '| Service | Image | |'
             echo '| --- | --- | --- |'
           } >> "$GITHUB_STEP_SUMMARY"
+          # service.version on every log line (LG-10): the commit, marked on snapshot images.
+          SERVICE_VERSION="${GITHUB_SHA::12}"
+          [ "$REPOSITORY" = apps ] || SERVICE_VERSION="snapshot-$SERVICE_VERSION"
+          export SERVICE_VERSION
           tools/scripts/image-push.sh $(tools/scripts/image-services.sh) >> "$GITHUB_STEP_SUMMARY"

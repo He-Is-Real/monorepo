@@ -48,8 +48,87 @@ export function severityEnabled(
 }
 
 /**
+ * The `service` group on every entry (LG-10, Joel 24 Nov 2026: "Let's add deployment details
+ * too"): which code wrote it, and where. All plain; nothing about a person.
+ *
+ * - `name`: the service or job (`api-user`, `housekeeping`); the first name given to
+ *   {@link serviceFields}, else Cloud Run's `K_SERVICE` / `CLOUD_RUN_JOB`.
+ * - `version`: the git commit the image was built from (`SERVICE_VERSION`, baked into every image
+ *   by Release Images: the commit's first 12 hex digits, `snapshot-<sha>` for a snapshot image);
+ *   `dev` when unset (a developer's machine, tests, the media worker).
+ * - `revision`: Cloud Run's `K_REVISION`, or a job's execution (`CLOUD_RUN_EXECUTION`).
+ * - `env`: `GCP_PROJECT` without `heisreal-` (`dev`, `prod`); `local` without one.
+ * - `region`, `instance`: from Google's metadata server, read once in the background after
+ *   start-up on Cloud Run (`@heisreal/logging/event` does it); left off until it answers, and
+ *   always off the machine (locally, the media worker).
+ */
+export interface ServiceFields {
+  name?: string;
+  version?: string;
+  revision?: string;
+  env?: string;
+  region?: string;
+  instance?: string;
+}
+
+let processName: string | undefined;
+const instanceFields: { region?: string; instance?: string } = {};
+/**
+ * Reads the region and instance in the background and hands each over through `found` as soon as
+ * it arrives (one slow value never holds back the other). Must not throw or keep the process up.
+ */
+let instanceLookup:
+  | ((
+      env: Record<string, string | undefined>,
+      found: (fields: typeof instanceFields) => void,
+    ) => void)
+  | undefined;
+let lookupStarted = false;
+
+/**
+ * Registers how the region and instance are read (Node only: `@heisreal/logging/event`), so
+ * this module stays free of Node imports for the website's server code.
+ */
+export function setInstanceLookup(lookup: typeof instanceLookup): void {
+  instanceLookup = lookup;
+}
+
+/** Starts the one region/instance lookup on Cloud Run. Never waits for it, never throws. */
+function startInstanceLookup(env: Record<string, string | undefined>): void {
+  if (lookupStarted || !instanceLookup) return;
+  if (!env['K_SERVICE'] && !env['CLOUD_RUN_JOB']) return;
+  lookupStarted = true;
+  try {
+    instanceLookup(env, (found) => Object.assign(instanceFields, found));
+  } catch {
+    // Logging never throws; the fields are simply left off.
+  }
+}
+
+/** The `service` group for `name` (or this process's name). Never waits, never throws. */
+export function serviceFields(
+  name?: string,
+  env: Record<string, string | undefined> = globalThis.process?.env ?? {},
+): ServiceFields {
+  if (name) processName ??= name;
+  startInstanceLookup(env);
+  const project = env['GCP_PROJECT']?.trim();
+  const named = name ?? processName ?? env['K_SERVICE'] ?? env['CLOUD_RUN_JOB'];
+  const revision = env['K_REVISION'] ?? env['CLOUD_RUN_EXECUTION'];
+  return {
+    ...(named ? { name: named } : {}),
+    version: env['SERVICE_VERSION']?.trim() || 'dev',
+    ...(revision ? { revision } : {}),
+    env: project ? project.replace(/^heisreal-/, '') : 'local',
+    ...instanceFields,
+  };
+}
+
+/**
  * One entry as an object: the three shared fields first, then the context fields (a context
- * field named `severity`, `message` or `timestamp` is dropped, never written over them).
+ * field named `severity`, `message` or `timestamp` is dropped, never written over them). Every
+ * entry carries the `service` group ({@link serviceFields}): a line without one gets this
+ * process's; an event's own gains the region and instance once they are known.
  */
 export function logEntry(
   severity: Severity,
@@ -62,8 +141,14 @@ export function logEntry(
     message,
     timestamp: now.toISOString(),
   };
+  const own = fields['service'];
+  if (!own) entry['service'] = serviceFields();
   for (const [key, value] of Object.entries(fields)) {
-    if (!(key in entry)) entry[key] = value;
+    if (key in entry) continue;
+    entry[key] =
+      key === 'service' && typeof own === 'object'
+        ? { ...own, ...instanceFields }
+        : value;
   }
   return entry;
 }

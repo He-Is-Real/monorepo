@@ -14,7 +14,7 @@ description: >
 # Writing logs
 
 Based on [loggingsucks.com](https://loggingsucks.com/) (Boris Tane) and Joel's logging decisions
-in `../project/context/research/logging.html` (LG-1 to LG-9). Every point is decided; if something new comes up that the rules below don't
+in `../project/context/research/logging.html` (LG-1 to LG-10). Every point is decided; if something new comes up that the rules below don't
 cover, don't invent an answer: ask Joel.
 
 ## The idea in one line
@@ -63,7 +63,11 @@ success or failure. Stripe calls it a canonical log line; the blog calls it a wi
     our JavaScript (`kind: "browser_crash"`), and a request that got no answer (offline, timeout;
     `kind: "no_answer"`, Joel 24 Nov, LG-9a A), sent once the page can reach us again. Held in
     memory only, never the browser's storage; if the page closes first, nothing is sent.
-11. **Same format everywhere.** One JSON object per line on stdout (`libs/logging`): locally, in CI
+11. **Deployment details on every entry (LG-10, Joel 24 Nov).** Every line carries the `service`
+    group: `name`, `version` (the git commit the image was built from), `revision`, `env`, and on
+    Cloud Run `region` and `instance`. `libs/logging` adds it; never write these by hand, and never
+    let reading them delay start-up or a request.
+12. **Same format everywhere.** One JSON object per line on stdout (`libs/logging`): locally, in CI
     and on Google Cloud. Don't add a "pretty" mode to services; pretty-print with `jq` when reading.
 
 ## Field names
@@ -72,8 +76,19 @@ success or failure. Stripe calls it a canonical log line; the blog calls it a wi
   `message` is a short human summary of the event: `POST /stories/:id/submit 200 in 412 ms`.
 - Then `event` (`request` | `job` | `search` | `startup` | `health` | `error_report`), `ref`, the
   trace field (neither on `search`).
-- Group by area as nested objects: `service`, `http`, `user`, `client`, `story`, `upload`,
-  `consent`, `moderation`, `db`, `external`, `rate_limit`, `cache`, `error`, `job`.
+- Group by area as nested objects: `service` (on every entry, rule 11), `http`, `user`, `client`,
+  `story`, `upload`, `consent`, `moderation`, `db`, `external`, `rate_limit`, `cache`, `error`, `job`.
+- Deployment details (`service`, LG-10; plain; `libs/logging` writes them):
+
+  | Field              | Example              | What                                                                      |
+  | ------------------ | -------------------- | ------------------------------------------------------------------------- |
+  | `service.name`     | `api-user`           | the service or job                                                        |
+  | `service.version`  | `1fb357f4c0de`       | the git commit the image was built from (`snapshot-<sha>`, `dev` locally) |
+  | `service.revision` | `api-user-00042-xyz` | Cloud Run's revision, or the job's execution                              |
+  | `service.env`      | `dev`                | `dev`, `prod` or `local`                                                  |
+  | `service.region`   | `europe-west2`       | Cloud Run only, once Google's metadata server answers                     |
+  | `service.instance` | `0069c7a2…`          | Cloud Run's instance id, the same way                                     |
+
 - `snake_case`; units as suffixes (`_ms`, `_bytes`, `_count`); booleans read as yes/no
   (`cache.hit`); enums are lowercase words (`outcome: "input_refused"`).
 - A keyed hash goes in a field ending `_hash`, never under the plain name (`story.body_hash`, not

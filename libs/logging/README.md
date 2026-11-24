@@ -43,8 +43,7 @@ decisions LG-1 to LG-9 in `../project/context/research/logging.html`). Node only
   The APIs get this from `wideEvents(<service>)` in `@heisreal/http` (added first in `main.ts`):
   started before the rate limiters and guards, written when the response closes.
 - **The envelope:** `severity`, `message`, `timestamp`, then `event`, `ref`,
-  `logging.googleapis.com/trace` (with `GCP_PROJECT`), `service { name, revision, env }`, then the
-  groups. `outcome`: `ok`, `input_refused`, `not_found`, `rate_limited`, `restarting`, `refused`
+  `logging.googleapis.com/trace` (with `GCP_PROJECT`), `service` (below), then the groups. `outcome`: `ok`, `input_refused`, `not_found`, `rate_limited`, `restarting`, `refused`
   (any other refusal: not signed in, not allowed, a conflict) or `error`. Severity: `error` →
   ERROR; `rate_limited`, `restarting` → WARNING; the rest INFO.
 - **Reference / trace id:** `traceFromHeader(traceparent)` or `newTrace()` (a UUID v7); `ref` is the
@@ -94,6 +93,32 @@ slowest { name, ms } }`, `external.<name> { calls, ms, status }`.
   `gcloud logging read 'jsonPayload.ref="<ref>"' --project heisreal-dev --freshness=1d --format=json`
   (Axiom once the account exists). A sink that throws is counted (`failedLogWrites()`), never
   thrown into the request. No sampling, no tracing library.
+
+### Deployment details (`service`, LG-10)
+
+Every entry this library writes carries the `service` group (Joel, 24 Nov 2026: "Let's add
+deployment details too"): wide, job and search events, `note` and error lines, and `writeLog`,
+`createLog` and `JsonLogger` lines. All plain; nothing about a person.
+
+| Field              | Example              | From                                                                                |
+| ------------------ | -------------------- | ----------------------------------------------------------------------------------- |
+| `service.name`     | `api-user`           | the first name given (`wideEvents('api-user')`), else `K_SERVICE` / `CLOUD_RUN_JOB` |
+| `service.version`  | `1fb357f4c0de`       | `SERVICE_VERSION`, baked into every image (below); `dev` when unset                 |
+| `service.revision` | `api-user-00042-xyz` | Cloud Run's `K_REVISION`, or a job's `CLOUD_RUN_EXECUTION`                          |
+| `service.env`      | `dev`                | `GCP_PROJECT` without `heisreal-`; `local` without one                              |
+| `service.region`   | `europe-west2`       | Google's metadata server, on Cloud Run only                                         |
+| `service.instance` | `0069c7a2…`          | Google's metadata server (the instance id), on Cloud Run only                       |
+
+- **Version:** Release Images (`.github/workflows/_images.yml`) passes the commit's first 12 hex
+  digits as the `SERVICE_VERSION` build argument (`snapshot-<sha>` for Snapshot images and the
+  local images root) to both Dockerfiles in `tools/docker`. It isn't part of the image tag (a hash
+  of the build output), so an unchanged service keeps the image, and the commit, it was built from.
+- **Region and instance:** read once, in the background, the first time a line is written where
+  `K_SERVICE` or `CLOUD_RUN_JOB` is set (`event/instance.ts`, loaded with `@heisreal/logging/event`;
+  `GCE_METADATA_HOST` points it elsewhere). Nothing waits for it: lines written before it answers,
+  or if it never does (each request is cut off 2 s after it starts), simply lack the field; each
+  of the two lands on its own as soon as it arrives. Locally and on the media worker's machine they
+  are never written; the media worker names itself (`serviceFields('media-worker')` at start-up).
 
 Outside a request or job (start-up, background work), use `writeLog` / `createLog` / `JsonLogger`
 as above. Their lines carry no personal data, tokens, keys or story content.

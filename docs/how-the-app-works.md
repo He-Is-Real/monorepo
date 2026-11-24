@@ -1399,6 +1399,12 @@ For developers. Details are in the linked documents.
   `libs/logging`. Not covered: Next.js's own start-up and request lines (changing them would mean
   patching Next), human-run command-line tools (the worker's identity commands, dev-seed's media
   upload), and SurrealDB, which writes its own built-in JSON (`level`, not `severity`).
+- **Deployment details on every log entry** (LG-10, Joel 2026-11-24: "Let's add deployment details
+  too"). Every entry `libs/logging` writes (wide events, job and search events, stand-alone lines)
+  carries `service`: `name`, `version` (the git commit the image was built from, `snapshot-<sha>`
+  for a snapshot image, `dev` locally), `revision` (Cloud Run's revision or the job's execution),
+  `env` (`dev`, `prod`, `local`), and on Cloud Run `region` and `instance` (read once from Google's
+  metadata server in the background, never delaying start-up or a request). All plain.
 - **Budget:** £15 a month with alerts at £3, £7.50 and £15. (decision 10)
 - **Tests measure behaviour** (AGENTS.md; test clean-up T1–T10, 2026-10-24).
 - **Dependencies** update through Renovate. (D106)
