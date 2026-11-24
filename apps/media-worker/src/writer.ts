@@ -4,6 +4,8 @@
  * URL) and refuses anyone without run.invoker before the request reaches the writer.
  */
 
+import { currentEvent, traceparentFor } from '@heisreal/logging/event';
+
 const TIMEOUT_MS = 30_000; // a cold start of the writer, then one database transaction
 
 /** Each carries the job's video id; the writer refuses a call naming another video (400). */
@@ -50,6 +52,8 @@ export function httpWriter(
     } catch {
       return 'no_token';
     }
+    // The job's trace id, so the writer's event joins the worker's (LG-4 A).
+    const event = currentEvent();
     let res: Response;
     try {
       res = await fetcher(`${base}/v1/media-jobs/${call.jobId}/${call.route}`, {
@@ -58,6 +62,7 @@ export function httpWriter(
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
           Accept: 'application/json',
+          ...(event ? { traceparent: traceparentFor(event.traceId) } : {}),
         },
         body: JSON.stringify(call.body),
         redirect: 'error',

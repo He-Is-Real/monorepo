@@ -100,3 +100,25 @@ function externalAccountClient(
     throw new Error('not an external_account credential configuration');
   return client;
 }
+
+/**
+ * An authorised client acting as media-worker (the full configuration, impersonation included),
+ * for Google APIs the worker calls itself without a client library: writing its log lines
+ * (cloud-logging.ts).
+ */
+export function serviceAccountClient(credentials: Record<string, unknown>): {
+  request(options: {
+    url: string;
+    method: 'POST';
+    data: unknown;
+  }): Promise<unknown>;
+} {
+  const client = ExternalAccountClient.fromJSON(
+    credentials as unknown as Parameters<
+      typeof ExternalAccountClient.fromJSON
+    >[0],
+  );
+  if (!client)
+    throw new Error('not an external_account credential configuration');
+  return client;
+}

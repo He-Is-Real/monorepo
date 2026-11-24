@@ -49,6 +49,10 @@ decisions LG-1 to LG-9 in `../project/context/research/logging.html`). Node only
   ERROR; `rate_limited`, `restarting` → WARNING; the rest INFO.
 - **Reference / trace id:** `traceFromHeader(traceparent)` or `newTrace()` (a UUID v7); `ref` is the
   id with dashes, the trace field the same 32 hex digits.
+  `traceparentFor(traceId)` makes a `traceparent` for a call this work starts; `traceAttributes()`
+  is the current event's trace as a Pub/Sub message attribute (`traceparent`), which every
+  publisher of `media-jobs` adds. The result writer (apps/workflow) uses `wideEvents('workflow',
+'job')`: one `event: "job"` per call from the media worker, with the worker's trace.
 - **Timings:** `timeDb(name, work)` (libs/database's `runQuery` already does it), `timeExternal(name,
 work)` and `timedFetch(name, fetch)` for Clerk, Bunny, Stripe, Resend → `db { calls, total_ms,
 slowest { name, ms } }`, `external.<name> { calls, ms, status }`.
@@ -84,7 +88,9 @@ slowest { name, ms } }`, `external.<name> { calls, ms, status }`.
   if still too long, only the envelope, `http`, `action`, `outcome` and `error` are kept
   (`debug.oversized`).
 - **Where it goes:** `LOG_SINKS`, today only stdout (Cloud Run hands it to Cloud Logging, London).
-  Axiom (LG-3) is a second sink added there once the account exists; until then read logs with
+  The media worker, off Google Cloud, adds its own Cloud Logging sink there
+  (apps/media-worker/src/cloud-logging.ts). Axiom (LG-3) is a second sink added there once the
+  account exists; until then read logs with
   `gcloud logging read 'jsonPayload.ref="<ref>"' --project heisreal-dev --freshness=1d --format=json`
   (Axiom once the account exists). A sink that throws is counted (`failedLogWrites()`), never
   thrown into the request. No sampling, no tracing library.

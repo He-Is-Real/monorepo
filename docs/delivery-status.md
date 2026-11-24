@@ -108,7 +108,7 @@ Kept basic for now. Joel will decide later how stories are shared out between mo
 - ✅ A video that can't be used is sent back to its owner straight away to replace
 - ✅ Bunny keeps each video's original upload, for later social media use
 - ✅ Logs in one standard format
-- 🟡 Detailed logs being built: Google's side is in place; one record per request with a reference, timings and who asked is being built in the services; the website, error pages and worker follow
+- 🟡 Detailed logs being built: Google's side and the services' records are in place; the media worker's records, a guide to reading logs and a local log viewer are being built; the website and error pages follow
 - ✅ A video's picture is added when the story is sent, with no background picture jobs
 - ✅ "Attached" confirmation when coming back from another tab or device kept as it is
 - ✅ Every drop-down on the site uses the same styled list, in every browser

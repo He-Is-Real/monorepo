@@ -1,6 +1,7 @@
 import {
   clientKind,
   currentEvent,
+  type EventKind,
   newTrace,
   type Outcome,
   runWithEvent,
@@ -30,18 +31,22 @@ import { canonicalIp } from './ip';
  * - It is written once, when the response is closed (also when the caller hangs up), after the
  *   answer has gone; writing never throws into the request.
  */
-export function wideEvents(service: string): RequestHandler {
+export function wideEvents(
+  service: string,
+  /** `job`: each request is one step of a job (the media result writer's calls from the worker). */
+  kind: EventKind = 'request',
+): RequestHandler {
   const fields = serviceFields(service);
   return (req: Request, res: Response, next: NextFunction) => {
     let event: WideEvent;
     try {
       event = startEvent(
-        'request',
+        kind,
         fields,
         traceFromHeader(req.headers['traceparent']) ?? newTrace(),
       );
       const userAgent = req.headers['user-agent'];
-      const kind = clientKind(userAgent);
+      const client = clientKind(userAgent);
       const requestBytes = Number(req.headers['content-length']);
       event.set({
         http: {
@@ -52,9 +57,9 @@ export function wideEvents(service: string): RequestHandler {
         },
         client: {
           user_agent: userAgent,
-          browser: kind.browser,
-          os: kind.os,
-          device: kind.device,
+          browser: client.browser,
+          os: client.os,
+          device: client.device,
         },
       });
       res.once('close', () => finishRequest(event, req, res));

@@ -12,6 +12,8 @@ import {
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { SURREAL } from '@heisreal/database';
+import { wideEvents } from '@heisreal/http';
+import { LOG_SINKS, type LogSink } from '@heisreal/logging/event';
 import { SECRET_MANAGER_CLIENT, SECRETS_PROJECT } from '@heisreal/secrets';
 import type { Surreal } from 'surrealdb';
 import { AppModule } from '../src/app/app.module';
@@ -782,20 +784,82 @@ describe('result writer: the worker’s answers → the job’s file row and the
       return { status: res.status, body: await res.json() };
     };
 
+    // The job events the calls write (wideEvents in main.ts), caught instead of printed.
+    type Entry = Record<string, unknown>;
+    const entries: Entry[] = [];
+    const waiting: (() => void)[] = [];
+    const sink: LogSink = {
+      write: (_severity, entry) => {
+        entries.push(entry);
+        waiting.splice(0).forEach((wake) => wake());
+      },
+    };
+    const sinksBefore = [...LOG_SINKS];
+    /** The first entry matching `pick`, once it has been written. */
+    async function written(pick: (e: Entry) => boolean) {
+      while (!entries.some(pick)) {
+        await new Promise<void>((wake) => waiting.push(wake));
+      }
+      return entries.find(pick) as Entry;
+    }
+    const jobOf = (e: Entry) => (e['job'] ?? {}) as Record<string, unknown>;
+
+    /**
+     * A query whose SurrealQL contains `sql` runs, then its answer is held back until `release`
+     * (the worker can hang up meanwhile); `reached` says it has run.
+     */
+    let holding: {
+      sql: string;
+      reached: () => void;
+      release: Promise<void>;
+    } | null = null;
+    const holdable = (db: Surreal) =>
+      new Proxy(db, {
+        get(target, prop) {
+          if (prop !== 'query') {
+            // Bound to the real client: its private fields don't work through the proxy.
+            const value = Reflect.get(target, prop, target);
+            return typeof value === 'function' ? value.bind(target) : value;
+          }
+          return (sql: string, vars?: Record<string, unknown>) => {
+            const query = target.query(sql, vars);
+            const hold = holding;
+            if (!hold || !sql.includes(hold.sql)) return query;
+            holding = null;
+            // runQuery reads `query(…).json().responses()`: answer once released.
+            return {
+              json: () => ({
+                responses: async () => {
+                  const answer = await query.json().responses();
+                  hold.reached();
+                  await hold.release;
+                  return answer;
+                },
+              }),
+            };
+          };
+        },
+      });
+
     beforeAll(async () => {
       const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
         .overrideProvider(SURREAL)
-        .useValue(workflow)
+        .useValue(holdable(workflow))
         .overrideProvider(SECRET_MANAGER_CLIENT)
         .useValue({})
         .overrideProvider(SECRETS_PROJECT)
         .useValue('test-project')
         .compile();
       app = moduleRef.createNestApplication({ logger: false });
+      LOG_SINKS.splice(0, LOG_SINKS.length, sink);
+      app.use(wideEvents('workflow', 'job'));
       await app.listen(0);
       url = await app.getUrl();
     });
-    afterAll(() => app?.close());
+    afterAll(async () => {
+      await app?.close();
+      LOG_SINKS.splice(0, LOG_SINKS.length, ...sinksBefore);
+    });
 
     it('answer: 200 with the outcome, stamped with the call’s arrival', async () => {
       const { story, video } = await videoStory();
@@ -810,9 +874,68 @@ describe('result writer: the worker’s answers → the job’s file row and the
         status: 200,
         body: { outcome: 'applied' },
       });
-      expect(Date.parse((await checkedAt(video)) as string)).toBeGreaterThan(
-        Date.now() - 60_000,
+      const stamped = (await checkedAt(video)) as string;
+      expect(Date.parse(stamped)).toBeGreaterThan(Date.now() - 60_000);
+      // The job event keeps the arrival time stale answers are ordered by (F1).
+      const event = await written(
+        (e) => e['event'] === 'job' && jobOf(e)['id'] === id,
       );
+      expect(jobOf(event)).toMatchObject({
+        name: 'media',
+        video_id: video,
+        answer: 'ready',
+        result: 'applied',
+      });
+      expect(Date.parse(jobOf(event)['arrived_at'] as string)).toBe(
+        Date.parse(stamped),
+      );
+    });
+
+    it('keeps the job’s ending in the logs when the worker hangs up before the answer', async () => {
+      const { video } = await videoStory();
+      const id = await queue(video);
+      let reached!: () => void;
+      let release!: () => void;
+      const counted = new Promise<void>((r) => (reached = r));
+      holding = {
+        sql: 'lastError = $code',
+        reached,
+        release: new Promise<void>((r) => (release = r)),
+      };
+      const hangUp = new AbortController();
+      const asked = fetch(`${url}/v1/media-jobs/${id}/failed`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ videoId: video, code: 'bunny_unreachable' }),
+        signal: hangUp.signal,
+      }).catch(() => undefined);
+      // The failure is counted; the worker hangs up before the answer.
+      await counted;
+      hangUp.abort();
+      await asked;
+      const event = await written(
+        (e) => e['event'] === 'job' && jobOf(e)['id'] === id,
+      );
+      expect(jobOf(event)['retry']).toBeUndefined();
+      release();
+      const line = await written(
+        (e) =>
+          e['event'] === undefined &&
+          jobOf(e)['id'] === id &&
+          jobOf(e)['retry'] !== undefined,
+      );
+      expect(line).toMatchObject({
+        ref: event['ref'],
+        service: { name: 'workflow' },
+        job: {
+          name: 'media',
+          id,
+          video_id: video,
+          failure_code: 'bunny_unreachable',
+          retry: true,
+        },
+      });
+      expect(await job(id)).toMatchObject({ failures: 1, done: false });
     });
 
     it('answer "failed" with Bunny off: 503, nothing written (Part 1a: the writer must confirm it with Bunny)', async () => {

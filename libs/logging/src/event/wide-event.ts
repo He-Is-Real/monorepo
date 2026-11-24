@@ -7,7 +7,13 @@ import {
   severityEnabled,
 } from '../index';
 import { logHash, searchHash } from './keys';
-import { cloudTrace, newTrace, type Trace, TRACE_FIELD } from './trace';
+import {
+  cloudTrace,
+  newTrace,
+  type Trace,
+  TRACE_FIELD,
+  traceparentFor,
+} from './trace';
 import { clientKind } from './user-agent';
 
 /**
@@ -478,6 +484,15 @@ export function note(
   } catch {
     failedWrites++;
   }
+}
+
+/**
+ * The trace id of the current request or job as a Pub/Sub message attribute (`traceparent`,
+ * W3C format; LG-4 A), for a job this work puts on a queue. Empty outside any event.
+ */
+export function traceAttributes(): Record<string, string> {
+  const event = currentEvent();
+  return event ? { traceparent: traceparentFor(event.traceId) } : {};
 }
 
 /** Times one SurrealDB query or function into the current event's `db` group. */

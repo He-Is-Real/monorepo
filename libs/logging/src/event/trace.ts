@@ -74,3 +74,11 @@ export function cloudTrace(
 
 /** The field name Cloud Logging reads the trace from. */
 export const TRACE_FIELD = 'logging.googleapis.com/trace';
+
+/**
+ * A W3C `traceparent` carrying `traceId`, with a new parent (span) id: for a call or message this
+ * work starts (the media worker's calls to the result writer, a job put on Pub/Sub).
+ */
+export function traceparentFor(traceId: string): string {
+  return `00-${traceId}-${randomBytes(8).toString('hex')}-01`;
+}

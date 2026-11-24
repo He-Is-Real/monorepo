@@ -97,8 +97,9 @@ How a video or audio file becomes `ready` (M2 plan item 13; D78, D126, D129; des
    becomes `failed`, the job `gave_up` with `errorType` `file_unusable`, and the database sends the
    story back to its owner ("Needs a new file"); a published story leaves the site. A
    `gone` answer (Bunny has no such video) leaves the file `processing` and ends the job
-   `gave_up` with `errorType` `other`. Its log is one JSON line per call, ids only:
-   `gcloud logging read 'resource.labels.service_name="workflow"' --limit 20`.
+   `gave_up` with `errorType` `other`. Its log is one `event: "job"` per call, ids only, with the
+   worker's reference; the worker writes one per delivery to Cloud Logging too
+   (`docs/logs-runbook.md`, "Media jobs").
 4. If the worker can't do a job it calls `.../failed` with a short code: `bunny_unreachable`
    (no answer, a timeout, Bunny's 5xx or 429), `bunny_refused` (Bunny refused the read-only key),
    `bunny_error` or `bunny_bad_reply` (an answer it can't use), `bunny_facts_missing` (finished,
@@ -211,7 +212,7 @@ clean-up once it is 48 hours old at Bunny (counted from the Bunny video's creati
 when the job gave up; an open job's video is kept).
 
 The worker renders one picture video at a time. A render job that arrives while another renders
-isn't kept waiting on the machine: it goes straight back to the queue (log step `busy`, RETRY),
+isn't kept waiting on the machine: it goes straight back to the queue (its job event's `job.step` `busy`, RETRY),
 which redelivers it 10 seconds to 10 minutes later, and only the job that has the render slot asks
 the writer for its upload pass and picture link, and then for each sound link just before its
 download, so all are fresh when they are used. Check

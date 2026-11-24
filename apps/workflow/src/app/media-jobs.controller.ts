@@ -5,13 +5,13 @@ import {
   HttpCode,
   HttpStatus,
   Inject,
-  Logger,
   NotFoundException,
   Param,
   Post,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { SURREAL } from '@heisreal/database';
+import { currentEvent, note } from '@heisreal/logging/event';
 import type { Surreal } from 'surrealdb';
 import { BunnyCallFailed, WRITER_BUNNY, type WriterBunny } from './bunny';
 import {
@@ -53,8 +53,6 @@ import {
  */
 @Controller('v1/media-jobs')
 export class MediaJobsController {
-  private readonly logger = new Logger(MediaJobsController.name);
-
   constructor(
     @Inject(SURREAL) private readonly db: Surreal,
     @Inject(WRITER_BUNNY) private readonly bunny: WriterBunny | null,
@@ -78,6 +76,8 @@ export class MediaJobsController {
     // When the answer reached the writer (F1): taken first, before anything can wait.
     const arrivedAt = new Date().toISOString();
     const [job, video, answer] = this.parse(jobParam, body, parseMediaAnswer);
+    // The time stale answers are ordered by (F1), so a late or out-of-order answer is explained.
+    jobFields({ arrived_at: arrivedAt });
     const bunny = this.bunny;
     let result: AnswerResult;
     if (answer.outcome === 'failed') {
@@ -88,29 +88,26 @@ export class MediaJobsController {
         job,
         video,
         arrivedAt,
-      ).catch((err: unknown) => this.refuse(job, err));
+      ).catch((err: unknown) => this.refuse(err));
       if (!('render' in reply)) {
         // Bunny doesn't say failed (yet), or the writer's call to it failed (counted).
-        this.logger.warn(JSON.stringify({ job, answer: 'failed', ...reply }));
+        jobFields({ answer: 'failed', ...failure(reply) });
         return reply;
       }
       result = reply;
     } else {
       result = await answerJob(this.db, job, video, answer, arrivedAt).catch(
-        (err: unknown) => this.refuse(job, err),
+        (err: unknown) => this.refuse(err),
       );
     }
     const { outcome, render } = result;
     // Ids and outcomes only: no personal data is in an answer.
-    const entry = {
-      job,
+    jobFields({
       answer: answer.outcome,
-      arrivedAt,
-      outcome,
-      ...(render ? { render: render.job } : {}),
-    };
+      result: outcome,
+      next_job_id: render?.job,
+    });
     if (render) await sendJobs(this.db, this.queue, [render]);
-    this.logger.log(JSON.stringify(entry));
     return { outcome };
   }
 
@@ -131,22 +128,22 @@ export class MediaJobsController {
     try {
       const reply = await uploadPassFor(this.db, bunny, job, video);
       // Never the pass or the link themselves: they are keys for an hour.
-      this.logger.log(
-        JSON.stringify({
-          job,
-          pass: reply.outcome,
-          ...(reply.outcome === 'render'
-            ? { render: reply.renderVideoId, picture: reply.picture !== null }
-            : {}),
-        }),
-      );
+      jobFields({
+        result: reply.outcome,
+        ...(reply.outcome === 'render'
+          ? {
+              render_video_id: reply.renderVideoId,
+              has_picture: reply.picture !== null,
+            }
+          : {}),
+      });
       return reply;
     } catch (err) {
-      if (!(err instanceof BunnyCallFailed)) return this.refuse(job, err);
+      if (!(err instanceof BunnyCallFailed)) return this.refuse(err);
       const reply = await failJob(this.db, job, video, err.code).catch(
-        (e: unknown) => this.refuse(job, e),
+        (e: unknown) => this.refuse(e),
       );
-      this.logger.warn(JSON.stringify({ job, failed: err.code, ...reply }));
+      jobFields({ failure_code: err.code, ...failure(reply) });
       return reply;
     }
   }
@@ -168,14 +165,14 @@ export class MediaJobsController {
     try {
       const reply = await soundLinkFor(this.db, bunny, job, video, height);
       // Never the link itself.
-      this.logger.log(JSON.stringify({ job, sound: reply.outcome, height }));
+      jobFields({ result: reply.outcome, sound_height: height });
       return reply;
     } catch (err) {
-      if (!(err instanceof BunnyCallFailed)) return this.refuse(job, err);
+      if (!(err instanceof BunnyCallFailed)) return this.refuse(err);
       const reply = await failJob(this.db, job, video, err.code).catch(
-        (e: unknown) => this.refuse(job, e),
+        (e: unknown) => this.refuse(e),
       );
-      this.logger.warn(JSON.stringify({ job, failed: err.code, ...reply }));
+      jobFields({ failure_code: err.code, ...failure(reply) });
       return reply;
     }
   }
@@ -197,15 +194,13 @@ export class MediaJobsController {
       job,
       video,
       done,
-    ).catch((err: unknown) => this.refuse(job, err));
-    this.logger.log(
-      JSON.stringify({
-        job,
-        rendered: done.renderVideoId,
-        outcome,
-        ...(check ? { check: check.job } : {}),
-      }),
-    );
+    ).catch((err: unknown) => this.refuse(err));
+    jobFields({
+      render_video_id: done.renderVideoId,
+      output_bytes: done.sizeBytes,
+      result: outcome,
+      next_job_id: check?.job,
+    });
     if (check) await sendJobs(this.db, this.queue, [check]);
     return { outcome };
   }
@@ -219,9 +214,9 @@ export class MediaJobsController {
   ): Promise<FailureReply> {
     const [job, video, code] = this.parse(jobParam, body, parseFailure);
     const reply = await failJob(this.db, job, video, code).catch(
-      (err: unknown) => this.refuse(job, err),
+      (err: unknown) => this.refuse(err),
     );
-    this.logger.warn(JSON.stringify({ job, failed: code, ...reply }));
+    jobFields({ failure_code: code, ...failure(reply) });
     return reply;
   }
 
@@ -231,10 +226,15 @@ export class MediaJobsController {
     parseBody: (body: unknown) => T,
   ): [string, string, T] {
     try {
-      return [parseJobId(jobParam), parseVideoId(body), parseBody(body)];
+      const job = parseJobId(jobParam);
+      jobFields({ id: job });
+      const video = parseVideoId(body);
+      jobFields({ video_id: video });
+      return [job, video, parseBody(body)];
     } catch (err) {
       if (!(err instanceof InvalidMediaJobCall)) throw err;
-      this.logger.warn(`Refused a media worker call: ${err.message}`);
+      // Our own words (media-jobs.ts), never what the worker sent.
+      jobFields({ refused: err.message });
       throw new BadRequestException({ code: 'validation_failed' });
     }
   }
@@ -244,21 +244,50 @@ export class MediaJobsController {
    * that doesn't fit the job: `video_mismatch` when it names another video than the job's
    * (Joel, 2026-11-08, B), `validation_failed` otherwise. A database error is a 500: the worker leaves the job in the queue.
    */
-  private refuse(job: string, err: unknown): never {
+  private refuse(err: unknown): never {
     if (err instanceof MediaJobNotFound) {
-      this.logger.warn(`No media job ${job}`);
       throw new NotFoundException({ code: 'not_found' });
     }
     if (err instanceof MediaJobWrongVideo) {
-      this.logger.warn(`Refused a media worker call for ${job}: not its video`);
+      jobFields({ refused: 'not the job’s video' });
       throw new BadRequestException({ code: 'video_mismatch' });
     }
     if (err instanceof InvalidMediaJobCall) {
-      this.logger.warn(
-        `Refused a media worker call for ${job}: ${err.message}`,
-      );
+      jobFields({ refused: err.message });
       throw new BadRequestException({ code: 'validation_failed' });
     }
     throw err;
   }
 }
+
+/**
+ * Facts about the job on this call's event (`event: "job"`, wideEvents in main.ts; the writer's
+ * own lines folded in, LG-2 C): ids, outcomes and codes only, never a pass, a link or a key.
+ * If the worker hung up while the database was still busy, the event is already written: the
+ * facts then go on their own line with the same `ref` and the job's ids, so the failure code,
+ * the retry decision and the result are never lost.
+ */
+function jobFields(fields: Record<string, unknown>): void {
+  const event = currentEvent();
+  if (!event) return;
+  note(
+    {
+      job: {
+        name: 'media',
+        id: event.get('job.id'),
+        video_id: event.get('job.video_id'),
+        ...fields,
+      },
+    },
+    {
+      severity: 'INFO',
+      message: 'Media job call finished after the worker hung up',
+    },
+  );
+}
+
+/** A counted failure's answer: try again or give up, and how the job ended. */
+const failure = (reply: FailureReply) => ({
+  retry: reply.retry,
+  result: reply.outcome,
+});

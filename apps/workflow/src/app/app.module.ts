@@ -5,14 +5,20 @@ import {
   DatabaseModule,
 } from '@heisreal/database';
 import { HealthModule } from '@heisreal/health';
-import { ProblemFilter } from '@heisreal/http';
+import { LogKeysModule, ProblemFilter } from '@heisreal/http';
 import { SecretsModule, SecretsService } from '@heisreal/secrets';
 import { WRITER_BUNNY, writerBunnyFromEnv } from './bunny';
 import { MediaJobsController } from './media-jobs.controller';
 import { MEDIA_QUEUE, mediaQueueFromEnv } from './media-queue';
 
 @Module({
-  imports: [SecretsModule, DatabaseModule, HealthModule.forService('workflow')],
+  imports: [
+    SecretsModule,
+    // The log keys (request bodies are long text: hashed unless the call fails).
+    LogKeysModule,
+    DatabaseModule,
+    HealthModule.forService('workflow'),
+  ],
   controllers: [MediaJobsController],
   // D30: every error as an RFC 9457 problem; unknown errors never say why (a 500: the worker leaves the job in the queue).
   // The database restarting (Spot) is `503 service_restarting`, at once, not a hung request.

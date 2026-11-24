@@ -1,4 +1,5 @@
 import { PubSub } from '@google-cloud/pubsub';
+import { traceAttributes } from '@heisreal/logging/event';
 import { retryOnConflict, runQuery } from '@heisreal/database';
 import { withTimeout } from '@heisreal/secrets';
 import type { Task, TaskContext, TaskResult } from './tasks';
@@ -52,7 +53,12 @@ export function pubsubMediaJobs(project: string, topic: string): MediaJobs {
     async publish(job, orderingKey) {
       try {
         await withTimeout(
-          publisher.publishMessage({ json: job, orderingKey }),
+          publisher.publishMessage({
+            json: job,
+            orderingKey,
+            // The request's trace id, so the job can be followed (LG-4 A).
+            attributes: traceAttributes(),
+          }),
           PUBLISH_TIMEOUT_MS,
           'Publishing to Pub/Sub',
         );
