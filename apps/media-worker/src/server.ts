@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import { type Delivery, handleJob, type JobDeps } from './worker';
+import { jobEvent } from './job-event';
 
 /**
  * The worker's side of Dapr's Pub/Sub building block (D129: nothing else of Dapr). Dapr's sidecar
@@ -62,7 +63,10 @@ function fromDapr(header: string | string[] | undefined, token: string) {
  * program on the machine, or a web page in Joel's browser posting to 127.0.0.1, can't hand the
  * worker a job.
  */
-export function workerServer(deps: JobDeps, appApiToken: string): Server {
+export function workerServer(
+  deps: Omit<JobDeps, 'log'>,
+  appApiToken: string,
+): Server {
   if (appApiToken.length < 32)
     throw new Error('The app API token is too short');
   return createServer((req, res) => {
@@ -97,20 +101,23 @@ export function workerServer(deps: JobDeps, appApiToken: string): Server {
           body = undefined;
         }
       }
-      handleJob(jobFromDelivery(body), deps).then(
-        (status: Delivery) => reply(200, { status }),
-        (err: unknown) => {
-          // handleJob reports its own errors to the writer's /failed route; reaching here means
-          // that report couldn't be made either, so the job stays in the queue, like any other
-          // time the writer can't be reached.
-          deps.log({
-            step: 'crashed',
-            code: err instanceof Error ? err.name : 'error',
-            delivery: 'RETRY',
-          });
-          reply(200, { status: 'RETRY' });
-        },
-      );
+      // One `event: "job"` per delivery (job-event.ts), written once the reply has gone.
+      const job = jobEvent(deps);
+      job
+        .run(() => handleJob(jobFromDelivery(body), job.deps))
+        .then(
+          (status: Delivery) => {
+            reply(200, { status });
+            job.write();
+          },
+          (err: unknown) => {
+            // handleJob reports its own errors to the writer's /failed route; reaching here means
+            // that report couldn't be made either, so the job stays in the queue, like any other
+            // time the writer can't be reached.
+            reply(200, { status: 'RETRY' });
+            job.crashed(err);
+          },
+        );
     });
   });
 }

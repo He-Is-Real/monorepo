@@ -15,17 +15,19 @@
  * renewed here every few hours.
  */
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
-import { type Severity, writeLog } from '@heisreal/logging';
+import { type Severity } from '@heisreal/logging';
+import { LOG_SINKS, note } from '@heisreal/logging/event';
 import { JsonLogger } from '@heisreal/logging/nest';
 import { SecretsService } from '@heisreal/secrets';
 import { Logger } from '@nestjs/common';
 import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { BunnyStreamReader, checkAnswer } from './bunny';
+import { cloudLoggingSink } from './cloud-logging';
 import { workerIdentity } from './identity';
 import { FfmpegRenderer, isPicture } from './render';
 import { workerServer } from './server';
-import { type LogEntry, RenderSlot } from './worker';
+import { RenderSlot } from './worker';
 import { httpWriter } from './writer';
 
 /** How long the read-only key is used before it is read again (a rotated key arrives). */
@@ -56,35 +58,26 @@ Logger.overrideLogger(new JsonLogger());
 
 /**
  * How serious a line is (Joel, 2026-11-14: severities in the worker's logs too): the worker
- * stopping, a crash, a failed job or certificate renewal are errors; a job that can't be read or
- * answered now (it goes back to the queue, or is dropped) is a warning; the rest is routine.
+ * stopping or a failed certificate renewal is an error; the rest is routine. A job's severity
+ * comes from its outcome (job-event.ts).
  */
 function severityOf(entry: Record<string, unknown>): Severity {
-  switch (entry['step']) {
-    case 'stopped':
-    case 'crashed':
-    case 'failed':
-    case 'identity_renewal_failed':
-      return 'ERROR';
-    case 'unreadable':
-      return 'WARNING';
-    case 'busy':
-      return 'INFO';
-  }
-  return entry['delivery'] === 'RETRY' || entry['delivery'] === 'DROP'
-    ? 'WARNING'
+  return entry['step'] === 'stopped' ||
+    entry['step'] === 'identity_renewal_failed'
+    ? 'ERROR'
     : 'INFO';
 }
 
-/** One line in the shared JSON log format (libs/logging); its message is the step. */
-const log = (entry: LogEntry | Record<string, unknown>) => {
-  const fields = entry as Record<string, unknown>;
-  writeLog(
-    severityOf(fields),
-    String(fields['step'] ?? 'media-worker'),
-    fields,
-  );
-};
+/**
+ * One line outside any job (start-up, certificate renewal, stopping) in the shared JSON format
+ * (libs/logging): on stdout, and in Cloud Logging once the worker has signed in. Each job's facts
+ * go on its own `event: "job"` instead (job-event.ts).
+ */
+const log = (fields: Record<string, unknown>) =>
+  note(fields, {
+    severity: severityOf(fields),
+    message: String(fields['step'] ?? 'media-worker'),
+  });
 
 async function main() {
   const project = env('GCP_PROJECT', NAME);
@@ -118,6 +111,9 @@ async function main() {
   // it, so every Google call below is made as media-worker; ID tokens come from identity/.
   const identity = await workerIdentity(log);
   const idToken = () => identity.idToken(audience);
+  // From here on every line also goes to Cloud Logging, as media-worker (Log Writer).
+  const cloudLogs = cloudLoggingSink(project, identity.google);
+  LOG_SINKS.push(cloudLogs);
   // Refuse to run as anyone else: the worker may do only what media-worker may.
   const email = tokenEmail(await idToken());
   if (email !== account) {
@@ -141,7 +137,6 @@ async function main() {
       renderer,
       renderSlot: new RenderSlot(),
       writer: httpWriter(writerUrl.toString(), idToken),
-      log,
     },
     appApiToken,
   );
@@ -150,7 +145,10 @@ async function main() {
   );
   const stop = () => {
     identity.stop();
-    server.close(() => process.exit(0));
+    server.close(() => {
+      // The last lines reach Cloud Logging before the worker exits (at most 3 seconds).
+      void cloudLogs.flush().then(() => process.exit(0));
+    });
   };
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);

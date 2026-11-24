@@ -4,7 +4,7 @@
  * `tools/scripts/worker-identity.sh enrol <machine>`; from then on the worker renews it itself.
  */
 import { readFile } from 'node:fs/promises';
-import { idTokens } from './google';
+import { idTokens, serviceAccountClient } from './google';
 import { httpRequestCertificate, MAX_TIMER_MS, startRenewal } from './renewal';
 import { defaultIdentityDir, IdentityStore } from './store';
 
@@ -17,6 +17,8 @@ export async function workerIdentity(
 ): Promise<{
   serviceAccount: string;
   idToken: (audience: string) => Promise<string>;
+  /** Authorised calls to Google APIs as media-worker (its log lines). */
+  google: ReturnType<typeof serviceAccountClient>;
   stop: () => void;
 }> {
   const store = new IdentityStore(defaultIdentityDir(env));
@@ -43,5 +45,10 @@ export async function workerIdentity(
     intervalMs: hours * 3600_000,
     log,
   });
-  return { serviceAccount: info.serviceAccount, idToken, stop };
+  return {
+    serviceAccount: info.serviceAccount,
+    idToken,
+    google: serviceAccountClient(credentials),
+    stop,
+  };
 }

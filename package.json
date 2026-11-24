@@ -4,7 +4,8 @@
   "license": "UNLICENSED",
   "scripts": {
     "format": "nx format:write",
-    "format:check": "nx format:check"
+    "format:check": "nx format:check",
+    "logs": "node tools/scripts/logs.mjs"
   },
   "private": true,
   "devDependencies": {

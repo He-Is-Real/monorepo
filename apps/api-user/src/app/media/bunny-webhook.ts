@@ -18,7 +18,7 @@ import { SecretsService, withTimeout } from '@heisreal/secrets';
 import type { Request } from 'express';
 import type { Surreal } from 'surrealdb';
 import { VIDEO_ID } from '@heisreal/story-cards/bunny-stream';
-import { currentEvent, note } from '@heisreal/logging/event';
+import { currentEvent, note, traceAttributes } from '@heisreal/logging/event';
 
 /**
  * Bunny Stream's webhook (`POST /v1/webhooks/bunny`, M2 plan item 13, D78; media-worker-final.html):
@@ -337,7 +337,12 @@ export function mediaJobsFromEnv(env: Env = process.env): MediaJobs | null {
     async publish(job, orderingKey) {
       try {
         await withTimeout(
-          publisher.publishMessage({ json: job, orderingKey }),
+          publisher.publishMessage({
+            json: job,
+            orderingKey,
+            // The request's trace id, so the job can be followed (LG-4 A).
+            attributes: traceAttributes(),
+          }),
           PUBLISH_TIMEOUT_MS,
           'Publishing to Pub/Sub',
         );

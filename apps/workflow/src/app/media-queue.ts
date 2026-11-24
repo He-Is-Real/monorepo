@@ -1,5 +1,5 @@
 import { PubSub } from '@google-cloud/pubsub';
-import { Logger } from '@nestjs/common';
+import { note, traceAttributes } from '@heisreal/logging/event';
 import { retryOnConflict, runQuery } from '@heisreal/database';
 import { withTimeout } from '@heisreal/secrets';
 import type { SurrealQueryable } from 'surrealdb';
@@ -54,7 +54,12 @@ export function mediaQueueFromEnv(
     async publish(job, orderingKey) {
       try {
         await withTimeout(
-          publisher.publishMessage({ json: job, orderingKey }),
+          publisher.publishMessage({
+            json: job,
+            orderingKey,
+            // The request's trace id, so the job can be followed (LG-4 A).
+            attributes: traceAttributes(),
+          }),
           PUBLISH_TIMEOUT_MS,
           'Publishing to Pub/Sub',
         );
@@ -67,8 +72,6 @@ export function mediaQueueFromEnv(
   };
 }
 
-const logger = new Logger('MediaQueue');
-
 /**
  * Sends jobs the writer has already written down, and records each send (sentAt, sends). Never
  * throws: a job that couldn't be sent stays in the table for the 18:00 resend.
@@ -80,7 +83,13 @@ export async function sendJobs(
 ): Promise<void> {
   for (const q of jobs) {
     if (!queue) {
-      logger.warn(`Media queue off: job ${q.job} waits for the 18:00 resend`);
+      note(
+        { media_job: { queue_off: true } },
+        {
+          severity: 'WARNING',
+          message: 'Media queue off: a job waits for the 18:00 resend',
+        },
+      );
       continue;
     }
     try {
@@ -96,8 +105,18 @@ export async function sendJobs(
         ),
       );
     } catch (err) {
-      logger.warn(
-        `Couldn't send media job ${q.job} (${err instanceof Error ? err.name : 'error'}); the 18:00 resend sends it`,
+      // On the call's event (or its own line after it): the 18:00 resend sends the job.
+      note(
+        {
+          media_job: {
+            send_failed: err instanceof Error ? err.name : 'error',
+            unsent_id: q.job,
+          },
+        },
+        {
+          severity: 'WARNING',
+          message: "Couldn't send a media job; the 18:00 resend sends it",
+        },
       );
     }
   }

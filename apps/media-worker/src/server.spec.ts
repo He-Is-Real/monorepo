@@ -1,4 +1,5 @@
 import type { AddressInfo } from 'node:net';
+import { LOG_SINKS, type LogSink } from '@heisreal/logging/event';
 import { BunnyStreamReader, checkAnswer } from './bunny';
 import { SUBSCRIPTIONS, workerServer } from './server';
 import { RenderSlot } from './worker';
@@ -40,7 +41,10 @@ async function start(writerStatus: number, writerBody: unknown) {
       return new Response(JSON.stringify(writerBody), { status: writerStatus });
     },
   );
-  const logs: unknown[] = [];
+  // The job events the worker writes (every sink gets the same lines).
+  const logs: Record<string, unknown>[] = [];
+  const capture: LogSink = { write: (_severity, entry) => logs.push(entry) };
+  LOG_SINKS.push(capture);
   const server = workerServer(
     {
       check: (video) => checkAnswer(bunny, video),
@@ -51,13 +55,19 @@ async function start(writerStatus: number, writerBody: unknown) {
       },
       renderSlot: new RenderSlot(),
       writer,
-      log: (entry) => logs.push(entry),
     },
     TOKEN,
   );
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  return { base, server, writerCalls, logs };
+  const close = () =>
+    new Promise<void>((r) =>
+      server.close(() => {
+        LOG_SINKS.splice(LOG_SINKS.indexOf(capture), 1);
+        r();
+      }),
+    );
+  return { base, server, writerCalls, logs, close };
 }
 
 /** How Dapr delivers a raw message: a CloudEvent with the bytes in data_base64. */
@@ -78,7 +88,7 @@ describe('the worker under Dapr', () => {
 
   it('asks Dapr for media-jobs as raw messages', async () => {
     const s = await start(200, {});
-    stop = () => new Promise((r) => s.server.close(() => r()));
+    stop = s.close;
     const res = await fetch(`${s.base}/dapr/subscribe`, { headers: DAPR });
     expect(await res.json()).toEqual(SUBSCRIPTIONS);
     expect(SUBSCRIPTIONS).toEqual([
@@ -92,7 +102,7 @@ describe('the worker under Dapr', () => {
 
   it('answers a check job at the writer, signed in, and marks it taken', async () => {
     const s = await start(200, { outcome: 'applied' });
-    stop = () => new Promise((r) => s.server.close(() => r()));
+    stop = s.close;
     const res = await fetch(`${s.base}/media-jobs`, {
       method: 'POST',
       headers: { ...DAPR, 'Content-Type': 'application/cloudevents+json' },
@@ -119,23 +129,40 @@ describe('the worker under Dapr', () => {
       lengthSeconds: 41,
       thumbnailFileName: 'thumbnail.jpg',
     });
-    // Ids and short codes only.
-    expect(s.logs).toEqual([
-      {
-        job: JOB,
-        kind: 'check',
-        video: VIDEO,
-        event: 'e1',
+    // One job event: ids, steps and short codes only; its trace id went on to the writer.
+    const events = s.logs.filter((l) => l['event'] === 'job');
+    expect(events).toHaveLength(1);
+    const [event] = events;
+    expect(event).toMatchObject({
+      severity: 'INFO',
+      event: 'job',
+      service: { name: 'media-worker' },
+      outcome: 'ok',
+      job: {
+        id: JOB,
+        name: 'media.check',
+        video_id: VIDEO,
+        event_id: 'e1',
         step: 'answered',
         code: 'ready:applied',
         delivery: 'SUCCESS',
+        steps: [
+          { name: 'check', outcome: 'ok', code: 'ready' },
+          { name: 'answer', outcome: 'ok', status: 200 },
+        ],
       },
-    ]);
+    });
+    const traceparent = (call.init.headers as Record<string, string>)[
+      'traceparent'
+    ];
+    expect(traceparent.split('-')[1]).toBe(
+      String(event['ref']).replace(/-/g, ''),
+    );
   });
 
   it('leaves the job in the queue when the writer fails', async () => {
     const s = await start(503, { code: 'unavailable' });
-    stop = () => new Promise((r) => s.server.close(() => r()));
+    stop = s.close;
     const res = await fetch(`${s.base}/media-jobs`, {
       method: 'POST',
       headers: DAPR,
@@ -144,11 +171,18 @@ describe('the worker under Dapr', () => {
       ),
     });
     expect(await res.json()).toEqual({ status: 'RETRY' });
+    expect(s.logs.filter((l) => l['event'] === 'job')).toEqual([
+      expect.objectContaining({
+        severity: 'ERROR',
+        outcome: 'error',
+        error: { type: 'media_job', code: '503', retriable: true },
+      }),
+    ]);
   });
 
   it('drops a message it cannot read, calling nobody', async () => {
     const s = await start(200, {});
-    stop = () => new Promise((r) => s.server.close(() => r()));
+    stop = s.close;
     const res = await fetch(`${s.base}/media-jobs`, {
       method: 'POST',
       headers: DAPR,
@@ -165,7 +199,7 @@ describe('the worker under Dapr', () => {
     'refuses a call with %s (another program, or a web page posting to 127.0.0.1)',
     async (_, headers) => {
       const s = await start(200, { outcome: 'applied' });
-      stop = () => new Promise((r) => s.server.close(() => r()));
+      stop = s.close;
       const res = await fetch(`${s.base}/media-jobs`, {
         method: 'POST',
         headers,

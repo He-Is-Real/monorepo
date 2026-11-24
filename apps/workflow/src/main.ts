@@ -7,6 +7,7 @@
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { failedToStart, START_UP_OPTIONS } from '@heisreal/database';
+import { wideEvents } from '@heisreal/http';
 import { AppModule } from './app/app.module';
 
 async function bootstrap() {
@@ -16,6 +17,9 @@ async function bootstrap() {
     ...START_UP_OPTIONS,
   }).catch(failedToStart);
   app.flushLogs();
+  // One `event: "job"` per call from the media worker, with the worker's trace id (its
+  // `traceparent`), started before anything else can refuse it (libs/http; LG-2 C, LG-4 A).
+  app.use(wideEvents('workflow', 'job'));
   app.enableShutdownHooks();
   const port = process.env.PORT ?? 3004;
   await app.listen(port);
