@@ -749,6 +749,28 @@ declaration in Stripe (a Payment Link custom field "I am a UK taxpayer…" plus
 `billing_address_collection = "required"` for the home address HMRC needs, and claim from the
 exported payments), or a service such as Swiftaid that collects and claims it. Not built.
 
+## Axiom (logs)
+
+Every log entry also goes to Axiom (LG-3, LG-5, LG-8; `libs/logging/src/axiom.ts`): Joel's free
+(Personal) account, organisation "He Is Real", edge deployment **EU Central 1 (AWS)**
+(`eu-central-1.aws.edge.axiom.co`; the free plan offers no UK region), 30 days, one dataset per
+environment: `heisreal-dev` (`axiom_dataset` in `live/dev/gcp`), later `heisreal-prod`. Google
+keeps its own copy from stdout as before.
+
+`modules/gcp` makes the empty secret container `axiom-ingest-token` (London only) and lets every
+service account that writes logs read it (the log keys' readers: the APIs, web, cert-signer, the
+result writer, housekeeping and the media worker). Each service and job gets `AXIOM_DATASET`,
+`AXIOM_DOMAIN` and the secret's name `AXIOM_TOKEN_SECRET`, and reads the token at start-up
+through libs/secrets. The media worker gets the same three from `tools/scripts/media-worker.sh`
+and reads the token as media-worker. The token's value is never in code, state or plans: until a
+version exists, each service writes one start-up warning and logs to stdout only.
+
+| Task (owner: Joel)     | How                                                                                                                                                                                                                                                                           |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| First setup: the token | apply `gcp` (the container and the reads). In Axiom, Settings → API tokens → an ingest-only token for `heisreal-dev`, then: `read -rsp 'Axiom token: ' k && printf %s "$k" \| gcloud secrets versions add axiom-ingest-token --project heisreal-dev --data-file=- && unset k` |
+| Start sending          | services read the token when a copy starts: deploy a new revision (any image change), or wait for the next cold start                                                                                                                                                         |
+| Rotate the token       | make a new ingest-only token, add it as a new version (same command), let new copies start, then delete the old token in Axiom                                                                                                                                                |
+
 ## Where data lives (D101–D104, D119)
 
 Joel's rule: data stays in the UK wherever possible, written explicitly in OpenTofu, never left to
@@ -805,6 +827,7 @@ exactly what was checked.
 | Story videos and audio (Bunny Stream, D89)              | Frankfurt (Bunny's only choice)           | `bunny`                                  |
 | Bunny's CDN caches (D103)                               | EU + US edges (images), worldwide (video) | Bunny's defaults; revisit for production |
 | The worker's sign-in (workload identity pool, W1-A)     | `global` (IAM config only, no data)       | `gcp` (`worker_identity.tf`)             |
+| Our services' logs, second copy (Axiom, LG-3)           | Frankfurt (EU Central 1, free plan)       | Axiom's dataset; `gcp` (`axiom_dataset`) |
 
 **Logs (D101).** Google creates each project's `_Default` and `_Required` log buckets in `global`,
 and a bucket's location is fixed when it's created. So `bootstrap` adds a London bucket and points
@@ -839,7 +862,7 @@ routes and firewall, Pub/Sub topics themselves, the monitoring dashboard, log-ba
 budget and quota preferences. Dev's existing `global` log buckets aren't touched. CI creates
 nothing location-bound outside OpenTofu (it pushes images to `apps` and runs Cloud Run jobs).
 Cloud Build, Cloud Functions and Cloud SQL aren't enabled. Bunny and Clerk are outside Google
-Cloud, so the policy doesn't see them (Bunny Stream stays in Frankfurt, D89; Clerk in the US, D6).
+Cloud, so the policy doesn't see them (Bunny Stream stays in Frankfurt, D89; Axiom's logs in Frankfurt, LG-3; Clerk in the US, D6).
 Any new Google resource must name `europe-west2`: a resource that defaults to a multi-region
 (`EU`, `US`, `global`) will now fail at apply instead of being created.
 

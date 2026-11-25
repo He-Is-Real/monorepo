@@ -5,16 +5,27 @@ media jobs and search counts. The rules for writing logs are in the writing-logs
 (`.claude/skills/writing-logs/SKILL.md`) and AGENTS.md "Logging"; the decisions are LG-1 to LG-9 in
 `../project/context/research/logging.html`.
 
-**Where logs are today.** Every service writes one JSON line per event to stdout; Cloud Run hands it
-to Cloud Logging, London bucket, kept 30 days, everything kept (no sampling, LG-6 A). The media
-worker runs off Google and sends its own lines there as the `media-worker` account (log name
-`media-worker`). Cloud Run also writes its own line per request (status, latency, IP, browser),
-except for search addresses, which a log filter drops (LG-2g A).
+**Where logs are.** Every service writes one JSON line per event to stdout; Cloud Run hands it to
+Cloud Logging, London bucket, kept 30 days, everything kept (no sampling, LG-6 A). The media worker
+runs off Google and sends its own lines there as the `media-worker` account (log name
+`media-worker`). Every service and the media worker also send each line, unchanged, to **Axiom**
+(LG-3): dataset `heisreal-dev`, edge deployment EU Central 1 (Frankfurt), kept 30 days. Cloud Run
+also writes its own line per request (status, latency, IP, browser), only in Google, except for
+search addresses, which a log filter drops (LG-2g A).
 
-**Axiom once the account exists.** Joel and agents will read in Axiom first (LG-5), with saved
-Axiom queries for the stats below (LG-8: stats in Axiom only). Until the account exists, use
-`gcloud logging read` or the Cloud Console's Logs Explorer as below. When Axiom arrives, this page
-gets its saved queries and `gcloud` stays for Google's copy and Cloud Run's own lines.
+**Read in Axiom first (LG-5).** Open Axiom → Query, dataset `heisreal-dev`, and filter in APL:
+
+```kusto
+['heisreal-dev'] | where ref == "0199c3e2-7b4a-7c3e-9f00-1a2b3c4d5e6f"
+['heisreal-dev'] | where outcome == "error" | sort by _time desc
+['heisreal-dev'] | where ['service.name'] == "api-user" and ['http.route'] == "/v1/me"
+```
+
+Nested fields are flattened with dots (`['http.status_code']`, `['user.id']`). Use `gcloud logging
+read` (below) for Cloud Run's own request lines, for anything older than Axiom has, or when Axiom
+is down. A service whose Axiom token is missing writes `Logs go to stdout only, not to Axiom` at
+start-up; one that can't reach Axiom writes `Couldn't send log lines to Axiom` (at most once a
+minute, with `dropped_count`); both lines are in Google only.
 
 ## The events
 
@@ -131,10 +142,11 @@ More on the media pipeline: `docs/media-runbook.md`.
 
 ## Counts (stats)
 
-LG-8: stats are Axiom queries (once the account exists), grouped **only** by route, service,
-outcome, action or day, **never** by person, story or address. Nothing is set up in Google for
-stats (no Log Analytics, metrics or dashboards). Until Axiom, count a day's events locally with
-`jq`, keeping to those groups:
+LG-8: stats are Axiom queries, grouped **only** by route, service, outcome, action or day,
+**never** by person, story or address, for example
+`['heisreal-dev'] | where event == "request" | summarize count() by ['service.name'], ['http.route'], outcome`.
+Nothing is set up in Google for stats (no Log Analytics, metrics or dashboards). When Axiom can't
+be used, count a day's events locally with `jq`, keeping to the same groups:
 
 ```sh
 # Requests by route and outcome, last day
@@ -157,7 +169,7 @@ gcloud logging read 'jsonPayload.service.name="api-public-read" AND jsonPayload.
 ```
 
 A job's cold start (the result writer, the media worker) has no `http.duration_ms`; use
-`job.steps` there. Axiom gets these as saved queries once the account exists.
+`job.steps` there.
 
 `gcloud logging read` returns every matching entry unless you add `--limit`; keep `--freshness`
 short (reading is free within Google's quotas, but keep it to what you need).

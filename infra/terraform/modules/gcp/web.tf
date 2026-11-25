@@ -142,6 +142,14 @@ resource "google_cloud_run_v2_service" "web" {
           value = google_secret_manager_secret.log_hmac[env.value].secret_id
         }
       }
+      # Logs also go to Axiom (LG-3): dataset, edge domain and the token's secret name (secrets.tf).
+      dynamic "env" {
+        for_each = local.axiom_env
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
       env {
         name  = "GCP_PROJECT"
         value = var.project_id
@@ -163,6 +171,7 @@ resource "google_cloud_run_v2_service" "web" {
   depends_on = [
     google_secret_manager_secret_iam_member.website_key,
     google_secret_manager_secret_iam_member.log_hmac,
+    google_secret_manager_secret_iam_member.axiom_ingest_token,
   ]
 }
 

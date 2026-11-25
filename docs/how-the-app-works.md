@@ -1103,9 +1103,11 @@ Planned (M3):
   an Admin removes an entry, even after the person deletes their account. (G21 D, Joel 2026-11-11)
 - Backups are nightly, in the UK, and age out; they aren't edited after a deletion. Restoring one
   replays the erasures logged since it was taken: [restore runbook](restore-runbook.md).
-- Our services' logs are stored in London for 30 days. (D101)
+- Our services' logs are stored in London for 30 days (D101), and a copy in Axiom, in the EU
+  (Frankfurt; its free plan has no UK region), also for 30 days. (LG-3, Joel 2026-11-25)
 - **Where data lives:** in the UK wherever possible (London), declared in our infrastructure
-  code. Exceptions: video and audio files at Bunny in Frankfurt (D89); Clerk in the US (D6);
+  code. Exceptions: video and audio files at Bunny in Frankfurt (D89); the logs' copy in Axiom in
+  Frankfurt (LG-3); Clerk in the US (D6);
   Bunny's delivery network serves files worldwide.
 
 ## Rate limits

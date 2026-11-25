@@ -20,6 +20,11 @@
       "import": "./src/event/index.ts",
       "default": "./src/event/index.ts"
     },
+    "./axiom": {
+      "types": "./src/axiom.ts",
+      "import": "./src/axiom.ts",
+      "default": "./src/axiom.ts"
+    },
     "./package.json": "./package.json"
   },
   "nx": {

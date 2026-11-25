@@ -1,12 +1,15 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { performance } from 'node:perf_hooks';
 import {
+  countFailedLogWrite,
+  failedLogWrites,
   type LogFields,
   logEntry,
+  type LogSink,
   type ServiceFields,
   serviceFields,
   type Severity,
-  severityEnabled,
+  writeEntry,
 } from '../index';
 import './instance';
 import { logHash, searchHash } from './keys';
@@ -69,38 +72,25 @@ interface ExternalTiming {
 }
 
 /**
- * Where the finished line goes. Today only stdout (Cloud Run hands it to Cloud Logging, London).
- * TODO(Axiom, LG-3): add the Axiom sink here once the account exists; it must send after the
- * response without being awaited on the request path, and swallow and count its failures.
+ * Where an event goes: stdout (Cloud Run hands it to Cloud Logging, London), which also hands it
+ * to every sink added with `addLogSink` (Axiom, LG-3; `@heisreal/logging/axiom`). Tests replace
+ * the list to capture events.
  */
-export interface LogSink {
-  write(severity: Severity, entry: Record<string, unknown>): void;
-}
+export type { LogSink };
 
-const stdoutSink: LogSink = {
-  write(severity, entry) {
-    if (!severityEnabled(severity)) return;
-    const line = JSON.stringify(entry);
-    if (severity === 'ERROR' || severity === 'CRITICAL') console.error(line);
-    else console.log(line);
-  },
-};
+const stdoutSink: LogSink = { write: writeEntry };
 
 /** Every sink an event is written to. */
 export const LOG_SINKS: LogSink[] = [stdoutSink];
 
-let failedWrites = 0;
-/** How many event writes failed in this process (they are swallowed, never thrown). */
-export function failedLogWrites(): number {
-  return failedWrites;
-}
+export { failedLogWrites };
 
 function emit(severity: Severity, entry: Record<string, unknown>): void {
   for (const sink of LOG_SINKS) {
     try {
       sink.write(severity, entry);
     } catch {
-      failedWrites++;
+      countFailedLogWrite();
     }
   }
 }
@@ -377,7 +367,7 @@ export class WideEvent {
       const { severity, entry } = this.build();
       emit(severity, entry);
     } catch {
-      failedWrites++;
+      countFailedLogWrite();
     }
   }
 
@@ -480,7 +470,7 @@ export function note(
     merge(entry, fields);
     emit(line.severity, logEntry(line.severity, line.message, entry));
   } catch {
-    failedWrites++;
+    countFailedLogWrite();
   }
 }
 
@@ -634,7 +624,7 @@ export function writeSearchEvent(input: SearchEventInput): void {
     const { severity, entry } = searchEntry(input);
     emit(severity, entry);
   } catch {
-    failedWrites++;
+    countFailedLogWrite();
   }
 }
 
@@ -657,6 +647,6 @@ export function writeErrorLine(
     });
     emit('ERROR', entry);
   } catch {
-    failedWrites++;
+    countFailedLogWrite();
   }
 }

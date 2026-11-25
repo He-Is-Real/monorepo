@@ -7,10 +7,12 @@
  *
  * Nest level → severity: verbose and debug → DEBUG, log → INFO, warn → WARNING, error → ERROR,
  * fatal → CRITICAL. An error's stack goes in `stack_trace`, in the same entry. Each line carries
- * the `service` group (deployment details, LG-10) like every other entry.
+ * the `service` group (deployment details, LG-10) like every other entry, and goes to the same
+ * sinks (`addLogSink`: Axiom).
  */
 import { ConsoleLogger, type LogLevel } from '@nestjs/common';
 import {
+  forwardLog,
   minimumSeverity,
   serviceFields,
   SEVERITIES,
@@ -65,6 +67,11 @@ export class JsonLogger extends ConsoleLogger {
       entry['stack_trace'] = typeof stack === 'string' ? stack : errorStack;
     } else if (typeof stack === 'string') {
       entry['stack_trace'] = stack;
+    }
+    // Nest writes the line to stdout; every other sink (Axiom) gets the same entry.
+    const severity = entry['severity'];
+    if (SEVERITIES.includes(severity as Severity)) {
+      forwardLog(severity as Severity, entry);
     }
     return super.stringifyJsonLogObject(entry);
   }

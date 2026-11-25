@@ -101,6 +101,23 @@ variable "log_hmac_rotation" {
   default     = 1
 }
 
+variable "axiom_dataset" {
+  description = "The Axiom dataset every log entry also goes to (LG-3; heisreal-dev, heisreal-prod; secrets.tf). null: logs go to stdout and Cloud Logging only."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.axiom_dataset == null || can(regex("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", var.axiom_dataset))
+    error_message = "An Axiom dataset name: letters, digits, '.', '_' and '-'."
+  }
+}
+
+variable "axiom_domain" {
+  description = "The Axiom edge deployment the dataset lives in (EU Central 1 on the free plan)."
+  type        = string
+  default     = "eu-central-1.aws.edge.axiom.co"
+}
+
 variable "root_secret_rotation" {
   description = "Bump to rotate the SurrealDB root password. SurrealDB only reads it on first start, so an existing database must be told with the previous version: see infra/k8s/surrealdb/README.md 'Rotating passwords'."
   type        = number

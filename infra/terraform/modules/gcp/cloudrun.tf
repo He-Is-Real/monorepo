@@ -110,6 +110,14 @@ resource "google_cloud_run_v2_service" "api_public_read" {
           value = google_secret_manager_secret.log_hmac[env.value].secret_id
         }
       }
+      # Logs also go to Axiom (LG-3): dataset, edge domain and the token's secret name (secrets.tf).
+      dynamic "env" {
+        for_each = local.axiom_env
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
       # D31: the browser may call it from web's origins only.
       env {
         name  = "CORS_ALLOWED_ORIGINS"
@@ -143,6 +151,7 @@ resource "google_cloud_run_v2_service" "api_public_read" {
     google_secret_manager_secret_iam_member.api_public_read,
     google_secret_manager_secret_iam_member.website_key,
     google_secret_manager_secret_iam_member.log_hmac,
+    google_secret_manager_secret_iam_member.axiom_ingest_token,
   ]
 }
 

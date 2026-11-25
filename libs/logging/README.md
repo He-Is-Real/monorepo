@@ -86,13 +86,36 @@ slowest { name, ms } }`, `external.<name> { calls, ms, status }`.
   plain long text cut, longest first (`debug.truncated_fields`; `_length` keeps the full length);
   if still too long, only the envelope, `http`, `action`, `outcome` and `error` are kept
   (`debug.oversized`).
-- **Where it goes:** `LOG_SINKS`, today only stdout (Cloud Run hands it to Cloud Logging, London).
-  The media worker, off Google Cloud, adds its own Cloud Logging sink there
-  (apps/media-worker/src/cloud-logging.ts). Axiom (LG-3) is a second sink added there once the
-  account exists; until then read logs with
-  `gcloud logging read 'jsonPayload.ref="<ref>"' --project heisreal-dev --freshness=1d --format=json`
-  (Axiom once the account exists). A sink that throws is counted (`failedLogWrites()`), never
-  thrown into the request. No sampling, no tracing library.
+- **Where it goes:** stdout (Cloud Run hands it to Cloud Logging, London), and every entry
+  written to stdout (by `writeLog`, `createLog`, `JsonLogger`, events, `note` and error lines)
+  also goes to each sink added with `addLogSink`, after the same `LOG_LEVEL` filter. The sinks
+  live on `globalThis`, so a server that bundles this library twice (the website) has one set.
+  The media worker, off Google Cloud, also sends events to Cloud Logging itself
+  (apps/media-worker/src/cloud-logging.ts). A sink that throws, or fails to send, is counted
+  (`failedLogWrites()`), never thrown into the request. No sampling, no tracing library.
+- **Axiom (`@heisreal/logging/axiom`, LG-3):** `startAxiomLogs({ read })` adds the Axiom sink
+  where `AXIOM_DATASET` (`heisreal-dev`; `heisreal-prod` later), `AXIOM_DOMAIN`
+  (`eu-central-1.aws.edge.axiom.co`, EU Central 1) and `AXIOM_TOKEN_SECRET` (`axiom-ingest-token`,
+  read through `read`, libs/secrets) are set. It queues each entry and sends the queue to
+  `POST https://<domain>/v1/ingest/<dataset>?timestamp-field=timestamp` (`Authorization: Bearer`,
+  a JSON array, up to 1000 entries or 4 MB each) as soon as the current turn of the event loop
+  ends; while a send is in flight, newer entries wait for the next one. A refused or timed-out
+  send (10 s) is dropped and counted, with one stdout warning a minute; no retries. None set
+  (locally, tests): nothing is sent. Partly set, or the token can't be read or is empty: one
+  start-up warning, stdout only; the service still starts. Started by `LogKeysModule`
+  (libs/http) in the Nest services, and by housekeeping and the media worker in their `main.ts`.
+- **Shutting down:** `flushLogSinks(ms)` sends what every sink holds, waiting at most `ms`. The
+  Nest services call it from `LogKeysModule` on SIGTERM (`enableShutdownHooks`); housekeeping
+  before it exits; the media worker when it stops.
+- **Cloud Run's CPU:** our services use request-based billing (`cpu_idle = true`), so CPU is
+  throttled once no request is in flight: a send started as a response closes may pause until
+  the instance's next request, or until shutdown, when Cloud Run gives the instance CPU for 10 s
+  and the flush above sends the rest. An instance killed without SIGTERM loses at most the queued
+  lines in Axiom; Google's copy from stdout is complete.
+- **Reading:** in Axiom first (`docs/logs-runbook.md`); Google's copy with
+  `gcloud logging read 'jsonPayload.ref="<ref>"' --project heisreal-dev --freshness=1d --format=json`.
+- **Fields:** Axiom's free plan keeps 256 fields per dataset. `src/fields.ts` lists every
+  flattened field name we write; its test fails past 200.
 
 ### Deployment details (`service`, LG-10)
 
