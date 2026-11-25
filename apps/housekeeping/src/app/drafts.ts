@@ -8,7 +8,7 @@ import type { Task, TaskContext, TaskResult } from './tasks';
  * story row goes, and the database's events delete
  * what hangs off it (story_erasure_cascade) and bump the person's fence. Only drafts: a story
  * that was ever submitted is moderation's or the person's to remove. The database enforces the
- * same rule on service:housekeeping's delete (docs/db-permissions.md), so this query only picks.
+ * same rule on service:housekeeping's delete (docs/system/data-stories.md), so this query only picks.
  * The draft's Bunny video then has no story, and the orphan-videos chore deletes it (its upload
  * grant stays for the upload limits, D113). Its delete also queues its folder in the images zone
  * (story_picture_folder: pendingDeletion `image`, from the story itself, so a picture whose grant

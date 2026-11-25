@@ -33,7 +33,7 @@ export function themeProbes(ids: string[]): {
  * api-public-read.yaml, tag Themes: listThemes (themes plan v3). Reference data (D26), a few
  * dozen themes, unpaged: highlighted themes always (A14: one with no story yet still shows),
  * others only once a published story uses them (D63), grouped by category. No story counts:
- * public responses carry no totals (docs/api-conventions.md, D62).
+ * public responses carry no totals (docs/system/api.md, D62).
  */
 @Controller('v1/themes')
 export class ThemesController {

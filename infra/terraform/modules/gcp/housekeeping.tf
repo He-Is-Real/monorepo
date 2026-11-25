@@ -19,7 +19,7 @@
 #                           ids, status, dates and media ids (never their words), deleting a
 #                           draft untouched for 6 months, and seeing, retrying and deleting
 #                           erasure requests and queued deletions, nothing else
-#                           (docs/db-permissions.md). With media ready, it may also publish to
+#                           (docs/system/data-model.md). With media ready, it may also publish to
 #                           media-jobs (the resend), and its login reads, resends and deletes
 #                           ended media jobs.
 #   housekeeping-scheduler  Cloud Scheduler's identity for the nightly run. May start this one Job

@@ -34,7 +34,7 @@ info:
       Clerk role.
     - `x-milestone` on each operation is the delivery milestone that builds it.
 
-    Conventions: `docs/api-conventions.md`.
+    Conventions: `docs/system/api.md`.
   contact:
     name: He Is Real Today
     url: https://www.heisreal.today

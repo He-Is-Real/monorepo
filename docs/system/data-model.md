@@ -24,7 +24,7 @@ The cluster runs SurrealDB v3.2.4 (the digest in `infra/k8s/surrealdb/base/kusto
 the services use surrealdb.js 2.0.8. Schema files `libs/database/schema/schema-0N-*.surql` (one per
 area, applied in name order as one step), `access-clerk.surql`, run-once data scripts in
 `schema/data/000N-*.surql`, the runner `schema/migrate.py`, integration tests in
-`libs/database/integration/*.int-spec.ts` (command in `README.md`; Vitest's global setup starts the
+`libs/database/integration/*.int-spec.ts` (command in `libs/database/README.md`; Vitest's global setup starts the
 pinned image on RocksDB).
 
 - **REQ-DB-001** The schema files are declarative and the migrate Job and the integration tests both apply them with `migrate.py`. [D14]

@@ -22,7 +22,7 @@ info:
       callers, and a missing or wrong key is simply an ordinary caller.
     - `x-milestone` on each operation is the delivery milestone that builds it.
 
-    Conventions: `docs/api-conventions.md`.
+    Conventions: `docs/system/api.md`.
   contact:
     name: He Is Real Today
     url: https://www.heisreal.today

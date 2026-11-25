@@ -13,7 +13,7 @@ import type { Task, TaskContext, TaskResult } from './tasks';
  *
  * Admins change both on the Limits page. The database holds the one rule
  * (fn::story::deletes_at, fn::story::deletion_due) and enforces it on service:housekeeping's delete
- * (docs/db-permissions.md), so these queries only pick. The story row goes, and the database's
+ * (docs/system/data-stories.md), so these queries only pick. The story row goes, and the database's
  * events delete what hangs off it (story_erasure_cascade), queue its picture folder and bump the
  * person's fence; its Bunny video then has no story, and the orphan-videos chore deletes it.
  *

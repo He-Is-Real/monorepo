@@ -8,7 +8,7 @@ import type { Task, TaskContext, TaskResult } from './tasks';
  * nobody resends a request that late. Nothing else removes them (only erasure, a person's own),
  * so this deletes every expired key, whoever it belongs to: a person's, a Clerk or Stripe
  * webhook's, an admin's. The database lets service:housekeeping read and delete only expired
- * keys (docs/db-permissions.md), so this query only picks.
+ * keys (docs/system/data-permissions.md), so this query only picks.
  *
  * A key is a tiny row, so a run deletes up to `KEYS_PER_DELETION` times maxDeletions of them, in
  * batches of maxDeletions. A key's id holds the key the browser or webhook sent, so the logs get

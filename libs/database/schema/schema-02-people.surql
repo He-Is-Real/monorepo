@@ -92,7 +92,7 @@ DEFINE EVENT OVERWRITE user_not_erased_identity ON user
   };
 -- Every table holding or linking person data (directly or through story) refuses a new or
 -- changed row for a person who doesn't exist or is erased, and bumps that person's fence, so a
--- write racing erasure conflicts at commit. The per-table list is in docs/db-permissions.md;
+-- write racing erasure conflicts at commit. The per-table list is in docs/system/data-model.md;
 -- integration/person-linked.int-spec.ts fails if a table is added without being classified.
 DEFINE FUNCTION OVERWRITE fn::person::live($user: option<record<user>>) {
   IF $user = NONE OR !record::exists($user) OR $user.status = 'deleted' {
@@ -107,7 +107,7 @@ DEFINE EVENT OVERWRITE user_fence ON user                         -- erasure, bi
 -- A person's hearts: their private favourites list (founder, 2026-10-25). Only the person who
 -- hearted a story can read the row: no service login, and not the story's owner (who will see a
 -- count per story on their profile later, never who gave it: not built, see
--- docs/db-permissions.md, `favourite`). One per person and story. A heart needs the person to have
+-- docs/system/data-permissions.md, `favourite`). One per person and story. A heart needs the person to have
 -- agreed to the latest terms of use (plan 4e, Q2: their own write) and a story that is public now
 -- (approved: its newest status entry, R6/R11). A story that stops being public later keeps the
 -- heart, but lists show public stories only, so it no longer shows (C15). Person-linked twice: a new

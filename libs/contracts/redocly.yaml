@@ -17,7 +17,7 @@ apis:
 rules:
   info-license: off # private, unlicensed project
   no-unused-components: error
-  # Extensions used in the specs (see docs/api-conventions.md).
+  # Extensions used in the specs (see docs/system/api.md).
   rule/x-milestone:
     subject: { type: Operation, property: x-milestone }
     assertions:

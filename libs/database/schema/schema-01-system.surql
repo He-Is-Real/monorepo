@@ -7,7 +7,7 @@
 -- is in access-clerk.surql (applied only when OpenTofu has Clerk's key). No top-level RETURN: inside
 -- the transaction it would end it early. CI applies these files to SurrealDB 3.2.4 on every PR, so
 -- any syntax 3.2.4 rejects is caught before merge. The 3.2.4 gotchas found in testing, which shape
--- much of what's here, are listed in docs/db-permissions.md ("SurrealDB 3.2.4 gotchas").
+-- much of what's here, are listed in docs/system/data-engine.md ("Engine gotchas").
 
 -- ---------------------------------------------------------------- bookkeeping
 -- One row per data script, written by the runner in the script's own transaction (so a failed

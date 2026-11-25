@@ -8,7 +8,7 @@ export type ErasureReason = 'account_deleted' | 'clerk_user_deleted';
 
 /**
  * EraseAccount (D39, D82, D40), run by api-user on its own service login in one transaction
- * (docs/db-permissions.md, "Erasure"). Bind `$clerkUserId` and `$reason`. The work is the
+ * (docs/system/data-model.md, "Erasure"). Bind `$clerkUserId` and `$reason`. The work is the
  * schema's `fn::account::erase` (the tombstone, the queued deletions outside the database, the
  * stories and everything else of the person's, and the stub user row, `status = 'deleted'`,
  * without its agreements).

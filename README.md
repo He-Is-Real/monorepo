@@ -9,7 +9,7 @@ plan is in [docs/delivery-status.md](docs/delivery-status.md); the rules for how
 the decisions that override the plan, are in [docs/how-the-app-works.md](docs/how-the-app-works.md).
 The API contracts are in [`libs/contracts`](libs/contracts), and the rules they follow (CQRS-lite,
 commands vs CRUD, errors, versioning, concurrency, "agree first") in
-[docs/api-conventions.md](docs/api-conventions.md).
+[docs/system/api.md](docs/system/api.md).
 
 ## Layout
 
@@ -98,7 +98,7 @@ GKE Autopilot Spot Pods, about £3–5/month.
 - **`ci.yml`** (every PR, the required check): format check, then `lint test build typecheck validate`
   (`test` includes `terraform:test`, the OpenTofu modules' `tofu test`), `test-integration`
   (`libs/database`, `libs/auth`, `api-public-read` and `api-user` against a SurrealDB container, see
-  [docs/db-permissions.md](docs/db-permissions.md)) and container builds for affected projects (`validate`
+  [docs/system/data-model.md](docs/system/data-model.md)) and container builds for affected projects (`validate`
   includes kubeconform on the Kubernetes manifests). Beside those, when web is affected, the
   Playwright device matrix runs in parallel shards from one build of the site (each shard runs like
   a local `web:e2e`: 4 workers, no retries; `apps/web/e2e/shard-balance.ts` deals the tests out

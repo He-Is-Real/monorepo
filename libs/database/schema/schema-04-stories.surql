@@ -1660,7 +1660,7 @@ DEFINE FUNCTION OVERWRITE fn::upload::renew($story: record<story>, $person: reco
 -- ends a job. Housekeeping
 -- deletes done jobs 30 days after they ended (J2). Person-linked through its file: every write
 -- needs the person to exist and not be erased, and bumps their fence, so it conflicts with an
--- erasure that overlaps it (docs/db-permissions.md, "Person-linked tables").
+-- erasure that overlaps it (docs/system/data-model.md, "Person-linked tables").
 DEFINE TABLE OVERWRITE mediaJob SCHEMAFULL PERMISSIONS          -- id = mediaJob:<ulid>
   FOR select WHERE $auth IN [service:api_user, service:workflow, service:housekeeping,
     service:api_admin],

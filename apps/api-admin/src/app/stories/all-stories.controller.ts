@@ -147,7 +147,7 @@ function toSummary(r: SummaryRow) {
 /**
  * api-admin.yaml, tag AllStories (R15, Joel 2026-11-05): admins see every story in every
  * status, drafts included, with its status log (R6) and files, read-only. api-admin's login
- * reads every story (docs/db-permissions.md); the Admin role is checked here (D1), as every
+ * reads every story (docs/system/data-stories.md); the Admin role is checked here (D1), as every
  * api-admin route's role is. Moderators and admins see stories from `pending` on, through
  * moderation, never here. No route here writes.
  */

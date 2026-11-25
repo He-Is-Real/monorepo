@@ -45,7 +45,7 @@ const KINDS = {
 /** The chosen themes' names: "Hope", "Hope and Healing", "Faith, Hope and Healing". */
 const AND = new Intl.ListFormat('en-GB', { type: 'conjunction' });
 
-/** What the list shows, in words (never a count: api-conventions has no totals). */
+/** What the list shows, in words (never a count: docs/system/api.md has no totals). */
 function summaryOf(filters: Filters, themeNames: string[]): string | null {
   const theme = themeNames.length ? AND.format(themeNames) : undefined;
   const kind = filters.format ? KINDS[filters.format] : 'stories';

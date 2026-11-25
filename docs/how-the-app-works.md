@@ -1273,7 +1273,7 @@ For developers. Details are in the linked documents.
 - **Services:** the website (`web`), `api-public-read` (anonymous, published stories only),
   `api-user` (the signed-in person) and `api-admin` (moderators and admins). Services never call
   each other, and each signs in to the database as its own least-privilege user. (D13, D33, D36;
-  [db-permissions.md](db-permissions.md))
+  [system/data-model.md](system/data-model.md))
 - **The website's server reads only `api-public-read`**; Clerk runs in the browser only, and the
   server never reads, logs or forwards the sign-in cookie. A lint rule guards against mistakes.
   (D31, D32; `apps/web/README.md`)
@@ -1286,14 +1286,14 @@ For developers. Details are in the linked documents.
   on a fresh 6-minute pass api-user gets from Clerk for the same sign-in, and starts no new try
   after 2 minutes. The work still runs as the person. Clerk saying the sign-in is over is `401`;
   Clerk not answering is `503 sign_in_unavailable` (try again). api-admin has no Clerk key and
-  uses the person's own pass. ([db-permissions.md](db-permissions.md))
+  uses the person's own pass. ([system/data-model.md](system/data-model.md))
 - **One story table (R11, Joel 2026-11-04/05):** the public reads `story` itself, and the database's rules show it only approved stories and only
   their published fields. Each story's status lives in its status log (`storyStatusLog`, R6),
   never edited; the story points at its newest entry. (D25, R6, R11;
-  [db-permissions.md](db-permissions.md))
+  [system/data-model.md](system/data-model.md))
 - **API conventions:** commands for state changes, CRUD for plain resources, `version` and
   `If-Match` on every changeable record, RFC 9457 errors, no totals. The OpenAPI specs in
-  `libs/contracts` are the source of truth. (D23, D28–D30; [api-conventions.md](api-conventions.md))
+  `libs/contracts` are the source of truth. (D23, D28–D30; [system/api.md](system/api.md))
 - **Database:** self-hosted SurrealDB, a single node in production too, on private GKE; nightly
   backups. Schema changes run as a migration Job; the schema is one file per area. Before
   production, dev's database may be wiped and rebuilt from scratch through that Job instead of

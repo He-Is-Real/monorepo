@@ -86,7 +86,8 @@ opens a session per request (`withPersonSession` in `libs/database`, used by `Pe
 - **REQ-DBE-038** Service sign-in uses record access (`access: 'svc'`, `serviceSignIn`), so the SDK signs in again after reconnects and the 15-minute token expiry. [D13]
 
 One socket handles an instance's concurrency (requests are multiplexed); a session costs 4 extra
-round trips, about 2 ms locally.
+round trips, about 2 ms locally; surrealdb.js 2.1.1 or later's `.as(token)` over HTTP is a stateless
+alternative for simple reads, but has no interactive transactions.
 
 ## Clerk side
 

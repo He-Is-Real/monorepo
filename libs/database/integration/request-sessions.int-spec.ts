@@ -8,7 +8,7 @@ import { buildWorld } from './support/world';
  * (surrealdb.js 2.0.8, SurrealDB 3.2.4 multi-session WebSocket RPC), with the real
  * `withPersonSession` (src/lib/person-session.ts). The SDK hazards it avoids (forkSession()
  * keeping the service login, requests interleaving on one shared session) are recorded in
- * docs/db-permissions.md, "Per-request person sessions"; so is the cost of the alternatives.
+ * docs/system/data-engine.md, "Per-request person sessions"; so is the cost of the alternatives.
  */
 const storyIds = async (db: SurrealSession) =>
   (await rows<{ id: string }>(db, 'SELECT id FROM story'))

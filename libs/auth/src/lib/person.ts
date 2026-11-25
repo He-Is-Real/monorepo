@@ -21,7 +21,7 @@ import type { RecordId, Surreal, SurrealSession } from 'surrealdb';
  *
  * The `PersonAuthenticator`s (clerk-authenticator.ts, task 0.5) verify the request's Clerk
  * session token (signature, `exp`/`nbf`, `iss`, and `azp`, which SurrealDB doesn't check;
- * docs/db-permissions.md, "Clerk side"), passed in with `ClerkAuthModule.forRoot({ authenticator })`.
+ * docs/system/data-engine.md, "Clerk side"), passed in with `ClerkAuthModule.forRoot({ authenticator })`.
  * They also make sure the person's `user` row exists (api-user's login creates it on first
  * use), since SurrealDB's `DEFINE ACCESS clerk` only signs in people it knows.
  */

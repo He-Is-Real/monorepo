@@ -6,7 +6,7 @@ info:
     **Not a deployable API.** Shared schemas, parameters, headers and responses referenced by
     the per-service specs (`api-public-read.yaml`, `api-user.yaml`, `api-admin.yaml`,
     `worker.yaml`) through relative `$ref`s, e.g. `./components.yaml#/components/schemas/StoryPublic`.
-    Conventions: `docs/api-conventions.md`. Decisions: `project/context/research/m0-schema-consent-decisions.html`.
+    Conventions: `docs/system/api.md`. Decisions: `project/context/research/m0-schema-consent-decisions.html`.
 
 # No paths: this file only provides reusable components.
 paths: {}

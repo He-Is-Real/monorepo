@@ -24,7 +24,7 @@
 #                  signs (R3). No database password, no key that can change anything at Bunny
 #                  (K1), no key to Bunny's storage, nothing else.
 #   workflow       the result writer's runtime identity: reads its own database password and signs
-#                  in as service:workflow (docs/db-permissions.md); publishes to media-jobs (the
+#                  in as service:workflow (docs/system/data-model.md); publishes to media-jobs (the
 #                  jobs it opens); and (the bunny root's result_writer_readers) reads Bunny's
 #                  library key, the images token key and the sound zone's token key: it makes
 #                  picture videos, signs the worker's one-hour pass and its sound links, and sets

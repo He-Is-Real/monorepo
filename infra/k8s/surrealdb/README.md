@@ -29,7 +29,7 @@ scripts/local-migration.mjs creates a local cluster's migration bundle (ConfigMa
 ## Database users
 
 Since D13 B, services sign in as `service` records through `DEFINE ACCESS svc`, and the schema's
-table and field permissions limit each one ([docs/db-permissions.md](../../../docs/db-permissions.md)).
+table and field permissions limit each one ([docs/system/data-model.md](../../../docs/system/data-model.md)).
 Only the in-cluster Jobs are system users. Each identity has its own Secret Manager secret:
 
 | Identity                  | Kind / role        | Secret                             | Used by                               |

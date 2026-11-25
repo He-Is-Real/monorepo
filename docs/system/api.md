@@ -2,7 +2,7 @@
 
 Covers: how the three APIs are split, shaped and built; what each route takes and answers is in the contracts.
 Data: the OpenAPI specs in `libs/contracts/openapi` are the source of truth; the database rules are in [data-model.md](data-model.md).
-Next id: REQ-API-091
+Next id: REQ-API-092
 
 ## Contents
 
@@ -66,6 +66,7 @@ Next id: REQ-API-091
 - **REQ-API-029** Every command is tested against what it changes, on a real database. [D25]
 - **REQ-API-030** The public reads the one `story` table like everyone else, and the database's rules decide what it sees: an approved story and only its published fields (REQ-DBS-007). [R11]
 - **REQ-API-031** Approving publishes a story, Edit or a hide takes it off at once, and erasure deletes it with its status log: one write each, nothing to copy. [R11]
+- **REQ-API-091** Renaming a theme needs no story write, since stories fetch themes by reference; deleting a theme removes it from every story in the same transaction (`theme_delete`). [D15]
 - **REQ-API-032** Anonymous queries read only published stories and reference data (`theme`, `themeCategory`, the four legal texts' versions), and ask for approved stories themselves too. [D26]
 - **REQ-API-033** Personal queries read the person's own rows, as the person; moderation and the Admins' story view read `story` on `api-admin`. [R15]
 - **REQ-API-034** `story` and `storyStatusLog` hold Art 9 data and are on the erasure checklist. [D39]

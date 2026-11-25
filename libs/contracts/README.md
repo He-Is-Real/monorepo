@@ -2,7 +2,7 @@
 
 The OpenAPI 3.1 contracts for every service. **They are the source of truth (D23):** change the
 spec in the same PR as the code that implements it. The rules they follow are in
-[docs/api-conventions.md](../../docs/api-conventions.md).
+[docs/system/api.md](../../docs/system/api.md).
 
 | Spec                                                   | Service                                               | Callers                                                 |
 | ------------------------------------------------------ | ----------------------------------------------------- | ------------------------------------------------------- |

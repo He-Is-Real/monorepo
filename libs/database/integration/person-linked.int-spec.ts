@@ -15,7 +15,7 @@ import { approve, draft, ERASE, grantUpload, submit } from './support/world';
 
 /**
  * Review round 3: every table that holds or links person data, directly or through `story`, is
- * classified here and in docs/db-permissions.md ("Person-linked tables"). A new table fails the
+ * classified here and in docs/system/data-model.md ("Person-linked tables"). A new table fails the
  * first test until it's classified, so the next one can't slip through.
  *
  *   linked → a new/changed row needs an existing, non-erased person (fn::person::live) and bumps

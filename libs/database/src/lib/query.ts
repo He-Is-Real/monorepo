@@ -4,7 +4,7 @@ import type { SurrealQueryable } from 'surrealdb';
 /**
  * A statement failed. `message` is the root cause: in a failed transaction every other
  * statement only reports "not executed", and surrealdb.js 2.0.x's `collect()` throws that
- * unhelpful one (docs/db-permissions.md, gotchas).
+ * unhelpful one (docs/system/data-engine.md, gotchas).
  */
 export class DatabaseQueryError extends Error {
   constructor(
@@ -71,7 +71,7 @@ function errorMessage(error: unknown): string {
 
 /**
  * Two transactions that touch the same person write the same fence row, so the second to
- * commit fails with this retryable conflict (docs/db-permissions.md, "Transactions").
+ * commit fails with this retryable conflict (docs/system/data-model.md, "Transactions").
  */
 export function isTransactionConflict(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);

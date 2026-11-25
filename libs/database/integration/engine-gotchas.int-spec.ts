@@ -1,7 +1,7 @@
 import { rows, run, TestDatabase } from './support/harness';
 
 /**
- * The SurrealDB 3.2.4 behaviours the schema and queries work around (docs/db-permissions.md,
+ * The SurrealDB 3.2.4 behaviours the schema and queries work around (docs/system/data-engine.md,
  * "SurrealDB 3.2.4 gotchas"), pinned on scratch tables so an engine upgrade shows which still
  * hold. A failure here means the engine changed: update that gotcha and the code relying on it.
  */

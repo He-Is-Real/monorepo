@@ -169,7 +169,7 @@ export class ApiUserAuthenticator extends ClerkAuthenticator {
  * api-admin: its login can read users but not create them (D13), so a staff member must
  * already have a row, made by their first api-user request (or a D22 legacy link). Unknown
  * people get 403 `unknown_person`. Staff need the row anyway: it's the `by` of a moderator's status
- * entry, the `changedBy` of a setting and the `publishedBy` of a legal text (db-permissions.md).
+ * entry, the `changedBy` of a setting and the `publishedBy` of a legal text (docs/system/data-model.md).
  */
 @Injectable()
 export class ApiAdminAuthenticator extends ClerkAuthenticator {
