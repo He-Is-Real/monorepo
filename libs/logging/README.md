@@ -34,7 +34,7 @@ Use:
 
 ## Wide events (`@heisreal/logging/event`)
 
-One event per request or job (the writing-logs skill, `.claude/skills/writing-logs/SKILL.md`;
+One event per request or job (the writing-logs skill, `.agents/skills/writing-logs/SKILL.md`;
 decisions LG-1 to LG-9 in `../project/context/research/logging.html`). Node only.
 
 - **Start, add, finish.** `startEvent('request' | 'job', service, trace)`; `runWithEvent(event, work)`
