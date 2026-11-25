@@ -20,8 +20,9 @@
  * - **Off unless configured:** it starts only where `AXIOM_DATASET`, `AXIOM_DOMAIN` and
  *   `AXIOM_TOKEN_SECRET` are set (OpenTofu, the media worker's script) and the token can be read.
  *   Locally and in tests none are set, so nothing is sent. A deployed service whose token is
- *   missing or empty writes one warning and keeps logging to stdout only: deploys never wait for
- *   the token (unlike the log keys, without which hashes could be reversed).
+ *   missing or empty writes one warning and logs to stdout only until a background re-read (once
+ *   a minute) gets it: deploys never wait for the token (unlike the log keys, without which hashes
+ *   could be reversed).
  */
 import {
   countFailedLogWrite,
@@ -32,6 +33,7 @@ import {
   severityEnabled,
   writeLog,
 } from './index';
+import { TOKEN_RETRY_MS, tokenReader } from './token';
 
 /** More than this many entries (or bytes) waiting means Axiom can't be reached: newer are dropped. */
 const MAX_QUEUED = 2000;
@@ -232,34 +234,43 @@ export function axiomSink({
 }
 
 const STARTED = Symbol.for('heisreal.logging.axiom');
-type Started = { sink: AxiomSink; remove: () => void };
+type Started = {
+  sink?: AxiomSink;
+  remove?: () => void;
+  /** The background re-read while the token can't be read. */
+  retry?: ReturnType<typeof setTimeout>;
+};
 const started = globalThis as { [STARTED]?: Started };
 
 /**
  * Adds the Axiom sink to every entry from now on, if this process is configured for it:
  * `AXIOM_DATASET`, `AXIOM_DOMAIN` and `AXIOM_TOKEN_SECRET` (the token's Secret Manager name),
- * read with `read` (libs/secrets). None set: nothing happens (local runs, tests). Partly set, or
- * the token can't be read or is empty: one warning, and logs keep going to stdout only. Never
- * throws; a second call does nothing.
+ * read with `read` (libs/secrets). None set: nothing happens (local runs, tests). Partly set: one
+ * warning, and logs keep going to stdout only. A token that can't be read or is empty: one warning
+ * (the error's type and code, `./token.ts`), logs go to stdout only meanwhile, and a background
+ * timer reads it again once a minute (`retryMs`) until it can; the sink is added then. Never
+ * throws, never waits for a retry; a second call does nothing.
  */
 export async function startAxiomLogs({
   read,
   env = globalThis.process?.env ?? {},
   fetch: send,
+  retryMs = TOKEN_RETRY_MS,
 }: {
   read?: (secretName: string) => Promise<string>;
   env?: Record<string, string | undefined>;
   fetch?: typeof fetch;
+  /** Tests: the wait between reads while the token can't be read (a minute). */
+  retryMs?: number;
 }): Promise<AxiomSink | undefined> {
   if (started[STARTED]) return started[STARTED].sink;
   const dataset = env['AXIOM_DATASET']?.trim();
   const domain = env['AXIOM_DOMAIN']?.trim();
   const secret = env['AXIOM_TOKEN_SECRET']?.trim();
   if (!dataset && !domain && !secret) return undefined;
+  const warning = 'Logs go to stdout only, not to Axiom';
   const warn = (reason: string) => {
-    writeLog('WARNING', `Logs go to stdout only, not to Axiom: ${reason}`, {
-      event: 'startup',
-    });
+    writeLog('WARNING', `${warning}: ${reason}`, { event: 'startup' });
     return undefined;
   };
   if (!dataset || !domain || !secret || !read) {
@@ -267,25 +278,43 @@ export async function startAxiomLogs({
       'AXIOM_DATASET, AXIOM_DOMAIN and AXIOM_TOKEN_SECRET must all be set',
     );
   }
-  let token: string;
-  try {
-    token = (await read(secret)).trim();
-  } catch {
-    // Most likely the secret has no version yet (the owner adds it by hand).
-    return warn(`the token (${secret}) couldn't be read`);
-  }
-  if (!token) return warn(`the token (${secret}) is empty`);
-  try {
-    const sink = axiomSink({ domain, dataset, token, fetch: send });
-    started[STARTED] = { sink, remove: addLogSink(sink) };
-    return sink;
-  } catch (err) {
-    return warn(err instanceof Error ? err.message : 'bad settings');
-  }
+  const state: Started = {};
+  started[STARTED] = state;
+  // The timer below spaces the reads, so the reader itself never holds one back.
+  const token = tokenReader({ secret, read, warning, retryMs: 0 });
+  const attach = (value: string) => {
+    try {
+      const sink = axiomSink({ domain, dataset, token: value, fetch: send });
+      state.sink = sink;
+      state.remove = addLogSink(sink);
+      return sink;
+    } catch (err) {
+      return warn(err instanceof Error ? err.message : 'bad settings');
+    }
+  };
+  const retry = () => {
+    state.retry = setTimeout(() => {
+      state.retry = undefined;
+      void token().then((value) => {
+        // Reset (tests) while reading: this attempt belongs to a forgotten start.
+        if (started[STARTED] !== state) return;
+        if (value === undefined) retry();
+        else attach(value);
+      });
+    }, retryMs);
+    state.retry.unref?.();
+  };
+  const value = await token();
+  if (started[STARTED] !== state) return undefined;
+  if (value !== undefined) return attach(value);
+  retry();
+  return undefined;
 }
 
 /** Stops sending to Axiom and forgets the sink (tests). */
 export function resetAxiomLogs(): void {
-  started[STARTED]?.remove();
+  const current = started[STARTED];
+  current?.remove?.();
+  clearTimeout(current?.retry);
   delete started[STARTED];
 }

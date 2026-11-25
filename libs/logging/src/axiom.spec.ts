@@ -161,10 +161,39 @@ describe('the Axiom sink', () => {
     expect(lines.map((l) => [l['severity'], l['message']])).toEqual([
       [
         'WARNING',
-        "Logs go to stdout only, not to Axiom: the token (axiom-ingest-token) couldn't be read",
+        "Logs go to stdout only, not to Axiom: the token (axiom-ingest-token) couldn't be read; trying again once a minute",
       ],
       ['INFO', 'still on stdout'],
     ]);
+  });
+
+  it('a token that can’t be read at first is read again in the background; logs reach Axiom once it can', async () => {
+    const axiom = fakeAxiom();
+    let failures = 2;
+    const read = vi.fn(async () => {
+      if (failures-- > 0) throw new Error('timed out reading projects/p/x');
+      return TOKEN;
+    });
+    expect(
+      await startAxiomLogs({ env: ENV, read, fetch: axiom.fetch, retryMs: 0 }),
+    ).toBeUndefined();
+    writeLog('INFO', 'before the token');
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(3));
+    await vi.waitFor(async () => {
+      writeLog('INFO', 'after the token');
+      await flushLogSinks();
+      expect(axiom.sent.length).toBeGreaterThan(0);
+    });
+    expect(axiom.sent[0]?.headers['authorization']).toBe(`Bearer ${TOKEN}`);
+    expect(
+      axiom.sent.flatMap((s) => s.body.map((e) => e['message'])),
+    ).not.toContain('before the token');
+    const warnings = lines.filter((l) => l['severity'] === 'WARNING');
+    expect(warnings.map((l) => l['message'])).toEqual([
+      "Logs go to stdout only, not to Axiom: the token (axiom-ingest-token) couldn't be read; trying again once a minute",
+    ]);
+    expect(warnings[0]?.['error']).toEqual({ type: 'Error' });
+    expect(JSON.stringify(lines)).not.toContain('projects/p/x');
   });
 
   it('sends what is waiting on shutdown, and gives up on a hung Axiom within the cap', async () => {
