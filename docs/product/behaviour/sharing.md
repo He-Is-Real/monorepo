@@ -2,7 +2,7 @@
 
 Who: Signed-in person (sharing their own story and its files), Admin (limits), Moderator, the system.
 Data: `docs/db-permissions.md`.
-Next id: REQ-SHR-124
+Next id: REQ-SHR-125
 
 ## Contents
 
@@ -28,7 +28,7 @@ Next id: REQ-SHR-124
 
 ## The share page's steps
 
-- **REQ-SHR-003** The share page goes: choose the type, the testimony consent (only if the person has not agreed to the latest), preparation prompts, write or upload the file, details (optional first name, themes), review (with the optional social media box), then "waiting for review". [J-2026-10-25-SHR]
+- **REQ-SHR-003** The share page goes: choose the type, the testimony consent (only if the person has not agreed to the latest), preparation prompts, write or upload the file, details (optional first name, themes), review (with the optional social media box), then "waiting for review". [UNTRACED]
 - **REQ-SHR-004** The preparation prompts are guidance only and are never stored. [J-2026-10-25-SHR]
 - **REQ-SHR-005** When the person presses an earlier step in the steps at the top of the share page, it opens at once, with nothing lost (drafts save as the person goes). [J-2026-11-10-SHR]
 - **REQ-SHR-006** A later step opens only once every step before it would pass its own Continue; otherwise the page stops at the first step that still needs something and shows that step's usual message. [J-2026-11-10-SHR]
@@ -42,8 +42,8 @@ Next id: REQ-SHR-124
 
 - **REQ-SHR-012** Once Bunny has processed the story's video or audio file, the review step plays it in Bunny's player, beside the picture. [J-2026-11-10-SHRb]
 - **REQ-SHR-013** Until Bunny has processed it, the file's row is one status line: a tick, the file's name (when the tab knows it) and "Uploaded. Its preview will be ready later.", with no waiting or checking again. [RP-3]
-- **REQ-SHR-014** While the preview is not ready, the person can still send the story, or press "Save Draft and Exit" and come back later. [RP-3]
-- **REQ-SHR-015** After a submission whose answer was lost, "Save Draft and Exit" first sends that same submission again: if it went through, the page shows "Thank you"; if that cannot be known yet, it confirms nothing and asks the person to try again. [RP-3]
+- **REQ-SHR-014** While the preview is not ready, the person can still send the story, or press "Save Draft and Exit" and come back later. [J-2026-11-10-SHRb]
+- **REQ-SHR-015** After a submission whose answer was lost, "Save Draft and Exit" first sends that same submission again: if it went through, the page shows "Thank you"; if that cannot be known yet, it confirms nothing and asks the person to try again. [UNTRACED]
   Why: the person already asked to send it, and our server may still be working on it.
 - **REQ-SHR-016** The review step has a "See your story as others will" button, a link styled as an outline button with an eye icon, full width on phones, with "Opens in a new tab" under it, that opens `/account/stories/{id}/preview` in a new tab. [J-2026-11-14-SHRb]
 - **REQ-SHR-017** The preview page shows the public story page's own parts, with a banner "Only you can see this preview", and no heart, share or related stories. Only the story's owner can open it. [J-2026-11-10-SHRb]
@@ -58,7 +58,7 @@ Next id: REQ-SHR-124
 ## Drafts and autosave
 
 - **REQ-SHR-025** "Save Draft and Exit" sits right of Back on every step from writing to review, with Continue or Submit on the far right. [J-2026-11-22-SHR]
-- **REQ-SHR-026** While a save is under way, "Save Draft and Exit" reads "Saving…" and is greyed; when ready it reads "Save Draft and Exit". Screen readers hear "Saving…" and "Draft saved". [J-2026-11-14-SHR]
+- **REQ-SHR-026** While a save is under way, "Save Draft and Exit" reads "Saving…" and is greyed; when ready it reads "Save Draft and Exit". Screen readers hear "Saving…" and "Draft saved". [J-2026-11-22-SHR]
 - **REQ-SHR-027** Save warnings stay as text under the step: kept on this device until it can be saved, offline, a save error, or a clash with another tab. [J-2026-11-14-SHR]
 - **REQ-SHR-028** When the person presses "Save Draft and Exit", the page waits for the save, then goes to My submissions, where the draft is listed with "Continue". [J-2026-11-14-SHR]
 - **REQ-SHR-029** Before a draft can be saved (a written story needs its title and some text, a video or audio story its title), "Save Draft and Exit" stays and says what is needed, also for text brought back after a reload. [J-2026-11-14-SHR]
@@ -70,16 +70,16 @@ Next id: REQ-SHR-124
 
 ## Limits
 
-- **REQ-SHR-035** An Admin can change each limit in this section; the numbers given are the values in force. [J-2026-10-28-SHR]
+- **REQ-SHR-035** An Admin can change each limit in this section; the numbers given are the values in force. [D112]
 - **REQ-SHR-036** A written story's text is 200 to 10,000 characters; a video or audio story's text has no minimum and is at most 10,000. [M1-A3]
 - **REQ-SHR-037** Invisible zero-width characters count towards the 200-character minimum. [M1O-A2]
 - **REQ-SHR-038** A story's title is at most 140 characters. [UNTRACED]
 - **REQ-SHR-039** A story has 1 to 5 themes, counted when it is submitted. [J-2026-10-28-SHR]
-- **REQ-SHR-040** A person has at most 3 open drafts; only never-sent stories count. [D94]
+- **REQ-SHR-040** A person has at most 3 open drafts; only never-sent stories count. [J-2026-10-25-SHR]
 - **REQ-SHR-041** A person sends at most 1 story for review in any 7 days. [D94]
-- **REQ-SHR-042** When a limit changes, it applies to everyone at once: every later action must meet the limits in force. [D94]
-- **REQ-SHR-043** An edit over a maximum is accepted only if it does not make it worse, so a long draft can still be trimmed; submitting needs every current minimum and maximum. [D94]
-- **REQ-SHR-044** Trusted submitters have no open-drafts or weekly limits, only the hourly upload limit, and get the largest video and audio sizes and lengths (not bigger pictures). [D94]
+- **REQ-SHR-042** When a limit changes, it applies to everyone at once: every later action must meet the limits in force. [J-2026-10-30-SHRb]
+- **REQ-SHR-043** An edit over a maximum is accepted only if it does not make it worse, so a long draft can still be trimmed; submitting needs every current minimum and maximum. [J-2026-10-30-SHRb]
+- **REQ-SHR-044** Trusted submitters have no open-drafts or weekly limits, only the hourly upload limit, and get the largest video and audio sizes and lengths (not bigger pictures). [UNTRACED]
 - **REQ-SHR-045** An Admin can also set a person's own limits; there is no admin page for that. [D112]
 - **REQ-SHR-046** Before a limit is reached, the share page shows what's left this week ("2 of 3 stories left…"). [UNTRACED]
 - **REQ-SHR-047** At a limit, the share page explains kindly, says when the person can carry on, and holds that step back. [UNTRACED]
@@ -87,22 +87,23 @@ Next id: REQ-SHR-124
 ## Uploading files
 
 - **REQ-SHR-048** Files go straight from the person's browser to Bunny.net; our servers never handle the files. [D80]
-- **REQ-SHR-049** Video and audio uploads show progress, can pause and resume, and carry on after a reload. [D80]
+- **REQ-SHR-049** Video and audio uploads show progress, can pause and resume, and carry on after a reload. [UNTRACED]
 - **REQ-SHR-050** Our server, never the browser, decides which file belongs to a story, so nobody can point their story at someone else's media. [D80]
 - **REQ-SHR-051** A story has one video or audio file; replacing it deletes the old one at Bunny at once. [J-2026-10-25-SHR]
-- **REQ-SHR-052** When a story is sent for review, the system checks that its file arrived and is within the limits. [D80]
+- **REQ-SHR-052** When a story is sent for review, the system checks that its file arrived and is within the limits. [UNTRACED]
 - **REQ-SHR-053** When the person leaves the upload step while a video, audio file or picture is still uploading, by Back or the steps at the top, the step changes and the upload stops, with no question and no message. [J-2026-11-11-SHR]
 - **REQ-SHR-054** A stopped video or audio upload carries on from where it stopped when the person chooses the same file again; a stopped picture is chosen again. [J-2026-11-11-SHR]
 - **REQ-SHR-055** Going forward past the upload step, and sending, wait until its file and picture are complete. [J-2026-11-11-SHR]
 
 ## Upload limits
 
-- **REQ-SHR-056** An Admin can change each limit in this section; the numbers given are the values in force. [J-2026-10-28-SHR]
-- **REQ-SHR-057** A person makes at most 5 video and audio uploads in any 7 days; pictures never count towards it. [D113]
-- **REQ-SHR-058** A person makes at most 10 upload requests, for any file, an hour. [D94]
+- **REQ-SHR-056** An Admin can change each limit in this section; the numbers given are the values in force. [D112]
+- **REQ-SHR-057** A person makes at most 5 video and audio uploads in any 7 days; pictures never count towards it. [UNTRACED]
+- **REQ-SHR-058** A person makes at most 10 upload requests, for any file, an hour. [J-2026-10-25-SHR]
 - **REQ-SHR-059** A video file is at most 4 GB. [M2-A4]
 - **REQ-SHR-122** An audio file is at most 500 MB. [M2-A4]
-- **REQ-SHR-123** A video or audio file is at most 15 minutes long. [M2-A4]
+- **REQ-SHR-123** A video file is at most 15 minutes long. [M2-A4]
+- **REQ-SHR-124** An audio file is at most 15 minutes long. [UNTRACED]
 - **REQ-SHR-060** The largest picture file is 3 MB; an Admin sets it between 200 KB and 20 MB. [J-2026-11-20-SHR]
 - **REQ-SHR-061** The largest picture file is the same for everyone, trusted submitters too, and covers every picture: a written story's, an audio story's and a video's thumbnail. [J-2026-11-20-SHR]
 - **REQ-SHR-062** The largest picture file is measured after the browser has made the picture smaller. [J-2026-11-20-SHR]
@@ -113,7 +114,7 @@ Next id: REQ-SHR-124
 ## Pictures
 
 - **REQ-SHR-065** An audio story's picture and a video's own thumbnail can be uploaded, as a written story's picture can. [J-2026-10-30-SHR]
-- **REQ-SHR-066** Before upload, the browser converts every picture to WebP, at most 2048 pixels on the long side, no bigger than the largest picture file, and no more extreme than 1:3 or 3:1, so no location or camera data leaves the device. [D53]
+- **REQ-SHR-066** Before upload, the browser converts every picture to WebP, at most 2048 pixels on the long side, no bigger than the largest picture file, and no more extreme than 1:3 or 3:1, so no location or camera data leaves the device. [UNTRACED]
 - **REQ-SHR-067** A picture has no smallest size: the browser, api-user and the database take anything from 1 pixel up. [TC-7]
   Why: someone may want to share pixel art.
 - **REQ-SHR-068** Before upload, the browser enlarges every picture under about 1,000 pixels on its longer side by a whole number, with hard pixel edges, until its longer side is at least about 1,000 pixels. [TC-7]
@@ -144,8 +145,8 @@ Next id: REQ-SHR-124
 - **REQ-SHR-084** When the person presses Continue while a crop is open, the page says "Use this thumbnail, or cancel it, before you go on." [TC-6]
 - **REQ-SHR-085** Only the cropped picture leaves the device, never the original photo; once added, "Change how it's cropped" reopens the cropper on the same photo while this tab still has it. [TC-1]
 - **REQ-SHR-086** In "A moment from your video", a slider moves through the video and "Use this moment" grabs that frame in the browser and adds it like any picture; the tab appears only when this browser can play the chosen video. [TC-1]
-- **REQ-SHR-087** The crop picture is one stop in the Tab order ("Thumbnail crop: arrow keys move the picture, plus and minus zoom"): arrow keys move it (with Shift, further), + and − zoom, and 0 centres it. [J-2026-11-21-SHR]
-- **REQ-SHR-088** A labelled zoom slider with − and + buttons and "Centre" sit beside the crop, and after a move a polite spoken line says where the crop is ("Zoom 1.5 times. Showing the top left of your picture."). [J-2026-11-21-SHR]
+- **REQ-SHR-087** The crop picture is one stop in the Tab order ("Thumbnail crop: arrow keys move the picture, plus and minus zoom"): arrow keys move it (with Shift, further), + and − zoom, and 0 centres it. [TC-8]
+- **REQ-SHR-088** A labelled zoom slider with − and + buttons and "Centre" sit beside the crop, and after a move a polite spoken line says where the crop is ("Zoom 1.5 times. Showing the top left of your picture."). [TC-8]
 - **REQ-SHR-089** The browser reads the video's shape from the chosen file, as it reads its length, with a phone's "turn this" note applied; if the browser cannot play the file, it reads an MP4 or MOV file's header. [TC-4]
 - **REQ-SHR-090** When the shape is still unknown (another format, or a draft carried on in another tab or on another device), the thumbnail chooser waits with a plain line until Bunny reports the shape; the person can carry on and come back. [TC-4]
 - **REQ-SHR-091** When the person chooses a new video, whatever its shape, the thumbnail is taken off and the page says "We've taken your thumbnail off because you changed your video. Choose one again if you still want it." [TC-3]
@@ -159,8 +160,8 @@ Next id: REQ-SHR-124
   Why: Bunny refuses an expired link, so a request the site has given up on cannot change the picture afterwards.
   Not: a page's own picture links; they keep their usual lifetime.
 - **REQ-SHR-096** When Bunny downloads the picture in time but takes over 20 seconds to save it, and meanwhile the person removes or changes the picture and sends again, the old picture can land; a Moderator or Admin then takes the story down and the person sends it again. [RE-5]
-- **REQ-SHR-097** Nothing goes to Bunny only when the picture is the one Bunny was last confirmed to show and Bunny still shows that recorded file, or when there is no picture, nothing recorded, and Bunny still shows the video's first, untouched thumbnail. [P1-13]
-- **REQ-SHR-098** When Bunny shows any other file (a late change from an earlier send, or another tab), the system sets the picture, or Bunny's own frame, again and reads it back; a file name our own confirmed set did not produce is never recorded. [P1-13]
+- **REQ-SHR-097** Nothing goes to Bunny only when the picture is the one Bunny was last confirmed to show and Bunny still shows that recorded file, or when there is no picture, nothing recorded, and Bunny still shows the video's first, untouched thumbnail. [UNTRACED]
+- **REQ-SHR-098** When Bunny shows any other file (a late change from an earlier send, or another tab), the system sets the picture, or Bunny's own frame, again and reads it back; a file name our own confirmed set did not produce is never recorded. [UNTRACED]
 - **REQ-SHR-099** When Bunny refuses, cannot be reached, takes over 20 seconds or does not show the new picture, the story is not sent and stays as it was, and the person is told "We couldn't add your picture. Please add it again, then submit." [P1-13]
 - **REQ-SHR-100** A failed picture set at Bunny has no retry in the background and no picture job. [P1-13]
 - **REQ-SHR-101** Once Bunny shows the picture, the database records it on the video's record with the name of the picture file Bunny showed (for a video never given a picture, its untouched thumbnail). [RE-2]
@@ -170,7 +171,7 @@ Next id: REQ-SHR-124
 
 ## An audio story's picture video
 
-- **REQ-SHR-105** Once an audio story's file is ready at Bunny, the media worker makes a video of the story's picture (or the site's default waveform picture) in the picture's own shape, at most 1280 px on its longer side, with the sound unchanged, and uploads it to a new Bunny video. [DEC-1B]
+- **REQ-SHR-105** Once an audio story's file is ready at Bunny, the media worker makes a video of the story's picture (or the site's default waveform picture) in the picture's own shape, at most 1280 px on its longer side, with the sound unchanged, and uploads it to a new Bunny video. [DEC-4]
 - **REQ-SHR-106** The audio story then shows that picture video instead of the audio file, keeping its edit number; the nightly clean-up deletes the audio file. [DEC-1B]
 - **REQ-SHR-107** A new picture, or the picture taken off, makes a new picture video. [DEC-1B]
 - **REQ-SHR-108** An audio story counts as ready only once its picture video is, so it cannot be approved before. [DEC-1B]
