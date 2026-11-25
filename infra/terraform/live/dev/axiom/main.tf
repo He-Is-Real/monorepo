@@ -72,7 +72,7 @@ resource "axiom_dataset" "logs" {
 
 # OpenTelemetry spans (LG-15, Joel 2026-11-25): Axiom keeps each OpenTelemetry signal in its own
 # dataset. One traces dataset is shared by dev and production (each span carries
-# `deployment.environment`), so the free plan's 3 datasets are logs-dev, logs-prod and this one.
+# `deployment.environment.name`), so the free plan's 3 datasets are logs-dev, logs-prod and this one.
 # Managed here; a prod root only sends to it.
 resource "axiom_dataset" "traces" {
   name                 = "heisreal-traces"
@@ -85,13 +85,17 @@ resource "axiom_dataset" "traces" {
 
 # Dashboards (dashboard-*.tf), one file each. Stats group by route, service, outcome, action or
 # day only, never by person, story or address (LG-8): no chart lists or groups by a user, session
-# or token hash, an IP, an email, a story or `ref`. Monitors and notifiers come later, once Joel
-# has chosen what to watch and who gets told (the free plan allows 3 monitors, and each one runs a
-# query on a schedule).
+# or token hash, an IP, an email or a story. One table lists trace ids (`ref`, a random id, not a
+# person): Service health's slowest requests, to open each in Axiom's trace view. Monitors and
+# notifiers come later, once Joel has chosen what to watch and who gets told (the free plan allows
+# 3 monitors, and each one runs a query on a schedule).
 locals {
   # The dataset every chart reads; a prod root reuses the dashboard files with its own.
   dataset = axiom_dataset.logs.name
   ds      = "['${axiom_dataset.logs.name}']"
+  # The traces dataset is shared by every environment; charts over it keep to this one.
+  traces_ds  = "['${axiom_dataset.traces.name}']"
+  traces_env = "dev"
 
   # Shared dashboard settings: shared with the organisation, no auto-refresh (a dashboard only
   # queries while it's open, and each refresh costs query time from the free 10 GB-hours a

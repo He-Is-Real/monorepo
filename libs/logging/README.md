@@ -165,6 +165,11 @@ and job's timeline goes to Axiom's `heisreal-traces` dataset beside the logs.
 - **Only request and job timelines:** a trace that starts with one of Next's code-loading spans
   (an instance loading its route modules at start-up, outside any request) is not sent
   (`RequestsAndJobsOnly`). The same spans inside a request stay in its timeline.
+- **Not our own telemetry:** a span whose host is the Axiom domain (`AXIOM_DOMAIN`: its
+  `net.peer.name`, `server.address`, URL or name) is dropped (`WithoutOwnTelemetry`): the log
+  sink's sends, which Next's patched fetch records inside a page request. The OTLP exporter's own
+  sends make no spans (no automatic `http` instrumentation; the batch processor exports with
+  tracing suppressed), and the same filter would drop one.
 - **Data classes:** every span leaves through `cleanSpan`: only the attributes in
   `SPAN_ATTRIBUTES`, names without addresses, query strings or any path but the span's own route
   pattern (`http.route` / `next.route`), exceptions reduced to their type,

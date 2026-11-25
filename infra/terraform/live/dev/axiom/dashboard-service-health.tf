@@ -1,6 +1,8 @@
 # Dashboard "Service health": how much each service is asked, how it answers and how fast, cold
 # starts, rate limits and which versions are running. Request events only (one per API request).
-# Grouped by service, route, outcome or rate-limit group (LG-8).
+# Grouped by service, route, outcome or rate-limit group (LG-8). One table reads the traces
+# dataset instead: each route's slowest request with its trace id, to open in Axiom's trace view
+# (`ref` is a random id, not a person, so LG-8 allows it).
 locals {
   health_charts = [
     {
@@ -122,6 +124,27 @@ locals {
         | order by last_seen desc
       APL
     },
+    {
+      id = "slowest", type = "Table", name = "Slowest requests (last 24 h): each route's slowest, with its trace", x = 0, y = 34, w = 12, h = 9
+      # Every service's request span (the website's pages too), from the traces dataset: one row
+      # per route with its slowest request. `trace_id` opens in Axiom's trace view (Query →
+      # heisreal-traces, or the trace search); `ref` is the same id as the logs write it. Spans
+      # without a route (Next's inner "GET" span, static files) are left out.
+      apl = <<-APL
+        ${local.traces_ds}
+        | where ['resource.deployment.environment.name'] == "${local.traces_env}"
+            and kind == "server" and name contains " "
+        | summarize requests = count(),
+            p95_ms = round(percentile(duration / 1ms, 95), 1),
+            arg_max(duration, trace_id, _time)
+          by ['service.name'], route = name
+        | extend slowest_ms = round(duration / 1ms, 1),
+            ref = strcat(substring(trace_id, 0, 8), "-", substring(trace_id, 8, 4), "-",
+              substring(trace_id, 12, 4), "-", substring(trace_id, 16, 4), "-", substring(trace_id, 20, 12))
+        | project ['service.name'], route, slowest_ms, trace_id, ref, at = _time, requests, p95_ms
+        | order by slowest_ms desc
+      APL
+    },
   ]
 }
 
@@ -129,7 +152,7 @@ resource "axiom_dashboard" "service_health" {
   uid = "${local.dataset}-service-health"
   dashboard = jsonencode(merge(local.dashboard_defaults, {
     name        = "Service health (${local.dataset})"
-    description = "Requests, failures, time, cold starts, rate limits and versions by service and route."
+    description = "Requests, failures, time, cold starts, rate limits, versions and the slowest requests by service and route."
     charts = [for c in local.health_charts : merge(
       { id = c.id, type = c.type },
       try({ text = c.text }, {}),

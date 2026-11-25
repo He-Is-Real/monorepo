@@ -26,6 +26,11 @@
  *   carry anything (an email, a token) past the attribute allowlist.
  * - **Only request and job timelines.** Next's start-up spans (an instance loading its route
  *   modules, outside any request) are not sent ({@link RequestsAndJobsOnly}).
+ * - **Not our own telemetry.** A span whose target is the Axiom domain (`AXIOM_DOMAIN`) is dropped
+ *   ({@link WithoutOwnTelemetry}): the log sink's sends to Axiom, which Next's patched fetch records
+ *   inside a request. The OTLP exporter's own sends make no spans (no automatic instrumentation of
+ *   `http`, and the batch processor exports with tracing suppressed); were one ever made, the same
+ *   filter drops it.
  * - **Never in the way.** Off unless `AXIOM_TRACES_DATASET`, `AXIOM_DOMAIN` and
  *   `AXIOM_TOKEN_SECRET` (`axiom-ingest-token`, the same token as the logs) are set: locally and in
  *   tests nothing is sent. Partly set: one start-up warning, never a failed start. The token is
@@ -310,6 +315,58 @@ export class RequestsAndJobsOnly implements SpanProcessor {
   }
 }
 
+/** The hosts a span targets: its peer or server address, URL attributes and any address in its name. */
+function hostsOf(span: ReadableSpan): string[] {
+  const hosts: string[] = [];
+  const { attributes } = span;
+  for (const key of ['net.peer.name', 'server.address', 'http.host']) {
+    const value = attributes[key];
+    if (typeof value === 'string') hosts.push(value.split(':')[0]);
+  }
+  // Only the first address in each: the destination. Addresses in its query string aren't.
+  const texts = [span.name, attributes['http.url'], attributes['url.full']];
+  for (const text of texts) {
+    if (typeof text !== 'string') continue;
+    const match = /\b[a-z][a-z0-9+.-]*:\/\/([^/\s?#:]+)/i.exec(text);
+    if (match) hosts.push(match[1]);
+  }
+  return hosts.map((h) => h.toLowerCase());
+}
+
+/**
+ * Hands `next` every span except those sending to our own telemetry backend (`domain`, the
+ * Axiom domain): the log sink's sends, which Next's patched fetch records inside a request. Only
+ * noise, and it would grow with traffic. Without a domain, every span passes.
+ */
+export class WithoutOwnTelemetry implements SpanProcessor {
+  private readonly domain: string | undefined;
+
+  constructor(
+    private readonly next: SpanProcessor,
+    domain: string | undefined,
+  ) {
+    this.domain = domain?.trim().toLowerCase() || undefined;
+  }
+
+  onStart(span: Span, parentContext: Context): void {
+    this.next.onStart(span, parentContext);
+  }
+
+  onEnd(span: ReadableSpan): void {
+    const domain = this.domain;
+    if (domain && hostsOf(span).includes(domain)) return;
+    this.next.onEnd(span);
+  }
+
+  forceFlush(): Promise<void> {
+    return this.next.forceFlush();
+  }
+
+  shutdown(): Promise<void> {
+    return this.next.shutdown();
+  }
+}
+
 /**
  * The process's resource (LG-10, the wide event's `service` group): `service.name / version /
  * revision`, `service.region` and `service.instance` (Cloud Run, once Google's metadata server has
@@ -503,13 +560,16 @@ export function startTracing({
       resource: spanResource(service),
       spanProcessors: [
         new RequestsAndJobsOnly(
-          new BatchSpanProcessor({
-            exporter,
-            exportTimeoutMillis: SEND_TIMEOUT_MS,
-            ...(scheduledDelayMillis !== undefined
-              ? { scheduledDelayMillis }
-              : {}),
-          }),
+          new WithoutOwnTelemetry(
+            new BatchSpanProcessor({
+              exporter,
+              exportTimeoutMillis: SEND_TIMEOUT_MS,
+              ...(scheduledDelayMillis !== undefined
+                ? { scheduledDelayMillis }
+                : {}),
+            }),
+            env['AXIOM_DOMAIN'],
+          ),
         ),
       ],
     });
