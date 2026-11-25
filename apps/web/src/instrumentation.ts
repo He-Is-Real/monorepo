@@ -7,7 +7,8 @@ import type { Instrumentation } from 'next';
  * - `register`: reads the two log keys (`log-hmac`, `log-search-hmac`) through libs/secrets, the
  *   same way the APIs do. Deployed (Cloud Run sets `K_SERVICE`) without both, the server doesn't
  *   start; locally the fixed development keys are used, with a warning. Then it starts the Axiom
- *   sink (LG-3, `@heisreal/logging/axiom`) as the APIs do: where OpenTofu set `AXIOM_DATASET`,
+ *   sink (LG-3, `@heisreal/logging/axiom`) in the background, so a slow token read never delays
+ *   the first request: where OpenTofu set `AXIOM_DATASET`,
  *   `AXIOM_DOMAIN` and `AXIOM_TOKEN_SECRET`, every log entry also goes to Axiom; a token that
  *   can't be read is one warning, never a failed start. Unlike the APIs there is no flush at
  *   shutdown: Next has no shutdown hook for App Router apps (its own SIGTERM handler closes the
@@ -26,7 +27,9 @@ export async function register(): Promise<void> {
   if (process.env['NEXT_RUNTIME'] !== 'nodejs') return;
   const { loadWebLogKeys, startWebAxiomLogs } = await import('./lib/log-keys');
   await loadWebLogKeys();
-  await startWebAxiomLogs();
+  // Not awaited: Next waits for `register` before serving, and Axiom is optional. Entries written
+  // before the token is read go to stdout only. startAxiomLogs never throws; the catch is a guard.
+  void startWebAxiomLogs().catch(() => undefined);
 }
 
 export const onRequestError: Instrumentation.onRequestError = async (
