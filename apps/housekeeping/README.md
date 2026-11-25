@@ -74,8 +74,9 @@ never sent, written) over 12 hours ago, to the `media-jobs` queue again, and rec
 A job sent the same evening isn't doubled; a duplicate is harmless anyway.
 
 What each chore may touch is also enforced by the database: see
-[docs/db-permissions.md](../../docs/db-permissions.md). The rules behind them (draft retention,
-upload limits, erasure) are in [docs/how-the-app-works.md](../../docs/how-the-app-works.md).
+[docs/db-permissions.md](../../docs/db-permissions.md). The rules behind them are in
+[docs/how-the-app-works.md](../../docs/how-the-app-works.md) (draft retention, erasure) and
+[docs/product/behaviour/sharing.md](../../docs/product/behaviour/sharing.md) (upload limits).
 
 ## Dry run and the per-run limit
 
