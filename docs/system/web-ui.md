@@ -1,7 +1,7 @@
 # Web UI library
 
 Who: the people who build pages in `apps/web` and pieces in `libs/web-ui`. Data: none; `libs/web-ui/README.md` lists the pieces.
-Next id: REQ-WEB-040
+Next id: REQ-WEB-042
 
 ## Contents
 
@@ -25,6 +25,8 @@ Next id: REQ-WEB-040
 ## Which piece for what
 
 - **REQ-WEB-008** Every drop-down is the library's `Select`. [J-2026-11-17-WEB]
+- **REQ-WEB-040** Closed, a `Select` shows the theme's field and chevron; opened on a computer (a mouse or trackpad), it shows the site's themed list in every browser. [J-2026-11-17-WEB]
+- **REQ-WEB-041** On phones and tablets, and before the page's JavaScript runs or without it, a `Select` is a native drop-down (the phone's own picker), so forms still work. [J-2026-11-17-WEB]
 - **REQ-WEB-009** Text boxes are `Input`, text areas `Textarea`, and the label, hint and error under a field are its `Field` parts. [WL-1]
 - **REQ-WEB-010** Bordered panels are `Card`, pop-up menu panels `PopoverPanel`, and buttons whose words may wrap `Button wrap`. [WL-1]
 - **REQ-WEB-011** Search boxes are `SearchBox`, with a magnifier button inside. [BS-2]
