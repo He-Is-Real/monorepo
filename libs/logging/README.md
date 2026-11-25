@@ -111,10 +111,13 @@ slowest { name, ms } }`, `external.<name> { calls, ms, status }`.
   send (10 s) is dropped and counted, with one stdout warning a minute; no retries. None set
   (locally, tests): nothing is sent. Partly set, or the token can't be read or is empty: one
   start-up warning, stdout only; the service still starts. Started by `LogKeysModule`
-  (libs/http) in the Nest services, and by housekeeping and the media worker in their `main.ts`.
+  (libs/http) in the Nest services, by housekeeping and the media worker in their `main.ts`, and
+  by the website's `instrumentation.ts` (`register`, after its log keys).
 - **Shutting down:** `flushLogSinks(ms)` sends what every sink holds, waiting at most `ms`. The
   Nest services call it from `LogKeysModule` on SIGTERM (`enableShutdownHooks`); housekeeping
-  before it exits; the media worker when it stops.
+  before it exits; the media worker when it stops. The website doesn't: Next has no shutdown hook
+  for App Router apps (its own SIGTERM handler closes the server and exits), so lines still
+  queued when an idle website instance is shut down are missing in Axiom (not in Google's copy).
 - **Cloud Run's CPU:** our services use request-based billing (`cpu_idle = true`), so CPU is
   throttled once no request is in flight: a send started as a response closes may pause until
   the instance's next request, or until shutdown, when Cloud Run gives the instance CPU for 10 s

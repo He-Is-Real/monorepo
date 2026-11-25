@@ -1,4 +1,5 @@
 import { writeLog } from '@heisreal/logging';
+import { startAxiomLogs } from '@heisreal/logging/axiom';
 import { loadLogKeys } from '@heisreal/logging/event';
 import { readSecret } from '@heisreal/secrets/read';
 import { e2eFixtures } from './config';
@@ -36,4 +37,13 @@ export async function loadWebLogKeys(): Promise<void> {
     );
     process.exit(1);
   }
+}
+
+/**
+ * Starts the Axiom sink (LG-3) after the log keys, as the APIs' `LogKeysModule` does: on where
+ * OpenTofu set `AXIOM_DATASET`, `AXIOM_DOMAIN` and `AXIOM_TOKEN_SECRET` (the token read from
+ * Secret Manager in `GCP_PROJECT`); otherwise nothing, or one warning. Never stops the server.
+ */
+export async function startWebAxiomLogs(): Promise<void> {
+  await startAxiomLogs({ read: (name) => readSecret(name) });
 }

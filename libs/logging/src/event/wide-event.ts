@@ -710,6 +710,6 @@ export function writeErrorReport(
       logEntry('WARNING', `browser reported ${input.kind}`, fields, now),
     );
   } catch {
-    failedWrites++;
+    countFailedLogWrite();
   }
 }
