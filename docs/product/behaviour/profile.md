@@ -41,7 +41,7 @@ Next id: REQ-PRO-037
 - **REQ-PRO-023** When a story is deleted, its videos and pictures are deleted at Bunny at once, waiting at most 8 seconds; if Bunny fails or is still busy then, the delete still succeeds and the nightly clean-up removes them. [OD-1]
 - **REQ-PRO-024** Delete my account is the one account-wide withdrawal: the page says what goes and what stays and asks the person to type "delete". [D82]
 - **REQ-PRO-025** Deleting an account deletes the person's stories, videos, pictures, hearts, limits and records, deletes them at Clerk (which signs them out everywhere), and keeps a fingerprint of their sign-in so it can't create a new account. [D82]
-- **REQ-PRO-026** What is left of a deleted account is marked deleted, with no date and no reason. [D82]
+- **REQ-PRO-026** What is left of a deleted account is marked deleted, with no date and no reason. [DB2-R3]
 - **REQ-PRO-027** Deleting the person in Clerk's dashboard does the same as Delete my account. [D82]
 
 ## Download my data

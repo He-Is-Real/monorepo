@@ -59,7 +59,7 @@ Next id: REQ-ACC-056
 - **REQ-ACC-030** On the Block list page (`/admin/block-list`), an Admin keeps a list of blocked email addresses and IP addresses in plain text; only Admins read or change it, never Moderators. [G21]
 - **REQ-ACC-031** A blocked email can't create an account or send a story; a blocked IP address can't send a story. Reading the site is never blocked. [G21]
 - **REQ-ACC-032** A block stays until an Admin removes it, even after the person deletes their account. [G21]
-- **REQ-ACC-033** Each block list entry keeps which Admin added it, when, and an optional note on why. [G21]
+- **REQ-ACC-033** Each block list entry keeps which Admin added it and when. [G21]
 
 ## Block list notes
 

@@ -11,8 +11,8 @@ Next id: REQ-FAV-023
 - **REQ-FAV-003** Only a public story can be hearted; a story that stops being public stays hearted but doesn't show. [J-2026-10-25-FAV]
 - **REQ-FAV-004** While a person is signed out, or before they agree to the terms of use, their hearts are kept in the browser only, with no expiry, and never sent to us. [J-2026-10-28-FAV]
 - **REQ-FAV-005** After signing in, the site offers to add the browser's hearts to the account; they are added only if the person chooses to. [J-2026-10-28-FAV]
-- **REQ-FAV-006** Seeing or removing your hearts never needs an agreement. [J-2026-11-01-CON]
-- **REQ-FAV-007** A heart's time is the moment it was made, taken from its id; nobody can set it by hand. [J-2026-11-05-FAV]
+- **REQ-FAV-006** Seeing or removing your hearts never needs an agreement. [F3]
+- **REQ-FAV-007** A heart's time is the moment it was made, taken from its id; nobody can set it by hand. [R14]
 - **REQ-FAV-008** A story's owner sees how many hearts each of their stories has, never who gave them. (planned) [J-2026-10-25-FAV]
 
 ## Favourites only
