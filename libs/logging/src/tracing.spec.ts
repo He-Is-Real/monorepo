@@ -84,6 +84,102 @@ describe('tracing set-up (LG-15)', () => {
     expect(failedSpanExports()).toBe(2);
   });
 
+  describe('a token that can’t be read at first (25 Nov 2026: the website’s read starved between requests)', () => {
+    const ENV = {
+      AXIOM_TRACES_DATASET: 'heisreal-traces',
+      AXIOM_DOMAIN: 'eu-central-1.aws.edge.axiom.co',
+      AXIOM_TOKEN_SECRET: 'axiom-ingest-token',
+    };
+
+    /** Reads that fail `failures` times (a gRPC UNAVAILABLE), then return the token. */
+    const flakyRead = (failures: number) =>
+      vi.fn(async () => {
+        if (failures-- > 0) {
+          throw Object.assign(
+            new Error('14 UNAVAILABLE: projects/p/secrets/s quoted'),
+            { code: 14 },
+          );
+        }
+        return 'xaat-test-token';
+      });
+
+    const oneRequest = async () => {
+      const event = startEvent('request', 'api-user');
+      await runWithEvent(event, () => timeDb('SELECT story', async () => 1));
+      event.write();
+      await flushTracing(1000);
+    };
+
+    it('reads again with a later batch, then sends: one warning, with the error’s type and code only', async () => {
+      const sent: ReadableSpan[] = [];
+      const configs: { url: string; headers: Record<string, string> }[] = [];
+      const lines: string[] = [];
+      console.log = (line: string) => lines.push(line);
+      // The start-up read and the first batch's read fail; the second batch's read works.
+      const read = flakyRead(2);
+      startTracing({
+        service: 'api-user',
+        env: ENV,
+        read,
+        tokenRetryMs: 0,
+        otlp: (config) => {
+          configs.push(config);
+          return {
+            export: (spans, done) => {
+              sent.push(...spans);
+              done({ code: ExportResultCode.SUCCESS });
+            },
+            shutdown: async () => undefined,
+          };
+        },
+      });
+      // Read at start-up, before any span (and failed).
+      expect(read).toHaveBeenCalledTimes(1);
+      await new Promise(setImmediate);
+
+      await oneRequest();
+      expect(sent).toHaveLength(0);
+      expect(failedSpanExports()).toBe(2);
+
+      await oneRequest();
+      expect(read).toHaveBeenCalledTimes(3);
+      expect(sent.map((s) => s.name)).toEqual(['db SELECT story', 'request']);
+      expect(configs).toEqual([
+        {
+          url: 'https://eu-central-1.aws.edge.axiom.co/v1/traces',
+          headers: {
+            Authorization: 'Bearer xaat-test-token',
+            'X-Axiom-Dataset': 'heisreal-traces',
+          },
+          timeoutMillis: 10_000,
+        },
+      ]);
+
+      const warnings = lines
+        .map((l) => JSON.parse(l) as Entry)
+        .filter((e) => String(e['message']).startsWith('Spans are not sent'));
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]?.['error']).toEqual({ type: 'Error', code: 14 });
+      expect(lines.join()).not.toContain('quoted');
+    });
+
+    it('reads at most once a minute: batches in between are dropped without a read', async () => {
+      const read = flakyRead(Infinity);
+      startTracing({
+        service: 'api-user',
+        env: ENV,
+        read,
+        otlp: () => {
+          throw new Error('never made without a token');
+        },
+      });
+      await oneRequest();
+      await oneRequest();
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(failedSpanExports()).toBe(4);
+    });
+  });
+
   it('a failing exporter never throws into the work', async () => {
     const throwing: SpanExporter = {
       export: () => {

@@ -29,9 +29,11 @@
  * - **Never in the way.** Off unless `AXIOM_TRACES_DATASET`, `AXIOM_DOMAIN` and
  *   `AXIOM_TOKEN_SECRET` (`axiom-ingest-token`, the same token as the logs) are set: locally and in
  *   tests nothing is sent. Partly set: one start-up warning, never a failed start. The token is
- *   read when the first batch is sent (a few seconds after the first request), not at start-up,
- *   so reading it never adds to a cold start; if it can't be read, one warning then, and spans
- *   are dropped. Sending is the batch processor's, off the request path; a failed send is dropped with
+ *   read at start-up in the background (never awaited, so it never adds to a cold start): a
+ *   starting Cloud Run instance has full CPU, while a read begun between requests can starve and
+ *   time out (25 Nov 2026, `./token.ts`). If it can't be read: one warning (the error's type and
+ *   code), spans are dropped meanwhile, and the next batch after a minute reads it again. Sending
+ *   is the batch processor's, off the request path; a failed send is dropped with
  *   one warning a minute. {@link flushTracing} sends what is left at shutdown, within a time cap.
  */
 import {
@@ -75,6 +77,7 @@ import {
   writeLog,
 } from './index';
 import { uuidv7 } from './event/trace';
+import { tokenReader } from './token';
 
 /** The span context without its trace state: trace id, span id, flags (and whether remote). */
 export const withoutTraceState = ({
@@ -331,8 +334,8 @@ export function spanResource(service: string): Resource {
 
 /**
  * Cleans every span ({@link cleanSpan}, with `resource()` as its resource) and hands it to the exporter `exporter()` gives: the OTLP
- * exporter is made the first time it is asked for, once the token has been read (dropped, with a
- * failure, if the token never comes). A failed send is dropped, with one stdout warning a minute.
+ * exporter is made once the token has been read (each batch while it can't be read is dropped,
+ * with a failure). A failed send is dropped, with one stdout warning a minute.
  * Never throws.
  */
 export class CleanExporter implements SpanExporter {
@@ -421,6 +424,14 @@ export interface TracingOptions {
   exporter?: SpanExporter;
   /** Tests: the processor's delay before sending a batch. */
   scheduledDelayMillis?: number;
+  /** Tests: how long after a failed token read the next batch reads it again (a minute). */
+  tokenRetryMs?: number;
+  /** Tests: makes the exporter for Axiom's address and headers (the OTLP/HTTP exporter). */
+  otlp?: (config: {
+    url: string;
+    headers: Record<string, string>;
+    timeoutMillis: number;
+  }) => SpanExporter;
 }
 
 /**
@@ -434,6 +445,8 @@ export function startTracing({
   env = globalThis.process?.env ?? {},
   exporter: testExporter,
   scheduledDelayMillis,
+  tokenRetryMs,
+  otlp = (config) => new OTLPTraceExporter(config),
 }: TracingOptions): boolean {
   if (started[STARTED]) return true;
   try {
@@ -460,30 +473,28 @@ export function startTracing({
       if (!DATASET.test(dataset)) {
         return warn('AXIOM_TRACES_DATASET is malformed');
       }
-      let made: Promise<SpanExporter | undefined> | undefined;
-      const make = (): Promise<SpanExporter | undefined> =>
-        read(secret).then(
-          (value) => {
-            const token = value.trim();
-            if (!token) {
-              warn(`the token (${secret}) is empty`);
-              return undefined;
-            }
-            return new OTLPTraceExporter({
-              url: `https://${domain}/v1/traces`,
-              headers: {
-                Authorization: `Bearer ${token}`,
-                'X-Axiom-Dataset': dataset,
-              },
-              timeoutMillis: SEND_TIMEOUT_MS,
-            });
+      // Read now, in the background (a starting instance has full CPU; between requests Cloud Run
+      // gives it almost none), and again, at most once a minute, by a batch while it can't be read.
+      const token = tokenReader({
+        secret,
+        read,
+        warning: 'Spans are not sent to Axiom',
+        ...(tokenRetryMs !== undefined ? { retryMs: tokenRetryMs } : {}),
+      });
+      void token();
+      let sender: SpanExporter | undefined;
+      target = async () => {
+        const value = await token();
+        if (value === undefined) return undefined;
+        return (sender ??= otlp({
+          url: `https://${domain}/v1/traces`,
+          headers: {
+            Authorization: `Bearer ${value}`,
+            'X-Axiom-Dataset': dataset,
           },
-          () => {
-            warn(`the token (${secret}) couldn't be read`);
-            return undefined;
-          },
-        );
-      target = () => (made ??= make());
+          timeoutMillis: SEND_TIMEOUT_MS,
+        }));
+      };
     }
     const exporter = new CleanExporter(target, () => spanResource(service));
     const provider = new TracerProvider({

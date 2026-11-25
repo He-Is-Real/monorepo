@@ -111,8 +111,10 @@ slowest { name, ms } }`, `external.<name> { calls, ms, status }`.
   a JSON array, up to 1000 entries or 4 MB each) as soon as the current turn of the event loop
   ends; while a send is in flight, newer entries wait for the next one. A refused or timed-out
   send (10 s) is dropped and counted, with one stdout warning a minute; no retries. None set
-  (locally, tests): nothing is sent. Partly set, or the token can't be read or is empty: one
-  start-up warning, stdout only; the service still starts. Started by `LogKeysModule`
+  (locally, tests): nothing is sent. Partly set: one start-up warning, stdout only; the service
+  still starts. A token that can't be read or is empty: one warning (the error's type and code,
+  never its message), stdout only meanwhile, and a background re-read once a minute adds the sink
+  when it works (`src/token.ts`). Started by `LogKeysModule`
   (libs/http) in the Nest services, by housekeeping and the media worker in their `main.ts`, and
   by the website's `instrumentation.ts` (`register`, after its log keys).
 - **Shutting down:** `flushLogSinks(ms)` sends what every sink holds, waiting at most `ms`. The
@@ -139,8 +141,10 @@ and job's timeline goes to Axiom's `heisreal-traces` dataset beside the logs.
   `register`, the media worker and housekeeping after their secrets client). On only where
   `AXIOM_TRACES_DATASET`, `AXIOM_DOMAIN` and `AXIOM_TOKEN_SECRET` (`axiom-ingest-token`, the same
   token as the logs) are set; locally and in tests nothing is recorded or sent. Partly set: one
-  start-up warning. The token is read when the first batch is sent, not at start-up, so it never
-  adds to a cold start; a token that can't be read is one warning then, and spans are dropped.
+  start-up warning. The token is read at start-up in the background, never awaited (a starting
+  Cloud Run instance has full CPU; a read begun between requests can starve and time out, as the
+  website's did on 25 Nov 2026). While it can't be read: one warning (the error's type and code),
+  batches are dropped, and a batch reads it again at most once a minute (`src/token.ts`).
   `flushTracing(ms)` sends what is left at shutdown, beside `flushLogSinks` (the website has no
   shutdown hook, as for logs).
 - **Spans:** the wide event is the span. `startEvent` opens it (a server span for requests, a
