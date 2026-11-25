@@ -2,7 +2,6 @@ import {
   clientKind,
   currentEvent,
   type EventKind,
-  newTrace,
   type Outcome,
   runWithEvent,
   type Searcher,
@@ -30,6 +29,17 @@ import { canonicalIp } from './ip';
  *   exception filter records errors; `timeDb` / `timeExternal` add timings.
  * - It is written once, when the response is closed (also when the caller hangs up), after the
  *   answer has gone; writing never throws into the request.
+ * - It is also the request's OpenTelemetry server span (LG-15 D, `@heisreal/logging/tracing`),
+ *   named by the route pattern (`GET /v1/stories/:id`), never the address, with the database and
+ *   outside calls as child spans. Its trace id is the `ref`.
+ *
+ * Why the request span is made here by hand (Joel, 25 Nov 2026: "make a note to revert
+ * workarounds when a version is released that is compatible with NestJS 12"):
+ * `@opentelemetry/instrumentation-nestjs-core` supports `@nestjs/core` < 12 only, and Express's
+ * automatic spans need the ESM loader hook (about +1 s per cold start). When a release supports
+ * NestJS 12 without that hook, switch to it and delete this hand-made span (`openSpan` and
+ * `endSpan` in libs/logging's wide-event.ts, `spanName` below). `tools/scripts/otel-nest-check.mjs`
+ * (weekly, tofu-drift.yml) fails once a release does.
  */
 export function wideEvents(
   service: string,
@@ -57,10 +67,11 @@ export function wideEvents(
   return (req: Request, res: Response, next: NextFunction) => {
     let event: WideEvent;
     try {
+      // The caller's trace (the browser's, the media worker's) or a new UUID v7.
       event = startEvent(
         kind,
         fields,
-        traceFromHeader(req.headers['traceparent']) ?? newTrace(),
+        traceFromHeader(req.headers['traceparent']),
       );
       const userAgent = req.headers['user-agent'];
       const client = clientKind(userAgent);
@@ -160,6 +171,7 @@ function finishRequest(
     event.message(
       `${req.method} ${route ?? '(no route)'} ${status} in ${ms} ms`,
     );
+    event.spanName(`${req.method} ${route ?? '(no route)'}`);
     event.write();
   } catch {
     // never throws into the request

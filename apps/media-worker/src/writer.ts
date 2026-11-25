@@ -4,7 +4,7 @@
  * URL) and refuses anyone without run.invoker before the request reaches the writer.
  */
 
-import { currentEvent, traceparentFor } from '@heisreal/logging/event';
+import { currentEvent } from '@heisreal/logging/event';
 
 const TIMEOUT_MS = 30_000; // a cold start of the writer, then one database transaction
 
@@ -52,7 +52,8 @@ export function httpWriter(
     } catch {
       return 'no_token';
     }
-    // The job's trace id, so the writer's event joins the worker's (LG-4 A).
+    // The job's trace id, so the writer's event joins the worker's (LG-4 A), and its span is a
+    // child of the job's span (LG-15).
     const event = currentEvent();
     let res: Response;
     try {
@@ -62,7 +63,7 @@ export function httpWriter(
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
           Accept: 'application/json',
-          ...(event ? { traceparent: traceparentFor(event.traceId) } : {}),
+          ...(event ? { traceparent: event.traceparent() } : {}),
         },
         body: JSON.stringify(call.body),
         redirect: 'error',

@@ -111,7 +111,10 @@ source of truth, so change them in the same PR as the code.
     units as suffixes (`_ms`, `_bytes`); time every SurrealDB and outside call.
   - Every event carries `ref`, the request's UUID v7 that is also the `traceparent` trace id and the
     "Reference" people see (except search events). One trace id goes browser → services → Pub/Sub job →
-    the worker's `job` event; timings go in the wide event; no tracing library (LG-4 A).
+    the worker's `job` event; timings go in the wide event (LG-4 A).
+  - Spans: OpenTelemetry core, no automatic tracing; spans in `heisreal-traces` (LG-15). Each request
+    and job event is a span (route pattern as its name), `timeDb` / `timeExternal` are its children;
+    span attributes follow the same data classes (`SPAN_ATTRIBUTES` in `libs/logging/src/tracing.ts`).
   - No sampling: every event is kept for 30 days (LG-6 A).
   - Every entry carries deployment details, `service.name / version / revision / env` and on Cloud Run
     `region / instance` (LG-10); `libs/logging` adds them, `version` is the commit baked into the image.

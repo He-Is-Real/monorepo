@@ -112,6 +112,17 @@ variable "axiom_dataset" {
   }
 }
 
+variable "axiom_traces_dataset" {
+  description = "The Axiom dataset OpenTelemetry spans go to (LG-15; made in the axiom root), set beside AXIOM_DATASET."
+  type        = string
+  default     = "heisreal-traces"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", var.axiom_traces_dataset))
+    error_message = "An Axiom dataset name: letters, digits, '.', '_' and '-'."
+  }
+}
+
 variable "axiom_domain" {
   description = "The Axiom edge deployment the dataset lives in (EU Central 1 on the free plan)."
   type        = string

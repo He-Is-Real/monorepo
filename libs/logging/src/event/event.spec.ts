@@ -9,6 +9,7 @@ describe('the reference and trace id (LG-1b A, LG-4 A)', () => {
     ).toEqual({
       ref: '01a204cc-3df6-7f13-9030-75f14addacc4',
       traceId: '01a204cc3df67f13903075f14addacc4',
+      parentSpanId: '00f067aa0ba902b7',
     });
     for (const bad of [
       undefined,

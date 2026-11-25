@@ -90,6 +90,8 @@ export function proxy(request: NextRequest) {
     event.message(
       `${request.method} page ${event.outcome ?? 'ok'} in ${ms} ms (proxy)`,
     );
+    // Its span (LG-15) sits under Next's own request span, which names the route.
+    event.spanName(`proxy ${request.method}`);
     event.write();
   }
 }

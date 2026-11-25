@@ -51,7 +51,18 @@ success or failure. Stripe calls it a canonical log line; the blog calls it a wi
    and APIs → Pub/Sub job (as a message attribute) → the worker's `event: "job"`, which the worker
    writes to Cloud Logging. Each service also writes it as `logging.googleapis.com/trace` so Google
    groups our line with Cloud Run's own request line. Timings go in the wide event (`db`,
-   `external`). **No tracing library**: no OpenTelemetry SDK or spans.
+   `external`).
+   7b. **Spans: OpenTelemetry core, no automatic tracing (LG-15 D, Joel 25 Nov).** Spans go to Axiom's
+   `heisreal-traces` dataset; the trace id is still `ref`. The wide event is the span: one server
+   span per request (`wideEvents`, named by the route pattern, never the address), one per job,
+   and `timeDb` / `timeExternal` / `timedFetch` open child spans. Don't add spans by hand or
+   automatic instrumentations. Span attributes follow the same data classes as the logs: only the
+   allowlist in `libs/logging/src/tracing.ts` (`SPAN_ATTRIBUTES`: route pattern, method, status,
+   outcome, error type and code, query name, outside service and method, job name, cold start
+   and uptime) leaves the process, with no trace state. Never an IP, email, user agent, URL query, search term, story text, token, cookie or
+   the id of a person or story; a new attribute needs Joel's decision. The website's Next.js spans
+   pass through the same allowlist. The request span is hand-made only until
+   `@opentelemetry/instrumentation-nestjs-core` supports NestJS 12 (libs/logging README, "Tracing").
 8. **No sampling (LG-6 A, Joel 24 Nov).** Every event is kept, for 30 days. Don't add sampling
    ("for now, but we may revisit sampling at larger scale").
 9. **A failed log send must never fail, slow or change the request.** Write to stdout first; the
@@ -287,6 +298,7 @@ without dashes>"` for Cloud Run's line (the LG-4 trace field).
 - Long text goes through the one helper: hashed, in full only on error, input refusal or rate limit.
 - Search events: their own `event: "search"`, no `ref` or session/token hash; terms plain, who
   searched only as `hs1:` hashes, never plain; the route's own event has no terms.
-- No sampling; no tracing library.
+- No sampling; no hand-made spans beyond the wide event's, no automatic instrumentations, no new
+  span attribute without Joel.
 - Outside calls timed; errors as fields; `ref` present (except on search events).
 - Log sending can't throw or block.

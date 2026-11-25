@@ -116,6 +116,7 @@
     "@heisreal/secrets": "workspace:*",
     "@heisreal/story-filters": "workspace:*",
     "@heisreal/web-ui": "workspace:*",
+    "@opentelemetry/api": "^1.10.0",
     "diff": "^9.0.0",
     "markdown-it": "^14.3.3",
     "next": "~16.4.5",

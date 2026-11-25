@@ -7,6 +7,11 @@ import { NestFactory } from '@nestjs/core';
 import { failedToStart, START_UP_OPTIONS } from '@heisreal/database';
 import { corsOptions, wideEvents } from '@heisreal/http';
 import { AppModule } from './app/app.module';
+import { startTracing } from '@heisreal/logging/tracing';
+import { readSecret } from '@heisreal/secrets/read';
+
+// First: OpenTelemetry spans to Axiom where OpenTofu configured them (LG-15; off locally).
+startTracing({ service: 'api-public-read', read: (name) => readSecret(name) });
 
 async function bootstrap() {
   // D31: the browser calls this service directly, from web's origin only (CORS_ALLOWED_ORIGINS).

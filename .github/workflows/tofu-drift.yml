@@ -16,6 +16,10 @@ name: OpenTofu drift
 #
 # A Cloud Run image diff on gcp usually means a newer image is in `apps` than the one deployed
 # ("main" entries resolve to the newest); the next tofu-apply.yml run will plan it.
+#
+# Also weekly, not OpenTofu: `otel-nestjs` fails once OpenTelemetry's NestJS instrumentation
+# supports NestJS 12, the reminder to drop our hand-made request spans (LG-15;
+# tools/scripts/otel-nest-check.mjs).
 
 on:
   schedule:
@@ -126,3 +130,19 @@ jobs:
             echo "$step failed (exit $code), log: $BUNNY_LOGS/$RUN-drift-bunny.log" | tee -a "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
+
+  otel-nestjs:
+    if: github.event_name == 'schedule' || inputs.root == 'all'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The check reads the range with `semver` (root devDependency).
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node tools/scripts/otel-nest-check.mjs | tee -a "$GITHUB_STEP_SUMMARY"

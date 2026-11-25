@@ -54,11 +54,12 @@ run "axiom" {
       ) : {
       for e in c.env : e.name => e.value if startswith(e.name, "AXIOM_")
       } == {
-      AXIOM_DATASET      = "heisreal-dev"
-      AXIOM_DOMAIN       = "eu-central-1.aws.edge.axiom.co"
-      AXIOM_TOKEN_SECRET = "axiom-ingest-token"
+      AXIOM_DATASET        = "heisreal-dev"
+      AXIOM_TRACES_DATASET = "heisreal-traces"
+      AXIOM_DOMAIN         = "eu-central-1.aws.edge.axiom.co"
+      AXIOM_TOKEN_SECRET   = "axiom-ingest-token"
     }])
-    error_message = "Every service gets the dataset, the EU edge domain and the token's name (never its value)."
+    error_message = "Every service gets the logs and traces datasets, the EU edge domain and the token's name (never its value)."
   }
 }
 
