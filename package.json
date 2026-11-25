@@ -5,7 +5,9 @@
   "scripts": {
     "format": "nx format:write",
     "format:check": "nx format:check",
-    "logs": "node tools/scripts/logs.mjs"
+    "logs": "node tools/scripts/logs.mjs",
+    "docs:check": "node tools/scripts/docs-check.mjs",
+    "agents:doctor": "node tools/scripts/agents-doctor.mjs"
   },
   "private": true,
   "devDependencies": {

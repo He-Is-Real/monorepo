@@ -2,7 +2,7 @@
 
 How to find things in our logs: a request from its reference, a person's visit, errors, slow calls,
 media jobs and search counts. The rules for writing logs are in the writing-logs skill
-(`.claude/skills/writing-logs/SKILL.md`) and AGENTS.md "Logging"; the decisions are LG-1 to LG-9 in
+(`.agents/skills/writing-logs/SKILL.md`) and AGENTS.md "Logging"; the decisions are LG-1 to LG-9 in
 `../project/context/research/logging.html`.
 
 **Where logs are.** Every service writes one JSON line per event to stdout; Cloud Run hands it to

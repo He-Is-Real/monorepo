@@ -122,6 +122,34 @@ jobs:
           path: ${{ env.NX_CACHE_PATHS }}
           key: nx-ci-${{ github.sha }}
 
+  # The reference format (`pnpm docs:check`; on pull requests, also the rules the branch changed,
+  # against its base) and the agent setup (`pnpm agents:doctor --repo`). Runs on every PR, docs-only
+  # ones too. Both are plain Node scripts, so nothing is installed.
+  docs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          filter: tree:0
+          fetch-depth: 0
+      # Uses the pnpm version from package.json "packageManager".
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - name: Check the reference
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ -n "$BASE_REF" ]; then
+            pnpm docs:check --base "origin/$BASE_REF"
+          else
+            pnpm docs:check
+          fi
+      - run: pnpm agents:doctor --repo
+
   # Responsive and walking-skeleton checks (apps/web/e2e): the built site against a stub
   # api-public-read on Chromium, across the device matrix in light and dark. Only when web is
   # affected. This job builds the site once (web:prune, through the Nx cache) and hands it to the
@@ -295,24 +323,25 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-  # The required check (protect-main requires `main`). Fails closed: `checks` and `e2e-build` must
+  # The required check (protect-main requires `main`). Fails closed: `checks`, `docs` and `e2e-build` must
   # pass; the browser jobs must pass when web is affected and may be skipped only when e2e-build
   # said web=false.
   main:
-    needs: [checks, e2e-build, e2e, e2e-report]
+    needs: [checks, docs, e2e-build, e2e, e2e-report]
     if: always()
     runs-on: ubuntu-latest
     permissions: {}
     steps:
       - env:
           CHECKS: ${{ needs.checks.result }}
+          DOCS: ${{ needs.docs.result }}
           BUILD: ${{ needs.e2e-build.result }}
           WEB: ${{ needs.e2e-build.outputs.web }}
           E2E: ${{ needs.e2e.result }}
           REPORT: ${{ needs.e2e-report.result }}
         run: |
-          echo "checks=$CHECKS e2e-build=$BUILD web=$WEB e2e=$E2E e2e-report=$REPORT"
-          [ "$CHECKS" = success ] && [ "$BUILD" = success ] || exit 1
+          echo "checks=$CHECKS docs=$DOCS e2e-build=$BUILD web=$WEB e2e=$E2E e2e-report=$REPORT"
+          [ "$CHECKS" = success ] && [ "$DOCS" = success ] && [ "$BUILD" = success ] || exit 1
           case "$WEB" in
             true) [ "$E2E" = success ] && [ "$REPORT" = success ] ;;
             false) [ "$E2E" = skipped ] && [ "$REPORT" = skipped ] ;;

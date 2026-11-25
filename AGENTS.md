@@ -13,6 +13,9 @@ Two docs record where we are and how the site behaves. Read both before starting
   decisions that override the `project` repo's plan. A new or changed rule needs Joel's decision
   first (the ownership rule below); record it there in the same PR.
 
+Rules under `docs/product`, `docs/system` and `docs/process` are written in the format in the
+`writing-the-reference` skill (`.agents/skills/writing-the-reference/SKILL.md`) and checked by `pnpm docs:check`.
+
 API work follows `docs/api-conventions.md`; the OpenAPI specs in `libs/contracts/openapi` are the
 source of truth, so change them in the same PR as the code.
 
@@ -101,7 +104,7 @@ source of truth, so change them in the same PR as the code.
   `tf.sh … plan-summary`; raw output goes to `gs://heisreal-dev-tfstate/dev/bunny/logs/`. Never set
   `TF_LOG` or step debug for tofu (`tf.sh` refuses). Workflows start from `permissions: {}`; never use
   `pull_request_target`. Install the secret-scanning hook once per clone: `mise install && tools/scripts/install-hooks.sh`.
-- **Logging (Joel, 2026-11-22).** Read `.claude/skills/writing-logs/SKILL.md` before adding or changing
+- **Logging (Joel, 2026-11-22).** Read `.agents/skills/writing-logs/SKILL.md` before adding or changing
   logging, error handling, request handlers, jobs or workers (decisions: `../project/context/research/logging.html`).
   Must-follow:
   - One wide event per request or job, built up during the work and written once at the end; fold
