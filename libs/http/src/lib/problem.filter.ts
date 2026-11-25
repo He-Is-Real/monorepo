@@ -65,7 +65,7 @@ export class ProblemException extends HttpException {
  * Every error as `application/problem+json` (D30). Unknown errors become a bare 500 with no
  * detail: messages are logged, never echoed (they could hold testimony text). The database being
  * unreachable (it's restarting: SurrealDB runs on Spot) is `503 service_restarting` with
- * `Retry-After` (docs/how-the-app-works.md, "Database restarts").
+ * `Retry-After` (docs/product/behaviour/errors.md, "When the database restarts").
  */
 @Catch()
 export class ProblemFilter implements ExceptionFilter {

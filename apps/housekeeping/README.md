@@ -75,7 +75,8 @@ A job sent the same evening isn't doubled; a duplicate is harmless anyway.
 
 What each chore may touch is also enforced by the database: see
 [docs/db-permissions.md](../../docs/db-permissions.md). The rules behind them (draft retention,
-upload limits, erasure) are in [docs/how-the-app-works.md](../../docs/how-the-app-works.md).
+upload limits, erasure) are in [docs/product/behaviour/data-kept.md](../../docs/product/behaviour/data-kept.md)
+and [docs/how-the-app-works.md](../../docs/how-the-app-works.md).
 
 ## Dry run and the per-run limit
 
