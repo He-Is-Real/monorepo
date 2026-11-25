@@ -70,6 +70,19 @@ resource "axiom_dataset" "logs" {
   retention_days       = 30 # LG-6 A: every event kept for 30 days, no sampling
 }
 
+# OpenTelemetry spans (LG-15, Joel 2026-11-25): Axiom keeps each OpenTelemetry signal in its own
+# dataset. One traces dataset is shared by dev and production (each span carries
+# `deployment.environment`), so the free plan's 3 datasets are logs-dev, logs-prod and this one.
+# Managed here; a prod root only sends to it.
+resource "axiom_dataset" "traces" {
+  name                 = "heisreal-traces"
+  description          = "OpenTelemetry spans from every environment (LG-15)"
+  kind                 = "axiom:events:v1"
+  edge_deployment      = local.edge_deployment
+  use_retention_period = true
+  retention_days       = 30
+}
+
 # Dashboards (dashboard-*.tf), one file each. Stats group by route, service, outcome, action or
 # day only, never by person, story or address (LG-8): no chart lists or groups by a user, session
 # or token hash, an IP, an email, a story or `ref`. Monitors and notifiers come later, once Joel
