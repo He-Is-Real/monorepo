@@ -342,6 +342,39 @@ test('fenced code blocks and longer code spans are exempt from banned words', ()
   assert.equal(r.status, 0, r.stderr);
 });
 
+test('a fence opens only on a real opener and closes only on a bare fence', () => {
+  // ```javascript inside an open block is content, not its end.
+  const inside = check(
+    replace(
+      BROWSE,
+      'published. [AB-1]',
+      'published. [AB-1]\n\n```text\n```javascript\nWe should.\n```',
+    ),
+  );
+  assert.equal(inside.status, 0, inside.stderr);
+  // ```x``` is inline code, so the next line is still checked.
+  const inline = check(
+    replace(
+      BROWSE,
+      'published. [AB-1]',
+      'published. [AB-1]\n\n```x```\nWe should.',
+    ),
+  );
+  assert.equal(inline.status, 1, inline.stdout);
+  assert.ok(inline.stderr.includes('banned "should"'), inline.stderr);
+});
+
+test('a reference-style link in a rule is not a second tag', () => {
+  const r = check(
+    replace(
+      BROWSE,
+      'published. [AB-1]',
+      'published, see [the glossary][gl]. [AB-1]',
+    ),
+  );
+  assert.equal(r.status, 0, r.stderr);
+});
+
 test('files with CRLF line endings pass', () => {
   const r = check((root) => {
     const walk = (dir) =>
@@ -451,6 +484,28 @@ test('--base: a change that only deletes a principle line counts as a change', (
   assert.equal(r.status, 1, r.stdout);
   assert.ok(
     r.stderr.includes('PRIN-01 changed: its tag [J-2026-01-01] is withdrawn'),
+    r.stderr,
+  );
+});
+
+test('--base: a fenced example of a rule is never the block compared', () => {
+  const r = withBranch((root) => {
+    replace(
+      BROWSE,
+      RULE1,
+      `\`\`\`markdown\n${RULE1}\n\`\`\`\n\n${RULE1}`,
+    )(root);
+    git(root, 'commit', '-qam', 'base with an example');
+    git(root, 'branch', '-f', 'main');
+    replace(
+      BROWSE,
+      `\`\`\`\n\n${RULE1}`,
+      `\`\`\`\n\n${RULE1.replace('7 days', '8 days').replace('[AB-1]', '[AB-3]')}`,
+    )(root);
+  });
+  assert.equal(r.status, 1, r.stdout);
+  assert.ok(
+    r.stderr.includes('REQ-BRW-001 changed: its tag [AB-3] is withdrawn'),
     r.stderr,
   );
 });

@@ -110,18 +110,21 @@ const sentences = (s) =>
     ).length,
   );
 
-// For each line, whether it is inside a fenced code block (the fence lines included).
+// For each line, whether it is inside a fenced code block (the fence lines included). A fence
+// opens on three or more backticks or tildes plus an info string without backticks (so ```x``` is
+// inline code), and closes on a line that is only a fence of the same character, at least as long.
 const fenced = (lines) => {
   let fence = null;
   return lines.map((l) => {
-    const m = l.match(/^\s*(`{3,}|~{3,})/);
     if (fence) {
-      if (m && m[1][0] === fence[0] && m[1].length >= fence.length)
+      const c = l.match(/^\s*(`{3,}|~{3,}) *$/);
+      if (c && c[1][0] === fence[0] && c[1].length >= fence.length)
         fence = null;
       return true;
     }
-    if (m) fence = m[1];
-    return Boolean(m);
+    const o = l.match(/^\s*(`{3,}|~{3,})[^`]*$/);
+    if (o) fence = o[1];
+    return Boolean(o);
   });
 };
 
@@ -231,7 +234,8 @@ const checkRules = (file, lines) => {
     }
     const [, id, text, , tag] = m;
     addId(id, `${file}:${n}`);
-    if (/\[[A-Za-z0-9.-]+\](?!\()/.test(plain(text)))
+    // A [tag]-shaped bracket that is no link: not [text](url), nor either half of [text][ref].
+    if (/(?<!\])\[[A-Za-z0-9.-]+\](?![([])/.test(plain(text)))
       fail(
         `${file}:${n}`,
         `${id}: a rule has exactly one [tag], the last thing on the line; remove the others`,
@@ -449,16 +453,19 @@ if (base) {
   const mergeBase = git('merge-base', base, 'HEAD').trim();
   // A rule or principle has changed when its full text differs from the base version's (an
   // added, edited or deleted line all count).
+  // Lines in fenced code blocks are examples, never the rule itself.
   const block = (lines, id) => {
+    const code = fenced(lines);
     const i = lines.findIndex(
-      (l) => l.startsWith(`- **${id}** `) || l.startsWith(`## ${id} `),
+      (l, k) =>
+        !code[k] && (l.startsWith(`- **${id}** `) || l.startsWith(`## ${id} `)),
     );
     if (i < 0) return undefined;
     const more = lines[i].startsWith('## ')
-      ? (l) => !l.startsWith('## ')
+      ? (l, k) => code[k] || !l.startsWith('## ')
       : (l) => /^\s+\S/.test(l);
     let j = i + 1;
-    while (j < lines.length && more(lines[j])) j++;
+    while (j < lines.length && more(lines[j], j)) j++;
     return lines.slice(i, j).join('\n').trimEnd();
   };
   const baseLines = new Map();
