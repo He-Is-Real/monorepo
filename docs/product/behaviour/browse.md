@@ -2,7 +2,7 @@
 
 Who: Visitor, Signed-in person, the system.
 Data: `docs/db-permissions.md` ("Stories", "Themes").
-Next id: REQ-BRW-082
+Next id: REQ-BRW-085
 
 ## Contents
 
@@ -18,7 +18,8 @@ Next id: REQ-BRW-082
 ## Home
 
 - **REQ-BRW-001** Only approved stories are ever public. [R11]
-- **REQ-BRW-002** Home shows the 3 newest stories under "Recently shared" and a row of highlighted themes per category. [M1O-A4]
+- **REQ-BRW-002** Home shows the 3 newest stories under "Recently shared". [M1O-A4]
+- **REQ-BRW-082** Home shows a row of highlighted themes per category. [D130]
 - **REQ-BRW-003** No page shows story counts: no totals and no counts per theme. [D62]
 - **REQ-BRW-004** Home's impact numbers stay hidden until real figures exist. [UNTRACED]
 - **REQ-BRW-005** For 7 days after a story is published, its cards show a "NEW" badge. [D72]
@@ -67,7 +68,8 @@ Next id: REQ-BRW-082
 
 - **REQ-BRW-035** Themes are grouped in categories that Admins manage (REQ-ADM-021). [D130]
 - **REQ-BRW-036** The category "Other" is fixed: it cannot be renamed or deleted. [D130]
-- **REQ-BRW-037** A theme with no published stories is hidden unless it is highlighted. [D63]
+- **REQ-BRW-037** A theme with no published stories is hidden. [D63]
+- **REQ-BRW-083** The exception: a highlighted theme still shows when it has no published stories. [A14]
 
 ## Story pages
 
@@ -86,7 +88,8 @@ Next id: REQ-BRW-082
 
 - **REQ-BRW-047** The public API keeps recent answers in memory for 30 seconds, so a story that is taken down to edit, deleted, hidden, new or edited can take up to 30 seconds to disappear or appear on a story page. [PC-2]
 - **REQ-BRW-048** Browsers and any CDN may keep a public API answer only for the part of its 30 seconds that is left. Nothing personal is kept this way. [PC-2]
-- **REQ-BRW-049** Each running copy of the website keeps saved pages in its own memory, at most 50 MB, with the time per page and per environment in `apps/web/src/page-cache.config.ts`; a changed time applies from the next deploy. [PC-1]
+- **REQ-BRW-049** Each running copy of the website keeps saved pages in its own memory, with the time per page and per environment in `apps/web/src/page-cache.config.ts`; a changed time applies from the next deploy. [PC-1]
+- **REQ-BRW-084** Each running copy of the website keeps at most 50 MB of saved pages. [UNTRACED]
 - **REQ-BRW-050** Pages that change only with a new release (FAQs, Greatest story, Get ready, Contact, Donate) are kept until the next release, in dev and production. [PC-1]
 - **REQ-BRW-051** Home, Stories, About, Next steps, Privacy and Terms (and their earlier versions) are not kept in dev and are kept 30 seconds in production. [PC-2]
 - **REQ-BRW-052** In production, a story that is taken down can show for up to 60 seconds in total on Home and Stories, and up to 30 seconds on its story page. [PC-2]
@@ -116,7 +119,7 @@ Next id: REQ-BRW-082
 - **REQ-BRW-072** An open short helper ("See all versions", "How to format it") hangs from a grey bar on its left; open long reading ("Read the full version 3") sits in a light panel with a fine edge. [DS-1]
 - **REQ-BRW-073** Open/close sections are the browser's own open/close element: they work before the page's JavaScript loads, and Enter or Space opens and closes them. [DS-1]
 - **REQ-BRW-074** Every button, and every link that looks like one, is 44 px tall (48 px for the home page's large calls to action), with semibold words, the site's keyboard outline and 8 px corners. [BT-1]
-- **REQ-BRW-075** In the header at 1280 px and wider with large text, the main links wrap onto more lines instead of running over the logo. [BT-1]
+- **REQ-BRW-075** In the header at 1280 px and wider with large text, the main links wrap onto more lines instead of running over the logo. [UNTRACED]
 - **REQ-BRW-076** A notice (something happened or needs attention) is a tinted box with a coloured bar on the left and its kind's icon, with an optional bold first line ("What our team said"). [NT-1]
 - **REQ-BRW-077** A notice is one of four kinds by meaning: something went wrong (red), needs a second look (amber), done (green), worth knowing (teal). [NT-1]
 - **REQ-BRW-078** Screen readers hear an error notice at once and any other notice when the screen reader is free. [NT-1]

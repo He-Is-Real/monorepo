@@ -47,6 +47,6 @@ Next id: REQ-ADM-032
 
 - **REQ-ADM-027** The database can list the stories hidden because their media broke or changed; there is no admin page for it. [UNTRACED]
 - **REQ-ADM-028** Admins can read every story in every status, drafts included, with each story's status log and files, through api-admin; there is no admin page for it. [R15]
-- **REQ-ADM-029** The Staff page (Admins) lists the staff with email, role, and who added them and when, with the baseline admins marked. [G24]
+- **REQ-ADM-029** The Staff page (Admins) lists the staff with email, role, and who added them and when, with the baseline admins marked. [S-6]
 - **REQ-ADM-030** Before an Admin removes someone on the Staff page, the page asks "Remove …? They become a User.". [UNTRACED]
 - **REQ-ADM-031** The Block list page (Admins) lists blocked emails and IP addresses newest first, each with its note (or "No note yet"), who blocked it and when. [BN-2]
