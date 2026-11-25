@@ -12,7 +12,7 @@ Next id: REQ-TST-013
 - **REQ-TST-004** An API route that no finished frontend feature uses yet gets no test. [J-2026-10-24-TST]
 - **REQ-TST-005** A test gives the same result locally and in CI: it never depends on timing, machine load, ports or shared state. [J-2026-10-24-TST]
 - **REQ-TST-006** A flaky test, or one that stubs away the behaviour it claims to check, is removed or rebuilt at the right level. [J-2026-10-24-TST]
-- **REQ-TST-007** When a flaky test has no clear cause or fix, it is rewritten one level lower, and if still unreliable it is proposed for deletion, which the founder approves. [J-2026-11-05-TST]
+- **REQ-TST-007** When a flaky test has no clear cause or fix, it is rewritten one level lower, and if still unreliable it is proposed for deletion, which the founder approves. [J-2026-11-05b-TST]
   Example: an e2e test becomes a component test of the same behaviour.
 - **REQ-TST-008** Test-first work happens at the behaviour level, at the point where that behaviour is defined. [J-2026-10-24-TST]
 
@@ -24,6 +24,6 @@ Next id: REQ-TST-013
 
 - **REQ-TST-010** Performance and scale tests run only on a developer's machine against a throwaway local SurrealDB in Docker, never in CI and never against Google Cloud or Bunny. [J-2026-11-06-TST]
   Why: the cloud budget.
-- **REQ-TST-011** Scale tests live under `scale/*.scale-spec.ts` with their own Vitest config and Nx `scale-test` target, so CI's `test` and `test-integration` targets cannot pick them up. [J-2026-11-06-TST]
+- **REQ-TST-011** Performance and scale tests live under `scale/*.scale-spec.ts` with their own Vitest config and Nx `scale-test` target, so CI's `test` and `test-integration` targets cannot pick them up. [J-2026-11-06-TST]
   Example: `pnpm nx run api-public-read:scale-test`.
-- **REQ-TST-012** Scale tests are never wired into CI. [J-2026-11-06-TST]
+- **REQ-TST-012** Performance and scale tests are never wired into CI. [J-2026-11-06-TST]

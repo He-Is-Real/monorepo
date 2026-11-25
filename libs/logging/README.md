@@ -1,7 +1,9 @@
 # @heisreal/logging
 
 The one log format every service, job and the media worker writes (Joel, 2026-11-14): one JSON
-object per line, everywhere (Google Cloud and a developer's machine).
+object per line, everywhere (Google Cloud and a developer's machine). Not covered: Next.js's own
+start-up and request lines (changing them would mean patching Next) and human-run command-line
+tools (the worker's identity commands, dev-seed's media upload).
 
 ```json
 {

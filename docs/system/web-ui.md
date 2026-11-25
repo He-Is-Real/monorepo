@@ -1,7 +1,7 @@
 # Web UI library
 
 Who: the people who build pages in `apps/web` and pieces in `libs/web-ui`. Data: none; `libs/web-ui/README.md` lists the pieces.
-Next id: REQ-WEB-042
+Next id: REQ-WEB-052
 
 ## Contents
 
@@ -17,10 +17,10 @@ Next id: REQ-WEB-042
 - **REQ-WEB-002** The library also holds the theme (colours light and dark, font, radii, widths, base styles and shared CSS, in `libs/web-ui/src/styles/theme.css`) and the lint checks (`@heisreal/web-ui/eslint`). [LB-1]
   Why: another website then gets the whole look from one stylesheet import and one lint config.
 - **REQ-WEB-003** Pages add layout classes only: width, margins, padding, grid placement. [WL-1]
-- **REQ-WEB-004** When building or changing UI, a builder first uses the library's pieces and colours as they are. [TX-7]
-- **REQ-WEB-005** When no piece quite fits, a builder adjusts the design to use a common existing piece, accepting a small compromise, before adding anything new. [TX-7]
-- **REQ-WEB-006** When no existing piece can do the job, a builder adds a new piece to `libs/web-ui`, never a page-local styled copy. [TX-7]
-- **REQ-WEB-007** Styling in `apps/web` page code is the last resort, and the pull request says why. [TX-7]
+- **REQ-WEB-004** When building or changing UI, a builder first uses the library's pieces and colours as they are. [J-2026-11-21-WEB]
+- **REQ-WEB-005** When no piece quite fits, a builder adjusts the design to use a common existing piece, accepting a small compromise, before adding anything new. [J-2026-11-21-WEB]
+- **REQ-WEB-006** When no existing piece can do the job, a builder adds a new piece to `libs/web-ui`, never a page-local styled copy. [J-2026-11-21-WEB]
+- **REQ-WEB-007** Styling in `apps/web` page code is the last resort, and the pull request says why. [J-2026-11-21-WEB]
 
 ## Which piece for what
 
@@ -31,14 +31,22 @@ Next id: REQ-WEB-042
 - **REQ-WEB-010** Bordered panels are `Card`, pop-up menu panels `PopoverPanel`, and buttons whose words may wrap `Button wrap`. [WL-1]
 - **REQ-WEB-011** Search boxes are `SearchBox`, with a magnifier button inside. [BS-2]
 - **REQ-WEB-012** Radio buttons are `RadioGroup`. [J-2026-11-20-WEB]
-- **REQ-WEB-013** Each of these has one look, as a library piece: the pressable `Chip` (✓ when chosen), the grey `Tag`, the `StatusBadge` (a dot and a word coloured by meaning), the `Confirm` step and the `DangerZone`. [WL-2]
-- **REQ-WEB-014** These too are library pieces with one look each: the `Checkbox`, the `Switch`, the `Tabs`, the `Disclosure`, the plain grey `Quiet` box and a `Button`'s greyed-out reason. [WL-2]
-- **REQ-WEB-015** Share's format cards are `ChoiceCards`, and Donate's One-off / Monthly switcher is `SegmentedChoice`. [WL-2]
-- **REQ-WEB-016** Text boxes come in two sizes: `compact` beside drop-downs, `standard` wherever people type. [WL-2]
+- **REQ-WEB-013** Every chip a person presses is the library's `Chip`, the browse chip's one look, with ✓ when chosen. [CH-1]
+- **REQ-WEB-042** A label that only says something is the library's grey `Tag`, and a story's status is its `StatusBadge` (a dot and a word coloured by meaning). [CH-2]
+- **REQ-WEB-043** Every "Are you sure?" step is the library's `Confirm`, with one look. [CD-1]
+- **REQ-WEB-044** Every delete for good sits in the library's `DangerZone`, with one look. [DL-2]
+- **REQ-WEB-014** Every open/close section is the library's `Disclosure`, with one look. [DS-1]
+- **REQ-WEB-045** Every check box is the library's `Checkbox`, with one look. [CB-1]
+- **REQ-WEB-046** Every switch is the library's `Switch`, with one look. [SW-1]
+- **REQ-WEB-047** Every set of tabs is the library's `Tabs`, underlined. [TB-1]
+- **REQ-WEB-048** A message that is not news (the weekly limit line, an empty list) is the library's plain grey `Quiet` box. [NT-2]
+- **REQ-WEB-049** A greyed-out button's reason is the library `Button`'s own reason line. [OT-2]
+- **REQ-WEB-015** Share's format cards are `ChoiceCards`, and Donate's One-off / Monthly switcher is `SegmentedChoice`. [CB-2]
+- **REQ-WEB-016** Text boxes come in two sizes: `compact` beside drop-downs, `standard` wherever people type. [TF-1]
 - **REQ-WEB-017** A notice is the library's `Notice`, in four kinds: `danger`, `warning`, `success`, `info`. [NT-1]
 - **REQ-WEB-018** Every dialog is the library's `Dialog`, in the Stories Filters panel's look: a bottom sheet on phones, a centred box wider, a title bar with ×. [MG-3]
   Example: the Stories Filters panel and the Admin themes dialogs.
-- **REQ-WEB-019** Dialog backdrops use the `overlay` colour. [WL-2]
+- **REQ-WEB-019** Dialog backdrops use the `overlay` colour. [OT-1]
 - **REQ-WEB-020** The FAQ page's questions are the library's `Accordion`: bordered question boxes with a chevron. [MG-2]
 - **REQ-WEB-021** Donate keeps its One-off / Monthly tray, the `SegmentedChoice`. [MG-1]
 
@@ -61,7 +69,9 @@ Next id: REQ-WEB-042
 - **REQ-WEB-032** Intros and a story's text are 18 px. [TX-4]
 - **REQ-WEB-033** Small text is 14 px; card paragraphs are normal 16 px text. [TX-5]
 - **REQ-WEB-034** A link inside a sentence is always underlined; a link on its own is semibold, underlined on hover, and 44 px to press. [TX-6]
-- **REQ-WEB-035** The pull quotes share one look, a brand bar and 22 px italic; "In their words" is a teal eyebrow heading; story cards' "NEW" pill keeps its own look. [TX-6]
+- **REQ-WEB-035** The pull quotes share one look, a brand bar and 22 px italic. [TX-8]
+- **REQ-WEB-050** "In their words" is a heading, not a link: the teal eyebrow heading. [TX-6]
+- **REQ-WEB-051** Story cards' "NEW" pill keeps its own look, not the library's `Tag`. [UNTRACED]
 - **REQ-WEB-036** Italic is for quotes, speech and subtle hints only: the pull quotes, and `Text italic` for lines such as Greatest Story's prayer lines and the block list's "No note yet". [TX-8]
   Example: moderation history's quoted note to the person, and the thumbnail crop's spoken line.
 

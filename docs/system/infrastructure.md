@@ -14,7 +14,7 @@ Next id: REQ-INF-016
 
 ## Network
 
-- **REQ-INF-007** Nothing on GKE is reachable from the internet; the public entry points are Cloud Run services only. [D4]
+- **REQ-INF-007** Nothing on GKE is reachable from the internet; the public entry points are Cloud Run services only. [D3]
 - **REQ-INF-008** There is no load balancer in front of Cloud Run. [D3]
 
 ## Database

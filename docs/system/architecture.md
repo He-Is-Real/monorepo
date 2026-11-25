@@ -6,7 +6,7 @@ Next id: REQ-ARC-041
 ## Services
 
 - **REQ-ARC-001** The site is four services: `web` (the website), `api-public-read` (anonymous, published stories only), `api-user` (the signed-in person) and `api-admin` (Moderators and Admins). [D33]
-- **REQ-ARC-002** Services never call each other, and two services are never merged into one. [D33]
+- **REQ-ARC-002** Services never call each other. [D33]
 - **REQ-ARC-003** Each service signs in to the database as its own least-privilege login; services never share a login, and `api-public-read`'s login is read-only. [D13]
   Example: the logins and their permissions are in `docs/db-permissions.md`.
 - **REQ-ARC-004** The website's server calls only `api-public-read`, never `api-user` or `api-admin`. [D32]
@@ -20,7 +20,7 @@ Next id: REQ-ARC-041
 - **REQ-ARC-009** When a request in `api-user` is quick, it runs on the person's own Clerk pass (it lasts 60 seconds) while that pass lasts 10 seconds more, else on a fresh pass. [DEC-T]
   Why: the database library ends the person's session when their pass expires, which would cut the request off midway.
 - **REQ-ARC-010** Slow work in `api-user` (submit, an upload link, Download my data) always runs as the person on a fresh 6-minute pass `api-user` gets from Clerk for the same sign-in. [DEC-T]
-- **REQ-ARC-011** When work runs on a fresh pass, it starts no new try after 2 minutes. [DEC-T]
+- **REQ-ARC-011** Slow work starts no new try after 2 minutes. [DEC-T]
 - **REQ-ARC-012** When Clerk says the sign-in is over, `api-user` answers `401`; when Clerk does not answer, it answers `503 sign_in_unavailable` (try again). [DEC-T]
 - **REQ-ARC-013** `api-admin` holds no Clerk key and works on the person's own pass. [DEC-T]
 
@@ -33,14 +33,14 @@ Next id: REQ-ARC-041
 
 - **REQ-ARC-016** Every service notices a database restart in the shared database client (`DatabaseAvailability` in `libs/database`) and keeps reconnecting for as long as it takes. [J-2026-11-07-ARC]
 - **REQ-ARC-017** A service starts without the database and connects in the background (`startConnecting`); Cloud Run's start-up check needs only the port open. [J-2026-11-07-ARC]
-- **REQ-ARC-018** When the database answers a service's first sign-in with a refusal (the SDK's `ServerError`), the service exits with code 1. [J-2026-11-07-ARC]
-- **REQ-ARC-019** While the database is unreachable, every request, sign-in's person lookup included, answers at once with `503 service_restarting` and `Retry-After` instead of hanging (`ServiceRestarting` in `libs/contracts/openapi/components.yaml`). [J-2026-11-07-ARC]
+- **REQ-ARC-018** When the database answers a service's first sign-in with a refusal (the SDK's `ServerError`), the service exits with code 1. [J-2026-11-08b-ARC]
+- **REQ-ARC-019** While the database is unreachable, every request not answered from the kept public answers (REQ-ARC-020, REQ-ARC-021), sign-in's person lookup included, answers at once with `503 service_restarting` and `Retry-After` instead of hanging (`ServiceRestarting` in `libs/contracts/openapi/components.yaml`). [J-2026-11-07-ARC]
 
 ## Public answers kept in memory
 
-- **REQ-ARC-020** `api-public-read` keeps public answers in its own memory, per running copy, with no timers, at most 500 answers. [R13]
+- **REQ-ARC-020** `api-public-read` keeps public answers in its own memory, per running copy, with no timers. [J-2026-11-05-ARC]
   Why: with no timers, Cloud Run still bills only per request and scales to zero.
-- **REQ-ARC-021** The answers kept for a database restart share that same store and its 500-answer limit. [J-2026-11-07-ARC]
+- **REQ-ARC-021** That memory holds at most 500 answers, the answers kept for a database restart included. [UNTRACED]
 - **REQ-ARC-022** In dev there is no CDN in front of the site or the APIs, and API answers tell browsers and CDNs not to keep them. [D51]
 
 ## Background work
@@ -63,7 +63,8 @@ Next id: REQ-ARC-041
 - **REQ-ARC-034** The new key and certificate replace the old pair at the same path, so the old key is deleted at once and Dapr follows without a restart. [W1-A]
 - **REQ-ARC-035** Only the newest certificate issued for a machine may renew, so a copied certificate and key cannot keep a second line going. [W2-1]
   Why: church machines have no security chip, so no chip-based protection is available.
-- **REQ-ARC-036** When a copy renews first, the real worker is refused at its next renewal and says so; its name is then cancelled and the machine enrolled under a new name. [W2-1]
+- **REQ-ARC-036** After a refusal as "not the newest", the machine's name is cancelled and the machine enrolled under a new name. [W2-1]
+  Why: if a copy renews first, the real worker is refused at its next renewal and says so.
 - **REQ-ARC-037** When a renewal's answer is lost, the worker asks again with the new key it saved first and gets the same certificate back, never a new one. [W3-1]
 - **REQ-ARC-038** A machine off for longer than the certificate's lifetime is enrolled again by a developer with one command. [W1-A]
 - **REQ-ARC-039** A machine is cancelled by taking its name out of the list in OpenTofu. [W1-A]
