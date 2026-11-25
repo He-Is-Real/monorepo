@@ -25,7 +25,7 @@ Next id: REQ-DAT-029
 - **REQ-DAT-013** When deleting an account's files at Bunny fails, the system retries it. [D40]
 - **REQ-DAT-026** When deleting an account's Clerk account fails, the system retries it. [D39]
 - **REQ-DAT-014** The record of what a person submitted, for the weekly limit, is kept 7 days and deleted with the account. [D113]
-- **REQ-DAT-027** Upload records stay when a story is deleted, so the upload limits still count them. [D113]
+- **REQ-DAT-027** Upload records stay when a story is deleted, so the upload limits still count them. [R12]
 - **REQ-DAT-015** Request keys (which stop a resent request being applied twice) expire 24 hours after the request, and the nightly clean-up deletes expired ones. [R4]
 - **REQ-DAT-016** The IP address a story was sent from is cleared by the nightly clean-up 30 days after it was sent, keeping the status entry, and goes with the story. [G21]
 - **REQ-DAT-017** The email a story was sent with is kept as long as the story and goes with the story or with the account. [EM-1]
