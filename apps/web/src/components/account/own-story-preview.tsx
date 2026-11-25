@@ -43,7 +43,7 @@ export function OwnStoryPreview({ id }: { id: string }) {
     },
     [id],
   );
-  const { state } = useOwnData(read);
+  const { state, reload } = useOwnData(read);
 
   if (state.status === 'signed-out') {
     return (
@@ -77,6 +77,8 @@ export function OwnStoryPreview({ id }: { id: string }) {
         role="alert"
         data-preview-error=""
         reference={state.reference}
+        noAnswer={state.noAnswer}
+        onTryAgain={() => void reload(state.owner, false)}
       />
     );
   }

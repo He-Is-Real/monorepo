@@ -670,8 +670,9 @@ recording | picture` (worked out from the status history: set while the story's 
   answers "OK" (200), not "not found" (404): Next.js sends a page's start before the page has
   checked anything. (PC-1 A, Joel 2026-11-21)
 - A page that fails to build (most likely the public API being down) shows "Something went wrong.
-  Please try again later." That error page also tells search engines not to index it, and also
-  answers "OK" (200), for the same reason. (PC-3 A, Joel 2026-11-22)
+  Please try again later."; a page that crashes in the browser shows "This page stopped working.
+  Reloading it usually fixes this." (LG-13c). That error page also tells search engines not to
+  index it, and also answers "OK" (200), for the same reason. (PC-3 A, Joel 2026-11-22)
 - Sharing links use the site's brand picture, not the story's.
 - Video, audio and pictures load only through signed links that expire (6 to 7 hours on dev).
   (D52, D64)
@@ -1121,7 +1122,8 @@ RL-10; `project/context/research/rate-limiting.html`).
   - website pages and actions 600 a minute per visitor; the sitemap 2 a minute;
   - api-public-read: direct callers 120 a minute; the website's own calls share 3,000 a minute;
   - api-user: reads 120 a minute, changes 60 a minute, upload links 20 an hour, "Download my
-    data" 2 an hour, deleting 10 a minute;
+    data" 2 an hour, deleting 10 a minute; the browser's error reports 60 a minute per address,
+    signed in or not (LG-13a A, Joel 25 Nov 2026);
   - api-admin: **a signed-in moderator or admin is never limited.** Only requests api-admin
     refuses for sign-in count (not signed in, a refused or ended sign-in, or signed in without a
     staff role or before the site knows them), 10 a minute per address; an address over that gets
@@ -1170,10 +1172,23 @@ RL-10; `project/context/research/rate-limiting.html`).
   except that a restart is named, with its countdown** (Joel, 2026-11-09: "for errors we should
   reveal when compute is restarting with a count down but for any other error it should be
   generic"; "When the database restarts", below). Whatever else went wrong on our side (a server
-  error, no answer, a technical refusal), web says only "Something went wrong. Please try again
-  later." on every page, admin pages included: no HTTP status, error code, error type or what
-  the server is doing. Where it helps, it adds what of the person's is safe ("Your story is
+  error, a technical refusal, a rate limit), web says only "Something went wrong. Please try
+  again later." on every page, admin pages included: no HTTP status, error code, error type or
+  what the server is doing. Where it helps, it adds what of the person's is safe ("Your story is
   saved."). The logs keep the full detail.
+- **Two errors that say nothing about our side get their own message (LG-13c, Joel, 25 Nov 2026:**
+  "use conditional messages based on what the error is if non sensitive, if the error is
+  sensitive then output a generic error"**).** Both still end with the reference line.
+  - **A crash in the page in the browser** (the page's own JavaScript failed): "This page stopped
+    working. Reloading it usually fixes this.", with _Reload page_ and _Go to the home page_. A
+    page that fails while the server builds it is not this case: it shows the generic message.
+  - **A call to our APIs from the browser that got no answer** (offline, or no answer within the
+    time allowed): "We couldn't reach He Is Real. Check your internet connection and try again."
+    Where the failure is a screen that didn't load, it has a _Try again_ button; where the person
+    pressed a button (Save, Send, Delete), that button is how they try again, and what of theirs
+    is safe follows ("Your story is kept on this device."). An answer that came but couldn't be
+    read, a server error, a refusal and a rate limit (which looks like a crash, RL-5) all keep the
+    generic message; the restart countdown is unchanged.
 - **Every such error, and the restart countdown, shows a reference under it (LG-1, LG-1b A,
   LG-1c; Joel, 22 Nov 2026: "every error must have a reference and reference be unique")**: a
   small quiet line "Reference: 0193…" with a Copy button (none on a card's player, whose message

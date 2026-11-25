@@ -1,14 +1,10 @@
 'use client';
 
-import {
-  plainProblem,
-  restartingProblem,
-  withReference,
-} from '@/components/errors/problem';
+import { ourSideProblem } from '@/components/errors/problem';
+import { plainProblem, restartingProblem } from '@/components/errors/problem';
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { ApiUserProblem, restartWait, StaleVersion } from '@/lib/api-user';
 import { PREFIX } from '@/lib/share-storage';
-import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 import { DropZone } from './drop-zone';
 import type { ShareApi, StoryFormat, StoryPicture } from './share-api';
 import { formatBytes } from './upload-panel';
@@ -707,10 +703,7 @@ export function ImagePanel({
       // 412: this very file is there already (a replay of a request whose PUT went through).
       // Otherwise the request stays kept, so trying again replays it for the same path.
       if (!res || (!res.ok && res.status !== 412)) {
-        return back(
-          true,
-          withReference(`${TRY_AGAIN_LATER} Your story is saved.`, undefined),
-        );
+        return back(true, ourSideProblem(undefined, 'Your story is saved.'));
       }
       forgetAttempt(owner, 'image-request', ready.draftId);
       held.current = null;
@@ -761,7 +754,7 @@ export function ImagePanel({
     } catch (err) {
       if (left()) return;
       setPhase({ at: 'preview', picture, granted: false });
-      setProblem(withReference(TRY_AGAIN_LATER, err));
+      setProblem(ourSideProblem(err));
       return;
     }
     if (left()) return;
@@ -842,7 +835,7 @@ export function ImagePanel({
         now = await read(id);
       } catch (err) {
         if (gone() || current().draftId !== id) return;
-        setProblem(withReference(TRY_AGAIN_LATER, err));
+        setProblem(ourSideProblem(err));
         return;
       }
       if (gone() || current().draftId !== id) return;

@@ -1,5 +1,6 @@
 'use client';
 
+import { problemText } from '@/lib/try-again-later';
 import { ErrorReference } from '@/components/errors/error-reference';
 import { plainProblem } from '@/components/errors/problem';
 import Link from 'next/link';
@@ -240,7 +241,7 @@ export function MySubmissions() {
     body = (
       <div className="min-h-48">
         <Text role="alert" size="inherit" tone="quiet">
-          {TRY_AGAIN_LATER}
+          {problemText(state.noAnswer)}
         </Text>
         <ErrorReference reference={state.reference} className="mt-1 mb-4" />
         <Button

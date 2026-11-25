@@ -17,7 +17,8 @@ import {
   personalApiUser,
   usePersonalSession,
 } from '@/lib/personal-session';
-import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
+import { isNoAnswer } from '@/lib/api-user';
+import { problemText } from '@/lib/try-again-later';
 
 /** The account's favourites per request (the API's most). */
 const PAGE_SIZE = 50;
@@ -26,7 +27,7 @@ const DEVICE = 'device';
 
 type List =
   | { status: 'loading' }
-  | { status: 'failed'; owner: string; reference?: string }
+  | { status: 'failed'; owner: string; reference?: string; noAnswer?: boolean }
   | {
       status: 'ready';
       /** Whose list this is: Clerk's user id, or {@link DEVICE}. Shown only to them. */
@@ -149,6 +150,7 @@ export function FavouritesList({
               status: 'failed',
               owner: who,
               reference: referenceOf(err),
+              noAnswer: isNoAnswer(err),
             });
         },
       );
@@ -193,7 +195,7 @@ export function FavouritesList({
   if (list.status === 'failed')
     return (
       <Notice>
-        <p role="alert">{TRY_AGAIN_LATER}</p>
+        <p role="alert">{problemText(list.noAnswer)}</p>
         <ErrorReference reference={list.reference} className="mt-1 mb-5" />
         <Button
           variant="outline"

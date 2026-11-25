@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { RestartingText } from '@/components/restarting/restarting-message';
-import { isSystemError, plainMessage } from '@/lib/api-user';
+import { isSystemError, ourSideMessage, plainMessage } from '@/lib/api-user';
 import { referenceOf } from '@/lib/reference';
 import { ErrorReference } from './error-reference';
 
@@ -21,6 +21,15 @@ export function withReference(text: string, err: unknown): ReactNode {
       />
     </>
   );
+}
+
+/**
+ * Something on our side or the connection, as `ourSideMessage` (lib/api-user.ts): "We couldn't
+ * reach He Is Real…" when the call got no answer, else "Something went wrong. Please try again
+ * later." (LG-13c), then `kept` if given, with the reference line.
+ */
+export function ourSideProblem(err: unknown, kept?: string): ReactNode {
+  return withReference(ourSideMessage(err, kept), err);
 }
 
 /** `plainMessage` (lib/api-user.ts) with its reference line when it is one of ours. */

@@ -7,6 +7,7 @@ import {
   type AgreementState,
   apiUser,
   type GetToken,
+  isNoAnswer,
 } from '@/lib/api-user';
 
 /**
@@ -24,8 +25,11 @@ export type AccountBootstrap =
   | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'ready'; account: Account }
-  /** `reference`: the failed call's, for the reference line (LG-1). */
-  | { status: 'failed'; reference?: string };
+  /**
+   * `reference`: the failed call's, for the reference line (LG-1); `noAnswer`: it got no answer
+   * ("We couldn't reach He Is Real…", LG-13c).
+   */
+  | { status: 'failed'; reference?: string; noAnswer?: boolean };
 
 let state: { userId: string | null; bootstrap: AccountBootstrap } = {
   userId: null,
@@ -107,7 +111,11 @@ export function useAccountBootstrap(
       })
       .catch((err: unknown) => {
         if (state.userId === userId)
-          set(userId, { status: 'failed', reference: referenceOf(err) });
+          set(userId, {
+            status: 'failed',
+            reference: referenceOf(err),
+            noAnswer: isNoAnswer(err),
+          });
       });
     // Not getToken: its identity changes on Clerk updates, and the person is what matters.
   }, [userId, baseUrl]);

@@ -1,7 +1,9 @@
 'use client';
 
+import { NO_ANSWER } from '@/lib/try-again-later';
+import { ourSideProblem } from '@/components/errors/problem';
 import { ErrorReference } from '@/components/errors/error-reference';
-import { restartingProblem, withReference } from '@/components/errors/problem';
+import { restartingProblem } from '@/components/errors/problem';
 import {
   createContext,
   useCallback,
@@ -59,7 +61,6 @@ import type { AgreementName } from '@/lib/legal-text';
 import type { RedlineItem } from '@/lib/redline';
 import type { SharingConsent, ShareLegal } from '@/lib/share-legal';
 import { signInHref } from '@/lib/return-path';
-import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 import {
   type MyStory,
   shareApi,
@@ -678,7 +679,7 @@ function SignedInFlow({
     )
       return;
     if (unread) {
-      setNavProblem(withReference(TRY_AGAIN_LATER, unreadBecause));
+      setNavProblem(ourSideProblem(unreadBecause));
       return;
     }
     if (stored !== undefined) picture.stored(stored);
@@ -1249,7 +1250,7 @@ function SaveState({
         : 'Kept on this device. It’s saved to your account once it has a title.',
     saving: 'Saving…',
     saved: 'Draft saved',
-    offline: `${TRY_AGAIN_LATER} Your story is kept on this device.`,
+    offline: `${NO_ANSWER} Your story is kept on this device.`,
     conflict: '',
     error: draft.error ?? '',
     submitted: '',
@@ -2047,7 +2048,7 @@ export function ReviewStep({
     const restarting = restartWait(err);
     return restarting !== undefined
       ? restartingProblem(err, restarting, kept)
-      : withReference(`${TRY_AGAIN_LATER} ${kept}`, err);
+      : ourSideProblem(err, kept);
   }
 
   /**
@@ -2244,9 +2245,7 @@ export function ReviewStep({
       } else if (isSystemError(err)) {
         // On our side (no answer, a server error, a technical refusal): only the plain message
         // (Joel, 2026-11-09).
-        setProblem(
-          withReference(`${TRY_AGAIN_LATER} Your story is saved.`, err),
-        );
+        setProblem(ourSideProblem(err, 'Your story is saved.'));
       } else if (err instanceof ApiUserProblem) {
         const p = err.problem as ApiUserProblem['problem'] & {
           availableAt?: string;

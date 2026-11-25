@@ -1,7 +1,7 @@
 'use client';
 
+import { ourSideProblem } from '@/components/errors/problem';
 import { ErrorReference } from '@/components/errors/error-reference';
-import { withReference } from '@/components/errors/problem';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { type AgreementTexts, agreementTexts } from '@/app/consent/actions';
 import { confirmAgreement } from '@/components/auth/account-bootstrap';
@@ -346,5 +346,5 @@ function messageFor(err: unknown): React.ReactNode {
     (err instanceof ApiUserProblem && err.status === 401)
   )
     return 'You’ve been signed out. Sign in again to continue.';
-  return withReference(TRY_AGAIN_LATER, err);
+  return ourSideProblem(err);
 }

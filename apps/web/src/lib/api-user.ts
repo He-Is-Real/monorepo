@@ -38,7 +38,7 @@ import {
 import { flushErrorReports, reportNoAnswer } from './error-reports';
 import { newReference, traceparent } from './reference';
 import { restartingSeconds } from './restarting';
-import { TRY_AGAIN_LATER } from './try-again-later';
+import { problemText } from './try-again-later';
 
 /** Clerk's `getToken()`: the current session token, or null when signed out. */
 export type GetToken = () => Promise<string | null>;
@@ -122,6 +122,19 @@ export class ApiUserUnavailable extends Error {
     super(message);
   }
 }
+
+/**
+ * The call got no answer at all (offline, a timeout): the LG-9a "no answer" case. People see
+ * `NO_ANSWER` ("We couldn't reach He Is Real…") instead of `TRY_AGAIN_LATER` (LG-13c, Joel
+ * 25 Nov 2026): it says nothing about our side, only that the connection didn't get through.
+ * An answer that came but couldn't be read stays a plain {@link ApiUserUnavailable}.
+ */
+export class NoAnswer extends ApiUserUnavailable {
+  override name = 'NoAnswer';
+}
+
+/** Whether `err` is a call that got no answer ({@link NoAnswer}). */
+export const isNoAnswer = (err: unknown): boolean => err instanceof NoAnswer;
 
 /** There is no Clerk session, so no request was sent. */
 export class NotSignedIn extends Error {
@@ -242,17 +255,23 @@ export const restartWait = (err: unknown): number | undefined =>
   err instanceof ApiUserProblem ? err.restartingSeconds : undefined;
 
 /**
+ * The message for anything on our side or the connection (LG-13c, Joel 25 Nov 2026): `NO_ANSWER`
+ * when the call got no answer, otherwise only `TRY_AGAIN_LATER` (Joel, 2026-11-09), then `kept`
+ * if given (what of theirs is safe, e.g. "Your story is saved.").
+ */
+export const ourSideMessage = (err: unknown, kept?: string): string =>
+  problemText(isNoAnswer(err), kept);
+
+/**
  * What to tell the person: an input refusal's own message (its `detail`, about what they sent) or
- * `fallback`; for anything else, only `TRY_AGAIN_LATER` (Joel, 2026-11-09), then `kept` if given
- * (what of theirs is safe, e.g. "Your story is kept on this device.").
+ * `fallback`; for anything else {@link ourSideMessage}.
  */
 export function plainMessage(
   err: unknown,
   fallback: string,
   kept?: string,
 ): string {
-  if (isSystemError(err))
-    return kept ? `${TRY_AGAIN_LATER} ${kept}` : TRY_AGAIN_LATER;
+  if (isSystemError(err)) return ourSideMessage(err, kept);
   if (err instanceof ApiUserProblem && err.problem.detail) {
     return err.problem.detail;
   }
@@ -339,7 +358,7 @@ export function apiUser(baseUrl: string, getToken: GetToken): ApiUser {
       // No answer (offline, a timeout): nothing on our side saw it, so the page reports it
       // once it can reach us again (LG-9a).
       reportNoAnswer(reference);
-      throw new ApiUserUnavailable(
+      throw new NoAnswer(
         `api-user could not be reached: ${err instanceof Error ? err.name : 'error'}`,
         reference,
       );

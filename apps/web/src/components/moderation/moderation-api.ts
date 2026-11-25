@@ -1,13 +1,12 @@
+import { ourSideProblem } from '@/components/errors/problem';
 import type { StatusTone } from '@heisreal/web-ui';
 import type { ReactNode } from 'react';
-import { withReference } from '@/components/errors/problem';
 import {
   sanitizeStoryFilters,
   type StoryFilters,
   type StoryFormat,
 } from '@heisreal/story-filters';
 import { ApiUserProblem, NotSignedIn, StaleVersion } from '@/lib/api-user';
-import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 import type { MediaPlayback, StoryImage } from '@/lib/public-stories';
 
 /**
@@ -384,7 +383,7 @@ export function moderationProblem(err: unknown): ReactNode {
   if (err instanceof NotSignedIn) return 'You’re signed out. Sign in again.';
   if (err instanceof ApiUserProblem && err.status === 403)
     return 'This page is for moderators.';
-  return withReference(TRY_AGAIN_LATER, err);
+  return ourSideProblem(err);
 }
 
 const when = new Intl.DateTimeFormat('en-GB', {

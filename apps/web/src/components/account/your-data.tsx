@@ -1,6 +1,6 @@
 'use client';
 
-import { withReference } from '@/components/errors/problem';
+import { ourSideProblem } from '@/components/errors/problem';
 import { useClerk } from '@clerk/react';
 import { useRouter } from 'next/navigation';
 import { type ReactNode, useId, useRef, useState } from 'react';
@@ -26,7 +26,6 @@ import {
   usePersonalSession,
 } from '@/lib/personal-session';
 import { forgetShareStorageOf } from '@/lib/share-storage';
-import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 import { signedInAs, useOwnNotice } from './use-own-data';
 
 /** What the person types to delete their account (D88: a typed confirmation). */
@@ -155,7 +154,7 @@ function DownloadMyData() {
     } catch (err) {
       say(owner, {
         alert: true,
-        text: withReference(TRY_AGAIN_LATER, err),
+        text: ourSideProblem(err),
       });
     } finally {
       setBusy(false);
@@ -238,9 +237,9 @@ function DeleteAccount({ afterDeletion }: { afterDeletion: AfterDeletion }) {
       } else if (outcomeUnknown(err)) {
         uncertain.current = true;
         if (await recheck(api)) deleted = true;
-        else say(owner, withReference(TRY_AGAIN_LATER, err));
+        else say(owner, ourSideProblem(err));
       } else {
-        say(owner, withReference(TRY_AGAIN_LATER, err));
+        say(owner, ourSideProblem(err));
       }
     }
     if (!deleted) {

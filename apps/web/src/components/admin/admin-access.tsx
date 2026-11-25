@@ -1,5 +1,6 @@
 'use client';
 
+import { ourSideMessage } from '@/lib/api-user';
 import { TryAgainLaterNotice } from '@/components/errors/try-again-later';
 import { withReference } from '@/components/errors/problem';
 import Link from 'next/link';
@@ -92,8 +93,9 @@ export function useStaffNavLinks(): {
 
 /**
  * What to tell an admin when api-admin refused what they sent (an input refusal's own message,
- * `isInputRefusal`), or only `TRY_AGAIN_LATER` for anything else (Joel, 2026-11-09), with its
- * reference line (LG-1).
+ * `isInputRefusal`), or `ourSideMessage` for anything else ("We couldn't reach…" when there was no
+ * answer, LG-13c; otherwise only `TRY_AGAIN_LATER`, Joel 2026-11-09), with its reference line
+ * (LG-1).
  */
 export const problemText = (err: unknown): ReactNode =>
   withReference(problemWords(err), err);
@@ -104,7 +106,7 @@ function problemWords(err: unknown): string {
     const field = err.problem.errors?.[0]?.message;
     return field ?? err.problem.detail ?? TRY_AGAIN_LATER;
   }
-  return TRY_AGAIN_LATER;
+  return ourSideMessage(err);
 }
 
 /**
@@ -197,7 +199,14 @@ export function AdminAccess({
   }
   if (account.status === 'failed') {
     // The account couldn't be read: that's on our side, not a refusal.
-    return <TryAgainLaterNotice role="alert" reference={account.reference} />;
+    return (
+      <TryAgainLaterNotice
+        role="alert"
+        reference={account.reference}
+        noAnswer={account.noAnswer}
+        onTryAgain={() => window.location.reload()}
+      />
+    );
   }
   if (!atLeast(role, min)) {
     return (

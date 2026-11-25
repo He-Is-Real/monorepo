@@ -37,7 +37,8 @@ Code that needs api-user goes through this client, never its own `fetch`. Wideni
 server actions in memory, by their IP address, and writes each request's wide event, so this one
 file reads four request headers by name: the last `X-Forwarded-For` entry (the one Google's front
 end appended), `User-Agent`, `traceparent` (the trace Google's front end gives the request) and
-`Next-Router-Prefetch` (a prefetch isn't a search someone made). Lint allows exactly
+`Next-Router-Prefetch` (a prefetch isn't a search someone made). The three beyond the address
+are approved additions to D32's list (LG-13b A, Joel 25 Nov 2026). Lint allows exactly
 `<request>.headers.get('<one of these>')` there, and `<request>.headers.traceparent` for the
 request `onRequestError` reports, and refuses every other `.headers` or `.cookies` use; all the
 other rules stay on. They are never stored or forwarded; the address and user agent are plain on

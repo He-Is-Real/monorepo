@@ -4,7 +4,7 @@ import { newReference, referenceOf } from '@/lib/reference';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ApiUserProblem,
-  ApiUserUnavailable,
+  isNoAnswer,
   isSystemError,
   newIdempotencyKey,
   plainMessage,
@@ -42,7 +42,7 @@ export type SaveStatus =
   | 'unsaved' // kept on this device; no draft on the server yet (needs a title and text)
   | 'saving'
   | 'saved'
-  | 'offline' // api-user couldn't be reached; kept on this device
+  | 'offline' // api-user gave no answer (LG-13c: "We couldn't reach…"); kept on this device
   | 'conflict' // the same field changed in another tab
   | 'error' // refused (e.g. D94's draft limit); `error` says why
   | 'submitted'; // it has been submitted meanwhile (e.g. a submission whose answer was lost)
@@ -435,7 +435,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
               ? (referenceOf(err) ?? newReference())
               : null,
           );
-          if (err instanceof ApiUserUnavailable) {
+          if (isNoAnswer(err)) {
             setStatus('offline');
           } else {
             setStatus('error');
@@ -549,7 +549,18 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
         setErrorReference(
           isSystemError(err) ? (referenceOf(err) ?? newReference()) : null,
         );
-        setStatus(err instanceof ApiUserUnavailable ? 'offline' : 'error');
+        if (isNoAnswer(err)) {
+          setStatus('offline');
+        } else {
+          setStatus('error');
+          setError(
+            plainMessage(
+              err,
+              'Your story couldn’t be saved. It’s kept on this device; try again.',
+              'Your story is kept on this device.',
+            ),
+          );
+        }
       }
     },
     [commit, conflict, saveOnce],
