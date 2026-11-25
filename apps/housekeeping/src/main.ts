@@ -11,7 +11,8 @@
  * never personal data or a key.
  */
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
-import { type Severity, writeLog } from '@heisreal/logging';
+import { flushLogSinks, type Severity, writeLog } from '@heisreal/logging';
+import { startAxiomLogs } from '@heisreal/logging/axiom';
 import { JsonLogger } from '@heisreal/logging/nest';
 import { Logger } from '@nestjs/common';
 import { SecretsService } from '@heisreal/secrets';
@@ -44,24 +45,24 @@ async function main(): Promise<number> {
     throw err;
   }
 
-  return startHousekeeping({
-    config,
-    secrets: new SecretsService(
-      new SecretManagerServiceClient(),
-      config.project,
-    ),
-    log,
-  });
+  const secrets = new SecretsService(
+    new SecretManagerServiceClient(),
+    config.project,
+  );
+  // Every line also goes to Axiom where OpenTofu set it up (LG-3); never stops the job.
+  await startAxiomLogs({ read: (name) => secrets.get(name) });
+  return startHousekeeping({ config, secrets, log });
 }
 
-main().then(
-  (code) => process.exit(code),
-  (err) => {
-    log({
-      severity: 'ERROR',
-      message: 'housekeeping failed',
-      error: (err as Error).message,
-    });
-    process.exit(1);
-  },
-);
+/** Sends what Axiom still waits for (at most 3 s), then exits. */
+const exit = (code: number) =>
+  void flushLogSinks(3000).then(() => process.exit(code));
+
+main().then(exit, (err) => {
+  log({
+    severity: 'ERROR',
+    message: 'housekeeping failed',
+    error: (err as Error).message,
+  });
+  exit(1);
+});

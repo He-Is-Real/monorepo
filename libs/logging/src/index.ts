@@ -163,19 +163,102 @@ export function formatLogEntry(
   return JSON.stringify(logEntry(severity, message, fields, now));
 }
 
+/** Somewhere a finished entry goes besides stdout (Axiom, the media worker's Cloud Logging). */
+export interface LogSink {
+  write(severity: Severity, entry: Record<string, unknown>): void;
+  /** Sends what is waiting; resolves (never rejects) within `timeoutMs`. For shutting down. */
+  flush?(timeoutMs?: number): Promise<void>;
+}
+
 /**
- * Writes one entry, if `LOG_LEVEL` allows it: ERROR and CRITICAL to stderr, the rest to stdout
- * (through `console`, so it also works in the website's server code).
+ * The sinks every entry written to stdout also goes to (LG-3: Axiom), whichever writer wrote it:
+ * {@link writeLog}, `JsonLogger`, and the wide, job and search events, `note` and error lines.
+ * Kept on `globalThis`, not in this module: the website's server bundles this library more than
+ * once, and every copy must reach the same sinks.
  */
+interface SinkState {
+  sinks: LogSink[];
+  failed: number;
+}
+const SINKS = Symbol.for('heisreal.logging.sinks');
+const sinkState = (): SinkState =>
+  ((globalThis as { [SINKS]?: SinkState })[SINKS] ??= { sinks: [], failed: 0 });
+
+/** Adds a sink for every entry from now on; the answer removes it again. */
+export function addLogSink(sink: LogSink): () => void {
+  sinkState().sinks.push(sink);
+  return () => {
+    const { sinks } = sinkState();
+    const at = sinks.indexOf(sink);
+    if (at >= 0) sinks.splice(at, 1);
+  };
+}
+
+/** Counts one entry that couldn't be written (writes are swallowed, never thrown). */
+export function countFailedLogWrite(count = 1): void {
+  sinkState().failed += count;
+}
+
+/** How many entries couldn't be written, or sent, in this process. */
+export function failedLogWrites(): number {
+  return sinkState().failed;
+}
+
+/** Hands an entry already written to stdout to every other sink. Never throws, never waits. */
+export function forwardLog(
+  severity: Severity,
+  entry: Record<string, unknown>,
+): void {
+  for (const sink of sinkState().sinks) {
+    try {
+      sink.write(severity, entry);
+    } catch {
+      countFailedLogWrite();
+    }
+  }
+}
+
+/**
+ * Sends what every sink still holds, waiting at most `timeoutMs` in all: for shutting down
+ * (SIGTERM) and for a job that is about to exit. Never rejects.
+ */
+export async function flushLogSinks(timeoutMs = 3000): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    Promise.allSettled(
+      sinkState().sinks.map((sink) => sink.flush?.(timeoutMs)),
+    ),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, timeoutMs);
+    }),
+  ]);
+  clearTimeout(timer);
+}
+
+/**
+ * Writes a finished entry, if `LOG_LEVEL` allows it: ERROR and CRITICAL to stderr, the rest to
+ * stdout (through `console`, so it also works in the website's server code), then to every
+ * other sink ({@link addLogSink}).
+ */
+export function writeEntry(
+  severity: Severity,
+  entry: Record<string, unknown>,
+): void {
+  if (!severityEnabled(severity)) return;
+  const line = JSON.stringify(entry);
+  if (severity === 'ERROR' || severity === 'CRITICAL') console.error(line);
+  else console.log(line);
+  forwardLog(severity, entry);
+}
+
+/** Writes one entry ({@link writeEntry}), if `LOG_LEVEL` allows it. */
 export function writeLog(
   severity: Severity,
   message: string,
   fields?: LogFields,
 ): void {
   if (!severityEnabled(severity)) return;
-  const line = formatLogEntry(severity, message, fields);
-  if (severity === 'ERROR' || severity === 'CRITICAL') console.error(line);
-  else console.log(line);
+  writeEntry(severity, logEntry(severity, message, fields));
 }
 
 export interface Log {

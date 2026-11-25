@@ -15,7 +15,12 @@
  * renewed here every few hours.
  */
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
-import { type Severity, serviceFields } from '@heisreal/logging';
+import {
+  flushLogSinks,
+  type Severity,
+  serviceFields,
+} from '@heisreal/logging';
+import { startAxiomLogs } from '@heisreal/logging/axiom';
 import { LOG_SINKS, note } from '@heisreal/logging/event';
 import { JsonLogger } from '@heisreal/logging/nest';
 import { SecretsService } from '@heisreal/secrets';
@@ -126,6 +131,9 @@ async function main() {
   }
 
   const secrets = new SecretsService(new SecretManagerServiceClient(), project);
+  // Every line also goes to Axiom (LG-3) when media-worker.sh names the dataset and the token's
+  // secret (`axiom-ingest-token`, read as media-worker); without them, one warning.
+  await startAxiomLogs({ read: (name) => secrets.get(name) });
   const bunny = new BunnyStreamReader(library, () =>
     secrets.get(keySecret, 'latest', { maxAgeMs: KEY_MAX_AGE_MS }),
   );
@@ -149,8 +157,10 @@ async function main() {
   const stop = () => {
     identity.stop();
     server.close(() => {
-      // The last lines reach Cloud Logging before the worker exits (at most 3 seconds).
-      void cloudLogs.flush().then(() => process.exit(0));
+      // The last lines reach Cloud Logging and Axiom before the worker exits (at most 3 seconds).
+      void Promise.all([cloudLogs.flush(), flushLogSinks(3000)]).then(() =>
+        process.exit(0),
+      );
     });
   };
   process.on('SIGINT', stop);
@@ -162,5 +172,5 @@ main().catch((err: unknown) => {
     step: 'stopped',
     code: err instanceof Error ? err.message : 'error',
   });
-  process.exit(1);
+  void flushLogSinks(3000).then(() => process.exit(1));
 });

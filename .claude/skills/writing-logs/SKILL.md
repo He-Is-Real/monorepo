@@ -54,9 +54,10 @@ success or failure. Stripe calls it a canonical log line; the blog calls it a wi
    `external`). **No tracing library**: no OpenTelemetry SDK or spans.
 8. **No sampling (LG-6 A, Joel 24 Nov).** Every event is kept, for 30 days. Don't add sampling
    ("for now, but we may revisit sampling at larger scale").
-9. **A failed log send must never fail, slow or change the request.** Write to stdout first; send to
-   Axiom after the response, without awaiting it on the request path; swallow and count send
-   errors. Logging code never throws into business code.
+9. **A failed log send must never fail, slow or change the request.** Write to stdout first; the
+   library queues the same entry for Axiom and sends it in the background, never awaited on the
+   request path; send errors are swallowed and counted. Logging code never throws into business
+   code.
 10. **Server errors are logged by servers only (LG-1c, Joel 22 Nov).** The browser never sends
     details of a server-side error: anyone can read their own network traffic. Only failures the
     servers can't see send a small `error_report` (reference, route, kind) to api-user: a crash in
@@ -247,9 +248,13 @@ use(req: Request, res: Response, next: NextFunction) {
 
 ## Reading logs
 
-- **Read in Axiom by default (LG-5, Joel 24 Nov).** Axiom (LG-3: free plan, US, Joel's account)
-  holds the wide events; Joel and agents read them there first, through Axiom's MCP and the
-  runbook's saved Axiom queries. Search by `ref`, `user.id`, `story.id`, `action`, `outcome`.
+- **Read in Axiom by default (LG-5, Joel 24 Nov).** Axiom (LG-3: free plan, Joel's account, edge
+  deployment EU Central 1, one dataset per environment, `heisreal-dev`) gets every entry stdout
+  gets (`libs/logging/src/axiom.ts`); Joel and agents read there first (`docs/logs-runbook.md`).
+  Search by `ref`, `user.id`, `story.id`, `action`, `outcome`.
+- **Field budget:** Axiom's free plan keeps at most 256 fields per dataset and drops new ones
+  beyond that. Every flattened field name we write is listed in `libs/logging/src/fields.ts`; a new
+  field goes there too, and its test fails past 200. Prefer an existing field to a new one.
 - **Stats are in Axiom only (LG-8, Joel 24 Nov):** Axiom queries and dashboards over the last 30
   days. Nothing in Google for stats (no Log Analytics, BigQuery, log-based metrics or dashboards).
   Stats group by route, service, outcome, action and day, **never by person, story or address**.

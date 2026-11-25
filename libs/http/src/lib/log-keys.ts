@@ -2,10 +2,12 @@ import {
   Global,
   Injectable,
   Module,
+  type OnApplicationShutdown,
   type OnModuleInit,
   Optional,
 } from '@nestjs/common';
-import { writeLog } from '@heisreal/logging';
+import { flushLogSinks, writeLog } from '@heisreal/logging';
+import { startAxiomLogs } from '@heisreal/logging/axiom';
 import { setLogKeys } from '@heisreal/logging/event';
 import { SecretsService } from '@heisreal/secrets';
 
@@ -52,7 +54,30 @@ export class LogKeysLoader implements OnModuleInit {
   }
 }
 
-/** Import once in an API's app module: loads the log keys. */
+/**
+ * Sends every log entry to Axiom too (LG-3, `@heisreal/logging/axiom`) where OpenTofu configured
+ * it: `AXIOM_DATASET`, `AXIOM_DOMAIN`, and the token's Secret Manager name `AXIOM_TOKEN_SECRET`,
+ * read through libs/secrets. A token that can't be read (no version yet) is one warning, never a
+ * failed start. On shutdown (SIGTERM, Nest's shutdown hooks; Cloud Run gives the instance CPU
+ * for 10 s) it sends what is still waiting, at most 3 s.
+ */
+@Injectable()
+export class AxiomLogsLoader implements OnModuleInit, OnApplicationShutdown {
+  constructor(@Optional() private readonly secrets?: SecretsService) {}
+
+  async onModuleInit(): Promise<void> {
+    const secrets = this.secrets;
+    await startAxiomLogs({
+      read: secrets ? (name) => secrets.get(name) : undefined,
+    });
+  }
+
+  async onApplicationShutdown(): Promise<void> {
+    await flushLogSinks(3000);
+  }
+}
+
+/** Import once in an API's app module: loads the log keys and starts the Axiom sink. */
 @Global()
-@Module({ providers: [LogKeysLoader] })
+@Module({ providers: [LogKeysLoader, AxiomLogsLoader] })
 export class LogKeysModule {}

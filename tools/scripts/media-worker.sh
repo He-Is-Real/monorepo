@@ -82,10 +82,13 @@ export APP_API_TOKEN
 DAPR_API_TOKEN="$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n')"
 export DAPR_API_TOKEN
 
-# The worker first: Dapr asks it for its subscription when it starts.
+# The worker first: Dapr asks it for its subscription when it starts. Its logs also go to Axiom
+# (LG-3): it reads the ingest token from Secret Manager as media-worker, like the Bunny key.
 GCP_PROJECT="$project" MEDIA_WORKER_ACCOUNT="$account" RESULT_WRITER_URL="$writer" \
   BUNNY_STREAM_LIBRARY_ID="$library" BUNNY_STREAM_READONLY_KEY_SECRET=bunny-stream-readonly-key \
   MEDIA_WORKER_WORK_DIR="$runtime/work" \
+  AXIOM_DATASET=heisreal-dev AXIOM_DOMAIN=eu-central-1.aws.edge.axiom.co \
+  AXIOM_TOKEN_SECRET=axiom-ingest-token \
   MEDIA_WORKER_DEFAULT_PICTURE="$app/assets/default-audio-background.jpg" \
   APP_PORT="$app_port" node "$app/dist/main.js" &
 pids+=("$!")

@@ -156,6 +156,14 @@ resource "google_cloud_run_v2_job" "housekeeping" {
             value = google_secret_manager_secret.log_hmac[env.value].secret_id
           }
         }
+        # Logs also go to Axiom (LG-3): dataset, edge domain and the token's secret name (secrets.tf).
+        dynamic "env" {
+          for_each = local.axiom_env
+          content {
+            name  = env.key
+            value = env.value
+          }
+        }
         # true: only logs what it would delete.
         env {
           name  = "HOUSEKEEPING_DRY_RUN"
@@ -194,6 +202,7 @@ resource "google_cloud_run_v2_job" "housekeeping" {
     google_secret_manager_secret_iam_member.housekeeping,
     google_secret_manager_secret_iam_member.housekeeping_clerk,
     google_secret_manager_secret_iam_member.log_hmac,
+    google_secret_manager_secret_iam_member.axiom_ingest_token,
   ]
 }
 

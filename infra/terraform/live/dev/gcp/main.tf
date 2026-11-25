@@ -107,6 +107,9 @@ module "gcp" {
   ci_snapshot_pusher_email = local.bootstrap.ci_snapshot_pusher_email
 
   images = local.resolved_images
+  # Every log entry also goes to Axiom (LG-3): this dataset, EU Central 1 edge. The token is
+  # added by hand (infra/terraform/README.md, "Axiom").
+  axiom_dataset = "heisreal-dev"
   # Public since the walking-skeleton page (0.9, D31): Cloud Run's invoker check is off. Both
   # stay capped at 2 instances and scale to zero (budget, decision 10).
   api_public_read_public   = true

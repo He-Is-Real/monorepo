@@ -254,3 +254,41 @@ resource "google_secret_manager_secret_iam_member" "log_hmac" {
   role      = "roles/secretmanager.secretAccessor"
   member    = each.value.member
 }
+
+# Axiom's ingest token (LG-3, Joel 2026-11-25): every log entry also goes to Axiom
+# (libs/logging/src/axiom.ts), EU Central 1 edge, one dataset per environment (var.axiom_dataset).
+# OpenTofu owns only the empty container; the owner adds the ingest-only token as a version by
+# hand (README, "Axiom"), so the value is never in code, state or plans. Each service account
+# that writes logs (the log keys' readers above) may read it. Services get its name
+# (`AXIOM_TOKEN_SECRET`) and read it at start-up through libs/secrets; until a version exists
+# they write one warning and log to stdout only (deploys don't wait for it).
+locals {
+  axiom_env = var.axiom_dataset == null ? {} : {
+    AXIOM_DATASET      = var.axiom_dataset
+    AXIOM_DOMAIN       = var.axiom_domain
+    AXIOM_TOKEN_SECRET = google_secret_manager_secret.axiom_ingest_token.secret_id
+  }
+}
+
+resource "google_secret_manager_secret" "axiom_ingest_token" {
+  project   = var.project_id
+  secret_id = "axiom-ingest-token"
+  labels    = merge(local.labels, { component = "logging" })
+
+  replication {
+    user_managed {
+      replicas {
+        location = var.region # GDPR: stays in the UK
+      }
+    }
+  }
+}
+
+resource "google_secret_manager_secret_iam_member" "axiom_ingest_token" {
+  for_each = local.log_hmac_reader_members
+
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.axiom_ingest_token.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = each.value
+}
