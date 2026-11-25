@@ -123,7 +123,9 @@ Query, then
 ['heisreal-traces'] | where trace_id == "019ab7c43df67f13903075f14addacc4"
 ```
 
-and pick any row's trace id to open the trace view (waterfall). Or start from the slowest:
+and pick any row's trace id to open the trace view (waterfall). Or start from the Service health
+dashboard's "Slowest requests" table (below, Dashboards): copy a row's `trace_id` into that query.
+Or query the slowest yourself:
 
 ```kusto
 ['heisreal-traces'] | where kind == "server" and ['service.name'] == "api-user"
@@ -137,7 +139,9 @@ and code, query name, job name, cold start and uptime), never anything about a p
 and production (later) together: each span carries `deployment.environment.name` (`dev`, `prod`) as a resource
 attribute, with `service.region` and `service.instance` (check the exact field names with
 `getDatasetFields` once spans have arrived). Only request and job timelines are there: Next's
-start-up work (an instance loading its route modules) is not sent. Spans the services
+start-up work (an instance loading its route modules) is not sent, nor our own sends to Axiom
+(the log sink's fetch, which Next records inside a page request: any span whose host is
+`AXIOM_DOMAIN` is dropped). Spans the services
 couldn't send are counted in their `Couldn't send spans to Axiom` warning (stdout, at most once a
 minute). The media worker's job span starts its own trace (Dapr doesn't hand Pub/Sub attributes
 over, below); its calls to the result writer continue it.
@@ -212,11 +216,18 @@ queries while it's open, and every query uses the free plan's 10 GB-hours a mont
 (LG-8), no chart lists or groups by a person, a story or an address; the site-use dashboard also
 groups by device type, browser, theme and search term (LG-8 as widened by LG-14c).
 
-| Dashboard                           | Opens on      | What it shows                                                                                                                                                                             |
-| ----------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Service health (heisreal-dev)       | last 24 hours | requests, 5xx, p95 time and cold starts; requests and p95 by service; outcomes; rate-limit decisions by group; each route's volume, 4xx/5xx and time; cold vs warm time; versions running |
-| Jobs (heisreal-dev)                 | last 7 days   | jobs per day by kind and outcome; time per job (`job.duration_ms`) p50/p95/max by kind; failures by kind, outcome and code; housekeeping chores per day                                   |
-| How the site is used (heisreal-dev) | last 7 days   | the website's page requests by device type and browser, bots vs people; searches per day; searches that found nothing; popular themes searched for; top search terms                      |
+| Dashboard                           | Opens on      | What it shows                                                                                                                                                                                                                             |
+| ----------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Service health (heisreal-dev)       | last 24 hours | requests, 5xx, p95 time and cold starts; requests and p95 by service; outcomes; rate-limit decisions by group; each route's volume, 4xx/5xx and time; cold vs warm time; versions running; each route's slowest request with its trace id |
+| Jobs (heisreal-dev)                 | last 7 days   | jobs per day by kind and outcome; time per job (`job.duration_ms`) p50/p95/max by kind; failures by kind, outcome and code; housekeeping chores per day                                                                                   |
+| How the site is used (heisreal-dev) | last 7 days   | the website's page requests by device type and browser, bots vs people; searches per day; searches that found nothing; popular themes searched for; top search terms                                                                      |
+
+**From a slow request to its timeline:** Service health's "Slowest requests" table reads
+`heisreal-traces` (dev's request spans, the website's pages included): one row per route with its
+slowest request's time, `trace_id` and `ref` (the same id with dashes, as the logs write it). Axiom
+can't make a dashboard column open a trace, so copy the `trace_id` into Query
+(`['heisreal-traces'] | where trace_id == "…"`, above) and open the trace view from a row, or
+search the logs with the `ref`. A trace id is a random id, not a person (LG-8 allows it).
 
 A job's kind is its service and `job.name` (the media worker's `media.check`, `media.render`…), or
 the route for the result writer's events. Users and popular pages wait for Joel's choice (LG-14d);

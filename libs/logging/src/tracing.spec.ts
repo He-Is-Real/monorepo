@@ -347,6 +347,68 @@ describe('tracing set-up (LG-15)', () => {
     }
   });
 
+  it('drops spans of our own sends to Axiom (the log sink’s fetch inside a page request)', async () => {
+    const sent: ReadableSpan[] = [];
+    startTracing({
+      service: 'web',
+      env: { AXIOM_DOMAIN: 'eu-central-1.aws.edge.axiom.co' },
+      exporter: {
+        export: (spans, done) => {
+          sent.push(...spans);
+          done({ code: ExportResultCode.SUCCESS });
+        },
+        shutdown: async () => undefined,
+      },
+    });
+    const { context, trace } = await import('@opentelemetry/api');
+    const tracer = trace.getTracer('next.js');
+    const request = tracer.startSpan('GET /', {
+      attributes: { 'next.route': '/' },
+    });
+    const inside = trace.setSpan(context.active(), request);
+    // What Next's patched fetch records for the log sink's send.
+    tracer
+      .startSpan(
+        'fetch POST https://eu-central-1.aws.edge.axiom.co/v1/ingest/heisreal-dev',
+        {
+          attributes: {
+            'http.method': 'POST',
+            'http.url':
+              'https://eu-central-1.aws.edge.axiom.co/v1/ingest/heisreal-dev',
+            'net.peer.name': 'eu-central-1.aws.edge.axiom.co',
+          },
+        },
+        inside,
+      )
+      .end();
+    // The same send seen only through its address.
+    tracer
+      .startSpan(
+        'fetch POST',
+        {
+          attributes: {
+            'url.full': 'https://EU-CENTRAL-1.aws.edge.axiom.co/v1/traces',
+          },
+        },
+        inside,
+      )
+      .end();
+    // A call to one of our APIs stays.
+    tracer
+      .startSpan(
+        'fetch GET https://api-public-read.example/v1/stories',
+        { attributes: { 'net.peer.name': 'api-public-read.example' } },
+        inside,
+      )
+      .end();
+    request.end();
+    await flushTracing(1000);
+    expect(sent.map((s) => s.name)).toEqual([
+      'fetch GET api-public-read.example',
+      'GET /',
+    ]);
+  });
+
   it('sends only request and job timelines, not Next’s start-up module loading', async () => {
     const sent: ReadableSpan[] = [];
     startTracing({
