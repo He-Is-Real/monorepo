@@ -2,7 +2,7 @@
 
 Who: Moderator, Admin, Signed-in person (a story's owner), the system.
 Data: `docs/db-permissions.md#stories-schema-04-storiessurql`
-Next id: REQ-MOD-141
+Next id: REQ-MOD-143
 
 ## Contents
 
@@ -59,6 +59,8 @@ Next id: REQ-MOD-141
 - **REQ-MOD-028** The list opens on "Waiting for review", and each tab is a link in the address (`?state=`). [MD-4]
 - **REQ-MOD-029** The side panel holds a title search (ignoring capitals), the sort, the format and the themes; the search, format and themes together narrow the list. [MQ-1]
 - **REQ-MOD-030** The format and theme filters work exactly as browse's, with browse's own controls and one shared filter definition, so a change to how browse filters changes the moderation list too. [OQ-2]
+- **REQ-MOD-141** The sort uses browse's own radio buttons. [J-2026-11-20-BRW]
+- **REQ-MOD-142** The title search uses browse's own search box. [UNTRACED]
 - **REQ-MOD-031** The format filter takes one format at a time (All formats, Video, Audio or Written), each showing how many of this tab's stories it holds with the search and theme applied. [OQ-2]
 - **REQ-MOD-032** Themes stack from browse's theme picker: each turns on and off on its own with a ✓, a story shows only if it has every chosen theme, and "Clear themes" appears once one is chosen. [BS-7]
 - **REQ-MOD-033** A chosen theme that has been deleted filters nothing. [OQ-2]
