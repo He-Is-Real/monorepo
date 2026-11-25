@@ -73,6 +73,7 @@ export const LOG_FIELDS: readonly string[] = [
   'job.arrived_at',
   'job.code',
   'job.delivery',
+  'job.duration_ms',
   'job.event_id',
   'job.failure_code',
   'job.has_picture',

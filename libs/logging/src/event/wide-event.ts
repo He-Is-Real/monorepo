@@ -331,6 +331,10 @@ export class WideEvent {
       merge(body, { debug: { plain_content: plain } });
     }
     if (this.db.calls) merge(body, { db: this.db });
+    // The job's whole time, start to written (LG-14b A, Joel 25 Nov 2026): one field for every
+    // job event, whoever writes it (the media worker, the workflow service's result writer).
+    if (this.kind === 'job')
+      merge(body, { job: { duration_ms: this.elapsedMs() } });
     merge(body, {
       process: { cold_start: this.coldStart, uptime_ms: this.uptimeMs },
     });

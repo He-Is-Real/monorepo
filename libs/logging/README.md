@@ -52,6 +52,8 @@ decisions LG-1 to LG-9 in `../project/context/research/logging.html`). Node only
   is the current event's trace as a Pub/Sub message attribute (`traceparent`), which every
   publisher of `media-jobs` adds. The result writer (apps/workflow) uses `wideEvents('workflow',
 'job')`: one `event: "job"` per call from the media worker, with the worker's trace.
+- **Job time:** every `event: "job"` carries `job.duration_ms`, the job's whole time from start to
+  written (LG-14b A, Joel 25 Nov 2026); `libs/logging` adds it, never by hand.
 - **Timings:** `timeDb(name, work)` (libs/database's `runQuery` already does it), `timeExternal(name,
 work)` and `timedFetch(name, fetch)` for Clerk, Bunny, Stripe, Resend → `db { calls, total_ms,
 slowest { name, ms } }`, `external.<name> { calls, ms, status }`.

@@ -74,7 +74,7 @@ fields it has seen; the full list is `libs/logging/src/fields.ts`), so check the
 Main fields: `ref`, `service.name`, `http.route`, `http.status_code`, `http.duration_ms`,
 `outcome` (`ok`, `input_refused`, `not_found`, `rate_limited`, `restarting`, `refused`, `error`),
 `action`, `error.type` / `error.code`, `user.id`, `user.session_hash`, `story.id`,
-`db.total_ms` / `db.slowest`, `external.<bunny|clerk|stripe|resend>.ms`, `job.id`, `job.steps`,
+`db.total_ms` / `db.slowest`, `external.<bunny|clerk|stripe|resend>.ms`, `job.id`, `job.steps`, `job.duration_ms` (a job's whole time),
 `process.cold_start` / `process.uptime_ms` (the first request or job a running copy handled, and how
 long it had been up), and on api-public-read `cache.hit`, `cache.stale`, `cache.age_ms`,
 `cache.not_modified` (LG-12).
@@ -177,19 +177,22 @@ More on the media pipeline: `docs/media-runbook.md`.
 
 Three Axiom dashboards read `heisreal-dev`. They are OpenTofu's (`infra/terraform/live/dev/axiom`,
 one `dashboard-*.tf` file each): a change made in Axiom's editor is undone at the next apply, and the
-weekly drift check reports it. Change the file instead. Each opens on the last 24 hours with
-auto-refresh off: a dashboard only queries while it's open, and every query uses the free plan's
-10 GB-hours a month. Like every stat (LG-8), no chart lists or groups by a person, a story or an
-address.
+weekly drift check reports it. Change the file instead. Auto-refresh is off: a dashboard only
+queries while it's open, and every query uses the free plan's 10 GB-hours a month. Like every stat
+(LG-8), no chart lists or groups by a person, a story or an address; the site-use dashboard also
+groups by device type, browser, theme and search term (LG-8 as widened by LG-14c).
 
-| Dashboard                                        | What it shows                                                                                                                                                                             |
-| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Service health (heisreal-dev)                    | requests, 5xx, p95 time and cold starts; requests and p95 by service; outcomes; rate-limit decisions by group; each route's volume, 4xx/5xx and time; cold vs warm time; versions running |
-| Errors (heisreal-dev)                            | requests not ok by outcome; warning and error lines by service; failures by service, route, status and outcome; error kinds (`error.type`, `error.code`)                                  |
-| Database, outside calls and cache (heisreal-dev) | database time per request by service and route; the slowest queries by name; Clerk and Bunny calls by route; api-public-read's memory-cache hit rate by route                             |
+| Dashboard                           | Opens on      | What it shows                                                                                                                                                                             |
+| ----------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Service health (heisreal-dev)       | last 24 hours | requests, 5xx, p95 time and cold starts; requests and p95 by service; outcomes; rate-limit decisions by group; each route's volume, 4xx/5xx and time; cold vs warm time; versions running |
+| Jobs (heisreal-dev)                 | last 7 days   | jobs per day by kind and outcome; time per job (`job.duration_ms`) p50/p95/max by kind; failures by kind, outcome and code; housekeeping chores per day                                   |
+| How the site is used (heisreal-dev) | last 7 days   | the website's page requests by device type and browser, bots vs people; searches per day; searches that found nothing; popular themes searched for; top search terms                      |
 
-A chart over a field nobody has written yet (`error.type`, `external.*`) stays empty instead of
-failing: it reads the field through `column_ifexists()`.
+A job's kind is its service and `job.name` (the media worker's `media.check`, `media.render`…), or
+the route for the result writer's events. Users and popular pages wait for Joel's choice (LG-14d);
+the site-use dashboard keeps a marked place for them. A chart over a field nobody has written yet
+(`job.duration_ms`, `search.*`, `client.browser`) stays empty instead of failing: it reads the
+field through `column_ifexists()`.
 
 ## Counts (stats)
 

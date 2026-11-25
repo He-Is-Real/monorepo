@@ -32,6 +32,7 @@ describe("the logs' field budget (Axiom keeps 256 per dataset)", () => {
       event.sensitive('user.session_hash', 'sess_1');
       event.fail({ type: 'Error', code: 'x', retriable: false, message: 'm' });
       event.write();
+      startEvent('job', 'media-worker').write();
       writeSearchEvent({
         service: 'api-public-read',
         route: '/v1/stories',
