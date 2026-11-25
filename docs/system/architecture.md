@@ -6,11 +6,11 @@ Next id: REQ-ARC-041
 ## Services
 
 - **REQ-ARC-001** The site is four services: `web` (the website), `api-public-read` (anonymous, published stories only), `api-user` (the signed-in person) and `api-admin` (Moderators and Admins). [D33]
-- **REQ-ARC-002** Services never call each other. [D33]
+- **REQ-ARC-002** Services never call each other. [UNTRACED]
 - **REQ-ARC-003** Each service signs in to the database as its own least-privilege login; services never share a login, and `api-public-read`'s login is read-only. [D13]
   Example: the logins and their permissions are in `docs/db-permissions.md`.
 - **REQ-ARC-004** The website's server calls only `api-public-read`, never `api-user` or `api-admin`. [D32]
-- **REQ-ARC-005** Clerk runs in the browser only, and the browser calls `api-user` and `api-admin` directly. [D31]
+- **REQ-ARC-005** Clerk runs in the browser only, and the browser calls `api-user` and `api-admin` directly. [D32]
 - **REQ-ARC-006** The website's server never reads, logs or forwards the sign-in cookie; a lint rule guards this (`apps/web/README.md`). [D32]
 - **REQ-ARC-007** In `api-user`, a person's own reads run inside a database session as that person, so the database's own permissions keep everyone else's rows out. [D27]
 - **REQ-ARC-008** The OpenAPI specs in `libs/contracts/openapi` are the source of truth for every API; the conventions are in `docs/api-conventions.md`. [D23]
