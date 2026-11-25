@@ -1004,8 +1004,8 @@ DEFINE FIELD OVERWRITE skippedMediaWait ON storyStatusLog TYPE option<bool> READ
   PERMISSIONS FOR select WHERE $auth = service:api_admin;
 -- On a person's "sent" entry (pending): the IP address the story was sent from (block list,
 -- G21 D; Joel 2026-11-11), so an Admin can block a recent abuser's address. api-user supplies it
--- (the client address Cloud Run passes, docs/how-the-app-works.md); kept only on the person's own
--- "sent" entries (anything else is dropped), lower-case. Read by api-admin (Admins only:
+-- (the client address Cloud Run passes, REQ-ACC-047 in docs/product/behaviour/accounts.md); kept
+-- only on the person's own "sent" entries (anything else is dropped), lower-case. Read by api-admin (Admins only:
 -- api-admin shows it to an Admin, never a Moderator) and by the person who sent it, in their own
 -- "Download my data" export (BL-4, Joel 2026-11-14). The nightly housekeeping clears it 30 days
 -- after the entry (fn::story::sender_ips_expire_before). Goes with the story, like the entry.

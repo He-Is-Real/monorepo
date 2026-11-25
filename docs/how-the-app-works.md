@@ -33,10 +33,10 @@ code does what it does today; nobody should build on either reading.
    care". Which applies before the first post? (delivery-status.md lists the takedown as a gate.)
 4. **Publishing a withdrawn story again.** Answered by Edit instead of Withdraw (Joel,
    2026-11-11): Withdraw is gone; a person takes a story down with Edit and it goes back on the
-   site once it is sent again and approved (My profile, edit and delete).
+   site once it is sent again and approved (`docs/product/behaviour/profile.md`, REQ-PRO-016).
 5. **Editing a published story.** Answered (Edit, ED-1 to ED-4, Joel 2026-11-11): a published
-   story can be edited; Edit takes it off the site until a moderator approves it again (My
-   profile, edit and delete).
+   story can be edited; Edit takes it off the site until a moderator approves it again
+   (`docs/product/behaviour/profile.md`, REQ-PRO-014).
 6. **A notice when the privacy notice changes.** Plan 4e (8b) says changes that matter are
    announced with a banner on the next visit (and later by email). Only the testimony-consent
    banner is built. Is a privacy-notice banner wanted before Go live?
@@ -51,193 +51,9 @@ code does what it does today; nobody should build on either reading.
     form, a verified email before the first story, and virus scanning of uploads. None of these
     is in a later decision or built. Are they still planned, and for which milestone?
 
-## Accounts and sign-in
-
-- Anyone can read, watch and listen to public stories without an account.
-- People sign in with Google or with their email address. With email they use a one-time code
-  or, if they choose, a password of at least 8 characters that is checked against known leaked
-  passwords. One account per verified email: signing in with Google on the same email joins the
-  same account. (D2)
-- There is no Sign in with Apple and no Apple-only technology. Apple Pay through Stripe is fine.
-- CAPTCHA and lockout after repeated failures are on. Two-step sign-in and passkeys are off for
-  now (they need Clerk's paid plan). (D2)
-- **Staff sign-in (G7, Joel 2026-11-11):** staff are protected by using `@heisreal.today` emails
-  only (see Staff, below). Google-only sign-in and two-step verification for staff are left for
-  later, "once we are happy to spend extra money for this".
-- **Adults only.** The site isn't for children: signing up and sharing need the person to be 18
-  or over, which they confirm by agreeing to the terms of use. There is no parental-consent route
-  and no date of birth is stored. Reading needs no age check. (D77)
-- Our sign-in provider, Clerk, keeps the person's email, name and password; our database keeps
-  only a link to their Clerk account. Clerk is hosted in the US, which is accepted. (D16, D6)
-- People change their name, email and password in Clerk's own account panel, opened from My
-  profile. There is no country, display name or notification setting. (D81)
-- Roles, lowest to highest: Viewer (not signed in), User, Moderator, Admin (Joel, 2026-11-11:
-  the old Admin became Moderator, the old Super Admin became Admin). Roles are set in Clerk, on the
-  person's account (`publicMetadata.role`), and travel in their sign-in token, which api-admin reads
-  on every request; someone without one is a User. (D1, G8 B)
-- **A staff role needs the staff email (S-5 A, Joel 2026-11-11):** a Moderator or Admin role counts
-  only while the sign-in token also carries a verified `@heisreal.today` email (the account's
-  primary email). Otherwise the person is a User everywhere (api-admin, api-user and the site's
-  staff menu), so taking that email off an account ends their staff powers at the next token,
-  within about a minute.
-
-  | Role      | Can do (G24, Joel 2026-11-11)                                                                                                                                                                     |
-  | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-  | User      | Share stories, hearts, their own account                                                                                                                                                          |
-  | Moderator | The moderators' list (every story not on the site, except drafts never sent): approve, send back, reject, take down and show again                                                                |
-  | Admin     | Everything a Moderator can, plus drafts never sent on the moderators' list, deleting a story (P1-11), themes, submission limits, legal texts, "approve anyway", the block list and the Staff page |
-
-- **Staff (S-1 to S-4, G7, G8 B; Joel 2026-11-11):** Admins add, change and remove Moderators and
-  Admins on the Staff page (`/admin/staff`). Only `@heisreal.today` emails can be staff (G7). There
-  are no invitations (S-7, Joel 2026-11-11): a person first creates an ordinary account with that
-  email, then an Admin adds them; adding or changing someone with no such account is refused ("Ask
-  them to create an account first, then add them."), and removing them just takes them off the
-  list. Each change goes to Clerk first (the role on their account), then to the staff list in our
-  database. A
-  change takes effect within about a minute (the sign-in token's lifetime). There is always at least
-  one Admin: removing or demoting the last one is refused. If Clerk fails, or can't be confirmed to
-  agree with the list afterwards, the page says it couldn't save; saving that person again puts
-  Clerk and the list back in step.
-- **Baseline admins (S-4):** `info@heisreal.today` and `joel@heisreal.today`, listed in
-  `apps/api-admin/src/app/staff/baseline-admins.json`. Each time api-admin starts (every deploy,
-  and after it has been idle), it makes both Admin on the list, adding them back if missing, and in
-  Clerk where an account has the email; one with no account yet is logged, and a later start gives
-  them the role once they have signed up. Start-up never fails over it; it never removes anyone. So removing one on the Staff page lasts only until then, which
-  the page says.
-- **Block list (G21 D, Joel 2026-11-11):** Admins keep a list of blocked email addresses and IP
-  addresses at `/admin/block-list`, in plain text, readable and changeable only by Admins (never
-  Moderators). A blocked email can't create an account or send a story; a blocked IP address can't
-  send a story. Reading the site is never blocked. A block is permanent: it stays until an Admin
-  removes it, even after the person deletes their account. Each entry keeps which Admin added it,
-  when, and an optional note on why.
-  - **Notes (BN-1 to BN-7, Joel 2026-11-22; block-list-notes.html):** under the email or address box
-    is a "Why is it blocked?" box, with the grey suggestion "Note the reason, so other Admins know
-    why." and, under it, the hint "Only Admins see this note. Write only what explains the block,
-    as if the person could read it. Don't copy their story." The note is optional (blank is allowed,
-    for a fast ban wave), plain text, at most 500 characters, trimmed (only spaces is no note). Each
-    entry shows its note in full on its own line, on every screen, or "No note yet". Any Admin can
-    change a note later (Edit note, then Save or Cancel; a blank note clears it); the later save
-    wins, and who edited it isn't recorded. "Blocked by … on …" stays as before. Blocking something
-    already on the list keeps its first note. The note is personal data about the blocked person:
-    only Admins read it (api-user's block check never sees it), it goes when the entry is removed,
-    and the privacy notice says we keep it. Dev's database was wiped for it (BN-5 A), no migration.
-  - **Account creation:** checked where our side first sees a new Clerk account, the first call to
-    api-user (which makes the person's database record). If the sign-in token's verified email is
-    blocked, no record is made and every call is refused. Someone who already had an account when
-    their email was blocked keeps it (they can still read, edit, delete and download their things),
-    but can't send a story. Clerk itself still lets them sign in (no Clerk setting is used).
-  - **Sending a story:** api-user refuses it if the token's verified email or the IP address it
-    comes from is blocked. Either way the person sees only the generic "Something went wrong.
-    Please try again later." (no codes; Joel 2026-11-09). The check runs just before the story is
-    written (after the file checks at Bunny), so a block added meanwhile counts; a retry of a send
-    that already went through (same Idempotency-Key) still gets its success back.
-  - **The address a story was sent from:** api-user keeps it on the story's "sent" status entry for
-    30 days, so an Admin can block a recent abuser's address; the nightly clean-up clears it after
-    that. An Admin sees it on the story's moderation view, with a link that fills it in on the
-    Block list page; Moderators never see it, and no other staff page shows it. The person who
-    sent the story gets it too, in their own "Download my data" file, on their own stories' "sent"
-    entries while it is still kept (BL-4, Joel 2026-11-14); never anyone else's. The address is the one
-    Google's front end saw: api-user runs on Cloud Run with no load balancer, so it takes the last
-    entry of `X-Forwarded-For` (the one Google appends; anything before it was sent by the client
-    and can say anything). Addresses are compared exactly, in one form (IPv6 short and lower-case).
-  - **The email a story was sent with (EM-1 B, Joel 2026-11-17):** api-user also keeps, on the
-    same "sent" entry, the email the story was sent with: the sign-in token's verified email, the
-    one the block check uses (never anything the browser sends). It isn't cleared after 30 days
-    ("we have the right to retain the email in our policy to prevent abuse"): it stays as long as
-    the story, so it goes when the story is deleted or the account erased. Admins see it on the
-    moderation view next to the address; Moderators never do. The person who sent it gets it in
-    their own "Download my data" file.
-  - **Blocking from the moderation view (EM-2, Joel 2026-11-17):** next to "Sent with email …" and
-    "Sent from IP address …" an Admin has a **Block** button. It doesn't leave the page: it asks
-    "Block …? It stays until an Admin removes it." with the note box (BN-7 A), already started with
-    the story's title and the day it was sent (`Story "…" (sent 20 Nov 2026): `, cursor at the end;
-    it can be cleared), then Block / Cancel. It adds it to the block list with that note,
-    and the line then says "Blocked" (as it does whenever the page opens on one already blocked).
-    Once the address is cleared after 30 days only the email shows. Errors show the generic
-    message. The Block list page stays for the overview, blocking by hand and unblocking.
-- The parts of a page that are about the signed-in person (hearts, their stories, their profile)
-  are filled in by the browser, with space kept so nothing jumps. Pages for signed-in people
-  need JavaScript. (D83)
-- If someone else signs in on the same browser while a form is open (for example in another
-  tab), nothing is saved under the new person's name: the form starts again for them. Signing
-  out clears what the share page kept in the tab.
-- A deleted account can never come back: its Clerk sign-in can't create an account again.
-  Signing up afresh with the same email makes a new, empty account. (D82, D90)
-
-## Consent, privacy and terms
-
-This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
-
-- There are four texts: the **terms of use** (which include being 18 or over), the **testimony
-  consent** (keeping and publishing your stories, which are special-category data under GDPR
-  Article 9), the **social media sharing consent** (per story, optional) and the **privacy
-  notice**. Each has numbered versions from 0; a saved version can never be changed or deleted.
-- **Sign up:** one box, "I am 18 or over and agree to the terms of use".
-- **Before the first story:** the person agrees to the testimony consent, once for their
-  account. Agreeing to a newer version covers their earlier stories too. (D85)
-- **At the end of sharing a story:** an optional, unticked box to let us share that story on
-  social media, naming every platform. It is chosen per story. It can't be withdrawn on its own:
-  taking the story down to edit or deleting it stops any further sharing, but copies already
-  posted can't be recalled.
-- **The privacy notice** is shown and linked next to every box. Nobody ticks it, and nobody is
-  recorded as having read it. It is called "privacy notice" everywhere.
-- Boxes are never ticked in advance.
-- **Agree first:** the database refuses to start, edit, upload or submit a story until the
-  person has agreed to the latest terms of use and testimony consent, and refuses a heart until
-  they have agreed to the latest terms of use.
-- **When a text changes:** the person sees what changed (the old words struck through, the new
-  ones marked) and the full text, and agrees again before carrying on. A banner after sign-in asks
-  them to, for the testimony consent; it never shows on the share page (which asks within the
-  flow), and "Not now" hides it for that page only. An upload refused for this reason opens the
-  same agree-again screen, and the upload carries on once they agree.
-- Withdrawing or deleting your own story never needs a new agreement.
-- A story can be approved if its writer has agreed to a testimony consent (any version); a newer
-  version stops them starting, editing or submitting stories until they agree again.
-- If the sharing text changes while someone is submitting, the submit is refused, the draft is
-  kept, and they see the new text and decide again.
-- Nothing is shared beyond heisreal.today until the story is public there.
-- Agreeing to the testimony consent doesn't waive the person's right to object to how their
-  story is edited or presented.
-- Published stories stay up when a text changes.
-- A person can only agree to the latest version, and only to the version the page showed them.
-  The time recorded is the database's.
-- **Admins publish new versions** at the consent admin page: a text box, the
-  changes against the current version, a preview, then confirm. A saved version is in force at
-  once, and records which admin published it. On desktop (1280 px and wider) the editor below
-  the page's header is twice the standard content width, so the text box and the preview side by side each get up to the
-  standard width; phones and tablets keep the standard column (Joel, 2026-11-14).
-  From 768 px wide (tablets and desktops) the text box grows to its whole text, so it never
-  scrolls inside and the page scrolls instead; phones keep a 20-line box that scrolls inside
-  (Joel, 2026-11-17).
-  The texts are picked with underlined tabs, each giving its current version and the date it came
-  into force ("v0 · 14 Nov"): one row from 768 px, two rows of two on phones. The chosen text is in
-  the page's address (`?text=privacy-notice`), so a link opens it and Back returns to the one
-  before (CS-1 C4, Joel 2026-11-17).
-- **Withdrawing:** deleting the account withdraws everything; deleting a story withdraws it for
-  that story, and taking it down to edit stops its use until it is approved again. There is no
-  other withdrawal.
-- Version 0 of each text is a draft written from how the system works today ("Draft, to be
-  reviewed before go-live"). Everyone who had an account when plan 4e arrived on dev was recorded
-  as agreeing to version 0 of the terms of use and the testimony consent. The testimony consent
-  and the privacy notice say who sees a story before it is public: while it's a draft, the person
-  and a small number of admins (for support and safety); while it's waiting for review, the
-  person and our moderators. Version 0's words were edited in place for M3 (LT-1, Joel
-  2026-11-11: Edit instead of Withdraw, and "super admins" became "admins"; dev only, rebuilt). (Joel, 2026-11-05; the admins' view is in api-admin, R15, with no admin page yet.)
-- **Block list and AI wording (LT-1, G18; Joel 2026-11-11):** version 0 was edited in place on dev
-  (no real users; dev's database rebuilt): the terms of use (section 5) say we may block the email
-  and IP addresses of someone who breaks them, permanently; the testimony consent says we may use
-  automated tools, including AI, for transcripts, captions and summaries; the privacy notice lists
-  where a story was sent from (30 days) and the block list under what we collect, how long we keep
-  them and our legitimate interest, and AI tools under where it's stored. Edited again (EM-1 B,
-  Joel 2026-11-17): the email each story is sent with, under what we collect, our legitimate
-  interest and how long we keep it (as long as the story). Edited again (BN-6 A, Joel 2026-11-22):
-  the block list line under what we collect adds "and a short note on why". The notice is written to the people who
-  use the site and doesn't cover staff, so staff members' emails on their actions aren't in it.
-- **Cookies:** the site uses only essential cookies and storage (sign-in, the light or dark
-  choice, the video player's own settings), so there is no cookie banner, only a footer note
-  linking to the privacy notice. Anything non-essential later (analytics, error replay) needs the
-  visitor's opt-in first.
-- **Contact** is an email link (info@heisreal.today), not a form, until emails exist.
+The rules for accounts and sign-in, consent, privacy and terms, my profile (edit and delete) and
+favourites are in `docs/product/behaviour/`: `accounts.md`, `consent.md`, `profile.md` and
+`favourites.md`.
 
 ## Sharing a story
 
@@ -480,116 +296,6 @@ This is "plan 4e" (Joel, 2026-10-31 and 2026-11-01).
   It is deleted with the video: every deletion (erasure, a replaced or removed upload, a deleted
   story, the orphan sweep) removes the whole video at Bunny, original included. Videos uploaded
   before November 17, 2026 have none.
-
-## My profile, edit and delete
-
-- **My submissions** lists the person's stories, each with its status in plain words (Story
-  states, Joel 2026-11-11): **Draft** (never sent), **Being edited** (taken down with Edit),
-  **Sent back** (a moderator asked for changes; their note shows under "What our team said"),
-  **Waiting for review**, **Published**, **Not on the site right now** (hidden by the site while
-  its media is fixed; G2, the owner sees it as it is), **Taken down by our team** (hidden by a
-  moderator, G5) and **Not accepted** (with the moderator's note).
-- **Needs a new file (Part 1a, Joel 2026-11-10):** a story whose video or audio file Bunny couldn't
-  use was sent back by the site: "We couldn't use your video. Please upload another file." ("your
-  recording" for audio), with "Upload another file". If it was an audio story's picture video
-  (made with its picture; G17 B, P1-2; P1-6 A, 2026-11-14): "We couldn't use your picture. Please
-  upload your recording again, and a picture if you like.", with "Upload your recording again". It
-  opens the story at its upload, which says the same until a new file is in, then "Thanks, your
-  new file is in. Send it when you're ready." The person replaces the file with the usual upload
-  and sends it again. Like any story being edited, it says when it will be deleted if nobody
-  changes it (G3 B), with "Needs a new file" and "Ready to send again" alike. "Your new file is in" needs an upload after the failure (Codex review r4
-  F2): a file the tab uploaded before it was judged unusable doesn't count.
-- **Not on the site right now** for a video or audio story the site took off itself says "We're
-  fixing your video. It will be back by itself."; one a moderator took down says **Taken down by
-  our team** with the reason instead (MD-2), never "back by itself".
-- **Ready to send again (P1-1, Joel 2026-11-14):** once a new file is on a story the site sent
-  back for its file, My submissions shows "Ready to send again", "Thanks, your new file is in.
-  Send it when you're ready." and "Send again" (which opens the story to send it). api-user gives
-  the owner `mediaProblem: unusable` (worked out from the current file) and `unusableFile:
-recording | picture` (worked out from the status history: set while the story's current entry
-  is the site's "file unusable" one, so null again once it is sent); neither is stored on the
-  story.
-- **Drafts and stories being edited or sent back:** continue ("Continue editing" once it was sent
-  before). Each says the date after which the nightly clean-up deletes it if nobody touches it
-  ("Data kept and deleted", below).
-- **Preview:** every story that isn't on the site has "Preview", the person's own "see it as others
-  will" page (see Sharing a story, Steps); a published one has "View" instead.
-- **Edit (ED-1 to ED-4; it replaced Withdraw):** a story waiting for review, published or not on
-  the site right now can be edited. Pressing Edit takes it down at once (a published one asks
-  first, as it leaves the public site) and opens it in the share flow, where everything can
-  change: words, themes, video or audio, picture (M3-6 A, G15). It goes back to moderators only
-  when the person sends it again, and back on the site only once a moderator approves it. Its
-  hearts, its first publication date and its address are kept. A story sent back is edited the
-  same way. A rejected story can't be edited, only deleted (unless a moderator overturns the
-  rejection: then it is in its new state, OV-1 C).
-- **The address follows the title until the story is first approved (SL-1 A):** after that,
-  changing the title keeps the address.
-- **Delete (ED-3):** a person can delete their own story in any state, after one "This can't be
-  undone" question. Deleting a story also deletes its videos and pictures and everyone's hearts on
-  it, and takes it off the site at once. Its videos and pictures are deleted at Bunny at once too
-  (OD-1, Joel 2026-11-14), waiting at most 8 seconds for Bunny; if Bunny fails or is still busy
-  then, the Delete still succeeds and the nightly clean-up removes them. (D71)
-- **Delete my account** is the one account-wide withdrawal. The page says what goes and what
-  stays and asks the person to type "delete". It deletes their stories, videos, pictures, hearts,
-  limits and records, deletes them at Clerk (which signs them out everywhere), and keeps a
-  fingerprint of their sign-in so it can't create a new account. What's left of the account is
-  marked deleted, with no date and no reason. Deleting the person in Clerk's dashboard does the
-  same. (D82, D88, O4)
-- **Download my data** gives one file of everything we hold about the person, explained in plain
-  words: their stories in every status, each story's whole status history (their own sends and
-  edits, moderators' decisions with their comments, signed "moderator" and never who made
-  them, and the site's own hides and shows while a video can't play; R6, Joel 2026-11-05; on
-  their own sends, the IP address they sent from while it is still kept, 30 days, BL-4, and the
-  email they sent it with, EM-1 B; never a staff member's email), what
-  they agreed to and when, their hearts, their limits and their sign-in details from Clerk. Videos,
-  audio and pictures come as links that last 7 days (B, Joel 2026-11-06), in dev and in
-  production: a named exception to the one-hour rule for the links to files that aren't public
-  (G16 C, Joel 2026-11-11). Each video or audio item
-  also has a link to download it as an MP4 file, a copy Bunny makes when it encodes the video (C1,
-  Joel 2026-11-06), not the original upload Bunny keeps (RE-1 A). Videos encoded before MP4 copies were turned
-  on (November 2026) have none, and the file says so. The file says what it leaves out (who
-  moderated, Clerk's sessions and devices, anyone else's data). If Clerk
-  (or Bunny, asked which MP4 copies the person's videos have) can't answer, there is no file rather
-  than a partial one.
-
-## Favourites
-
-- A signed-in person can heart a story on its card or its page. Hearts are private: only the
-  person can see theirs, and there are no counts.
-- Only a story that is public can be hearted. A story that stops being public stays hearted but
-  no longer shows.
-- Signed out (or before agreeing to the terms), hearts are kept in the browser only, with no
-  expiry, and never sent to us. After signing in, the site offers to add them to the account;
-  they are added only if the person chooses to.
-- Seeing or removing your hearts never needs an agreement.
-- Planned: a story's owner sees how many hearts each of their stories has, never who gave them.
-- There is no favourites page (Joel, 2026-11-14). Browse has a "Favourites only" switch that
-  shows the person's hearted stories instead of every story, laid out like browse (3 columns on
-  desktop, then 2, then 1). Signed in, it lists the account's hearts; signed out, the hearts kept
-  in this browser (Joel, 2026-11-14). After signing in, hearts kept in the browser are still
-  offered to the account as before. The switch is kept in the address, so Back and reloads keep
-  it. It shows from the moment the page appears, for everyone, and works at once (Joel
-  2026-11-21, BS-9), so the filters never move once shown; turned on before the page knows who
-  is looking, the list waits for that, then shows the account's or this browser's hearts (none
-  gives the usual empty list). Without JavaScript there is no switch. /favourites and the old /account/favourites show the normal "not found" page.
-- With "Favourites only" on, browse's search, sort, format and theme filters stay and work on the
-  favourites, kept in the address like browse's (Joel, 2026-11-14). The whole list is loaded and
-  filtered in the browser (people aren't expected to have more than about 100; optimising comes
-  later). The filters mean what they mean on browse. Format as browse. A theme in the address
-  applies only if browse lists that theme, one of the favourites carries it, or the theme list
-  couldn't be read; otherwise it filters nothing, as browse does for a theme that doesn't exist
-  or was deleted. Stacked themes mean what they mean on browse: a favourite shows only if it has
-  every chosen theme that applies (Joel 2026-11-21, BS-6 B). A theme that applies but none of the
-  favourites has shows none. Known
-  exception: a real theme that isn't highlighted and that no published story uses filters nothing
-  on favourites, while browse shows no stories for it. "Latest first" and "Oldest first" by when the story was published, not when it was
-  hearted (Joel, 2026-11-14); search finds stories with every word of the search in the title,
-  description or theme names, but not a written story's full text, which the list doesn't carry
-  (Joel, 2026-11-14), ignoring case and accents and matching inside longer words; "Best match"
-  puts stories where the words appear most often first.
-- A heart's time is the moment it was made, taken from its id; nobody can set it by hand.
-  (Joel, 2026-11-05)
-- Deleting the account deletes the person's hearts; deleting a story deletes the hearts on it.
 
 ## Browse and themes
 
@@ -1052,7 +758,7 @@ Planned (M3):
   delete confirmed by typing "delete <name>", and one Save for the whole picture. Deleting a theme
   removes it from every story. If someone else saved meanwhile, the page asks to reload.
 - **Consent texts** (Admins): publish the next version of any of the four texts
-  (see "Consent, privacy and terms").
+  (`docs/product/behaviour/consent.md`, REQ-CON-029).
 - The database can list stories hidden because their media broke or changed; there is no admin
   page for it yet.
 - **All stories** (Admins only, R15, Joel 2026-11-05): a read-only list of every story in
@@ -1063,11 +769,10 @@ Planned (M3):
   duplicate name is refused. Deleting a category moves its themes to "Other", not highlighted.
 - **Staff** (Admins): the staff list (email, role, who added them and when, baseline admins
   marked); add an `@heisreal.today` email as a Moderator or an Admin, change a role, remove someone
-  (after "Remove …? They become a User."). See "Staff" under Accounts and sign-in.
+  (after "Remove …? They become a User."). See `docs/product/behaviour/accounts.md`, REQ-ACC-020.
 - **Block list** (Admins): blocked emails and IP addresses, newest first, each with its note (or
   "No note yet"), who blocked it and when; block an email or an address with an optional note,
-  change a note, and unblock one. See "Block list" under Accounts and
-  sign-in.
+  change a note, and unblock one. See `docs/product/behaviour/accounts.md`, REQ-ACC-030.
 - Planned (M5): the dashboard and the user list.
 
 ## Data kept and deleted
@@ -1087,7 +792,7 @@ Planned (M3):
   nightly clean-up. It deletes at most 50 of each kind a night. It started in "report only" mode
   and switches to real deletions after a night whose report looks right (on dev it still only
   reports).
-- **Deleting an account** (see "Delete my account") keeps only the account record marked deleted
+- **Deleting an account** (`docs/product/behaviour/profile.md`, REQ-PRO-024) keeps only the account record marked deleted
   and the sign-in fingerprint. Their files at Bunny and their Clerk account go straight after;
   anything that fails is retried. (D39, D40, D82)
 - The record of what a person submitted in the last 7 days (for the weekly limit) is kept 7 days
