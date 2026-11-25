@@ -102,7 +102,7 @@ slowest { name, ms } }`, `external.<name> { calls, ms, status }`.
   live on `globalThis`, so a server that bundles this library twice (the website) has one set.
   The media worker, off Google Cloud, also sends events to Cloud Logging itself
   (apps/media-worker/src/cloud-logging.ts). A sink that throws, or fails to send, is counted
-  (`failedLogWrites()`), never thrown into the request. No sampling, no tracing library.
+  (`failedLogWrites()`), never thrown into the request. No sampling.
 - **Axiom (`@heisreal/logging/axiom`, LG-3):** `startAxiomLogs({ read })` adds the Axiom sink
   where `AXIOM_DATASET` (`heisreal-dev`; `heisreal-prod` later), `AXIOM_DOMAIN`
   (`eu-central-1.aws.edge.axiom.co`, EU Central 1) and `AXIOM_TOKEN_SECRET` (`axiom-ingest-token`,
@@ -129,6 +129,46 @@ slowest { name, ms } }`, `external.<name> { calls, ms, status }`.
   `gcloud logging read 'jsonPayload.ref="<ref>"' --project heisreal-dev --freshness=1d --format=json`.
 - **Fields:** Axiom's free plan keeps 256 fields per dataset. `src/fields.ts` lists every
   flattened field name we write; its test fails past 200.
+
+### Tracing (`@heisreal/logging/tracing`, LG-15)
+
+OpenTelemetry core, no automatic tracing (Joel, 25 Nov 2026: "use open telemetry"): each request's
+and job's timeline goes to Axiom's `heisreal-traces` dataset beside the logs.
+
+- **Start:** `startTracing({ service, read })`, first in each service's `main.ts` (the website's
+  `register`, the media worker and housekeeping after their secrets client). On only where
+  `AXIOM_TRACES_DATASET`, `AXIOM_DOMAIN` and `AXIOM_TOKEN_SECRET` (`axiom-ingest-token`, the same
+  token as the logs) are set; locally and in tests nothing is recorded or sent. Partly set: one
+  start-up warning. The token is read when the first batch is sent, not at start-up, so it never
+  adds to a cold start; a token that can't be read is one warning then, and spans are dropped.
+  `flushTracing(ms)` sends what is left at shutdown, beside `flushLogSinks` (the website has no
+  shutdown hook, as for logs).
+- **Spans:** the wide event is the span. `startEvent` opens it (a server span for requests, a
+  consumer span for jobs), `write()` ends it with the route pattern as its name (`wideEvents` sets
+  `GET /v1/stories/:id`) and the plain low-variety fields as attributes; `timeDb` opens
+  `db <query name>` and `timeExternal` / `timedFetch` open `<service> <method>` as children.
+  `traceAttributes()` and `event.traceparent()` pass the span on (Pub/Sub, the media worker's
+  calls to the result writer). Tracing off: none of this happens and the event is the same.
+- **The Reference is the trace id:** new traces get a UUID v7 trace id (`uuidv7TraceIds`), an
+  incoming `traceparent` is continued, and `ref` is the span's trace id. Everything is recorded
+  and sent with the sampled flag `01` (LG-6 A).
+- **Data classes:** every span leaves through `cleanSpan`: only the attributes in
+  `SPAN_ATTRIBUTES`, names without addresses or query strings, exceptions reduced to their type,
+  no status message. That also covers Next's built-in spans on the website (its `http.target` and
+  `http.url` hold the query and are dropped; a fetch span keeps only the host it called). A new
+  attribute needs Joel's decision.
+- **Never in the way:** span calls never throw into the work; the batch processor sends in the
+  background; a failed send is dropped (`failedSpanExports()`) with one stdout warning a minute,
+  `Couldn't send spans to Axiom`.
+- **Why the request span is hand-made, and when to stop (Joel, 25 Nov 2026: "make a note to revert
+  workarounds when a version is released that is compatible with NestJS 12"):**
+  `@opentelemetry/instrumentation-nestjs-core` supports `@nestjs/core` < 12 only, and Express's
+  automatic spans need the ESM loader hook (about +1 s per cold start). When a release supports
+  NestJS 12 without that hook, switch to it and delete the hand-made request span (`openSpan` /
+  `endSpan` in `src/event/wide-event.ts`, `spanName` in libs/http's `wide-events.ts`).
+  `tools/scripts/otel-nest-check.mjs` runs weekly (tofu-drift.yml, job `otel-nestjs`) and fails
+  once the latest release's supported range includes 12.
+- **Cost:** about +50 ms and +7 MB per cold start (api-public-read, one CPU, measured locally).
 
 ### Deployment details (`service`, LG-10)
 

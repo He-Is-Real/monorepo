@@ -262,11 +262,14 @@ resource "google_secret_manager_secret_iam_member" "log_hmac" {
 # that writes logs (the log keys' readers above) may read it. Services get its name
 # (`AXIOM_TOKEN_SECRET`) and read it at start-up through libs/secrets; until a version exists
 # they write one warning and log to stdout only (deploys don't wait for it).
+# The same token sends their OpenTelemetry spans to the traces dataset (LG-15 D, Joel 2026-11-25;
+# libs/logging/src/tracing.ts), `AXIOM_TRACES_DATASET`.
 locals {
   axiom_env = var.axiom_dataset == null ? {} : {
-    AXIOM_DATASET      = var.axiom_dataset
-    AXIOM_DOMAIN       = var.axiom_domain
-    AXIOM_TOKEN_SECRET = google_secret_manager_secret.axiom_ingest_token.secret_id
+    AXIOM_DATASET        = var.axiom_dataset
+    AXIOM_TRACES_DATASET = var.axiom_traces_dataset
+    AXIOM_DOMAIN         = var.axiom_domain
+    AXIOM_TOKEN_SECRET   = google_secret_manager_secret.axiom_ingest_token.secret_id
   }
 }
 

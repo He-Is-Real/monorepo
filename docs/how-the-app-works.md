@@ -1438,6 +1438,16 @@ For developers. Details are in the linked documents.
   for a snapshot image, `dev` locally), `revision` (Cloud Run's revision or the job's execution),
   `env` (`dev`, `prod`, `local`), and on Cloud Run `region` and `instance` (read once from Google's
   metadata server in the background, never delaying start-up or a request). All plain.
+- **Spans: OpenTelemetry core, no automatic tracing** (LG-15 D, Joel 2026-11-25: "use open
+  telemetry and make a note to revert workarounds when a version is released that is compatible
+  with nest js 12"). Every request and job is a span in Axiom's `heisreal-traces` dataset (shared by
+  dev and production, each span says which), with its database queries and outside calls as child
+  spans and, on the website, Next's built-in spans. The trace id is the Reference (`ref`, a UUID
+  v7), continued from the browser's `traceparent`; no sampling. Span attributes follow the logs'
+  data classes through one allowlist (`libs/logging/src/tracing.ts`). Request spans are made by
+  hand until `@opentelemetry/instrumentation-nestjs-core` supports NestJS 12 without the ESM
+  loader hook; a weekly check (`tools/scripts/otel-nest-check.mjs`) says when. About +50 ms per
+  cold start.
 - **Budget:** £15 a month with alerts at £3, £7.50 and £15. (decision 10)
 - **Tests measure behaviour** (AGENTS.md; test clean-up T1–T10, 2026-10-24).
 - **Dependencies** update through Renovate. (D106)

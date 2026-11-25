@@ -13,7 +13,9 @@ import { PAGE_CACHE, type PageCachePath } from '@/page-cache.config';
  * request, made and written by `proxy.ts`. Its `ref` is the trace Google's front end gives the
  * request (`traceparent`), so it matches Cloud Run's own request line (status, latency) and the
  * error line `onRequestError` writes for the same request (instrumentation.ts); a new UUID v7 when
- * there is none (local runs).
+ * there is none (local runs). With tracing on (LG-15), Next continues that trace in its own
+ * request span and hands the proxy its `traceparent`, so the event's span is a child of Next's
+ * and `ref` is still the same trace id.
  */
 
 /** The website's service fields: `web`, Cloud Run's revision and the environment. */

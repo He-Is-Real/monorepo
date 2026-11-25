@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { flushLogSinks, writeLog } from '@heisreal/logging';
 import { startAxiomLogs } from '@heisreal/logging/axiom';
+import { flushTracing } from '@heisreal/logging/tracing';
 import { loadLogKeys } from '@heisreal/logging/event';
 import { SecretsService } from '@heisreal/secrets';
 
@@ -38,7 +39,8 @@ export class LogKeysLoader implements OnModuleInit {
  * it: `AXIOM_DATASET`, `AXIOM_DOMAIN`, and the token's Secret Manager name `AXIOM_TOKEN_SECRET`,
  * read through libs/secrets. A token that can't be read (no version yet) is one warning, never a
  * failed start. On shutdown (SIGTERM, Nest's shutdown hooks; Cloud Run gives the instance CPU
- * for 10 s) it sends what is still waiting, at most 3 s.
+ * for 10 s) it sends what is still waiting, log lines and spans (LG-15, started in `main.ts`),
+ * at most 3 s.
  */
 @Injectable()
 export class AxiomLogsLoader implements OnModuleInit, OnApplicationShutdown {
@@ -52,7 +54,7 @@ export class AxiomLogsLoader implements OnModuleInit, OnApplicationShutdown {
   }
 
   async onApplicationShutdown(): Promise<void> {
-    await flushLogSinks(3000);
+    await Promise.all([flushLogSinks(3000), flushTracing(3000)]);
   }
 }
 

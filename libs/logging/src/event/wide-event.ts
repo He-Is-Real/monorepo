@@ -1,3 +1,13 @@
+import {
+  type Attributes,
+  context,
+  ROOT_CONTEXT,
+  type Span,
+  SpanKind,
+  SpanStatusCode,
+  trace as otel,
+  TraceFlags,
+} from '@opentelemetry/api';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { performance } from 'node:perf_hooks';
 import {
@@ -15,6 +25,7 @@ import './instance';
 import { logHash, searchHash } from './keys';
 import {
   cloudTrace,
+  dashed,
   newTrace,
   type Trace,
   TRACE_FIELD,
@@ -28,7 +39,88 @@ export { type ServiceFields, serviceFields };
  * One wide event per request or job (the writing-logs skill; LG-2 C, Joel 22 Nov 2026): started
  * at the edge, given fields while the work runs, written once when it ends, success or failure.
  * Field names and data classes: the skill's tables and LG-2 of the logging decision doc.
+ *
+ * Each event is also an OpenTelemetry span (LG-15 D, `@heisreal/logging/tracing`) when tracing
+ * is on: started with the event, ended when it is written, with `timeDb` and `timeExternal` as
+ * its child spans. Its trace id is the event's `ref`. Tracing off (locally, tests): no spans, and
+ * everything else is the same.
  */
+
+/** Our spans' tracer: OpenTelemetry's no-op one until `startTracing` registers the provider. */
+const tracer = () => otel.getTracer('@heisreal/logging');
+
+/**
+ * The work's span: continuing the caller's span (`traceparent`) if there is one, else under the
+ * active span (the website: Next's own request span), else a new trace with a UUID v7 trace id.
+ * Undefined when tracing is off. Never throws.
+ */
+function openSpan(
+  kind: EventKind,
+  incoming: Trace | undefined,
+): Span | undefined {
+  try {
+    const parent = incoming?.parentSpanId
+      ? otel.setSpanContext(ROOT_CONTEXT, {
+          traceId: incoming.traceId,
+          spanId: incoming.parentSpanId,
+          // Everything is recorded and sent (LG-6 A), whatever the caller's flag said.
+          traceFlags: TraceFlags.SAMPLED,
+          isRemote: true,
+        })
+      : context.active();
+    const span = tracer().startSpan(
+      kind,
+      { kind: kind === 'job' ? SpanKind.CONSUMER : SpanKind.SERVER },
+      parent,
+    );
+    if (span.isRecording()) return span;
+    span.end();
+  } catch {
+    // Tracing never throws into business code.
+  }
+  return undefined;
+}
+
+/** A child span of the event's span (a database query, an outside call), if tracing is on. */
+function childSpan(
+  event: WideEvent,
+  name: string,
+  attributes: Attributes,
+): Span | undefined {
+  const parent = event.span;
+  if (!parent) return undefined;
+  try {
+    return tracer().startSpan(
+      name,
+      { kind: SpanKind.CLIENT, attributes },
+      otel.setSpan(ROOT_CONTEXT, parent),
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+/** Ends a child span; `err`: what it threw (its type only, never its message). */
+function endChild(
+  span: Span | undefined,
+  attributes: Attributes,
+  err?: unknown,
+) {
+  if (!span) return;
+  try {
+    span.setAttributes(attributes);
+    if (err !== undefined) {
+      span.setAttribute(
+        'error.type',
+        err instanceof Error ? err.name : 'Error',
+      );
+      span.setStatus({ code: SpanStatusCode.ERROR });
+    }
+    span.end();
+  } catch {
+    // never throws
+  }
+}
 
 /** How the work ended, in words we can count. */
 export type Outcome =
@@ -183,6 +275,9 @@ export function withoutSecrets(value: unknown, depth = 0): unknown {
 export class WideEvent {
   readonly ref: string;
   readonly traceId: string;
+  /** The work's OpenTelemetry span; undefined when tracing is off. */
+  readonly span?: Span;
+  private spanNameText?: string;
   private readonly fields: Record<string, unknown> = {};
   private readonly longTexts = new Map<string, string>();
   private readonly db: Timing = { calls: 0, total_ms: 0 };
@@ -198,10 +293,30 @@ export class WideEvent {
   constructor(
     readonly kind: EventKind,
     readonly service: ServiceFields,
-    trace: Trace = newTrace(),
+    trace?: Trace,
   ) {
-    this.ref = trace.ref;
-    this.traceId = trace.traceId;
+    this.span = openSpan(kind, trace);
+    // With tracing on, the span's trace id is the reference: the caller's, or a new UUID v7.
+    const traceId = this.span?.spanContext().traceId;
+    const used = traceId
+      ? { ref: dashed(traceId), traceId }
+      : (trace ?? newTrace());
+    this.ref = used.ref;
+    this.traceId = used.traceId;
+  }
+
+  /** The span's name: the route pattern (`GET /v1/stories/:id`), never an address. */
+  spanName(name: string): this {
+    this.spanNameText = name;
+    return this;
+  }
+
+  /**
+   * A W3C `traceparent` for a call or message this work starts: this trace, with this work's
+   * span as the parent when tracing is on. Sampled (`01`).
+   */
+  traceparent(): string {
+    return traceparentFor(this.traceId, this.span?.spanContext().spanId);
   }
 
   /** Adds plain fields, merged into the groups already there. Never throws. */
@@ -373,6 +488,45 @@ export class WideEvent {
     } catch {
       countFailedLogWrite();
     }
+    this.endSpan();
+  }
+
+  /**
+   * Ends the span with the plain, low-variety fields only (LG-15: the logs' data classes): the
+   * method, route pattern, status, outcome, error type and code, job name.
+   */
+  private endSpan(): void {
+    const span = this.span;
+    if (!span) return;
+    try {
+      const outcome = this.outcome ?? 'ok';
+      const jobName = this.get('job.name');
+      span.updateName(
+        this.spanNameText ??
+          (this.kind === 'job' && typeof jobName === 'string'
+            ? `job ${jobName}`
+            : this.kind),
+      );
+      const attributes: Attributes = { outcome };
+      for (const path of [
+        'http.method',
+        'http.route',
+        'http.status_code',
+        'error.type',
+        'error.code',
+        'job.name',
+      ]) {
+        const value = this.get(path);
+        if (typeof value === 'string' || typeof value === 'number') {
+          attributes[path] = value;
+        }
+      }
+      span.setAttributes(attributes);
+      if (outcome === 'error') span.setStatus({ code: SpanStatusCode.ERROR });
+      span.end();
+    } catch {
+      // never throws
+    }
   }
 
   /** Cuts plain long text, longest first, until the entry fits {@link MAX_ENTRY_BYTES}. */
@@ -484,42 +638,64 @@ export function note(
  */
 export function traceAttributes(): Record<string, string> {
   const event = currentEvent();
-  return event ? { traceparent: traceparentFor(event.traceId) } : {};
+  return event ? { traceparent: event.traceparent() } : {};
 }
 
-/** Times one SurrealDB query or function into the current event's `db` group. */
+/**
+ * Times one SurrealDB query or function into the current event's `db` group, and as a child
+ * span `db <name>` when tracing is on. `name`: the query's name (libs/database `queryName`),
+ * never its variables.
+ */
 export async function timeDb<T>(
   name: string,
   work: () => Promise<T>,
 ): Promise<T> {
   const event = currentEvent();
   if (!event) return work();
+  const span = childSpan(event, `db ${name}`, {
+    'db.system.name': 'surrealdb',
+    'db.operation.name': name,
+  });
   const start = performance.now();
+  let failure: unknown;
   try {
     return await work();
+  } catch (err) {
+    failure = err ?? 'error';
+    throw err;
   } finally {
     event.recordDb(name, performance.now() - start);
+    endChild(span, {}, failure);
   }
 }
 
 /**
  * Times one outside call (`clerk`, `bunny`, `stripe`, `resend`) into the current event's
- * `external.<name>`, with the answer's HTTP status (a `Response`'s), or `error` if it threw.
+ * `external.<name>`, with the answer's HTTP status (a `Response`'s), or `error` if it threw; and
+ * as a child span `<name> <operation>` when tracing is on. `operation`: a fixed word (the HTTP
+ * method), never an address or an id.
  */
 export async function timeExternal<T>(
   name: string,
   work: () => Promise<T>,
+  operation?: string,
 ): Promise<T> {
   const event = currentEvent();
   if (!event) return work();
+  const span = childSpan(event, operation ? `${name} ${operation}` : name, {
+    'external.service': name,
+    ...(operation ? { 'external.operation': operation } : {}),
+  });
   const start = performance.now();
   let status: number | string | undefined;
+  let failure: unknown;
   try {
     const result = await work();
     const s = (result as { status?: unknown } | null)?.status;
     if (typeof s === 'number') status = s;
     return result;
   } catch (err) {
+    failure = err ?? 'error';
     status =
       err instanceof Error && /abort|timeout/i.test(err.name)
         ? 'timeout'
@@ -527,15 +703,34 @@ export async function timeExternal<T>(
     throw err;
   } finally {
     event.recordExternal(name, performance.now() - start, status);
+    endChild(
+      span,
+      typeof status === 'number' ? { 'http.status_code': status } : {},
+      failure,
+    );
   }
 }
 
-/** A `fetch` that times every call as `external.<name>`. */
+/** A `fetch` that times every call as `external.<name>` (its span's operation: the method). */
 export function timedFetch(
   name: string,
   fetcher: typeof fetch = fetch,
 ): typeof fetch {
-  return (input, init) => timeExternal(name, () => fetcher(input, init));
+  return (input, init) =>
+    timeExternal(name, () => fetcher(input, init), methodOf(input, init));
+}
+
+const METHOD = /^[A-Z]{3,7}$/;
+
+function methodOf(
+  input: Parameters<typeof fetch>[0],
+  init: Parameters<typeof fetch>[1],
+): string {
+  const method = (
+    init?.method ??
+    (typeof input === 'object' && 'method' in input ? input.method : 'GET')
+  ).toUpperCase();
+  return METHOD.test(method) ? method : 'OTHER';
 }
 
 /** Who searched: written only as keyed hashes with the search-only key. */

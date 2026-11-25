@@ -14,6 +14,7 @@
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 import { flushLogSinks, type Severity, writeLog } from '@heisreal/logging';
 import { startAxiomLogs } from '@heisreal/logging/axiom';
+import { flushTracing, startTracing } from '@heisreal/logging/tracing';
 import { JsonLogger } from '@heisreal/logging/nest';
 import { Logger } from '@nestjs/common';
 import { SecretsService } from '@heisreal/secrets';
@@ -52,6 +53,8 @@ async function main(): Promise<number> {
   );
   // Every line also goes to Axiom where OpenTofu set it up (LG-3); never stops the job.
   await startAxiomLogs({ read: (name) => secrets.get(name) });
+  // Spans to the traces dataset (LG-15), with the same token; off where it isn't configured.
+  startTracing({ service: 'housekeeping', read: (name) => secrets.get(name) });
   return startHousekeeping({ config, secrets, log });
 }
 
@@ -60,7 +63,9 @@ let exiting = false;
 const exit = (code: number) => {
   if (exiting) return;
   exiting = true;
-  void flushLogSinks(3000).then(() => process.exit(code));
+  void Promise.all([flushLogSinks(3000), flushTracing(3000)]).then(() =>
+    process.exit(code),
+  );
 };
 
 // Cloud Run cancelled the job or it ran out of time: keep the logs, exit as a cancelled job.

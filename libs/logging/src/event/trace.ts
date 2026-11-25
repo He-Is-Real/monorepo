@@ -4,7 +4,8 @@ import { randomBytes } from 'node:crypto';
  * The request's reference (LG-1b A, LG-4 A; Joel 22–24 Nov 2026): a UUID v7, made by the browser
  * before it sends (or by the first service when no browser sent one), travelling as the W3C
  * `traceparent` trace id (the same 128 bits without dashes) and shown to people as their error
- * "Reference". No tracing library.
+ * "Reference". OpenTelemetry (LG-15, `@heisreal/logging/tracing`) makes new trace ids the same
+ * way and continues an incoming one.
  */
 
 /** A new UUID v7 (RFC 9562): 48 bits of Unix milliseconds, version 7, then random bits. */
@@ -30,6 +31,8 @@ export interface Trace {
   ref: string;
   /** The W3C trace id: 32 lower-case hex digits. */
   traceId: string;
+  /** The caller's span (a `traceparent`'s parent id): our span continues it. */
+  parentSpanId?: string;
 }
 
 const TRACEPARENT =
@@ -51,7 +54,7 @@ export function traceFromHeader(
   if (version === 'ff' || /^0+$/.test(traceId) || /^0+$/.test(parentId)) {
     return undefined;
   }
-  return { ref: dashed(traceId), traceId };
+  return { ref: dashed(traceId), traceId, parentSpanId: parentId };
 }
 
 /** A new trace, for work no browser started. */
@@ -76,9 +79,10 @@ export function cloudTrace(
 export const TRACE_FIELD = 'logging.googleapis.com/trace';
 
 /**
- * A W3C `traceparent` carrying `traceId`, with a new parent (span) id: for a call or message this
- * work starts (the media worker's calls to the result writer, a job put on Pub/Sub).
+ * A W3C `traceparent` carrying `traceId`, for a call or message this work starts (the media
+ * worker's calls to the result writer, a job put on Pub/Sub): its parent is `spanId` (the work's
+ * span), or a new random id when spans are off. Always sampled (`01`, LG-6 A).
  */
-export function traceparentFor(traceId: string): string {
-  return `00-${traceId}-${randomBytes(8).toString('hex')}-01`;
+export function traceparentFor(traceId: string, spanId?: string): string {
+  return `00-${traceId}-${spanId ?? randomBytes(8).toString('hex')}-01`;
 }
