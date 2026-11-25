@@ -40,7 +40,7 @@ locals {
       apl = <<-APL
         ${local.ds}
         | where event == "request" and ['service.name'] == "web"
-        | extend browser = replace_regex(tostring(column_ifexists("client.browser", "")), @" [0-9]+$", "")
+        | extend browser = replace_regex(@" [0-9]+$", "", tostring(column_ifexists("client.browser", "")))
         | summarize count() by browser = iff(isempty(browser), "unknown", browser)
       APL
     },
@@ -82,7 +82,7 @@ locals {
       apl = <<-APL
         ${local.ds}
         | where event == "search"
-        | extend term = tolower(trim(@"\s", tostring(column_ifexists("search.q", ""))))
+        | extend term = tolower(trim_space(tostring(column_ifexists("search.q", ""))))
         | where isnotempty(term)
         | summarize searches = count() by term
         | top 25 by searches
