@@ -192,7 +192,9 @@ describe('the Axiom sink', () => {
     const blip = fakeAxiom((sent) =>
       ++calls === 1
         ? Promise.reject(new TypeError('fetch failed'))
-        : Promise.resolve(Response.json({ ingested: sent.body.length, failed: 0 })),
+        : Promise.resolve(
+            Response.json({ ingested: sent.body.length, failed: 0 }),
+          ),
     );
     await start(blip.fetch);
     writeLog('INFO', 'first');

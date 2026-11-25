@@ -15,11 +15,7 @@
  * renewed here every few hours.
  */
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
-import {
-  flushLogSinks,
-  type Severity,
-  serviceFields,
-} from '@heisreal/logging';
+import { flushLogSinks, type Severity, serviceFields } from '@heisreal/logging';
 import { startAxiomLogs } from '@heisreal/logging/axiom';
 import { LOG_SINKS, note } from '@heisreal/logging/event';
 import { JsonLogger } from '@heisreal/logging/nest';
