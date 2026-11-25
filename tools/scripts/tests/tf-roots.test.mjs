@@ -113,7 +113,11 @@ test('the stripe root and module select stripe', () => {
   assert.equal(changed(`${tf}/live/dev/stripe/main.tf`), 'stripe');
 });
 
-test('the tofu tooling selects gcp, cluster, bunny and stripe', () => {
+test('the axiom root selects axiom', () => {
+  assert.equal(changed(`${tf}/live/dev/axiom/main.tf`), 'axiom');
+});
+
+test('the tofu tooling selects gcp, cluster, bunny, stripe and axiom', () => {
   for (const file of [
     'tools/scripts/tf.sh',
     'tools/scripts/tf-stage.sh',
@@ -121,7 +125,7 @@ test('the tofu tooling selects gcp, cluster, bunny and stripe', () => {
     '.github/workflows/tofu-apply.yml',
     'mise.toml',
   ]) {
-    assert.equal(changed(file), 'gcp\ncluster\nbunny\nstripe', file);
+    assert.equal(changed(file), 'gcp\ncluster\nbunny\nstripe\naxiom', file);
   }
 });
 
@@ -150,9 +154,10 @@ test('every root, in order', () => {
       `${tf}/live/dev/images/a.tf`,
       `${tf}/modules/gcp/a.tf`,
       `${tf}/modules/stripe/a.tf`,
+      `${tf}/live/dev/axiom/a.tf`,
       `${tf}/modules/org/a.tf`,
     ),
-    'gcp\nimages\ncluster\nbunny\nstripe\nbootstrap\norg',
+    'gcp\nimages\ncluster\nbunny\nstripe\naxiom\nbootstrap\norg',
   );
 });
 

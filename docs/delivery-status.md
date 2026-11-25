@@ -1,6 +1,6 @@
 # Delivery status
 
-Where the build is, in plain words. **Last updated:** 2026-11-24
+Where the build is, in plain words. **Last updated:** 2026-11-25
 
 Everything here runs on the **dev** test site only, with made-up stories. Nothing reaches the
 public until the "Go live" milestone. The old prototype and the Squarespace site keep running until
@@ -109,7 +109,8 @@ Kept basic for now. Joel will decide later how stories are shared out between mo
 - ✅ Bunny keeps each video's original upload, for later social media use
 - ✅ Logs in one standard format
 - 🟡 Detailed logs being built: Google's side and the services' records are in place; the media worker's records, a guide to reading logs and a local log viewer are being built; the website and error pages follow
-- ⏸ Logs also go to Axiom, ready to read and count there: waiting for Joel to add Axiom's key
+- ✅ Logs also go to Axiom, ready to read and count there
+- 🟡 Axiom's log storage is managed with the rest of our setup, and agents can read logs there: waiting for Joel to add Axiom's setup key
 - ✅ A video's picture is added when the story is sent, with no background picture jobs
 - ✅ "Attached" confirmation when coming back from another tab or device kept as it is
 - ✅ Every drop-down on the site uses the same styled list, in every browser

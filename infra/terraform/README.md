@@ -30,6 +30,7 @@ live/dev/      one root per concern, applied in this order:
   cluster/     tofu-apply.yml (approved) or a developer              state: dev/cluster
   bunny/       tofu-apply.yml (approved, as tf-bunny) or a developer state: dev/bunny (private)
   stripe/      tofu-apply.yml (approved) or a developer, Stripe sandbox state: dev/stripe
+  axiom/       tofu-apply.yml (approved) or a developer, the logs dataset state: dev/axiom
 live/org/      the organisation's settings (every project): an org admin, locally   state: org
 ```
 
@@ -53,9 +54,10 @@ through **`tools/scripts/tf.sh <root> <tofu args>`**:
 | `tf.sh <root> location-check <planfile>` | reports anything the plan puts outside the UK; warns in dev, fails elsewhere ("Where data lives"; safe for bunny) |
 | `tf.sh bunny-cli <args>`                 | the bunny CLI with the account key from Secret Manager, for that one process                                      |
 | `tf.sh bunny-mask secrets\|state`        | CI only: `::add-mask::` every Bunny key before tofu runs                                                          |
+| `tf.sh stripe-mask`, `tf.sh axiom-mask`  | CI only: `::add-mask::` the Stripe key or the Axiom token before tofu runs                                        |
 
 **Identity.** Locally `tf.sh` acts as the root's CI identity, so a local plan sees what CI sees:
-gcp, images and cluster as `tf-deployer`, bunny as `tf-bunny` (developers hold Token Creator on
+gcp, images, cluster, stripe and axiom as `tf-deployer`, bunny as `tf-bunny` (developers hold Token Creator on
 both), bootstrap always as you. `TF_SH_IDENTITY=self` uses your own credentials; an email picks
 another account. In GitHub Actions it uses the job's ambient credentials.
 
@@ -101,15 +103,15 @@ are immutable. `apps-scratch` keeps the 15 newest builds per service and deletes
 
 ## CI
 
-| Workflow                    | When                                                       | Identity                                                                                          | Changes the cloud?                              |
-| --------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| `tofu-plan.yml`             | automatically on PRs touching infra                        | `tf-planner` (gcp, images; read-only); `tf-cluster-planner` (cluster, `cluster-plan` env)         | Dry-run writes in `database`                    |
-| `tofu-apply.yml`            | every Release Images run (one per merge), dispatch         | `tf-deployer` (gcp, cluster, images), `tf-bunny` (bunny): only this workflow and drift, on `main` | Yes, after an approval in the `dev` environment |
-| `tofu-drift.yml`            | weekly (Monday 06:17 UTC) and dispatch                     | `tf-deployer` (gcp, cluster), `tf-planner` (bootstrap), `tf-bunny` (bunny)                        | No                                              |
-| `images.yml`                | every push to `main` ("Release Images"; builds if changed) | `ci-image-pusher`: only `main` pushes                                                             | Pushes to `apps`                                |
-| `snapshot-images.yml`       | **manual** Run workflow, any branch                        | `ci-snapshot-pusher`: only that workflow                                                          | Pushes to `apps-scratch`                        |
-| `reset-dev-data.yml`        | **manual** Run workflow, `main` (D50)                      | `ci-dev-seeder`: only this and `dev-behavioural-tests.yml`, dispatched on `main`                  | Starts the dev-seed Job (dummy data, no apply)  |
-| `dev-behavioural-tests.yml` | **manual** Run workflow, `main` (D50)                      | `ci-dev-seeder` for the reset job; the test job has no identity                                   | Resets dev data, then tests the dev URLs        |
+| Workflow                    | When                                                       | Identity                                                                                                         | Changes the cloud?                              |
+| --------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `tofu-plan.yml`             | automatically on PRs touching infra                        | `tf-planner` (gcp, images; read-only); `tf-cluster-planner` (cluster, `cluster-plan` env)                        | Dry-run writes in `database`                    |
+| `tofu-apply.yml`            | every Release Images run (one per merge), dispatch         | `tf-deployer` (gcp, cluster, images, stripe, axiom), `tf-bunny` (bunny): only this workflow and drift, on `main` | Yes, after an approval in the `dev` environment |
+| `tofu-drift.yml`            | weekly (Monday 06:17 UTC) and dispatch                     | `tf-deployer` (gcp, cluster, stripe, axiom), `tf-planner` (bootstrap), `tf-bunny` (bunny)                        | No                                              |
+| `images.yml`                | every push to `main` ("Release Images"; builds if changed) | `ci-image-pusher`: only `main` pushes                                                                            | Pushes to `apps`                                |
+| `snapshot-images.yml`       | **manual** Run workflow, any branch                        | `ci-snapshot-pusher`: only that workflow                                                                         | Pushes to `apps-scratch`                        |
+| `reset-dev-data.yml`        | **manual** Run workflow, `main` (D50)                      | `ci-dev-seeder`: only this and `dev-behavioural-tests.yml`, dispatched on `main`                                 | Starts the dev-seed Job (dummy data, no apply)  |
+| `dev-behavioural-tests.yml` | **manual** Run workflow, `main` (D50)                      | `ci-dev-seeder` for the reset job; the test job has no identity                                                  | Resets dev data, then tests the dev URLs        |
 
 All keyless (Workload Identity Federation, limited to this repository's ID; forks get nothing).
 The repository is public, so **Actions logs, summaries and artifacts are world-readable**
@@ -122,8 +124,8 @@ planner's dry-run-only policy on kind. `ci.yml`'s required job runs the modules'
 (`terraform:test`, `infra/terraform/test-modules.sh`; locally `pnpm nx run terraform:test`) and the
 database integration suite, so those block merges. Then the roots the PR
 touches (`tools/scripts/tf-roots.sh`) are planned with `-refresh=false -lock=false` (the planners
-can't take the lock or read secret values). **bunny is never planned on a PR** (tf-bunny is
-available only on `main`); bootstrap is planned and applied locally.
+can't take the lock or read secret values). **bunny, stripe and axiom are never planned on a PR** (tf-bunny is
+available only on `main`; tf-planner can't read the Stripe key or the Axiom token); bootstrap is planned and applied locally.
 
 **Approve the cluster plan straight away.** A PR that touches the cluster root waits at the
 `cluster-plan` gate until someone approves it (the approval only lets the planner send dry runs;
@@ -146,8 +148,8 @@ speed review, P3).
   succeeded, nothing plans (re-run Release Images: its completion starts a new run).
 - **Image-only dev plans apply themselves (D120, Joel 2026-10-30).** When gcp's plan changes
   nothing but Cloud Run image digests from `apps` (`tools/scripts/tf-image-only.mjs` reads
-  `tofu show -json`; tests in `tools/scripts/tests/tf-image-only.test.mjs`) and bunny and stripe
-  have no changes, the `auto-approve-1` job takes approve-1's place: no click, and the summary
+  `tofu show -json`; tests in `tools/scripts/tests/tf-image-only.test.mjs`) and bunny, stripe and
+  axiom have no changes, the `auto-approve-1` job takes approve-1's place: no click, and the summary
   says "auto-approved: image versions only" with each service's new digest. It still waits for
   the CI gate and re-checks for a newer `main`. Anything else (cluster, IAM, secrets, Bunny,
   Stripe, a create, delete or replace, an `apps-scratch` image) waits for the `dev` approval,
@@ -158,8 +160,8 @@ speed review, P3).
   failed (say a flaky test), nothing applies and the run is red: re-run CI's failed jobs, and once
   it's green dispatch "OpenTofu apply". If CI was cancelled because `main` moved on, the newer
   run deploys.
-- **Two approval waves.** Wave 1: gcp and bunny plan in parallel; if either changes, `approve-1`
-  waits for one approval in `dev`, then both apply their saved plans, **bunny first**: gcp applies
+- **Two approval waves.** Wave 1: gcp, bunny, stripe and axiom plan in parallel; if any changes, `approve-1`
+  waits for one approval in `dev`, then each applies their saved plans, **bunny first**: gcp applies
   once bunny applied or had no changes (bunny grants gcp's services access to keys they read at
   start-up, e.g. api-user's link-signing keys; a failed bunny plan or apply holds gcp back, and
   wave 2 with it, until a dispatched run; `tools/scripts/tests/tf-apply-order.test.mjs`). Wave 2: cluster (and images)
@@ -225,16 +227,16 @@ kubectl -n database get secrets --as "$P"                                       
 
 ## Who can do what
 
-| Identity                      | Used by                                                                  | Can reach                                                                                                                                                                                                              |
-| ----------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| developers (`var.developers`) | people                                                                   | everything: project owners, `storage.admin` on the buckets, Token Creator on the CI identities, both KMS keys; organisation policies and log settings (granted by hand)                                                |
-| `tf-planner`                  | any workflow in this repository (`tofu-plan.yml`, drift)                 | `roles/viewer`, `iam.securityReviewer`, read state (not `dev/bunny/` or `org/`), `tofu-state`, bucket metadata; reads the organisation's policies and log settings. No secret values or backups                        |
-| `tf-cluster-planner` (D42)    | `tofu-plan.yml` on PRs, in the `cluster-plan` environment                | the cluster's API (dry runs and reads in `database` only, see CI), read state (not `dev/bunny/` or `org/`), `tofu-state`                                                                                               |
-| `tf-deployer`                 | `tofu-apply.yml` and `tofu-drift.yml` on `main`                          | what the gcp, cluster, images and stripe roots manage; state (not `dev/bunny/` or `org/`), `tofu-state`, saved plans in `plans/`; reads `stripe-api-key`. No `bunny-*` secrets, no `tofu-bunny`, no bucket IAM changes |
-| `tf-bunny` (D57)              | `tofu-apply.yml` and `tofu-drift.yml` on `main`; developers              | the bunny root only: `dev/bunny/` (state, plans, logs), the `bunny-*` secrets, `tofu-bunny`; `iam.securityReviewer` for the never-public guard                                                                         |
-| `ci-image-pusher`             | `images.yml` on a push to `main`                                         | push to `apps`                                                                                                                                                                                                         |
-| `ci-snapshot-pusher`          | `snapshot-images.yml` (manual, any branch)                               | push to `apps-scratch`                                                                                                                                                                                                 |
-| `ci-dev-seeder` (D50)         | `reset-dev-data.yml`, `dev-behavioural-tests.yml` (dispatched on `main`) | run and watch the `dev-seed` Cloud Run Job only (granted on that Job by the gcp root): no overrides, no secrets, no logs                                                                                               |
+| Identity                      | Used by                                                                  | Can reach                                                                                                                                                                                                                                                 |
+| ----------------------------- | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| developers (`var.developers`) | people                                                                   | everything: project owners, `storage.admin` on the buckets, Token Creator on the CI identities, both KMS keys; organisation policies and log settings (granted by hand)                                                                                   |
+| `tf-planner`                  | any workflow in this repository (`tofu-plan.yml`, drift)                 | `roles/viewer`, `iam.securityReviewer`, read state (not `dev/bunny/` or `org/`), `tofu-state`, bucket metadata; reads the organisation's policies and log settings. No secret values or backups                                                           |
+| `tf-cluster-planner` (D42)    | `tofu-plan.yml` on PRs, in the `cluster-plan` environment                | the cluster's API (dry runs and reads in `database` only, see CI), read state (not `dev/bunny/` or `org/`), `tofu-state`                                                                                                                                  |
+| `tf-deployer`                 | `tofu-apply.yml` and `tofu-drift.yml` on `main`                          | what the gcp, cluster, images, stripe and axiom roots manage; state (not `dev/bunny/` or `org/`), `tofu-state`, saved plans in `plans/`; reads `stripe-api-key` and `axiom-terraform-token`. No `bunny-*` secrets, no `tofu-bunny`, no bucket IAM changes |
+| `tf-bunny` (D57)              | `tofu-apply.yml` and `tofu-drift.yml` on `main`; developers              | the bunny root only: `dev/bunny/` (state, plans, logs), the `bunny-*` secrets, `tofu-bunny`; `iam.securityReviewer` for the never-public guard                                                                                                            |
+| `ci-image-pusher`             | `images.yml` on a push to `main`                                         | push to `apps`                                                                                                                                                                                                                                            |
+| `ci-snapshot-pusher`          | `snapshot-images.yml` (manual, any branch)                               | push to `apps-scratch`                                                                                                                                                                                                                                    |
+| `ci-dev-seeder` (D50)         | `reset-dev-data.yml`, `dev-behavioural-tests.yml` (dispatched on `main`) | run and watch the `dev-seed` Cloud Run Job only (granted on that Job by the gcp root): no overrides, no secrets, no logs                                                                                                                                  |
 
 The gates are CEL expressions over GitHub's OIDC claims (`modules/bootstrap/*.cel.tftpl`, tested
 with claim fixtures in `modules/bootstrap/tests/`): ref, workflow file and event. Environments
@@ -754,7 +756,7 @@ exported payments), or a service such as Swiftaid that collects and claims it. N
 Every log entry also goes to Axiom (LG-3, LG-5, LG-8; `libs/logging/src/axiom.ts`): Joel's free
 (Personal) account, organisation "He Is Real", edge deployment **EU Central 1 (AWS)**
 (`eu-central-1.aws.edge.axiom.co`; the free plan offers no UK region), 30 days, one dataset per
-environment: `heisreal-dev` (`axiom_dataset` in `live/dev/gcp`), later `heisreal-prod`. Google
+environment: `heisreal-dev` (`live/dev/axiom`, below), later `heisreal-prod`. Google
 keeps its own copy from stdout as before.
 
 `modules/gcp` makes the empty secret container `axiom-ingest-token` (London only) and lets every
@@ -770,6 +772,28 @@ version exists, each service writes one start-up warning and logs to stdout only
 | First setup: the token | apply `gcp` (the container and the reads). In Axiom, Settings → API tokens → an ingest-only token for `heisreal-dev`, then: `read -rsp 'Axiom token: ' k && printf %s "$k" \| gcloud secrets versions add axiom-ingest-token --project heisreal-dev --data-file=- && unset k` |
 | Start sending          | services read the token when a copy starts: deploy a new revision (any image change), or wait for the next cold start                                                                                                                                                         |
 | Rotate the token       | make a new ingest-only token, add it as a new version (same command), let new copies start, then delete the old token in Axiom                                                                                                                                                |
+
+**The dataset (`live/dev/axiom`).** Axiom's own provider (`axiomhq/axiom`) manages the dataset
+`heisreal-dev`: events, EU Central 1, 30 days. It was made by hand and adopted with an `import`
+block. The organisation id is `he-is-real-uuwg` (not a secret); the provider needs none, since an
+advanced token belongs to one organisation, and talks to `api.axiom.co` (only ingest and queries go
+to the edge). Dashboards, monitors and notifiers come later, in the same root, once Joel has chosen
+what to watch and who gets told.
+
+**The token.** The provider runs with the advanced token `heisreal-terraform` (Axiom's "Terraform"
+preset), read from Secret Manager (`axiom-terraform-token`, container from the bootstrap root,
+London only, readable by tf-deployer only) through an `ephemeral` read, so it's in neither state
+nor plans. CI masks it before any tofu step (`tf.sh axiom-mask`). PRs never plan axiom (tf-planner
+can't read the token); `tofu-apply.yml` plans it on `main` in wave 1, beside gcp, bunny and stripe,
+under the same approval (never the image-only auto-apply), and `tofu-drift.yml` checks it weekly.
+**API tokens are never managed here:** an `axiom_token` resource would put the token's value in
+state, so every token is made by hand (the three tokens: `docs/tooling-and-accounts.md`, "Axiom").
+
+| Task (owner: Joel)              | How                                                                                                                                                                                                                                                                                                                        |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| First setup: the OpenTofu token | apply `bootstrap` (the secret container and tf-deployer's read). In Axiom, Settings → API tokens → New advanced token `heisreal-terraform`, preset "Terraform", then: `read -rsp 'Axiom token: ' k && printf %s "$k" \| gcloud secrets versions add axiom-terraform-token --project heisreal-dev --data-file=- && unset k` |
+| First setup: adopt the dataset  | let `tofu-apply.yml` plan and apply `axiom` (or `tf.sh axiom apply`): the plan imports `heisreal-dev` and changes nothing else                                                                                                                                                                                             |
+| Rotate the OpenTofu token       | make a new advanced token as above, add it as a new version (same command), then delete the old token in Axiom                                                                                                                                                                                                             |
 
 ## Where data lives (D101–D104, D119)
 

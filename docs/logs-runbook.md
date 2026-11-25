@@ -27,6 +27,39 @@ is down. A service whose Axiom token is missing writes `Logs go to stdout only, 
 start-up; one that can't reach Axiom writes `Couldn't send log lines to Axiom` (at most once a
 minute, with `dropped_count`); both lines are in Google only.
 
+## How agents read logs
+
+Agents read Axiom through the **Axiom MCP** server (tool `queryDataset`, APL; `getDatasetFields`
+lists the real field names) or the **Axiom CLI** (`axiom query`). Both are set up once per
+developer machine, outside the repo ([tooling-and-accounts.md](tooling-and-accounts.md), "Axiom");
+`mise.toml` points the CLI at our EU edge. Agents only read: they never create, change or delete
+anything in Axiom (the dataset and, later, dashboards and monitors are OpenTofu's,
+`infra/terraform/live/dev/axiom`).
+
+```sh
+axiom query "['heisreal-dev'] | where ref == '<reference>'" --start-time -1h -f json
+```
+
+`-f json` prints one JSON object per line; `--start-time` takes `-1h`, `-1d` or a timestamp. Keep
+the window as short as the question allows. Dotted names need brackets (`['service.name']`). A
+query that names a field nobody has written yet fails with "field … not found" (Axiom only knows
+fields it has seen; the full list is `libs/logging/src/fields.ts`), so check the fields first.
+
+```kusto
+// Everything one request wrote, in order (from the reference a person sends)
+['heisreal-dev'] | where ref == "1a4c4701-e029-3187-a10c-05bd785d8f90" | sort by _time asc
+  | project _time, ['service.name'], event, outcome, ['http.route'], ['http.status_code'], message
+// Failed requests by service and route
+['heisreal-dev'] | where event == "request" and ['http.status_code'] >= 400
+  | summarize count() by ['service.name'], ['http.route'], outcome
+// A service's last start-up: the lines with no event, newest first, and the revision that started
+['heisreal-dev'] | where ['service.name'] == "api-user" and isempty(event)
+  | sort by _time desc | take 10 | project _time, ['service.revision'], context, message
+// First requests after a cold start, and how long they took
+['heisreal-dev'] | where ['process.cold_start'] == true
+  | project _time, ['service.name'], ['http.route'], ['http.duration_ms']
+```
+
 ## The events
 
 | `event`        | One per                                      | Has `ref`                     |

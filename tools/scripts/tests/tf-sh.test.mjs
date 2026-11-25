@@ -176,8 +176,8 @@ test('gcp defaults to tf-deployer locally', () => {
   assert.match(result.stderr, new RegExp(`tf.sh: gcp as ${deployer}`));
 });
 
-test('images, cluster and stripe default to tf-deployer locally', () => {
-  for (const root of ['images', 'cluster', 'stripe']) {
+test('images, cluster, stripe and axiom default to tf-deployer locally', () => {
+  for (const root of ['images', 'cluster', 'stripe', 'axiom']) {
     const call = tofuCall(run([root, 'plan']));
     assert.equal(
       call.argv[0],
@@ -705,29 +705,31 @@ test('bunny-mask needs secrets or state', () => {
   );
 });
 
-// stripe-mask
+// stripe-mask, axiom-mask
 
-test('stripe-mask refused outside CI', () => {
-  const result = run(['stripe-mask']);
-  assert.equal(result.status, 1);
-  assert.doesNotMatch(result.stdout, /add-mask/);
-});
+for (const [target, secret] of [
+  ['stripe-mask', 'stripe-api-key'],
+  ['axiom-mask', 'axiom-terraform-token'],
+]) {
+  test(`${target} refused outside CI`, () => {
+    const result = run([target]);
+    assert.equal(result.status, 1);
+    assert.doesNotMatch(result.stdout, /add-mask/);
+  });
 
-test('stripe-mask masks the Stripe key, read as the job', () => {
-  const result = run(['stripe-mask'], { GITHUB_ACTIONS: 'true' });
-  assert.equal(result.status, 0, result.all);
-  assert.equal(result.stdout, '::add-mask::stub-stripe-api-key\n');
-  assert.equal(result.stderr, '');
-  const access = result.gcloudCalls.find((c) => c[0] === 'secrets');
-  assert.ok(access.includes('--secret=stripe-api-key'), JSON.stringify(access));
-});
+  test(`${target} masks ${secret}, read as the job`, () => {
+    const result = run([target], { GITHUB_ACTIONS: 'true' });
+    assert.equal(result.status, 0, result.all);
+    assert.equal(result.stdout, `::add-mask::stub-${secret}\n`);
+    assert.equal(result.stderr, '');
+    const access = result.gcloudCalls.find((c) => c[0] === 'secrets');
+    assert.ok(access.includes(`--secret=${secret}`), JSON.stringify(access));
+  });
 
-test('stripe-mask takes no arguments', () => {
-  assert.equal(
-    run(['stripe-mask', 'x'], { GITHUB_ACTIONS: 'true' }).status,
-    64,
-  );
-});
+  test(`${target} takes no arguments`, () => {
+    assert.equal(run([target, 'x'], { GITHUB_ACTIONS: 'true' }).status, 64);
+  });
+}
 
 // bunny-cli
 

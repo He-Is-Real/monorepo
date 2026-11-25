@@ -10,3 +10,8 @@ gitleaks = "8.30.1"
 "npm:@bunny.net/cli" = "0.21.1"
 "npm:resend-cli" = "2.26.2"
 dapr = "1.19.1" # the media worker on Joel's machine (docs/media-runbook.md, "Media ready")
+"github:axiomhq/cli" = "0.23.0" # read logs in Axiom (docs/tooling-and-accounts.md, "Axiom")
+
+[env]
+# The Axiom CLI queries our EU edge (org "He Is Real", dataset heisreal-dev; docs/tooling-and-accounts.md).
+AXIOM_EDGE_REGION = "eu-central-1.aws.edge.axiom.co"
