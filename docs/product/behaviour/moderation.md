@@ -2,7 +2,7 @@
 
 Who: Moderator, Admin, Signed-in person (a story's owner), the system.
 Data: `docs/db-permissions.md#stories-schema-04-storiessurql`
-Next id: REQ-MOD-140
+Next id: REQ-MOD-141
 
 ## Contents
 
@@ -44,9 +44,9 @@ Next id: REQ-MOD-140
 - **REQ-MOD-018** The staff menu shows "Moderation" to Moderators and Admins; the other staff pages are for Admins only. [G24]
 - **REQ-MOD-019** On every moderation request, api-admin checks the role and refuses anyone below Moderator. [G24]
   Why: the database knows Moderators only as api-admin's login, so it can't check the role itself.
-- **REQ-MOD-020** Moderators and Admins may decide on their own stories. [J-2026-11-11-MOD]
+- **REQ-MOD-020** Moderators and Admins may decide on their own stories. [J-2026-11-11-MODb]
 - **REQ-MOD-021** Any Moderator or Admin can decide any story waiting for review: there is no pick-up locking, escalation or assignment. [J-2026-11-11-MOD]
-- **REQ-MOD-022** Moderators see the byline the owner chose, never the owner's name, email, account id or join date, and never which Moderator made a step. [J-2026-11-11-MODb]
+- **REQ-MOD-022** Moderators see the byline the owner chose, never the owner's name, email, account id or join date, and never which Moderator made a step. [UNTRACED]
 
 ## The moderators' list
 
@@ -79,7 +79,7 @@ Next id: REQ-MOD-140
 
 - **REQ-MOD-045** At `/moderation/{id}`, a Moderator or Admin sees the story as the public would, built from the public story page's parts (player or picture, title, byline, themes, words), with the player's playback-speed menu on. [J-2026-11-09-MOD]
 - **REQ-MOD-046** Below the story come the decisions the Moderator can make, then the story's history as a timeline, oldest first. [M3-7]
-- **REQ-MOD-047** Each timeline step shows what happened, whether the owner, a Moderator (by email) or the system made it, when, and any note a Moderator left. [M3-7]
+- **REQ-MOD-047** Each timeline step shows what happened, whether the owner, a Moderator (by email) or the system made it, when, and any note a Moderator left. [EM-1]
   Example: sent, sent again, sent back with the note, taken down to edit, approved, rejected, taken down with the reason, shown again, a new file or picture, words changed, a file that can't be used.
 - **REQ-MOD-048** Any story on the list opens, and a published one; a draft never sent opens for Admins only. [MD-3]
 - **REQ-MOD-049** A waiting, published, taken-down or rejected story has a decision to make; a story being edited is read only. [OV-1]
@@ -152,7 +152,7 @@ Next id: REQ-MOD-140
 ## Unusable files and retries
 
 - **REQ-MOD-100** When Bunny reports "failed to process" for a story's file, the owner is told at once; there is no automatic re-encode. [RE-1]
-- **REQ-MOD-101** The result writer believes a worker's "failed" only once Bunny says the same; then it marks the file failed and the job "gave up" with the reason `file_unusable`. [P1a-4]
+- **REQ-MOD-101** The result writer believes a worker's "failed" only once Bunny says the same; then it marks the file failed and the job "gave up" with the reason `file_unusable`. [UNTRACED]
   Why: the worker runs on a home PC and can never blame the file.
 - **REQ-MOD-102** In that same write, the database sends a story that is waiting for review, published, or off the site back to its owner with a system "file unusable" entry: "Needs a new file". [G2]
 - **REQ-MOD-103** A published story whose file is unusable goes back to its owner at once, with no timer. [G2]
@@ -176,20 +176,21 @@ Next id: REQ-MOD-140
 - **REQ-MOD-118** For a check job, the media worker asks Bunny itself and calls the result writer, which records the answer on that file only and marks the job done in the same step. [D78]
   Example: ready with its real size, length and Bunny's thumbnail; still encoding; or Bunny's failure (REQ-MOD-102).
 - **REQ-MOD-119** At most one job per file and kind is open; a new reason joins the open job. [J-2026-11-07-MOD]
-- **REQ-MOD-120** An answer about a file the story doesn't show is dropped (the job ends "gone"), and so is one that reached the writer before the last answer recorded for that file (the job ends "stale"). [F1]
+- **REQ-MOD-120** An answer about a file the story doesn't show is dropped (the job ends "gone"), and so is one that reached the writer before the last answer recorded for that file (the job ends "stale"). [UNTRACED]
   Why: a late answer must never bring back a story whose video has since failed.
-- **REQ-MOD-121** When the worker fails a job 5 times, the job ends "gave up" with why (`bunny_unavailable`, `worker_error` or `other`, never the file's fault); there are no dead-letter queues. [J4]
+- **REQ-MOD-121** When the worker fails a job 5 times, the job ends "gave up" with why (`bunny_unavailable`, `worker_error` or `other`, never the file's fault). [J-2026-11-07-MOD]
+- **REQ-MOD-140** There are no dead-letter queues: the job table records failed jobs. [J4]
 - **REQ-MOD-122** A media job holds ids only. [J1]
 - **REQ-MOD-138** When a file is deleted (erasure or tidy-up), its media jobs are deleted with it. [J1]
 - **REQ-MOD-139** The system deletes a done media job 30 days after it ended, except as REQ-MOD-112 says. [J2]
 - **REQ-MOD-123** Every evening at 18:00 UK time, when the worker machine is on to take them, every job not done whose last send is over 12 hours old is sent again. [J-2026-11-07-MODb]
   Why: a job the queue lost (after 31 days, or a failed send) still gets done.
-- **REQ-MOD-124** When the owner sends a video or audio story for review, the system writes a check job for its file too, so a Moderator never approves before the worker has looked. [J6]
+- **REQ-MOD-124** When the owner sends a video or audio story for review, the system writes a check job for its file too, so a Moderator never approves before the worker has looked. [J-2026-11-07-MOD]
 - **REQ-MOD-125** When a check finds an audio file ready, or an audio story's picture changes, the system writes a "render" job for its picture video. [DEC-1B]
 - **REQ-MOD-126** For a render, the worker asks the result writer for a pass; the writer makes the new Bunny video and gives the worker a pass to upload to that one video for one hour, with a 10-minute link to the picture. [DEC-2]
   Why: the full Bunny key never leaves Google Cloud.
 - **REQ-MOD-127** Just before downloading the audio's sound, the worker asks the writer for a link to that one file, valid two minutes and read straight from Bunny's storage, never a cached copy; the worker holds no storage key. [J-2026-11-08-MOD]
-- **REQ-MOD-128** The worker runs ffmpeg on its own machine, with files only in memory and removed when the job ends, then uploads the picture video. [DEC-1B]
+- **REQ-MOD-128** The worker runs ffmpeg on its own machine, with files only in memory and removed when the job ends, then uploads the picture video. [UNTRACED]
 - **REQ-MOD-129** The writer then records the new video as the story's file only if the story still shows that audio file (a new recording wins), and checks the new video like any other. [DEC-1B]
 - **REQ-MOD-130** A render not needed any more (a new recording, the story deleted, or already made with the story's picture) ends without making anything. [DEC-1B]
 - **REQ-MOD-131** When a story stops pointing at a video or picture, the nightly clean-up deletes the file at Bunny or in the images storage zone once no upload link for it can still be used (2 hours). [R12]
