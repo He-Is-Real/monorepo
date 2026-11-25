@@ -105,5 +105,5 @@ Tests: `person-session`, the `idempotency` unit spec, housekeeping's suite.
 ## System (`schema-01-system.surql`)
 
 - **REQ-DBP-060** `_migration`, `_migrationRun`, `_migrationPending`, `_migrationReset`, `_identity`, `service` and `fence` are `PERMISSIONS NONE`. [D13]
-- **REQ-DBP-061** `_setting:current` (`environment`): everyone reads and only system users write; it is a row, not a `DEFINE PARAM` (REQ-DBE-014). [D49]
+- **REQ-DBP-061** `_setting:current` (`environment`): everyone reads and only system users write; it is a row, not a `DEFINE PARAM` (REQ-DBE-016). [D49]
 - **REQ-DBP-062** The fences are `fence:person-<user id>`, `fence:identity-<sha256>` and `fence:theme-<theme id>`, bumped by events only, through `fn::fence::touch`. [R5]
