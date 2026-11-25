@@ -17,7 +17,8 @@
  *   continued. Everything is recorded and sent with the sampled flag `01` (no sampling, LG-6 A).
  * - **Same data classes as the logs.** Every span leaves through {@link cleanSpan}: only the
  *   attributes in {@link SPAN_ATTRIBUTES} (routes, methods, statuses, outcomes, query names,
- *   outside services and operations, job names), span names without addresses or query strings,
+ *   outside services and operations, job names), span names without addresses, query strings or
+ *   any path but the span's own route pattern,
  *   and exceptions reduced to their type. Never an IP, email, user agent, URL query, search term,
  *   story text, token, cookie, or the id of a person or story.
  * - **Never in the way.** Off unless `AXIOM_TRACES_DATASET`, `AXIOM_DOMAIN` and
@@ -98,17 +99,40 @@ export const SPAN_ATTRIBUTES: ReadonlySet<string> = new Set([
   'net.peer.port',
 ]);
 
-/** An address in a span name becomes its host; anything after a `?` goes. */
-export function cleanSpanName(name: string): string {
+/**
+ * A span name that may leave the process: an address becomes its host, anything after a `?` or
+ * `#` goes, and a path stays only if it is the span's own route pattern (`routes`: its
+ * `http.route` / `next.route`, which are templates such as `/stories/[slug]`). Any other path
+ * (a real address a future Next version might put there, or a page file's path) is dropped, so a
+ * story's slug or anything a visitor typed can't reach a span name.
+ */
+export function cleanSpanName(
+  name: string,
+  routes: readonly unknown[] = [],
+): string {
   return name
     .replace(/\b[a-z][a-z0-9+.-]*:\/\/([^/\s?#]+)\S*/gi, '$1')
-    .replace(/[?#]\S*/g, '');
+    .replace(/[?#]\S*/g, '')
+    .split(/\s+/)
+    .filter((word) => !word.includes('/') || routes.includes(word))
+    .join(' ')
+    .trim();
 }
 
-function cleanValue(key: string, value: AttributeValue | undefined) {
+/** The span's own route patterns (allowlisted attributes, set by us or by Next). */
+const routesOf = (attributes: Attributes) =>
+  [attributes['http.route'], attributes['next.route']].filter(
+    (r): r is string => typeof r === 'string',
+  );
+
+function cleanValue(
+  key: string,
+  value: AttributeValue | undefined,
+  routes: readonly string[],
+) {
   if (value === undefined) return undefined;
   if (key === 'next.span_name' && typeof value === 'string') {
-    return cleanSpanName(value);
+    return cleanSpanName(value, routes);
   }
   // A string that still looks like an address or carries a query never leaves.
   if (typeof value === 'string' && /[?#]|:\/\//.test(value)) return undefined;
@@ -117,9 +141,10 @@ function cleanValue(key: string, value: AttributeValue | undefined) {
 
 function cleanAttributes(attributes: Attributes): Attributes {
   const out: Attributes = {};
+  const routes = routesOf(attributes);
   for (const [key, value] of Object.entries(attributes)) {
     if (!SPAN_ATTRIBUTES.has(key)) continue;
-    const clean = cleanValue(key, value);
+    const clean = cleanValue(key, value, routes);
     if (clean !== undefined) out[key] = clean;
   }
   return out;
@@ -141,7 +166,10 @@ export function cleanSpan(span: ReadableSpan): ReadableSpan {
     };
   });
   return Object.create(span, {
-    name: { value: cleanSpanName(span.name), enumerable: true },
+    name: {
+      value: cleanSpanName(span.name, routesOf(span.attributes)),
+      enumerable: true,
+    },
     attributes: { value: cleanAttributes(span.attributes), enumerable: true },
     events: { value: events, enumerable: true },
     links: {

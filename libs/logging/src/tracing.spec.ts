@@ -147,4 +147,33 @@ describe('tracing set-up (LG-15)', () => {
     ]);
     expect(JSON.stringify([clean.status, clean.events])).not.toContain('sam@');
   });
+
+  it('keeps a path in a span name only when it is the span’s own route pattern', async () => {
+    const sent: ReadableSpan[] = [];
+    startTracing({
+      service: 'web',
+      exporter: {
+        export: (spans, done) => {
+          sent.push(...spans);
+          done({ code: ExportResultCode.SUCCESS });
+        },
+        shutdown: async () => undefined,
+      },
+    });
+    const { trace } = await import('@opentelemetry/api');
+    const tracer = trace.getTracer('next.js');
+    const end = (name: string, attributes = {}) =>
+      tracer.startSpan(name, { attributes }).end();
+    end('GET /stories/[slug]', { 'next.route': '/stories/[slug]' });
+    end('GET /stories/my-healing-story', { 'next.route': '/stories/[slug]' });
+    end('generateMetadata /stories/page');
+    end('db fn::submit_story');
+    await flushTracing(1000);
+    expect(sent.map((s) => s.name)).toEqual([
+      'GET /stories/[slug]',
+      'GET',
+      'generateMetadata',
+      'db fn::submit_story',
+    ]);
+  });
 });

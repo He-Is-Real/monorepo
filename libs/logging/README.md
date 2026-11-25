@@ -153,7 +153,8 @@ and job's timeline goes to Axiom's `heisreal-traces` dataset beside the logs.
   incoming `traceparent` is continued, and `ref` is the span's trace id. Everything is recorded
   and sent with the sampled flag `01` (LG-6 A).
 - **Data classes:** every span leaves through `cleanSpan`: only the attributes in
-  `SPAN_ATTRIBUTES`, names without addresses or query strings, exceptions reduced to their type,
+  `SPAN_ATTRIBUTES`, names without addresses, query strings or any path but the span's own route
+  pattern (`http.route` / `next.route`), exceptions reduced to their type,
   no status message. That also covers Next's built-in spans on the website (its `http.target` and
   `http.url` hold the query and are dropped; a fetch span keeps only the host it called). A new
   attribute needs Joel's decision.
