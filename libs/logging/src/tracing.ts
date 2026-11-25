@@ -323,14 +323,12 @@ function hostsOf(span: ReadableSpan): string[] {
     const value = attributes[key];
     if (typeof value === 'string') hosts.push(value.split(':')[0]);
   }
+  // Only the first address in each: the destination. Addresses in its query string aren't.
   const texts = [span.name, attributes['http.url'], attributes['url.full']];
   for (const text of texts) {
     if (typeof text !== 'string') continue;
-    for (const match of text.matchAll(
-      /\b[a-z][a-z0-9+.-]*:\/\/([^/\s?#:]+)/gi,
-    )) {
-      hosts.push(match[1]);
-    }
+    const match = /\b[a-z][a-z0-9+.-]*:\/\/([^/\s?#:]+)/i.exec(text);
+    if (match) hosts.push(match[1]);
   }
   return hosts.map((h) => h.toLowerCase());
 }

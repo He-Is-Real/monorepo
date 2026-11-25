@@ -401,9 +401,23 @@ describe('tracing set-up (LG-15)', () => {
         inside,
       )
       .end();
+    // An Axiom address in an API call's query string doesn't make it a send to Axiom.
+    tracer
+      .startSpan(
+        'fetch GET https://api-public-read.example/v1/stories?return=https://eu-central-1.aws.edge.axiom.co/',
+        {
+          attributes: {
+            'http.url':
+              'https://api-public-read.example/v1/stories?return=https://eu-central-1.aws.edge.axiom.co/',
+          },
+        },
+        inside,
+      )
+      .end();
     request.end();
     await flushTracing(1000);
     expect(sent.map((s) => s.name)).toEqual([
+      'fetch GET api-public-read.example',
       'fetch GET api-public-read.example',
       'GET /',
     ]);
