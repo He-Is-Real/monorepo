@@ -1,8 +1,11 @@
 'use client';
 
+import { ourSideMessage } from '@/lib/api-user';
+import { TryAgainLaterNotice } from '@/components/errors/try-again-later';
+import { withReference } from '@/components/errors/problem';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useMemo } from 'react';
+import { type ReactNode, useMemo } from 'react';
 import { useAccountState } from '@/components/auth/account-bootstrap';
 import {
   type Account,
@@ -14,7 +17,7 @@ import {
 } from '@/lib/api-user';
 import { usePersonalSession } from '@/lib/personal-session';
 import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
-import { Card, Notice, Text } from '@heisreal/web-ui';
+import { Card, Text } from '@heisreal/web-ui';
 
 type Role = Account['role'];
 /** D1's order: each role can do what the ones before it can (S-1: Moderator, then Admin). */
@@ -90,16 +93,21 @@ export function useStaffNavLinks(): {
 
 /**
  * What to tell an admin when api-admin refused what they sent (an input refusal's own message,
- * `isInputRefusal`), or only `TRY_AGAIN_LATER` for anything else (Joel, 2026-11-09).
+ * `isInputRefusal`), or `ourSideMessage` for anything else ("We couldn't reach…" when there was no
+ * answer, LG-13c; otherwise only `TRY_AGAIN_LATER`, Joel 2026-11-09), with its reference line
+ * (LG-1).
  */
-export const problemText = (err: unknown) => {
+export const problemText = (err: unknown): ReactNode =>
+  withReference(problemWords(err), err);
+
+function problemWords(err: unknown): string {
   if (err instanceof NotSignedIn) return 'You’re signed out. Sign in again.';
   if (err instanceof ApiUserProblem && !isSystemError(err)) {
     const field = err.problem.errors?.[0]?.message;
     return field ?? err.problem.detail ?? TRY_AGAIN_LATER;
   }
-  return TRY_AGAIN_LATER;
-};
+  return ourSideMessage(err);
+}
 
 /**
  * Links to the staff pages the person's role may use (none until their role is known), centred
@@ -192,9 +200,12 @@ export function AdminAccess({
   if (account.status === 'failed') {
     // The account couldn't be read: that's on our side, not a refusal.
     return (
-      <Notice kind="danger" as="p" role="alert">
-        {TRY_AGAIN_LATER}
-      </Notice>
+      <TryAgainLaterNotice
+        role="alert"
+        reference={account.reference}
+        noAnswer={account.noAnswer}
+        onTryAgain={() => window.location.reload()}
+      />
     );
   }
   if (!atLeast(role, min)) {

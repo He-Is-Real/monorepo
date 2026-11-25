@@ -630,22 +630,85 @@ export function writeSearchEvent(input: SearchEventInput): void {
 
 /**
  * The immediate unexpected-error line (Error Reporting reads `stack_trace`), with the request's
- * `ref`. Written the moment the error is caught; the wide event follows when the request ends.
+ * `ref` and any plain `fields` that place it (the website's route and Next's digest). Written the
+ * moment the error is caught; the wide event follows when the request ends.
  */
 export function writeErrorLine(
   err: unknown,
-  { ref, traceId }: { ref?: string; traceId?: string } = {},
+  {
+    ref,
+    traceId,
+    fields,
+  }: { ref?: string; traceId?: string; fields?: LogFields } = {},
 ): void {
   try {
     const type = err instanceof Error ? err.name : 'Error';
     const trace = traceId ? cloudTrace(traceId) : undefined;
-    const entry = logEntry('ERROR', `${type}: unexpected error`, {
+    const body: Record<string, unknown> = {
       event: 'error',
       ...(ref ? { ref } : {}),
       ...(trace ? { [TRACE_FIELD]: trace } : {}),
-      stack_trace: err instanceof Error ? err.stack : String(err),
-    });
+    };
+    if (fields) merge(body, fields);
+    body['stack_trace'] = err instanceof Error ? err.stack : String(err);
+    const entry = logEntry('ERROR', `${type}: unexpected error`, body);
     emit('ERROR', entry);
+  } catch {
+    countFailedLogWrite();
+  }
+}
+
+/** What a browser's error report says went wrong (LG-1c, LG-9a). */
+export type ErrorReportKind = 'browser_crash' | 'no_answer';
+
+export interface ErrorReportInput {
+  service: ServiceFields | string;
+  /** The reference the person was shown: a UUID v7 the browser made. */
+  reference: string;
+  /** The page's path, never its query (which can hold search words). */
+  route: string;
+  kind: ErrorReportKind;
+  client: { ip?: string; userAgent?: string };
+}
+
+/**
+ * The browser's small report of a failure the servers couldn't see (LG-1c, LG-9a; Joel 22–24 Nov
+ * 2026): `event: "error_report"` with the person's reference as its `ref` (and the trace field),
+ * so searching the reference finds it; the page's route and the kind (`browser_crash`,
+ * `no_answer`); who sent it, plain like every request's `client`. Nothing else: the browser
+ * never sends details of an error. Never throws.
+ */
+export function writeErrorReport(
+  input: ErrorReportInput,
+  now: Date = new Date(),
+): void {
+  try {
+    const traceId = input.reference.replace(/-/g, '');
+    const trace = cloudTrace(traceId);
+    const kind = clientKind(input.client.userAgent);
+    const fields: Record<string, unknown> = {
+      event: 'error_report',
+      ref: input.reference,
+      ...(trace ? { [TRACE_FIELD]: trace } : {}),
+      service:
+        typeof input.service === 'string'
+          ? serviceFields(input.service)
+          : input.service,
+    };
+    merge(fields, {
+      report: { route: input.route, kind: input.kind },
+      client: {
+        ip: input.client.ip,
+        user_agent: input.client.userAgent,
+        browser: kind.browser,
+        os: kind.os,
+        device: kind.device,
+      },
+    });
+    emit(
+      'WARNING',
+      logEntry('WARNING', `browser reported ${input.kind}`, fields, now),
+    );
   } catch {
     countFailedLogWrite();
   }

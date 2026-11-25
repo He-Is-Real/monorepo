@@ -46,7 +46,7 @@ import {
 type Loaded =
   | { status: 'loading' }
   | { status: 'gone' }
-  | { status: 'failed'; message: string }
+  | { status: 'failed'; message: ReactNode }
   | { status: 'ready'; story: ModerationStory };
 
 /**
@@ -135,7 +135,7 @@ export function ModerationReview({
 }
 
 /** A note above the story: what was done, or why the page refreshed. */
-type ReviewNotice = { text: string; tone: 'done' | 'refreshed' } | null;
+type ReviewNotice = { text: ReactNode; tone: 'done' | 'refreshed' } | null;
 
 function Review({ id, client }: { id: string; client: ApiUser }) {
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' });
@@ -436,7 +436,7 @@ function SenderLine({
   const [step, setStep] = useState<'idle' | 'confirm' | 'busy' | 'done'>(
     blockedAtLoad ? 'done' : 'idle',
   );
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ReactNode>(null);
   const [note, setNote] = useState(startNote);
   const noteRef = useRef<HTMLTextAreaElement>(null);
   const open = step === 'confirm' || step === 'busy';

@@ -73,7 +73,9 @@ describe('the public answer cache (R13)', () => {
     await t?.close();
   });
 
-  it('writes one search event for every search, also one answered from memory or as a 304 (LG-2g A)', async () => {
+  const WEBSITE_KEY_VALUE = 'test-website-key-0123456789abcdef';
+
+  it('writes one search event for every search, also one answered from memory or as a 304, none for web’s own (LG-2g A)', async () => {
     const searches: Record<string, unknown>[] = [];
     const before = [...LOG_SINKS];
     LOG_SINKS.splice(0, LOG_SINKS.length, {
@@ -84,6 +86,7 @@ describe('the public answer cache (R13)', () => {
     try {
       const started = await startPublicRead(t, undefined, undefined, {
         wideEvents: true,
+        rateLimits: { now: Date.now, websiteKey: WEBSITE_KEY_VALUE },
       });
       apps.push(started.app);
       const search = async () => {
@@ -104,6 +107,12 @@ describe('the public answer cache (R13)', () => {
         headers: { 'If-None-Match': etag },
       });
       expect(unchanged.status).toBe(304);
+      // Web's own server searching for a visitor (the website key): web's proxy wrote that
+      // search's event with the visitor's address, so none here.
+      const fromWeb = await fetch(`${started.url}/v1/stories?q=placeholder`, {
+        headers: { 'x-website-key': WEBSITE_KEY_VALUE },
+      });
+      expect(fromWeb.status).toBe(200);
       expect(searches).toHaveLength(4);
       for (const entry of searches) {
         expect(entry).toMatchObject({

@@ -32,12 +32,17 @@ Code that needs api-user goes through this client, never its own `fetch`. Wideni
 (another file, another rule) is a decision for review: record it here and in
 `eslint-token-boundary.test.mjs`.
 
-**The second carve-out (rate limiting, RL-8 A, Joel 2026-11-21): `src/lib/visitor-address.ts`.**
-`proxy.ts` counts each visitor's page loads and server actions in memory, by their IP address, so
-this one file reads one request header: the last `X-Forwarded-For` entry, the one Google's front
-end appended. Lint allows exactly `<request>.headers.get('x-forwarded-for')` there and refuses
-every other `.headers` or `.cookies` use; all the other rules stay on. The address is a counter
-key only: never logged, stored or forwarded. A visitor over a limit gets what a crash gives: the proxy
+**The second carve-out (rate limiting, RL-8 A, Joel 2026-11-21; logging, LG-2 and LG-4 A, Joel
+22–24 Nov 2026): `src/lib/visitor-address.ts`.** `proxy.ts` counts each visitor's page loads and
+server actions in memory, by their IP address, and writes each request's wide event, so this one
+file reads four request headers by name: the last `X-Forwarded-For` entry (the one Google's front
+end appended), `User-Agent`, `traceparent` (the trace Google's front end gives the request) and
+`Next-Router-Prefetch` (a prefetch isn't a search someone made). The three beyond the address
+are approved additions to D32's list (LG-13b A, Joel 25 Nov 2026). Lint allows exactly
+`<request>.headers.get('<one of these>')` there, and `<request>.headers.traceparent` for the
+request `onRequestError` reports, and refuses every other `.headers` or `.cookies` use; all the
+other rules stay on. They are never stored or forwarded; the address and user agent are plain on
+the request's event (LG-2), and on a search event the address is only a search-key hash (LG-2g A). A visitor over a limit gets what a crash gives: the proxy
 rewrites the request (same URL) to `src/app/something-went-wrong`, a page that fails to render, so
 Next answers as for any crash: its status and headers, and the site's error page (`app/error.tsx`). A limited server action (a POST)
 goes to a route handler there that fails instead (`action/route.ts`): route handlers never run

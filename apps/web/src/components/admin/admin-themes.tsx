@@ -99,7 +99,7 @@ export function AdminThemes({ apiAdminUrl }: { apiAdminUrl?: string }) {
 function ThemesLoader({ client }: { client: ApiUser }) {
   const [loaded, setLoaded] = useState<
     | { status: 'loading' }
-    | { status: 'failed'; message: string }
+    | { status: 'failed'; message: ReactNode }
     | { status: 'ready'; data: Loaded; at: number }
   >({ status: 'loading' });
   const [saved, setSaved] = useState(false);
@@ -166,7 +166,7 @@ type Dialog =
 type Status =
   | { kind: 'idle' }
   | { kind: 'busy' }
-  | { kind: 'error'; message: string }
+  | { kind: 'error'; message: ReactNode }
   | { kind: 'stale' };
 
 let next = 0;

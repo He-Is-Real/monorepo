@@ -683,7 +683,10 @@ test.describe('behaviour', () => {
     });
     await choose(page, 900, 1200);
     await expect(
-      alert(page, 'Something went wrong. Please try again later.'),
+      alert(
+        page,
+        'We couldn’t reach He Is Real. Check your internet connection and try again.',
+      ),
     ).toBeVisible();
     expect((await me.uploads()).images).toHaveLength(1);
 

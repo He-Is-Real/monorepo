@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { TryAgainLaterNotice } from '@/components/errors/try-again-later';
 import Image from 'next/image';
 import Link from 'next/link';
 import { cacheLife } from 'next/cache';
@@ -17,8 +18,7 @@ import { StoriesUnavailableError } from '@/lib/public-stories';
 import { RestartingMessage } from '@/components/restarting/restarting-message';
 import { cachedPage, type PageCacheLife } from '@/lib/page-cache';
 import { pageMetadata } from '@/lib/seo';
-import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
-import { Button, Heading, Notice, Text } from '@heisreal/web-ui';
+import { Button, Heading, Text } from '@heisreal/web-ui';
 import { TextLink } from '@/components/page/text-link';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -215,14 +215,10 @@ async function Home({ keep }: { keep: boolean }) {
             variant="inline"
           />
         ) : stories instanceof StoriesUnavailableError ? (
-          <Notice
-            kind="danger"
-            as="p"
+          <TryAgainLaterNotice
             role="status"
             className="mx-auto max-w-measure"
-          >
-            {TRY_AGAIN_LATER}
-          </Notice>
+          />
         ) : (
           <ul className="mx-auto grid max-w-[30rem] grid-cols-[minmax(0,1fr)] gap-7 md:max-w-none md:grid-cols-3">
             {stories.map((s) => (

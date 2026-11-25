@@ -15,6 +15,7 @@ import {
   expectNoHorizontalOverflow,
   fetchesTakenIn,
   shots,
+  withReference,
 } from './helpers';
 import { fixtureToken, STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 
@@ -481,7 +482,7 @@ test.describe('behaviour', () => {
     page.on('download', () => (downloads += 1));
     await card.getByRole('button', { name: 'Download my data' }).click();
     await expect(card.getByRole('alert')).toHaveText(
-      'Something went wrong. Please try again later.',
+      withReference('Something went wrong. Please try again later.'),
     );
     await expect(
       card.getByRole('button', { name: 'Download my data' }),

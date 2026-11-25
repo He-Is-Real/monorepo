@@ -35,7 +35,24 @@ export function wideEvents(
   service: string,
   /** `job`: each request is one step of a job (the media result writer's calls from the worker). */
   kind: EventKind = 'request',
+  {
+    bodyNeverLogged = [],
+  }: {
+    /**
+     * Paths whose request body is never logged, not hashed and not in full, whatever the
+     * outcome: an exception to LG-9b's "refusals log the body", for anonymous routes anyone could
+     * use to write their own text into our logs (api-user's `/v1/error-reports`). Their
+     * refusals still log the failed field names and checks (fixed metadata, never the values).
+     */
+    bodyNeverLogged?: readonly string[];
+  } = {},
 ): RequestHandler {
+  const quiet = new Set(bodyNeverLogged.map((p) => p.toLowerCase()));
+  const bodyIsQuiet = (req: Request) => {
+    if (!quiet.size) return false;
+    const path = pathOf(req);
+    return path === undefined || quiet.has(path);
+  };
   const fields = serviceFields(service);
   return (req: Request, res: Response, next: NextFunction) => {
     let event: WideEvent;
@@ -62,7 +79,7 @@ export function wideEvents(
           device: client.device,
         },
       });
-      res.once('close', () => finishRequest(event, req, res));
+      res.once('close', () => finishRequest(event, req, res, bodyIsQuiet(req)));
     } catch {
       return next();
     }
@@ -86,7 +103,32 @@ function routeOf(req: Request): string | undefined {
   return typeof path === 'string' ? `${req.baseUrl ?? ''}${path}` : undefined;
 }
 
-function finishRequest(event: WideEvent, req: Request, res: Response): void {
+/**
+ * The request's path as Express routes it (its `parseurl` pathname: the absolute form
+ * `POST http://host/v1/…` routes like `/v1/…`), without its query, lower case and without a
+ * trailing slash. From `originalUrl`: routers may rewrite `req.url`. `undefined` if it can't
+ * be read: such a request counts as one whose body is never logged (fail closed).
+ */
+function pathOf(req: Request): string | undefined {
+  let url = req.originalUrl ?? req.url ?? '';
+  if (!url.startsWith('/')) {
+    try {
+      url = new URL(url).pathname;
+    } catch {
+      return undefined;
+    }
+  }
+  const end = url.search(/[?#]/);
+  const path = end === -1 ? url : url.slice(0, end);
+  return (path.length > 1 ? path.replace(/\/+$/, '') : path).toLowerCase();
+}
+
+function finishRequest(
+  event: WideEvent,
+  req: Request,
+  res: Response,
+  bodyNeverLogged: boolean,
+): void {
   try {
     const status = res.statusCode;
     const route = routeOf(req);
@@ -107,6 +149,7 @@ function finishRequest(event: WideEvent, req: Request, res: Response): void {
     event.setOutcome(outcomeForStatus(status));
     const body = req.body as unknown;
     if (
+      !bodyNeverLogged &&
       body &&
       typeof body === 'object' &&
       !Buffer.isBuffer(body) &&

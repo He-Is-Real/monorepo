@@ -60,8 +60,12 @@ slowest { name, ms } }`, `external.<name> { calls, ms, status }`.
   or when it was already written (the caller hung up mid-work): that line carries the request's
   `ref`, trace field and `service`, so a record like an erasure is never lost.
 - **Errors:** `event.fail({ type, code, retriable, message })` (our own words); the immediate
-  unexpected-error line is `writeErrorLine(err, { ref, traceId })` (`stack_trace`, for Error
-  Reporting). `ProblemFilter` (libs/http) does both for the APIs.
+  unexpected-error line is `writeErrorLine(err, { ref, traceId, fields })` (`stack_trace`, for Error
+  Reporting). `ProblemFilter` (libs/http) does both for the APIs; the website's `onRequestError`
+  writes the line with its route and Next's `digest`.
+- **Browser error reports** (LG-1c, LG-9a): `writeErrorReport({ reference, route, kind, client })`
+  writes `event: "error_report"` with the person's reference as `ref` (api-user's
+  `POST /v1/error-reports`); `kind` is `browser_crash` or `no_answer`.
 
 ### Data classes (what may go in a field)
 
@@ -76,10 +80,14 @@ slowest { name, ms } }`, `external.<name> { calls, ms, status }`.
   no `ref`, no trace field, no session or token hash; terms and filters plain; who searched only as
   `client.ip_hash`, `user.email_hash`, `user.id_hash` with the search-only key (`hs1:`). The
   request's own event never carries `search` (it is removed if set). api-public-read writes it from
-  an interceptor around its answer cache, so a search answered from memory is still logged.
+  an interceptor around its answer cache, so a search answered from memory is still logged; for
+  web's own calls (the website key) it writes none, because web's proxy wrote it with the
+  visitor's address.
 - **Keys:** `log-hmac` (general, `hk1:`) and `log-search-hmac` (search only, `hs1:`) in Secret
-  Manager, named by `LOG_HMAC_SECRET` and `LOG_SEARCH_HMAC_SECRET` and read at start-up by
-  `LogKeysModule` (libs/http). A deployed service (`K_SERVICE` set) refuses to start without both.
+  Manager, named by `LOG_HMAC_SECRET` and `LOG_SEARCH_HMAC_SECRET` and read at start-up through
+  `loadLogKeys` by `LogKeysModule` (libs/http) and the website's `instrumentation.ts`. A deployed
+  service (`K_SERVICE` set) refuses to start without both. The keys live on `globalThis`, so every
+  bundled copy of this library in one process (the website's proxy and instrumentation) uses them.
   Unset locally and in tests: fixed development keys (`DEV_LOG_KEYS`), never a real one, with a
   start-up warning.
 - **Size:** Google refuses an entry over 256 KB. An entry over `MAX_ENTRY_BYTES` (200 000) has its
@@ -103,10 +111,13 @@ slowest { name, ms } }`, `external.<name> { calls, ms, status }`.
   send (10 s) is dropped and counted, with one stdout warning a minute; no retries. None set
   (locally, tests): nothing is sent. Partly set, or the token can't be read or is empty: one
   start-up warning, stdout only; the service still starts. Started by `LogKeysModule`
-  (libs/http) in the Nest services, and by housekeeping and the media worker in their `main.ts`.
+  (libs/http) in the Nest services, by housekeeping and the media worker in their `main.ts`, and
+  by the website's `instrumentation.ts` (`register`, after its log keys).
 - **Shutting down:** `flushLogSinks(ms)` sends what every sink holds, waiting at most `ms`. The
   Nest services call it from `LogKeysModule` on SIGTERM (`enableShutdownHooks`); housekeeping
-  before it exits; the media worker when it stops.
+  before it exits; the media worker when it stops. The website doesn't: Next has no shutdown hook
+  for App Router apps (its own SIGTERM handler closes the server and exits), so lines still
+  queued when an idle website instance is shut down are missing in Axiom (not in Google's copy).
 - **Cloud Run's CPU:** our services use request-based billing (`cpu_idle = true`), so CPU is
   throttled once no request is in flight: a send started as a response closes may pause until
   the instance's next request, or until shutdown, when Cloud Run gives the instance CPU for 10 s

@@ -24,7 +24,8 @@ const PAGE = 'src/app/probe/page.tsx';
 // The one carve-out (M2): the browser-only api-user client may build request headers and read
 // response headers, and nothing else is relaxed there.
 const API_USER_CLIENT = 'src/lib/api-user.ts';
-// The second carve-out (rate limiting): the visitor's address from x-forwarded-for, nothing else.
+// The second carve-out (rate limiting, logging): x-forwarded-for, user-agent, traceparent and
+// next-router-prefetch by name, nothing else.
 const VISITOR_ADDRESS = 'src/lib/visitor-address.ts';
 const FORWARDED_FOR = `export const ip = (request: { headers: Headers }) => request.headers.get('x-forwarded-for');`;
 const CLIENT_CALL = `const h = new Headers(); h.set('Authorization', 'Bearer t'); export const call = async () => { const r = await fetch('https://api-user.example/v1/account', { headers: h }); return r.headers.get('ETag'); };`;
@@ -38,7 +39,17 @@ const forbidden = [
   [
     'another header in the visitor-address file',
     VISITOR_ADDRESS,
-    `export const ua = (request: { headers: Headers }) => request.headers.get('user-agent');`,
+    `export const ua = (request: { headers: Headers }) => request.headers.get('referer');`,
+  ],
+  [
+    'a header by a variable name in the visitor-address file',
+    VISITOR_ADDRESS,
+    `export const h = (request: { headers: Headers }, name: string) => request.headers.get(name);`,
+  ],
+  [
+    'another header from a plain header object in the visitor-address file',
+    VISITOR_ADDRESS,
+    `export const c = (request: { headers: Record<string, string> }) => request.headers.cookie;`,
   ],
   [
     'the whole headers object in the visitor-address file',
@@ -153,6 +164,11 @@ const allowed = [
     'the visitor-address file reading x-forwarded-for (the rate-limit carve-out)',
     VISITOR_ADDRESS,
     FORWARDED_FOR,
+  ],
+  [
+    'the visitor-address file reading the user agent and trace (the logging carve-out)',
+    VISITOR_ADDRESS,
+    `export const f = (request: { headers: Headers }) => [request.headers.get('user-agent'), request.headers.get('traceparent'), request.headers.get('next-router-prefetch')];\nexport const t = (request: { headers: Record<string, string> }) => request.headers.traceparent;`,
   ],
   [
     'a literal fetch with literal headers (server render from api-public-read)',

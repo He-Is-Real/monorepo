@@ -1,5 +1,7 @@
 'use client';
 
+import { problemText } from '@/lib/try-again-later';
+import { ErrorReference } from '@/components/errors/error-reference';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useMemo } from 'react';
@@ -17,7 +19,6 @@ import {
 import type { AgreementName } from '@/lib/legal-text';
 import { personalApiUser, usePersonalSession } from '@/lib/personal-session';
 import { signInHref } from '@/lib/return-path';
-import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 
 const KEY = {
   'terms-of-use': 'termsOfUse',
@@ -77,7 +78,8 @@ export function AgreementPage({
   if (account.status === 'failed') {
     return (
       <Notice kind="danger" role="alert">
-        <p className="mb-3">{TRY_AGAIN_LATER}</p>
+        <p>{problemText(account.noAnswer)}</p>
+        <ErrorReference reference={account.reference} className="mt-1 mb-3" />
         <Button variant="outline" wrap onClick={() => window.location.reload()}>
           Try again
         </Button>

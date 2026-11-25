@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { flushLogSinks, writeLog } from '@heisreal/logging';
 import { startAxiomLogs } from '@heisreal/logging/axiom';
-import { setLogKeys } from '@heisreal/logging/event';
+import { loadLogKeys } from '@heisreal/logging/event';
 import { SecretsService } from '@heisreal/secrets';
 
 /**
@@ -24,33 +24,12 @@ export class LogKeysLoader implements OnModuleInit {
   constructor(@Optional() private readonly secrets?: SecretsService) {}
 
   async onModuleInit(): Promise<void> {
-    const general = process.env['LOG_HMAC_SECRET']?.trim();
-    const search = process.env['LOG_SEARCH_HMAC_SECRET']?.trim();
-    if (process.env['K_SERVICE'] && (!general || !search)) {
-      throw new Error(
-        'Log keys not set: a deployed service needs LOG_HMAC_SECRET and LOG_SEARCH_HMAC_SECRET (their Secret Manager names)',
-      );
-    }
-    if ((general || search) && !this.secrets) {
-      throw new Error('LOG_HMAC_SECRET needs SecretsModule');
-    }
-    const read = async (name: string | undefined) =>
-      name && this.secrets ? (await this.secrets.get(name)).trim() : undefined;
-    const [generalKey, searchKey] = await Promise.all([
-      read(general),
-      read(search),
-    ]);
-    if ((general && !generalKey) || (search && !searchKey)) {
-      throw new Error('A log key secret is empty');
-    }
-    setLogKeys({ general: generalKey, search: searchKey });
-    if (!general || !search) {
-      writeLog(
-        'WARNING',
-        'Log keys not set (LOG_HMAC_SECRET, LOG_SEARCH_HMAC_SECRET): hashes use the development keys (local only; a deployed service won’t start)',
-        { event: 'startup' },
-      );
-    }
+    const secrets = this.secrets;
+    const { warning } = await loadLogKeys({
+      deployed: !!process.env['K_SERVICE'],
+      read: secrets ? (name) => secrets.get(name) : undefined,
+    });
+    if (warning) writeLog('WARNING', warning, { event: 'startup' });
   }
 }
 

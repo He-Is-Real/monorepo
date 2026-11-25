@@ -18,6 +18,7 @@ import {
   expectTarget,
   fetchesTakenIn,
   storiesColumns,
+  withReference,
 } from './helpers';
 import {
   fixtureToken,
@@ -647,7 +648,7 @@ test.describe('hearts', () => {
     await prompt.getByRole('button', { name: 'Add' }).click(); // queued behind it
     save.release();
     await expect(prompt.getByRole('alert')).toHaveText(
-      'Something went wrong. Please try again later.',
+      withReference('Something went wrong. Please try again later.'),
     );
     await expect(prompt).toContainText(
       'Add the story you hearted on this device to your account?',
@@ -681,7 +682,7 @@ test.describe('hearts', () => {
     await failing.seen;
     failing.release(); // browse_08's save fails (503)
     await expect(prompt.getByRole('alert')).toHaveText(
-      'Something went wrong. Please try again later.',
+      withReference('Something went wrong. Please try again later.'),
     );
     await expect(prompt).toContainText(
       'Add the story you hearted on this device to your account?',

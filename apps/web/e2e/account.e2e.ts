@@ -88,7 +88,9 @@ for (const [outage, answer] of [
     await openAccount(page);
     expect(tried, 'the bootstrap was attempted').toBe(true);
     // Nothing says something went wrong, and the site carries on as usual.
-    await expect(page.getByText(/something went wrong/i)).toHaveCount(0);
+    await expect(
+      page.getByText(/something went wrong|couldn’t reach/i),
+    ).toHaveCount(0);
     await page.getByRole('link', { name: 'He Is Real Today, home' }).click();
     await expect(page).toHaveURL(`${WEB_SIGNED_IN_URL}/`);
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();

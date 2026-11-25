@@ -1,5 +1,9 @@
 'use client';
 
+import { problemText } from '@/lib/try-again-later';
+import { ourSideProblem } from '@/components/errors/problem';
+import { ErrorReference } from '@/components/errors/error-reference';
+import { restartingProblem } from '@/components/errors/problem';
 import {
   createContext,
   useCallback,
@@ -42,7 +46,6 @@ import {
 import { LegalHtml } from '@/components/legal/legal-html';
 import { PrivacyNoticeLink } from '@/components/legal/privacy-notice-link';
 import { Redline } from '@/components/legal/redline';
-import { RestartingText } from '@/components/restarting/restarting-message';
 import {
   type Account,
   type Agreement,
@@ -58,7 +61,6 @@ import type { AgreementName } from '@/lib/legal-text';
 import type { RedlineItem } from '@/lib/redline';
 import type { SharingConsent, ShareLegal } from '@/lib/share-legal';
 import { signInHref } from '@/lib/return-path';
-import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 import {
   type MyStory,
   shareApi,
@@ -302,7 +304,7 @@ function SignedInFlow({
     n: 0,
   });
   /** A step chosen at the top couldn't be checked (the story couldn't be read). */
-  const [navProblem, setNavProblem] = useState<string | null>(null);
+  const [navProblem, setNavProblem] = useState<React.ReactNode>(null);
   const [missingDraft, setMissingDraft] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const moved = useRef(false);
@@ -549,9 +551,10 @@ function SignedInFlow({
         <Heading level={2} role="alert" className="mb-3">
           Something went wrong
         </Heading>
-        <p className="mb-6">
+        <p>
           Please try again later. Anything you wrote on this device is kept.
         </p>
+        <ErrorReference className="mt-1 mb-6" />
         <button type="button" className={primary} onClick={() => void start()}>
           Try again
         </button>
@@ -655,12 +658,14 @@ function SignedInFlow({
     // chosen on this device went with the step).
     let stored: StoryPicture | null | undefined;
     let unread = false;
+    let unreadBecause: unknown;
     const id = draft.current().draftId;
     if (step !== 'write' && passed.includes('write') && id) {
       try {
         stored = (await calls.story(id)).image;
-      } catch {
+      } catch (err) {
         unread = true;
+        unreadBecause = err;
       }
     }
     // While it saved, the person may have chosen another file, changed a step, moved on or
@@ -674,7 +679,7 @@ function SignedInFlow({
     )
       return;
     if (unread) {
-      setNavProblem(TRY_AGAIN_LATER);
+      setNavProblem(ourSideProblem(unreadBecause));
       return;
     }
     if (stored !== undefined) picture.stored(stored);
@@ -1245,7 +1250,7 @@ function SaveState({
         : 'Kept on this device. It’s saved to your account once it has a title.',
     saving: 'Saving…',
     saved: 'Draft saved',
-    offline: `${TRY_AGAIN_LATER} Your story is kept on this device.`,
+    offline: problemText(draft.noAnswer, 'Your story is kept on this device.'),
     conflict: '',
     error: draft.error ?? '',
     submitted: '',
@@ -1270,6 +1275,10 @@ function SaveState({
       >
         {text[draft.status]}
       </p>
+      {(draft.status === 'offline' || draft.status === 'error') &&
+        draft.errorReference && (
+          <ErrorReference reference={draft.errorReference} className="mt-1" />
+        )}
       {exit.problem && (
         <Text role="alert" size="small" tone="danger" className="mt-2">
           {exit.problem}
@@ -2037,11 +2046,9 @@ export function ReviewStep({
   /** A failure on our side (#206): the database restarting, named, else only the plain message. */
   function failure(err: unknown, kept: string): React.ReactNode {
     const restarting = restartWait(err);
-    return restarting !== undefined ? (
-      <RestartingText seconds={restarting} kept={kept} />
-    ) : (
-      `${TRY_AGAIN_LATER} ${kept}`
-    );
+    return restarting !== undefined
+      ? restartingProblem(err, restarting, kept)
+      : ourSideProblem(err, kept);
   }
 
   /**
@@ -2234,13 +2241,11 @@ export function ReviewStep({
         }
       } else if (restarting !== undefined) {
         // The database restarting: named, with when to try again (Joel, 2026-11-09).
-        setProblem(
-          <RestartingText seconds={restarting} kept="Your story is saved." />,
-        );
+        setProblem(restartingProblem(err, restarting, 'Your story is saved.'));
       } else if (isSystemError(err)) {
         // On our side (no answer, a server error, a technical refusal): only the plain message
         // (Joel, 2026-11-09).
-        setProblem(`${TRY_AGAIN_LATER} Your story is saved.`);
+        setProblem(ourSideProblem(err, 'Your story is saved.'));
       } else if (err instanceof ApiUserProblem) {
         const p = err.problem as ApiUserProblem['problem'] & {
           availableAt?: string;

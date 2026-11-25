@@ -1,4 +1,5 @@
 import { LegalMarkdown } from '@/components/legal/legal-markdown';
+import { TryAgainLaterNotice } from '@/components/errors/try-again-later';
 import { NarrowColumn } from '@/components/page/page-header';
 import { TextLink } from '@/components/page/text-link';
 import type { LegalVersion } from '@/lib/legal';
@@ -9,7 +10,6 @@ import {
   longDate,
   type PublicDocument,
 } from '@/lib/legal-text';
-import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 import { Heading, Notice, Text } from '@heisreal/web-ui';
 
 /**
@@ -78,9 +78,7 @@ export function LegalDocumentPage({
             />
           </article>
         ) : (
-          <Notice kind="danger" as="p" data-legal-problem="unavailable">
-            {TRY_AGAIN_LATER}
-          </Notice>
+          <TryAgainLaterNotice data-legal-problem="unavailable" />
         )}
         {others.length > 0 && (
           <section

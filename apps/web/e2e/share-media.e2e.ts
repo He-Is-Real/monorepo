@@ -559,7 +559,10 @@ test.describe('behaviour', () => {
     );
     await page.getByLabel('Choose a file').setInputFiles(path);
     await expect(
-      alert(page, 'Something went wrong. Please try again later.'),
+      alert(
+        page,
+        'We couldn’t reach He Is Real. Check your internet connection and try again.',
+      ),
     ).toBeVisible();
     expect((await me.uploads()).videos).toHaveLength(1);
 
@@ -605,7 +608,10 @@ test.describe('behaviour', () => {
       .getByLabel('Choose another file')
       .setInputFiles(clip(info.outputPath('second.mp4')));
     await expect(
-      alert(page, 'Something went wrong. Please try again later.'),
+      alert(
+        page,
+        'We couldn’t reach He Is Real. Check your internet connection and try again.',
+      ),
     ).toBeVisible();
     expect((await me.uploads()).videos).toMatchObject([
       { deleted: true, done: true },
@@ -831,7 +837,10 @@ test.describe('behaviour', () => {
     );
     await page.getByLabel('Choose a file').setInputFiles(path);
     await expect(
-      alert(page, 'Something went wrong. Please try again later.'),
+      alert(
+        page,
+        'We couldn’t reach He Is Real. Check your internet connection and try again.',
+      ),
     ).toBeVisible();
     await me.agreements({ testimony: 1 });
     // Its replay is refused until they agree (a 403 that doesn't mean nothing was made).

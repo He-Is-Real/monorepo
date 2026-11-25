@@ -8,6 +8,10 @@ import {
   shots,
 } from './helpers';
 
+/** A reference under an error (LG-1b A): a UUID v7. */
+const UUID_V7 =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
 // Responsive everywhere (Joel, 0.9): the long story, the media stories, the 404 and error pages
 // on every device in the matrix and in both colour schemes (no horizontal scrolling, the key
 // elements visible, 44 px targets, screenshots on 4 sizes), then the theme toggle on one phone
@@ -124,6 +128,10 @@ for (const scheme of ['light', 'dark'] as const) {
         page.getByRole('heading', { name: 'Something went wrong' }),
       ).toBeVisible();
       await expectTarget(page, page.getByRole('link', { name: 'Try again' }));
+      // Its reference line (LG-1), Copy button included in the targets below.
+      await expect(page.locator('main [data-reference-value]')).toHaveText(
+        UUID_V7,
+      );
       await expectNoHorizontalOverflow(page);
       await expectAllTargets(page);
       await shots(page, info.project.name, scheme, 'error');
@@ -138,6 +146,9 @@ for (const scheme of ['light', 'dark'] as const) {
           name: 'Our compute is currently restarting',
         }),
       ).toBeVisible();
+      await expect(page.locator('main [data-reference-value]')).toHaveText(
+        UUID_V7,
+      );
       await expectNoHorizontalOverflow(page);
       await expectAllTargets(page);
       await shots(page, info.project.name, scheme, 'restarting');

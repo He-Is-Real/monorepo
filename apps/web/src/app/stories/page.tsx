@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { TryAgainLaterNotice } from '@/components/errors/try-again-later';
 import type { Metadata } from 'next';
 import { cacheLife } from 'next/cache';
 import {
@@ -20,8 +21,7 @@ import { StoriesUnavailableError } from '@/lib/public-stories';
 import { RestartingMessage } from '@/components/restarting/restarting-message';
 import { cachedPage, type PageCacheLife } from '@/lib/page-cache';
 import { pageMetadata } from '@/lib/seo';
-import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
-import { Heading, Notice, Text } from '@heisreal/web-ui';
+import { Heading, Text } from '@heisreal/web-ui';
 import { TextLink } from '@/components/page/text-link';
 
 type Props = {
@@ -197,14 +197,10 @@ async function Browse({
                 variant="inline"
               />
             ) : result instanceof StoriesUnavailableError ? (
-              <Notice
-                kind="danger"
-                as="p"
+              <TryAgainLaterNotice
                 role="status"
                 className="mx-auto max-w-measure"
-              >
-                {TRY_AGAIN_LATER}
-              </Notice>
+              />
             ) : result.cards.length === 0 ? (
               <div className="mx-auto max-w-measure rounded-xl bg-raised px-4 py-10 text-center">
                 <Text size="intro">

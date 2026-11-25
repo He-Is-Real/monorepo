@@ -1,6 +1,6 @@
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { withTimeout } from './timeout';
+import { accessSecret } from './read-secret';
 
 export const SECRET_MANAGER_CLIENT = Symbol('SECRET_MANAGER_CLIENT');
 export const SECRETS_PROJECT = Symbol('SECRETS_PROJECT');
@@ -101,16 +101,7 @@ export class SecretsService {
     return entry.value;
   }
 
-  private async access(name: string): Promise<string> {
-    const [response] = await withTimeout(
-      this.client.accessSecretVersion({ name }),
-      this.timeoutMs,
-      `Reading secret ${name}`,
-    );
-    const data = response.payload?.data;
-    if (data === undefined || data === null) {
-      throw new Error(`Secret ${name} has no payload`);
-    }
-    return typeof data === 'string' ? data : Buffer.from(data).toString('utf8');
+  private access(name: string): Promise<string> {
+    return accessSecret(this.client, name, this.timeoutMs);
   }
 }

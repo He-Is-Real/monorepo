@@ -1,14 +1,9 @@
 'use client';
 
+import { plainProblem, restartingProblem } from '@/components/errors/problem';
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Upload } from 'tus-js-client';
-import { RestartingText } from '@/components/restarting/restarting-message';
-import {
-  ApiUserProblem,
-  plainMessage,
-  restartWait,
-  StaleVersion,
-} from '@/lib/api-user';
+import { ApiUserProblem, restartWait, StaleVersion } from '@/lib/api-user';
 import { PREFIX } from '@/lib/share-storage';
 import { stripMediaMetadata } from '@/lib/strip-media-metadata';
 import { type MediaFacts, readMediaFacts } from '@/lib/video-shape';
@@ -703,7 +698,7 @@ function refusal(err: unknown, noun: string): React.ReactNode {
   const restarting = restartWait(err);
   if (restarting !== undefined) {
     // The database restarting: named, with when to try again (Joel, 2026-11-09).
-    return <RestartingText seconds={restarting} kept="Your story is saved." />;
+    return restartingProblem(err, restarting, 'Your story is saved.');
   }
   if (err instanceof StaleVersion) {
     return 'Your story was changed in another tab or window. Please choose your file again.';
@@ -723,7 +718,7 @@ function refusal(err: unknown, noun: string): React.ReactNode {
     }
   }
   // On our side: only the plain message (Joel, 2026-11-09); else the refusal's own words.
-  return plainMessage(
+  return plainProblem(
     err,
     `Your ${noun} couldn’t be uploaded. Your story is saved; please try again.`,
     'Your story is saved.',

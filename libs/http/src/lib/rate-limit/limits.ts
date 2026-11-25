@@ -54,6 +54,12 @@ export const RATE_LIMITS = {
   dataExport: { limit: 2, windowMs: HOUR },
   /** Deleting the account or a story: its own count, so a busy account can still delete. */
   deletion: { limit: 10, windowMs: MINUTE },
+  /**
+   * The browser's error reports (`POST /v1/error-reports`, LG-1c, LG-9a), anyone, signed in or
+   * not: their own count, so reports after a bad spell never use up a person's saves. The same
+   * number as `accountWrites`.
+   */
+  errorReports: { limit: 60, windowMs: MINUTE },
 
   // api-admin, per address: only requests it refuses for sign-in (not signed in, a refused
   // sign-in, or not staff) count, and an address over the limit gets the generic error before

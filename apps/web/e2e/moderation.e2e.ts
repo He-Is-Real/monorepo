@@ -8,6 +8,7 @@ import {
   expectChosen,
   expectNoHorizontalOverflow,
   optionLabels,
+  withReference,
 } from './helpers';
 import { fixtureToken, STUB_USER_URL, WEB_SIGNED_IN_URL } from './servers';
 
@@ -1054,7 +1055,7 @@ test.describe('moderation', () => {
     );
     await page.goto(`${WEB_SIGNED_IN_URL}/moderation`);
     await expect(page.locator('[data-moderation-error]')).toHaveText(
-      'Something went wrong. Please try again later.',
+      withReference('Something went wrong. Please try again later.'),
     );
   });
 

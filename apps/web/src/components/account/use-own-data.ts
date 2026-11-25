@@ -1,7 +1,8 @@
 'use client';
 
+import { referenceOf } from '@/lib/reference';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ApiUser } from '@/lib/api-user';
+import { type ApiUser, isNoAnswer } from '@/lib/api-user';
 import {
   personalApiUser,
   type PersonalSession,
@@ -14,7 +15,11 @@ type SignedIn = Extract<PersonalSession, { status: 'signed-in' }>;
 export type OwnData<T> =
   | { status: 'loading' }
   | { status: 'signed-out' }
-  | { status: 'failed'; owner: string }
+  /**
+   * `reference`: the failed call's, for the reference line (LG-1); `noAnswer`: it got no answer
+   * ("We couldn't reach He Is Real…", LG-13c).
+   */
+  | { status: 'failed'; owner: string; reference?: string; noAnswer?: boolean }
   | { status: 'ready'; owner: string; data: T };
 
 /**
@@ -45,9 +50,14 @@ export function useOwnData<T>(read: (api: ApiUser) => Promise<T>) {
         if (load.current === mine && signedInAs(owner))
           setState({ status: 'ready', owner, data });
       },
-      () => {
+      (err: unknown) => {
         if (load.current === mine && signedInAs(owner))
-          setState({ status: 'failed', owner });
+          setState({
+            status: 'failed',
+            owner,
+            reference: referenceOf(err),
+            noAnswer: isNoAnswer(err),
+          });
       },
     );
   }, []);

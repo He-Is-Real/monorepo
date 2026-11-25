@@ -1,8 +1,9 @@
 'use client';
 
+import { ourSideProblem } from '@/components/errors/problem';
 import { useClerk } from '@clerk/react';
 import { useRouter } from 'next/navigation';
-import { useId, useRef, useState } from 'react';
+import { type ReactNode, useId, useRef, useState } from 'react';
 import {
   Button,
   Card,
@@ -25,7 +26,6 @@ import {
   usePersonalSession,
 } from '@/lib/personal-session';
 import { forgetShareStorageOf } from '@/lib/share-storage';
-import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
 import { signedInAs, useOwnNotice } from './use-own-data';
 
 /** What the person types to delete their account (D88: a typed confirmation). */
@@ -132,7 +132,7 @@ function DownloadMyData() {
   const session = usePersonalSession();
   const owner = session.status === 'signed-in' ? session.userId : null;
   const [busy, setBusy] = useState(false);
-  const { notice, say } = useOwnNotice<{ alert: boolean; text: string }>();
+  const { notice, say } = useOwnNotice<{ alert: boolean; text: ReactNode }>();
 
   const download = async () => {
     if (!owner || session.status !== 'signed-in') return;
@@ -151,10 +151,10 @@ function DownloadMyData() {
           ? `Your file ${name} is saved to your downloads. Its links to your videos and pictures work for 7 days.`
           : `Your file ${name} is saved to your downloads.`,
       });
-    } catch {
+    } catch (err) {
       say(owner, {
         alert: true,
-        text: TRY_AGAIN_LATER,
+        text: ourSideProblem(err),
       });
     } finally {
       setBusy(false);
@@ -205,7 +205,7 @@ function DeleteAccount({ afterDeletion }: { afterDeletion: AfterDeletion }) {
   const [typed, setTyped] = useState('');
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
-  const { notice: error, say } = useOwnNotice<string>();
+  const { notice: error, say } = useOwnNotice<ReactNode>();
   // An earlier try whose outcome is unknown (no answer, or a server error) may have deleted the
   // account already: then a refused session means it's gone.
   const uncertain = useRef(false);
@@ -237,9 +237,9 @@ function DeleteAccount({ afterDeletion }: { afterDeletion: AfterDeletion }) {
       } else if (outcomeUnknown(err)) {
         uncertain.current = true;
         if (await recheck(api)) deleted = true;
-        else say(owner, TRY_AGAIN_LATER);
+        else say(owner, ourSideProblem(err));
       } else {
-        say(owner, TRY_AGAIN_LATER);
+        say(owner, ourSideProblem(err));
       }
     }
     if (!deleted) {

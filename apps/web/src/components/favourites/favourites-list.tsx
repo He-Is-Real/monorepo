@@ -1,5 +1,7 @@
 'use client';
 
+import { ErrorReference } from '@/components/errors/error-reference';
+import { referenceOf } from '@/lib/reference';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { deviceHeartCards } from '@/app/stories/actions';
 import { StoryMasonry } from '@/components/stories/story-masonry';
@@ -15,7 +17,8 @@ import {
   personalApiUser,
   usePersonalSession,
 } from '@/lib/personal-session';
-import { TRY_AGAIN_LATER } from '@/lib/try-again-later';
+import { isNoAnswer } from '@/lib/api-user';
+import { problemText } from '@/lib/try-again-later';
 
 /** The account's favourites per request (the API's most). */
 const PAGE_SIZE = 50;
@@ -24,7 +27,7 @@ const DEVICE = 'device';
 
 type List =
   | { status: 'loading' }
-  | { status: 'failed'; owner: string }
+  | { status: 'failed'; owner: string; reference?: string; noAnswer?: boolean }
   | {
       status: 'ready';
       /** Whose list this is: Clerk's user id, or {@link DEVICE}. Shown only to them. */
@@ -141,8 +144,14 @@ export function FavouritesList({
             );
           setList({ status: 'ready', owner: who, cards });
         },
-        () => {
-          if (stillFor(who, mine)) setList({ status: 'failed', owner: who });
+        (err: unknown) => {
+          if (stillFor(who, mine))
+            setList({
+              status: 'failed',
+              owner: who,
+              reference: referenceOf(err),
+              noAnswer: isNoAnswer(err),
+            });
         },
       );
     },
@@ -186,9 +195,8 @@ export function FavouritesList({
   if (list.status === 'failed')
     return (
       <Notice>
-        <p className="mb-5" role="alert">
-          {TRY_AGAIN_LATER}
-        </p>
+        <p role="alert">{problemText(list.noAnswer)}</p>
+        <ErrorReference reference={list.reference} className="mt-1 mb-5" />
         <Button
           variant="outline"
 

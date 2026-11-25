@@ -176,7 +176,10 @@ export class RateLimits implements OnModuleInit {
     return (req: Request, res: Response, next: NextFunction) => {
       this.isWebsite(req)
         .catch(() => false)
-        .then((yes) => (yes ? website : others)(req, res, next));
+        .then((yes) => {
+          if (yes) FROM_WEBSITE.add(req);
+          (yes ? website : others)(req, res, next);
+        });
     };
   }
 
@@ -266,6 +269,16 @@ export class RateLimits implements OnModuleInit {
     };
   }
 }
+
+const FROM_WEBSITE = new WeakSet<Request>();
+
+/**
+ * Whether api-public-read's `publicReads()` found the request carrying the right website key:
+ * a call from web's own server, never a visitor's browser (RL-8 A). Web writes the search event
+ * for searches its visitors make (LG-2g A, with the visitor's address), so api-public-read doesn't
+ * write a second one for these calls.
+ */
+export const fromWebsite = (req: Request): boolean => FROM_WEBSITE.has(req);
 
 /** On the request's event: this group let the request through (a later refusal replaces it). */
 function allowed(group: RateLimitGroup): void {

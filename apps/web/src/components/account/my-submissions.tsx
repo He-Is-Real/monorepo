@@ -1,5 +1,8 @@
 'use client';
 
+import { problemText } from '@/lib/try-again-later';
+import { ErrorReference } from '@/components/errors/error-reference';
+import { plainProblem } from '@/components/errors/problem';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
@@ -23,7 +26,6 @@ import {
   type ApiUser,
   ApiUserProblem,
   ApiUserUnavailable,
-  plainMessage,
   StaleVersion,
 } from '@/lib/api-user';
 import { shortDate } from '@/lib/legal-text';
@@ -180,7 +182,7 @@ export function MySubmissions() {
     owner: string,
     story: MyStoryRow,
     command: Command,
-  ): Promise<string | null> => {
+  ): Promise<React.ReactNode> => {
     const api = own.api(owner);
     if (!api) return 'You’ve signed out. Sign in again to do this.';
     const id = encodeURIComponent(story.id);
@@ -202,7 +204,7 @@ export function MySubmissions() {
         await own.reload(owner);
         if (err instanceof StaleVersion)
           return 'This story changed since the page loaded. It’s up to date now: check it, then try again.';
-        return plainMessage(err, TRY_AGAIN_LATER);
+        return plainProblem(err, TRY_AGAIN_LATER);
       }
     }
     if (command === 'edit') {
@@ -238,9 +240,10 @@ export function MySubmissions() {
   } else if (state.status === 'failed') {
     body = (
       <div className="min-h-48">
-        <Text role="alert" size="inherit" tone="quiet" className="mb-4">
-          {TRY_AGAIN_LATER}
+        <Text role="alert" size="inherit" tone="quiet">
+          {problemText(state.noAnswer)}
         </Text>
+        <ErrorReference reference={state.reference} className="mt-1 mb-4" />
         <Button
           variant="outline"
           wrap
@@ -308,13 +311,13 @@ function StoryRow({
   onCommand,
 }: {
   story: MyStoryRow;
-  onCommand: (command: Command) => Promise<string | null>;
+  onCommand: (command: Command) => Promise<React.ReactNode>;
 }) {
   const onSite = story.status === 'approved';
   const shared = story.socialMediaSharingConsent;
   const [confirm, setConfirm] = useState<Command | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<React.ReactNode>(null);
   const label = labelOf(story);
   const status = LABEL[label] ?? {
     label: story.status,
