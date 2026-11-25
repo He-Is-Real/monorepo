@@ -122,6 +122,10 @@ const ready = {
     'plan-stripe': { result: 'success', outputs: { changes: 'true' } },
     'approve-1': { result: 'success', outputs: { go: 'true' } },
   },
+  'apply-axiom': {
+    'plan-axiom': { result: 'success', outputs: { changes: 'true' } },
+    'approve-1': { result: 'success', outputs: { go: 'true' } },
+  },
   'apply-cluster': {
     'plan-cluster': { result: 'success', outputs: { changes: 'true' } },
     'approve-2': { result: 'success', outputs: { go: 'true' } },
@@ -160,7 +164,7 @@ test('nothing applies unless CI passed on main for the target', () => {
 });
 
 test("a failed CI blocks wave 1's stages, and so wave 2 and the behavioural tests", () => {
-  for (const root of ['gcp', 'bunny', 'stripe']) {
+  for (const root of ['gcp', 'bunny', 'stripe', 'axiom']) {
     const stage = workflow.jobs[`stage-${root}`];
     assert.ok(stage.needs.includes('ci'), `stage-${root} must need ci`);
     const prev = stage.steps.find((s) => s.id === 'stage').env.PREV;
@@ -180,6 +184,7 @@ const wave1 = ({
   imageOnly = 'true',
   bunny = 'false',
   stripe = 'false',
+  axiom = 'false',
 } = {}) => ({
   target: { result: 'success' },
   'plan-gcp': {
@@ -188,6 +193,7 @@ const wave1 = ({
   },
   'plan-bunny': { result: 'success', outputs: { changes: bunny } },
   'plan-stripe': { result: 'success', outputs: { changes: stripe } },
+  'plan-axiom': { result: 'success', outputs: { changes: axiom } },
 });
 const approve1 = workflow.jobs['approve-1'];
 const auto1 = workflow.jobs['auto-approve-1'];
@@ -203,6 +209,11 @@ test('anything else in wave 1 waits for the dev approval, never the auto job', (
     'gcp check missing': wave1({ imageOnly: '' }),
     'bunny changes': wave1({ bunny: 'true' }),
     'stripe changes': wave1({ stripe: 'true' }),
+    'axiom changes': wave1({ axiom: 'true' }),
+    'axiom plan failed': {
+      ...wave1(),
+      'plan-axiom': { result: 'failure', outputs: {} },
+    },
     'bunny plan failed': {
       ...wave1(),
       'plan-bunny': { result: 'failure', outputs: {} },
@@ -228,7 +239,7 @@ test('the dev environment keeps its approval; the auto job has none and no permi
   assert.match(check.run, /tf-image-only\.mjs dev "/);
 });
 
-test('gcp applies after the auto job; bunny, stripe and wave 2 never do without an approval', () => {
+test('gcp applies after the auto job; bunny, stripe, axiom and wave 2 never do without an approval', () => {
   const auto = {
     ...bunny('success', 'false', 'skipped'),
     'approve-1': { result: 'skipped', outputs: {} },
@@ -246,6 +257,7 @@ test('gcp applies after the auto job; bunny, stripe and wave 2 never do without 
   for (const name of [
     'apply-bunny',
     'apply-stripe',
+    'apply-axiom',
     'apply-cluster',
     'apply-images',
   ]) {

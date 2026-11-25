@@ -252,6 +252,13 @@ use(req: Request, res: Response, next: NextFunction) {
   deployment EU Central 1, one dataset per environment, `heisreal-dev`) gets every entry stdout
   gets (`libs/logging/src/axiom.ts`); Joel and agents read there first (`docs/logs-runbook.md`).
   Search by `ref`, `user.id`, `story.id`, `action`, `outcome`.
+- **Agents read through the Axiom MCP or CLI**, set up per developer machine (never in the repo):
+  MCP `queryDataset` (APL), or
+  `axiom query "['heisreal-dev'] | where ref == '<reference>'" --start-time -1h -f json`. Dotted
+  names need brackets (`['http.route']`); check names with `getDatasetFields` or
+  `libs/logging/src/fields.ts`. Read only: never create, change or delete anything in Axiom.
+  Examples (by `ref`, failed requests by route, a service's last start-up): `docs/logs-runbook.md`,
+  "How agents read logs".
 - **Field budget:** Axiom's free plan keeps at most 256 fields per dataset and drops new ones
   beyond that. Every flattened field name we write is listed in `libs/logging/src/fields.ts`; a new
   field goes there too, and its test fails past 200. Prefer an existing field to a new one.

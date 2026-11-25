@@ -1,5 +1,5 @@
-# OpenTofu state for every root in this environment (bootstrap, gcp, images, cluster, bunny, stripe),
-# separated by prefix, encrypted with the KMS keys in kms.tf. Versioned so any past state can be recovered.
+# OpenTofu state for every root in this environment (bootstrap, gcp, images, cluster, bunny, stripe,
+# axiom), separated by prefix, encrypted with the KMS keys in kms.tf. Versioned so any past state can be recovered.
 resource "google_storage_bucket" "tfstate" {
   project                     = google_project.this.project_id
   name                        = "${var.project_id}-tfstate"
