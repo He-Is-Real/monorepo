@@ -511,7 +511,7 @@ recording | picture` (worked out from the status history: set while the story's 
   story.
 - **Drafts and stories being edited or sent back:** continue ("Continue editing" once it was sent
   before). Each says the date after which the nightly clean-up deletes it if nobody touches it
-  ("Data kept and deleted", below).
+  (REQ-DAT-009 in `docs/product/behaviour/data-kept.md`).
 - **Preview:** every story that isn't on the site has "Preview", the person's own "see it as others
   will" page (see Sharing a story, Steps); a published one has "View" instead.
 - **Edit (ED-1 to ED-4; it replaced Withdraw):** a story waiting for review, published or not on

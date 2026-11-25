@@ -4,7 +4,7 @@ Who: the system, Moderator, Admin (anyone building or testing the site).
 Data: `docs/db-permissions.md#who-connects` (the dev-seed login).
 Next id: REQ-DEV-011
 
-- **REQ-DEV-001** Milestones M1 to M8 are built and tested on the dev site only, with made-up stories; then "Real stories" brings in the 24 existing stories, then "Go live" opens the real site, then Emails. [D46]
+- **REQ-DEV-001** Milestones M1 to M8 are built and tested on the dev site only, with made-up stories; then "Real stories" brings in the 24 existing stories, then "Go live" opens the real site, then Emails. [D87]
 - **REQ-DEV-002** Public submissions open only once emails work, so nobody shares a story without a confirmation; Go live may put the site up first, as the 24 imported stories need no emails. [D95]
 - **REQ-DEV-003** The dev site uses Google's own web addresses (`*.run.app`); heisreal.today stays with the prototype until Go live. [D7]
 - **REQ-DEV-004** Search engines do not list the dev site. [D7]
