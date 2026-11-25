@@ -111,6 +111,7 @@ Kept basic for now. Joel will decide later how stories are shared out between mo
 - 🟡 Detailed logs being built: Google's side and the services' records are in place; the media worker's records, a guide to reading logs, a local log viewer, the website's records (also sent to Axiom), a reference under every error message, and clearer messages when a page crashes or the connection drops are being built
 - ✅ Logs also go to Axiom, ready to read and count there
 - 🟡 Axiom's log storage is managed with the rest of our setup, and agents can read logs there: waiting for Joel to add Axiom's setup key
+- 🟡 Axiom dashboards for service health, background jobs (with each job's time) and how the site is used: second draft up for Joel's feedback; users and popular pages wait for his choice
 - ✅ A video's picture is added when the story is sent, with no background picture jobs
 - ✅ "Attached" confirmation when coming back from another tab or device kept as it is
 - ✅ Every drop-down on the site uses the same styled list, in every browser

@@ -777,8 +777,9 @@ version exists, each service writes one start-up warning and logs to stdout only
 `heisreal-dev`: events, EU Central 1, 30 days. It was made by hand and adopted with an `import`
 block. The organisation id is `he-is-real-uuwg` (not a secret); the provider needs none, since an
 advanced token belongs to one organisation, and talks to `api.axiom.co` (only ingest and queries go
-to the edge). Dashboards, monitors and notifiers come later, in the same root, once Joel has chosen
-what to watch and who gets told.
+to the edge). The root also holds the dashboards (`dashboard-*.tf`, one file each, described in
+`docs/logs-runbook.md`, "Dashboards"); monitors and notifiers come later, once Joel has chosen what
+to watch and who gets told.
 
 **The token.** The provider runs with the advanced token `heisreal-terraform` (Axiom's "Terraform"
 preset), read from Secret Manager (`axiom-terraform-token`, container from the bootstrap root,

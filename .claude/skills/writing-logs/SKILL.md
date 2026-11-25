@@ -94,6 +94,10 @@ success or failure. Stripe calls it a canonical log line; the blog calls it a wi
   `libs/logging` writes `process.*` on every request and job event (never on search events);
   `PublicCacheInterceptor` writes `cache.*`. Never write them by hand.
 
+- Job time (LG-14b A, Joel 25 Nov: plain): every `event: "job"` carries `job.duration_ms`, the job's
+  whole time from start to written (`2140`). `libs/logging` writes it on every job event (the media
+  worker's, the result writer's); never write it by hand.
+
 - Deployment details (`service`, LG-10; plain; `libs/logging` writes them):
 
   | Field              | Example              | What                                                                      |

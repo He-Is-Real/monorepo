@@ -8,7 +8,7 @@
 #
 # Never planned on pull requests (tf-planner can't read the token); tofu-apply.yml plans it on
 # main in wave 1, under the same approval as gcp, bunny and stripe, and tofu-drift.yml checks it
-# weekly. The state holds the dataset's settings only, never a token.
+# weekly. The state holds the dataset's settings and the dashboards, never a token.
 #
 # API tokens are never managed here: an `axiom_token` resource would put the token's value in
 # state. They are made by hand in Axiom (docs/tooling-and-accounts.md, "Axiom").
@@ -70,6 +70,37 @@ resource "axiom_dataset" "logs" {
   retention_days       = 30 # LG-6 A: every event kept for 30 days, no sampling
 }
 
-# Dashboards, monitors and notifiers come here later (axiom_dashboard, axiom_monitor,
-# axiom_notifier), once Joel has chosen what to watch and who gets told. Stats group by route,
-# service, outcome, action or day only, never by person, story or address (LG-8).
+# OpenTelemetry spans (LG-15, Joel 2026-11-25): Axiom keeps each OpenTelemetry signal in its own
+# dataset. One traces dataset is shared by dev and production (each span carries
+# `deployment.environment`), so the free plan's 3 datasets are logs-dev, logs-prod and this one.
+# Managed here; a prod root only sends to it.
+resource "axiom_dataset" "traces" {
+  name                 = "heisreal-traces"
+  description          = "OpenTelemetry spans from every environment (LG-15)"
+  kind                 = "axiom:events:v1"
+  edge_deployment      = local.edge_deployment
+  use_retention_period = true
+  retention_days       = 30
+}
+
+# Dashboards (dashboard-*.tf), one file each. Stats group by route, service, outcome, action or
+# day only, never by person, story or address (LG-8): no chart lists or groups by a user, session
+# or token hash, an IP, an email, a story or `ref`. Monitors and notifiers come later, once Joel
+# has chosen what to watch and who gets told (the free plan allows 3 monitors, and each one runs a
+# query on a schedule).
+locals {
+  # The dataset every chart reads; a prod root reuses the dashboard files with its own.
+  dataset = axiom_dataset.logs.name
+  ds      = "['${axiom_dataset.logs.name}']"
+
+  # Shared dashboard settings: shared with the organisation, no auto-refresh (a dashboard only
+  # queries while it's open, and each refresh costs query time from the free 10 GB-hours a
+  # month), last 24 hours by default.
+  dashboard_defaults = {
+    owner           = "X-AXIOM-EVERYONE"
+    schemaVersion   = 2
+    refreshTime     = 0
+    timeWindowStart = "qr-now-24h"
+    timeWindowEnd   = "qr-now"
+  }
+}

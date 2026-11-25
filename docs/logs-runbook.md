@@ -33,7 +33,7 @@ Agents read Axiom through the **Axiom MCP** server (tool `queryDataset`, APL; `g
 lists the real field names) or the **Axiom CLI** (`axiom query`). Both are set up once per
 developer machine, outside the repo ([tooling-and-accounts.md](tooling-and-accounts.md), "Axiom");
 `mise.toml` points the CLI at our EU edge. Agents only read: they never create, change or delete
-anything in Axiom (the dataset and, later, dashboards and monitors are OpenTofu's,
+anything in Axiom (the dataset, the dashboards and, later, monitors are OpenTofu's,
 `infra/terraform/live/dev/axiom`).
 
 ```sh
@@ -74,7 +74,7 @@ fields it has seen; the full list is `libs/logging/src/fields.ts`), so check the
 Main fields: `ref`, `service.name`, `http.route`, `http.status_code`, `http.duration_ms`,
 `outcome` (`ok`, `input_refused`, `not_found`, `rate_limited`, `restarting`, `refused`, `error`),
 `action`, `error.type` / `error.code`, `user.id`, `user.session_hash`, `story.id`,
-`db.total_ms` / `db.slowest`, `external.<bunny|clerk|stripe|resend>.ms`, `job.id`, `job.steps`,
+`db.total_ms` / `db.slowest`, `external.<bunny|clerk|stripe|resend>.ms`, `job.id`, `job.steps`, `job.duration_ms` (a job's whole time),
 `process.cold_start` / `process.uptime_ms` (the first request or job a running copy handled, and how
 long it had been up), and on api-public-read `cache.hit`, `cache.stale`, `cache.age_ms`,
 `cache.not_modified` (LG-12).
@@ -173,13 +173,34 @@ or the video's id (`job.video_id`) for now.
 
 More on the media pipeline: `docs/media-runbook.md`.
 
+## Dashboards
+
+Three Axiom dashboards read `heisreal-dev`. They are OpenTofu's (`infra/terraform/live/dev/axiom`,
+one `dashboard-*.tf` file each): a change made in Axiom's editor is undone at the next apply, and the
+weekly drift check reports it. Change the file instead. Auto-refresh is off: a dashboard only
+queries while it's open, and every query uses the free plan's 10 GB-hours a month. Like every stat
+(LG-8), no chart lists or groups by a person, a story or an address; the site-use dashboard also
+groups by device type, browser, theme and search term (LG-8 as widened by LG-14c).
+
+| Dashboard                           | Opens on      | What it shows                                                                                                                                                                             |
+| ----------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Service health (heisreal-dev)       | last 24 hours | requests, 5xx, p95 time and cold starts; requests and p95 by service; outcomes; rate-limit decisions by group; each route's volume, 4xx/5xx and time; cold vs warm time; versions running |
+| Jobs (heisreal-dev)                 | last 7 days   | jobs per day by kind and outcome; time per job (`job.duration_ms`) p50/p95/max by kind; failures by kind, outcome and code; housekeeping chores per day                                   |
+| How the site is used (heisreal-dev) | last 7 days   | the website's page requests by device type and browser, bots vs people; searches per day; searches that found nothing; popular themes searched for; top search terms                      |
+
+A job's kind is its service and `job.name` (the media worker's `media.check`, `media.render`…), or
+the route for the result writer's events. Users and popular pages wait for Joel's choice (LG-14d);
+the site-use dashboard keeps a marked place for them. A chart over a field nobody has written yet
+(`job.duration_ms`, `search.*`, `client.browser`) stays empty instead of failing: it reads the
+field through `column_ifexists()`.
+
 ## Counts (stats)
 
 LG-8: stats are Axiom queries, grouped **only** by route, service, outcome, action or day,
 **never** by person, story or address, for example
 `['heisreal-dev'] | where event == "request" | summarize count() by ['service.name'], ['http.route'], outcome`.
-Nothing is set up in Google for stats (no Log Analytics, metrics or dashboards). When Axiom can't
-be used, count a day's events locally with `jq`, keeping to the same groups:
+The dashboards above hold the usual ones. Nothing is set up in Google for stats (no Log Analytics,
+metrics or dashboards). When Axiom can't be used, count a day's events locally with `jq`, keeping to the same groups:
 
 ```sh
 # Requests by route and outcome, last day
