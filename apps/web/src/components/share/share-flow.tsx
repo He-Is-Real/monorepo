@@ -1,6 +1,6 @@
 'use client';
 
-import { NO_ANSWER } from '@/lib/try-again-later';
+import { problemText } from '@/lib/try-again-later';
 import { ourSideProblem } from '@/components/errors/problem';
 import { ErrorReference } from '@/components/errors/error-reference';
 import { restartingProblem } from '@/components/errors/problem';
@@ -1250,7 +1250,7 @@ function SaveState({
         : 'Kept on this device. It’s saved to your account once it has a title.',
     saving: 'Saving…',
     saved: 'Draft saved',
-    offline: `${NO_ANSWER} Your story is kept on this device.`,
+    offline: problemText(draft.noAnswer, 'Your story is kept on this device.'),
     conflict: '',
     error: draft.error ?? '',
     submitted: '',

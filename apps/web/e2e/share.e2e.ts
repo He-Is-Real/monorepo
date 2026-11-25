@@ -1210,7 +1210,7 @@ test.describe('behaviour', () => {
     await loseSubmitAnswer(page, 'back', 'none');
     await page.getByRole('button', { name: 'Submit for review' }).click();
     await expect(page.getByRole('main').getByRole('alert')).toContainText(
-      'Something went wrong. Please try again later.',
+      'We couldn’t reach He Is Real. Check your internet connection and try again.',
     );
     expect((await me.stories())[0].status).toBe('pending');
     // Leaving Review and coming back, changing nothing, keeps the unresolved submission.
@@ -1230,7 +1230,7 @@ test.describe('behaviour', () => {
     await loseSubmitAnswer(page, 'reload', 'none');
     await page.getByRole('button', { name: 'Submit for review' }).click();
     await expect(page.getByRole('main').getByRole('alert')).toContainText(
-      'Something went wrong. Please try again later.',
+      'We couldn’t reach He Is Real. Check your internet connection and try again.',
     );
     await page.goto(`${SHARE}?draft=reload`);
     await expect(
@@ -1311,7 +1311,7 @@ test.describe('behaviour', () => {
     await loseSubmitAnswer(page, 'typed', 'none');
     await page.getByRole('button', { name: 'Submit for review' }).click();
     await expect(page.getByRole('main').getByRole('alert')).toContainText(
-      'Something went wrong. Please try again later.',
+      'We couldn’t reach He Is Real. Check your internet connection and try again.',
     );
     await page.getByRole('button', { name: 'Back' }).click();
     await step(page, 'Add some details');
@@ -1333,7 +1333,7 @@ test.describe('behaviour', () => {
     await loseSubmitAnswer(page, 'nokey', 'none');
     await page.getByRole('button', { name: 'Submit for review' }).click();
     await expect(page.getByRole('main').getByRole('alert')).toContainText(
-      'Something went wrong. Please try again later.',
+      'We couldn’t reach He Is Real. Check your internet connection and try again.',
     );
     // The kept submission is lost too (e.g. storage cleared): a new key, refused.
     await page.evaluate(() => {

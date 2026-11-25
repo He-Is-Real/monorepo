@@ -653,7 +653,10 @@ test.describe('behaviour', () => {
     );
     await page.getByRole('button', { name: 'Submit for review' }).click();
     await expect(
-      alert(page, 'Something went wrong. Please try again later.'),
+      alert(
+        page,
+        'We couldn’t reach He Is Real. Check your internet connection and try again.',
+      ),
     ).toBeVisible();
 
     await page.getByRole('button', { name: 'Save Draft and Exit' }).click();
@@ -697,7 +700,10 @@ test.describe('behaviour', () => {
     });
     await page.getByRole('button', { name: 'Submit for review' }).click();
     await expect(
-      alert(page, 'Something went wrong. Please try again later.'),
+      alert(
+        page,
+        'We couldn’t reach He Is Real. Check your internet connection and try again.',
+      ),
     ).toBeVisible();
 
     await page.getByRole('button', { name: 'Save Draft and Exit' }).click();
@@ -747,7 +753,10 @@ test.describe('behaviour', () => {
     );
     await page.getByRole('button', { name: 'Submit for review' }).click();
     await expect(
-      alert(page, 'Something went wrong. Please try again later.'),
+      alert(
+        page,
+        'We couldn’t reach He Is Real. Check your internet connection and try again.',
+      ),
     ).toBeVisible();
 
     // Refused as stale, but its status can't be read: nothing is confirmed.
@@ -757,7 +766,10 @@ test.describe('behaviour', () => {
       page.getByRole('button', { name: 'Save Draft and Exit' }),
     ).toBeEnabled();
     await expect(
-      alert(page, 'Something went wrong. Please try again later.'),
+      alert(
+        page,
+        'We couldn’t reach He Is Real. Check your internet connection and try again.',
+      ),
     ).toBeVisible();
     await expect(page).toHaveURL(/\/share/);
 
