@@ -151,11 +151,20 @@ and job's timeline goes to Axiom's `heisreal-traces` dataset beside the logs.
   calls to the result writer). Tracing off: none of this happens and the event is the same.
 - **The Reference is the trace id:** new traces get a UUID v7 trace id (`uuidv7TraceIds`), an
   incoming `traceparent` is continued, and `ref` is the span's trace id. Everything is recorded
-  and sent with the sampled flag `01` (LG-6 A).
+  and sent with the sampled flag `01` (LG-6 A). An incoming `tracestate` is ignored and none is
+  sent (`TraceparentOnly`): it is a caller's free text.
+- **What a span carries:** request and job spans also have `process.cold_start` and
+  `process.uptime_ms` (LG-12). Every span's resource is the wide event's `service` group:
+  `service.name / version / revision`, `service.region` and `service.instance` (Cloud Run, once
+  Google's metadata server has answered; read again for each batch) and
+  `deployment.environment.name` (`dev`, `prod`, `local`).
+- **Only request and job timelines:** a trace that starts with one of Next's code-loading spans
+  (an instance loading its route modules at start-up, outside any request) is not sent
+  (`RequestsAndJobsOnly`). The same spans inside a request stay in its timeline.
 - **Data classes:** every span leaves through `cleanSpan`: only the attributes in
   `SPAN_ATTRIBUTES`, names without addresses, query strings or any path but the span's own route
   pattern (`http.route` / `next.route`), exceptions reduced to their type,
-  no status message. That also covers Next's built-in spans on the website (its `http.target` and
+  no status message, no trace state. That also covers Next's built-in spans on the website (its `http.target` and
   `http.url` hold the query and are dropped; a fetch span keeps only the host it called). A new
   attribute needs Joel's decision.
 - **Never in the way:** span calls never throw into the work; the batch processor sends in the

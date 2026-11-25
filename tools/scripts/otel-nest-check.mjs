@@ -3,61 +3,34 @@
 // version is released that is compatible with NestJS 12"). Our request spans are made by hand
 // (libs/http wide-events.ts, libs/logging tracing.ts) only because
 // @opentelemetry/instrumentation-nestjs-core supports @nestjs/core < 12. This looks at the latest
-// release's `supportedVersions` and fails once it includes 12: then switch to it (if Express
+// release's `supportedVersions` and fails once any range includes a 12.x release: then switch to it (if Express
 // spans no longer need the ESM loader hook) and delete the hand-made request span.
 //
-// Run weekly by tofu-drift.yml (job otel-nestjs); by hand: node tools/scripts/otel-nest-check.mjs
+// Run weekly by tofu-drift.yml (job otel-nestjs); by hand (after pnpm install, for `semver`):
+// node tools/scripts/otel-nest-check.mjs
 // Exit 0: not yet (or a range it can't read: a warning to check by hand). Exit 1: time to switch.
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import semver from 'semver';
 
 export const PACKAGE = '@opentelemetry/instrumentation-nestjs-core';
 
-const version = (text) => {
-  const m = /^v?(\d+)(?:\.(\d+|x|\*))?(?:\.(\d+|x|\*))?/.exec(text.trim());
-  if (!m) return undefined;
-  return [m[1], m[2], m[3]].map((p) =>
-    p === undefined || p === 'x' || p === '*' ? 0 : Number(p),
-  );
-};
-const compare = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+/** NestJS 12, the major we run (any 12.x release counts). */
+export const NEST_12 = '>=12.0.0 <13.0.0';
 
 /**
- * Whether `target` (`12.0.0`) satisfies one npm range made of `||` alternatives of space-separated
- * `>=`, `>`, `<=`, `<`, `=` comparators (what instrumentations use). undefined if it can't tell.
+ * Whether one npm range (`>=4.0.0 <12`, `^12.0.0`, `>=4 <12 || >=12.1.0 <13`) includes any
+ * NestJS 12 release: `semver`'s range intersection. undefined if the range can't be read.
  */
-export function satisfies(range, target) {
-  const want = version(target);
-  let readable = true;
-  const ok = range.split('||').some((alt) => {
-    const parts = alt.trim().split(/\s+/).filter(Boolean);
-    if (!parts.length) return true;
-    return parts.every((part) => {
-      const m = /^(>=|<=|>|<|=)?(.+)$/.exec(part);
-      const v = m && version(m[2]);
-      if (!v || /[\^~]/.test(part)) {
-        readable = false;
-        return false;
-      }
-      const c = compare(want, v);
-      switch (m[1] ?? '=') {
-        case '>=':
-          return c >= 0;
-        case '>':
-          return c > 0;
-        case '<=':
-          return c <= 0;
-        case '<':
-          return c < 0;
-        default:
-          return c === 0;
-      }
-    });
-  });
-  return ok ? true : readable ? false : undefined;
+export function supportsNest12(range) {
+  try {
+    return semver.intersects(range, NEST_12);
+  } catch {
+    return undefined;
+  }
 }
 
 /** The `supportedVersions` ranges in the package's built instrumentation file. */
@@ -94,7 +67,7 @@ function main() {
       }
     }
     const ranges = supportedRanges(source);
-    const verdicts = ranges.map((r) => satisfies(r, '12.0.0'));
+    const verdicts = ranges.map(supportsNest12);
     console.log(
       `${PACKAGE}@${latest} supports @nestjs/core ${ranges.join(' || ') || '(not found)'}`,
     );

@@ -1,9 +1,14 @@
 import { ExportResultCode } from '@opentelemetry/core';
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import type { ReadableSpan, SpanExporter } from '@opentelemetry/sdk-trace';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { setInstanceLookup } from './index';
 import {
   LOG_SINKS,
   type LogSink,
   runWithEvent,
+  serviceFields,
   startEvent,
   timeDb,
 } from './event';
@@ -175,5 +180,161 @@ describe('tracing set-up (LG-15)', () => {
       'generateMetadata',
       'db fn::submit_story',
     ]);
+  });
+
+  it('sends no trace state: an incoming tracestate never reaches the exported payload', async () => {
+    // A real OTLP/HTTP exporter, sending to a local server: what Axiom would receive.
+    const bodies: string[] = [];
+    const server = createServer((req, res) => {
+      let body = '';
+      req.on('data', (chunk) => (body += chunk));
+      req.on('end', () => {
+        bodies.push(body);
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end('{}');
+      });
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, '127.0.0.1', resolve),
+    );
+    const { port } = server.address() as AddressInfo;
+    try {
+      startTracing({
+        service: 'web',
+        exporter: new OTLPTraceExporter({
+          url: `http://127.0.0.1:${port}/v1/traces`,
+        }),
+      });
+      const { context, propagation, trace, createTraceState } =
+        await import('@opentelemetry/api');
+      const tracer = trace.getTracer('next.js');
+      // Next continues an incoming request's headers through the global propagator.
+      const caller = '01a204cc3df67f13903075f14addacc4';
+      const incoming = propagation.extract(context.active(), {
+        traceparent: `00-${caller}-00f067aa0ba902b7-01`,
+        tracestate: 'vendor=sam@example.com',
+      });
+      expect(trace.getSpanContext(incoming)?.traceState).toBeUndefined();
+      const span = tracer.startSpan('BaseServer.handleRequest', {}, incoming);
+      // Nothing is sent on either.
+      const out: Record<string, string> = {};
+      propagation.inject(trace.setSpan(context.active(), span), out);
+      expect(Object.keys(out)).toEqual(['traceparent']);
+      span.end();
+      // A span whose parent carries a trace state some other way, linked to one too.
+      const stated = trace.setSpanContext(context.active(), {
+        traceId: caller,
+        spanId: '00f067aa0ba902b8',
+        traceFlags: 1,
+        isRemote: true,
+        traceState: createTraceState('vendor=sam@example.com'),
+      });
+      tracer
+        .startSpan(
+          'child',
+          {
+            links: [
+              { context: trace.getSpanContext(stated)! }, // eslint-disable-line @typescript-eslint/no-non-null-assertion
+            ],
+          },
+          stated,
+        )
+        .end();
+      await flushTracing(2000);
+      const payload = bodies.join();
+      expect(payload).toContain(caller);
+      expect(payload).not.toContain('sam@');
+      expect(payload).not.toContain('vendor');
+      expect(payload).not.toMatch(/"traceState":"[^"]/);
+    } finally {
+      server.close();
+    }
+  });
+
+  it('sends only request and job timelines, not Next’s start-up module loading', async () => {
+    const sent: ReadableSpan[] = [];
+    startTracing({
+      service: 'web',
+      exporter: {
+        export: (spans, done) => {
+          sent.push(...spans);
+          done({ code: ExportResultCode.SUCCESS });
+        },
+        shutdown: async () => undefined,
+      },
+    });
+    const { context, trace } = await import('@opentelemetry/api');
+    const tracer = trace.getTracer('next.js');
+    const nextSpan = (type: string, parent = context.active()) =>
+      tracer.startSpan(
+        type,
+        { attributes: { 'next.span_type': type } },
+        parent,
+      );
+    // Start-up: an instance loading a route module, with a span inside it.
+    const load = nextSpan('LoadComponents.loadRouteModule');
+    nextSpan(
+      'AppRouteRouteModule.loadUserland',
+      trace.setSpan(context.active(), load),
+    ).end();
+    load.end();
+    nextSpan('Instrumentation.register').end();
+    // A request that loads a module while it runs: all of it is kept.
+    const request = nextSpan('BaseServer.handleRequest');
+    nextSpan(
+      'LoadComponents.loadRouteModule',
+      trace.setSpan(context.active(), request),
+    ).end();
+    request.end();
+    // Our own job span.
+    const event = startEvent('job', 'housekeeping');
+    event.write();
+    await flushTracing(1000);
+    expect(sent.map((s) => s.name)).toEqual([
+      'LoadComponents.loadRouteModule',
+      'BaseServer.handleRequest',
+      'job',
+    ]);
+    expect(sent[0].parentSpanContext?.spanId).toBe(
+      sent[1].spanContext().spanId,
+    );
+    expect(sent[2].attributes).toMatchObject({
+      'process.cold_start': expect.any(Boolean),
+      'process.uptime_ms': expect.any(Number),
+    });
+  });
+
+  it('every span carries the service, its environment, and the Cloud Run region and instance once known', async () => {
+    const sent: ReadableSpan[] = [];
+    startTracing({
+      service: 'api-user',
+      exporter: {
+        export: (spans, done) => {
+          sent.push(...spans);
+          done({ code: ExportResultCode.SUCCESS });
+        },
+        shutdown: async () => undefined,
+      },
+    });
+    let found:
+      ((f: { region?: string; instance?: string }) => void) | undefined;
+    setInstanceLookup((_env, done) => (found = done));
+    const { trace } = await import('@opentelemetry/api');
+    // Started before the metadata server answers, sent after.
+    const span = trace.getTracer('t').startSpan('request');
+    serviceFields(undefined, { K_SERVICE: 'api-user' });
+    found?.({ region: 'europe-west2', instance: '0069c7a2b1f00d' });
+    span.end();
+    await flushTracing(1000);
+    expect(sent[0].resource.attributes).toMatchObject({
+      'service.name': 'api-user',
+      'service.version': 'dev',
+      'deployment.environment.name': 'local',
+      'service.region': 'europe-west2',
+      'service.instance': '0069c7a2b1f00d',
+    });
+    expect(sent[0].resource.attributes).not.toHaveProperty(
+      'deployment.environment',
+    );
   });
 });

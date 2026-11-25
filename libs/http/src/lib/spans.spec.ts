@@ -117,6 +117,13 @@ describe('request spans (LG-15)', () => {
       'http.route': '/v1/stories/:id/submit',
       'http.status_code': 201,
       outcome: 'ok',
+      // The instance's first request (LG-12), as on the wide event.
+      'process.cold_start': true,
+      'process.uptime_ms': event['process'].uptime_ms,
+    });
+    expect(span.resource.attributes).toMatchObject({
+      'service.name': 'api-user',
+      'deployment.environment.name': 'local',
     });
 
     const children = spans.filter((s) => s !== span);

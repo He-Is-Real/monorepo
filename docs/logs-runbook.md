@@ -132,10 +132,12 @@ and pick any row's trace id to open the trace view (waterfall). Or start from th
 
 Span names are route patterns (`GET /v1/stories/:id`), `db <query name>` and `<service>
 <method>`; attributes are only plain low-variety fields (route, method, status, outcome, error type
-and code, query name, job name), never anything about a person or story; in Axiom they are under
+and code, query name, job name, cold start and uptime), never anything about a person or story; in Axiom they are under
 `attributes.` (`['attributes.http.route']`), and `service.name` is top level. The dataset holds dev
-and production (later) together: each span carries `deployment.environment` as a resource attribute
-(check its exact field name with `getDatasetFields` once spans have arrived). Spans the services
+and production (later) together: each span carries `deployment.environment.name` (`dev`, `prod`) as a resource
+attribute, with `service.region` and `service.instance` (check the exact field names with
+`getDatasetFields` once spans have arrived). Only request and job timelines are there: Next's
+start-up work (an instance loading its route modules) is not sent. Spans the services
 couldn't send are counted in their `Couldn't send spans to Axiom` warning (stdout, at most once a
 minute). The media worker's job span starts its own trace (Dapr doesn't hand Pub/Sub attributes
 over, below); its calls to the result writer continue it.

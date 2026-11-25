@@ -493,7 +493,8 @@ export class WideEvent {
 
   /**
    * Ends the span with the plain, low-variety fields only (LG-15: the logs' data classes): the
-   * method, route pattern, status, outcome, error type and code, job name.
+   * method, route pattern, status, outcome, error type and code, job name, and the cold start
+   * and uptime (LG-12).
    */
   private endSpan(): void {
     const span = this.span;
@@ -521,6 +522,11 @@ export class WideEvent {
           attributes[path] = value;
         }
       }
+      // Whether this was the instance's first piece of work, and how long it had been up (LG-12).
+      if (this.coldStart !== undefined) {
+        attributes['process.cold_start'] = this.coldStart;
+      }
+      attributes['process.uptime_ms'] = this.uptimeMs;
       span.setAttributes(attributes);
       if (outcome === 'error') span.setStatus({ code: SpanStatusCode.ERROR });
       span.end();

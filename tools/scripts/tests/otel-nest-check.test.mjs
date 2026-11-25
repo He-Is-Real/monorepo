@@ -3,7 +3,7 @@
 //   node --test tools/scripts/tests/
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { satisfies, supportedRanges } from '../otel-nest-check.mjs';
+import { supportedRanges, supportsNest12 } from '../otel-nest-check.mjs';
 
 test('reads the supported range from the built instrumentation', () => {
   assert.deepEqual(
@@ -13,10 +13,13 @@ test('reads the supported range from the built instrumentation', () => {
   assert.deepEqual(supportedRanges('nothing here'), []);
 });
 
-test('says whether NestJS 12 is in it', () => {
-  assert.equal(satisfies('>=4.0.0 <12', '12.0.0'), false);
-  assert.equal(satisfies('>=4.0.0 <13', '12.0.0'), true);
-  assert.equal(satisfies('>=4.0.0 <12 || >=12.1.0 <14', '12.0.0'), false);
-  assert.equal(satisfies('>=4.0.0', '12.0.0'), true);
-  assert.equal(satisfies('^11.0.0', '12.0.0'), undefined);
+test('says whether any NestJS 12 release is in it', () => {
+  assert.equal(supportsNest12('>=4.0.0 <12'), false);
+  assert.equal(supportsNest12('>=4.0.0 <13'), true);
+  assert.equal(supportsNest12('>=4.0.0'), true);
+  // Leaves out 12.0.x but includes the 12.3.2 we run.
+  assert.equal(supportsNest12('>=4.0.0 <12 || >=12.1.0 <13'), true);
+  assert.equal(supportsNest12('^12.0.0'), true);
+  assert.equal(supportsNest12('^11.0.0'), false);
+  assert.equal(supportsNest12('not a range'), undefined);
 });

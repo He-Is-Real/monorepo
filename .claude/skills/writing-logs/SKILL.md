@@ -58,8 +58,8 @@ success or failure. Stripe calls it a canonical log line; the blog calls it a wi
    and `timeDb` / `timeExternal` / `timedFetch` open child spans. Don't add spans by hand or
    automatic instrumentations. Span attributes follow the same data classes as the logs: only the
    allowlist in `libs/logging/src/tracing.ts` (`SPAN_ATTRIBUTES`: route pattern, method, status,
-   outcome, error type and code, query name, outside service and method, job name) leaves the
-   process. Never an IP, email, user agent, URL query, search term, story text, token, cookie or
+   outcome, error type and code, query name, outside service and method, job name, cold start
+   and uptime) leaves the process, with no trace state. Never an IP, email, user agent, URL query, search term, story text, token, cookie or
    the id of a person or story; a new attribute needs Joel's decision. The website's Next.js spans
    pass through the same allowlist. The request span is hand-made only until
    `@opentelemetry/instrumentation-nestjs-core` supports NestJS 12 (libs/logging README, "Tracing").
