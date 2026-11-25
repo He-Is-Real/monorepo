@@ -6,7 +6,8 @@
  * `--update-env-vars HOUSEKEEPING_CHORES=media-resend` for the resend).
  *
  * Exit status: 0 every chore done; 1 a chore or a deletion failed, or Clerk's key couldn't be read
- * (the next run tries again; every chore is safe to re-run); 2 refused (bad settings).
+ * (the next run tries again; every chore is safe to re-run); 2 refused (bad settings); 143 stopped
+ * by SIGTERM (the job was cancelled or timed out; queued log lines are sent first, at most 3 s).
  * Logs one line per chore in the shared JSON log format (libs/logging) with counts and ids only,
  * never personal data or a key.
  */
@@ -54,9 +55,16 @@ async function main(): Promise<number> {
   return startHousekeeping({ config, secrets, log });
 }
 
-/** Sends what Axiom still waits for (at most 3 s), then exits. */
-const exit = (code: number) =>
+/** Sends what Axiom still waits for (at most 3 s), then exits; only the first call counts. */
+let exiting = false;
+const exit = (code: number) => {
+  if (exiting) return;
+  exiting = true;
   void flushLogSinks(3000).then(() => process.exit(code));
+};
+
+// Cloud Run cancelled the job or it ran out of time: keep the logs, exit as a cancelled job.
+process.on('SIGTERM', () => exit(143));
 
 main().then(exit, (err) => {
   log({

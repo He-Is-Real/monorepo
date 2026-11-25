@@ -13,9 +13,10 @@
  *   shutdown); a refusal, a second failure or Axiom dropping events is counted
  *   (`failedLogWrites()`) and dropped, with one warning on stdout at most once a minute; a full
  *   queue drops new entries the same way. No sampling.
- * - **Shutting down:** `flushLogSinks()` (`@heisreal/logging`) sends what is waiting, with a time
- *   cap: the APIs on SIGTERM (Nest's shutdown hooks), housekeeping before it exits, the media
- *   worker when it stops.
+ * - **Shutting down:** `flushLogSinks()` (`@heisreal/logging`) sends what is waiting, retrying a
+ *   failed send once, all within one time cap; what is still unsent then is counted as dropped:
+ *   the APIs on SIGTERM (Nest's shutdown hooks), housekeeping before it exits or on SIGTERM, the
+ *   media worker when it stops.
  * - **Off unless configured:** it starts only where `AXIOM_DATASET`, `AXIOM_DOMAIN` and
  *   `AXIOM_TOKEN_SECRET` are set (OpenTofu, the media worker's script) and the token can be read.
  *   Locally and in tests none are set, so nothing is sent. A deployed service whose token is
@@ -84,6 +85,9 @@ export function axiomSink({
   let queuedBytes = 0;
   let scheduled = false;
   let sending: Promise<void> | undefined;
+  /** The batch being sent; set aside once a shutdown flush gave up on it (already counted). */
+  let inFlight: unknown[] | undefined;
+  let abandoned: unknown[] | undefined;
   /** A send got no answer: wait for the next entry or a flush before trying again. */
   let paused = false;
   let failed = 0;
@@ -122,6 +126,7 @@ export function axiomSink({
   const sendAll = async () => {
     while (queue.length) {
       const batch = nextBatch();
+      inFlight = batch;
       let response: Response;
       try {
         response = await send(url, {
@@ -131,6 +136,9 @@ export function axiomSink({
           signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
         });
       } catch {
+        inFlight = undefined;
+        // A shutdown flush already counted this batch as lost.
+        if (batch === abandoned) return;
         // No answer (the network, or Cloud Run's CPU throttled between requests): entries get
         // one more try with the next send; the rest are dropped.
         const again = batch.filter((e) => !e.retried);
@@ -140,6 +148,11 @@ export function axiomSink({
         queuedBytes += again.reduce((n, e) => n + e.line.length + 1, 0);
         paused = again.length > 0;
         return;
+      }
+      inFlight = undefined;
+      if (batch === abandoned) {
+        await response.body?.cancel().catch(() => undefined);
+        continue;
       }
       if (!response.ok) {
         // A refusal (bad token, over the plan's limit) won't change by trying again.
@@ -191,11 +204,25 @@ export function axiomSink({
       }
     },
     async flush(timeoutMs = 3000) {
+      // One deadline for everything: the queue, newer entries and the one retry a failed send
+      // allows (each entry fails at most twice, so this ends). What is still waiting or unanswered
+      // when it passes is counted as dropped: the process is about to exit.
+      let expired = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
+      const drain = async () => {
+        while (!expired && (queue.length || sending)) await start();
+      };
       await Promise.race([
-        start(),
+        drain(),
         new Promise<void>((resolve) => {
-          timer = setTimeout(resolve, timeoutMs);
+          timer = setTimeout(() => {
+            expired = true;
+            abandoned = inFlight;
+            drop(queue.length + (inFlight?.length ?? 0));
+            queue.length = 0;
+            queuedBytes = 0;
+            resolve();
+          }, timeoutMs);
         }),
       ]);
       clearTimeout(timer);

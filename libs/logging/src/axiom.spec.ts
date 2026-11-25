@@ -114,12 +114,17 @@ describe('the Axiom sink', () => {
         : Promise.reject(new TypeError('fetch failed')),
     );
     await start(flaky.fetch);
+    // Sent on its own after this turn (no flush); the fake answers within microtasks, so one
+    // timer turn later the failure has been handled.
+    const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
     writeLog('INFO', 'three');
-    await flushLogSinks();
+    await vi.waitFor(() => expect(flaky.sent).toHaveLength(1));
+    await settled();
     // No answer: kept for one more try with the next send (Cloud Run's CPU may be throttled).
     expect(failedLogWrites() - before).toBe(2);
     writeLog('INFO', 'four');
-    await flushLogSinks();
+    await vi.waitFor(() => expect(flaky.sent).toHaveLength(2));
+    await settled();
     expect(failedLogWrites() - before).toBe(3); // "three" failed twice: dropped
     reachable = true;
     await flushLogSinks();
@@ -179,5 +184,36 @@ describe('the Axiom sink', () => {
     const started = performance.now();
     await flushLogSinks(50);
     expect(performance.now() - started).toBeLessThan(1000);
+  });
+
+  it('on shutdown, retries a failed send and sends newer entries within the cap, and counts what it gave up on', async () => {
+    const before = failedLogWrites();
+    let calls = 0;
+    const blip = fakeAxiom((sent) =>
+      ++calls === 1
+        ? Promise.reject(new TypeError('fetch failed'))
+        : Promise.resolve(Response.json({ ingested: sent.body.length, failed: 0 })),
+    );
+    await start(blip.fetch);
+    writeLog('INFO', 'first');
+    // The first send is under way and will fail; a newer entry waits behind it.
+    await vi.waitFor(() => expect(blip.sent).toHaveLength(1));
+    writeLog('INFO', 'second');
+    await flushLogSinks(1000);
+    expect(blip.sent.map((s) => s.body.map((e) => e['message']))).toEqual([
+      ['first'],
+      ['first', 'second'],
+    ]);
+    expect(failedLogWrites() - before).toBe(0);
+
+    resetAxiomLogs();
+    const hung = fakeAxiom(() => new Promise<Response>(() => undefined));
+    await start(hung.fetch);
+    writeLog('INFO', 'unanswered');
+    await vi.waitFor(() => expect(hung.sent).toHaveLength(1));
+    writeLog('INFO', 'still waiting');
+    await flushLogSinks(50);
+    // Both lost when the process exits: counted.
+    expect(failedLogWrites() - before).toBe(2);
   });
 });
