@@ -26,6 +26,9 @@ const REQUIRED_PLUGINS = [
   'frontend-design',
 ];
 
+// Files written on Windows may end lines in CRLF; parse them as LF.
+const lf = (text) => text.replace(/\r\n?/g, '\n');
+
 if (process.argv.includes('--repo')) {
   const problems = [];
   const skills = join(root, '.agents/skills');
@@ -35,7 +38,7 @@ if (process.argv.includes('--repo')) {
       problems.push(`.agents/skills/${name}: no SKILL.md`);
       continue;
     }
-    const text = readFileSync(file, 'utf8');
+    const text = lf(readFileSync(file, 'utf8'));
     const head = text.match(/^---\n([\s\S]*?)\n---\n/)?.[1] ?? '';
     if (!new RegExp(`^name: ${name}\\s*$`, 'm').test(head))
       problems.push(
@@ -69,7 +72,9 @@ if (process.argv.includes('--repo')) {
     .filter((f) => f.endsWith('/AGENTS.md') && !f.includes('/fixtures/')); // test fixtures are not agent folders
   for (const f of agentsFiles) {
     const claude = join(root, dirname(f), 'CLAUDE.md');
-    const text = existsSync(claude) ? readFileSync(claude, 'utf8').trim() : '';
+    const text = existsSync(claude)
+      ? lf(readFileSync(claude, 'utf8')).trim()
+      : '';
     if (text !== '@AGENTS.md')
       problems.push(
         `${dirname(f)}/CLAUDE.md must exist beside ${f} and hold the one line "@AGENTS.md"`,
@@ -155,7 +160,9 @@ for (const f of ['.claude/CLAUDE.md', '.codex/AGENTS.md'])
   );
 
 // Command-line tools from the table in docs/tooling-and-accounts.md ("Command-line tools").
-const doc = readFileSync(join(root, 'docs/tooling-and-accounts.md'), 'utf8');
+const doc = lf(
+  readFileSync(join(root, 'docs/tooling-and-accounts.md'), 'utf8'),
+);
 const section = doc.split('## Command-line tools')[1]?.split('\n## ')[0] ?? '';
 const ALIAS = { 'node.js': 'node', opentofu: 'tofu', imagemagick: 'magick' };
 const tools = section

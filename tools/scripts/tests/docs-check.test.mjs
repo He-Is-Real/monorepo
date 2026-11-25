@@ -9,6 +9,7 @@ import {
   appendFileSync,
   cpSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -144,7 +145,7 @@ const failures = [
       'docs/product/principles.md',
       'docs/product/gone.md',
     ),
-    'J-2026-01-01: "Now at" names docs/product/gone.md, which does not exist',
+    'J-2026-01-01: "Now at" names docs/product/gone.md, which is neither a known id nor an existing path',
   ],
   [
     'a register row with an unknown status',
@@ -256,6 +257,48 @@ const failures = [
     'banned "previously"',
   ],
   [
+    'a principle position longer than 40 words over several lines',
+    replace(
+      'docs/product/principles.md',
+      'Never feature',
+      `${'and so on, '.repeat(7)}\n${'and so on, '.repeat(7)}\nnever feature`,
+    ),
+    'PRIN-01: position is 53 words, limit 40',
+  ],
+  [
+    'a principle with a second Why:',
+    replace(
+      'docs/product/principles.md',
+      'Applies:',
+      'Why: and a second reason.\nApplies:',
+    ),
+    'PRIN-01: a second Why: line',
+  ],
+  [
+    'a principle with a line that is none of its parts',
+    replace(
+      'docs/product/principles.md',
+      'Applies:',
+      'A stray sentence.\nApplies:',
+    ),
+    'PRIN-01: a principle is a position, then Why:',
+  ],
+  [
+    'a rule with two tags',
+    replace(BROWSE, 'published. [AB-1]', 'published [AB-2]. [AB-1]'),
+    'REQ-BRW-001: a rule has exactly one [tag]',
+  ],
+  [
+    'a register "Now at" naming an unknown id',
+    replace('docs/decisions/register.md', '| WORK-001 ', '| WORK-9999'),
+    'AB-2: "Now at" names WORK-9999, which is neither a known id nor an existing path',
+  ],
+  [
+    'a register "Now at" naming a word that is no id or path',
+    replace('docs/decisions/register.md', '| WORK-001 ', '| MISSINGFILE'),
+    'AB-2: "Now at" names MISSINGFILE, which is neither a known id nor an existing path',
+  ],
+  [
     'a link to a decision doc in a reference file',
     (root) =>
       writeFileSync(
@@ -285,6 +328,30 @@ test('quotes and code are exempt from banned words', () => {
       'published; it reads "should we?" and `TBD`. [AB-1]',
     ),
   );
+  assert.equal(r.status, 0, r.stderr);
+});
+
+test('fenced code blocks and longer code spans are exempt from banned words', () => {
+  const r = check(
+    replace(
+      BROWSE,
+      'published. [AB-1]',
+      'published; it reads ``should `we` do it?`` here. [AB-1]\n\n```text\nWe should, usually, as of 2026-11-04.\n```',
+    ),
+  );
+  assert.equal(r.status, 0, r.stderr);
+});
+
+test('files with CRLF line endings pass', () => {
+  const r = check((root) => {
+    const walk = (dir) =>
+      readdirSync(dir, { withFileTypes: true }).forEach((e) => {
+        const p = join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else writeFileSync(p, readFileSync(p, 'utf8').replace(/\n/g, '\r\n'));
+      });
+    walk(root);
+  });
   assert.equal(r.status, 0, r.stderr);
 });
 
@@ -357,6 +424,33 @@ test('--base: a new tag needs its register row in the same change', () => {
     r.stderr.includes(
       'REQ-BRW-001 changed: its tag [AB-7] has no register row',
     ),
+    r.stderr,
+  );
+});
+
+test('--base: a change that only deletes a principle line counts as a change', () => {
+  const r = withBranch((root) => {
+    replace(
+      'docs/product/principles.md',
+      'Applies: home',
+      'Except: an admin preview.\nApplies: home',
+    )(root);
+    replace(
+      'docs/decisions/register.md',
+      "| J-2026-01-01 | 2026-01-01 | Nobody's story is featured                 | PRIN-01, docs/product/principles.md | in force  |",
+      "| J-2026-01-01 | 2026-01-01 | Nobody's story is featured                 | PRIN-01, docs/product/principles.md | withdrawn |",
+    )(root);
+    git(root, 'commit', '-qam', 'base with Except');
+    git(root, 'branch', '-f', 'main');
+    replace(
+      'docs/product/principles.md',
+      'Except: an admin preview.\n',
+      '',
+    )(root);
+  });
+  assert.equal(r.status, 1, r.stdout);
+  assert.ok(
+    r.stderr.includes('PRIN-01 changed: its tag [J-2026-01-01] is withdrawn'),
     r.stderr,
   );
 });

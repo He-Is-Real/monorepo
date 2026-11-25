@@ -89,12 +89,17 @@ const base = opt('--base');
 const errors = [];
 const warnings = [];
 const fail = (where, msg) => errors.push(`${where}: ${msg}`);
+const lf = (text) => text.replace(/\r\n?/g, '\n');
 const read = (rel) =>
-  readFileSync(join(root, rel), 'utf8').replace(/\n$/, '').split('\n');
+  lf(readFileSync(join(root, rel), 'utf8'))
+    .replace(/\n$/, '')
+    .split('\n');
 const words = (s) => s.trim().split(/\s+/).filter(Boolean).length;
-// Text outside "quotes" and `code`, where the banned words apply.
+// Text outside "quotes" and code spans (any number of backticks), where the banned words apply.
 const plain = (s) =>
-  s.replace(/`[^`]*`/g, '``').replace(/"[^"]*"|“[^”]*”/g, '""');
+  s
+    .replace(/(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g, '``')
+    .replace(/"[^"]*"|“[^”]*”/g, '""');
 const sentences = (s) =>
   Math.max(
     1,
@@ -104,6 +109,21 @@ const sentences = (s) =>
         .match(/[.!?](?=\s|$)/g) ?? []
     ).length,
   );
+
+// For each line, whether it is inside a fenced code block (the fence lines included).
+const fenced = (lines) => {
+  let fence = null;
+  return lines.map((l) => {
+    const m = l.match(/^\s*(`{3,}|~{3,})/);
+    if (fence) {
+      if (m && m[1][0] === fence[0] && m[1].length >= fence.length)
+        fence = null;
+      return true;
+    }
+    if (m) fence = m[1];
+    return Boolean(m);
+  });
+};
 
 const walk = (rel) => {
   const abs = join(root, rel);
@@ -195,8 +215,10 @@ const addId = (id, where) => {
 };
 
 const checkRules = (file, lines) => {
+  const code = fenced(lines);
   for (let i = 0; i < lines.length; i++) {
     const n = i + 1;
+    if (code[i]) continue;
     checkBanned(file, n, lines[i]);
     if (termFile(file) || !lines[i].startsWith('- **')) continue;
     const m = lines[i].match(RULE_LINE);
@@ -209,6 +231,11 @@ const checkRules = (file, lines) => {
     }
     const [, id, text, , tag] = m;
     addId(id, `${file}:${n}`);
+    if (/\[[A-Za-z0-9.-]+\](?!\()/.test(plain(text)))
+      fail(
+        `${file}:${n}`,
+        `${id}: a rule has exactly one [tag], the last thing on the line; remove the others`,
+      );
     if (words(text) > LIMITS.rule)
       fail(
         `${file}:${n}`,
@@ -239,7 +266,7 @@ const checkRules = (file, lines) => {
           `${id}: Why: is ${w} words, limit ${LIMITS.why}; keep one short reason`,
         );
     }
-    tagged.push({ id, tag, file, from: n, to: j });
+    tagged.push({ id, tag, file, from: n });
     i = j - 1;
   }
 };
@@ -261,16 +288,39 @@ const checkPrinciples = (file, lines) => {
       .slice(i + 1, end)
       .map((l, k) => [l.trim(), i + 2 + k])
       .filter(([l]) => l);
-    const field = (name) => body.find(([l]) => l.startsWith(`${name}: `));
-    const [position] = body[0] ?? [''];
-    if (!position || /^(Why|Applies|Except):|^\[/.test(position))
+    // The position is every line before the first field; then each field once, then the tag.
+    const FIELD = /^(Why|Applies|Except): \S/;
+    const TAG = /^\[([A-Za-z0-9.-]+)\]$/;
+    let k = 0;
+    while (k < body.length && !FIELD.test(body[k][0]) && !TAG.test(body[k][0]))
+      k++;
+    const position = body
+      .slice(0, k)
+      .map(([l]) => l)
+      .join(' ');
+    if (!position)
       fail(`${file}:${i + 1}`, `${id}: first line must be the position`);
     else if (words(position) > LIMITS.position)
       fail(
         `${file}:${i + 1}`,
         `${id}: position is ${words(position)} words, limit ${LIMITS.position}; shorten it`,
       );
-    const why = field('Why');
+    const fields = new Map();
+    body.slice(k).forEach(([l, n], x, rest) => {
+      const f = l.match(FIELD);
+      if (f && !fields.has(f[1])) fields.set(f[1], [l, n]);
+      else if (f)
+        fail(
+          `${file}:${n}`,
+          `${id}: a second ${f[1]}: line; keep one ${f[1]}: line`,
+        );
+      else if (!TAG.test(l) || x !== rest.length - 1)
+        fail(
+          `${file}:${n}`,
+          `${id}: a principle is a position, then Why:, Applies:, an optional Except: and the [tag] last; remove or move this line`,
+        );
+    });
+    const why = fields.get('Why');
     if (!why)
       fail(
         `${file}:${i + 1}`,
@@ -281,18 +331,18 @@ const checkPrinciples = (file, lines) => {
         `${file}:${why[1]}`,
         `${id}: Why: is ${words(why[0]) - 1} words, limit ${LIMITS.why}`,
       );
-    if (!field('Applies'))
+    if (!fields.has('Applies'))
       fail(
         `${file}:${i + 1}`,
         `${id}: no Applies: line; say where the opinion bites`,
       );
-    const last = body.at(-1)?.[0].match(/^\[([A-Za-z0-9.-]+)\]$/);
+    const last = body.at(-1)?.[0].match(TAG);
     if (!last)
       fail(
         `${file}:${i + 1}`,
         `${id}: the last line must be the tag, "[<decision id>]"`,
       );
-    else tagged.push({ id, tag: last[1], file, from: i + 1, to: end });
+    else tagged.push({ id, tag: last[1], file, from: i + 1 });
   });
 };
 
@@ -383,10 +433,10 @@ for (const r of register) {
           where,
           `${r.id}: "Now at" names ${item}, which no rule file has; fix the id or add the rule`,
         );
-    } else if (/[/.]/.test(item) && !existsSync(join(root, item))) {
+    } else if (!existsSync(join(root, item))) {
       fail(
         where,
-        `${r.id}: "Now at" names ${item}, which does not exist; fix the path`,
+        `${r.id}: "Now at" names ${item}, which is neither a known id nor an existing path; fix it`,
       );
     }
   }
@@ -397,28 +447,40 @@ if (base) {
   const git = (...a) =>
     execFileSync('git', ['-C', root, ...a], { encoding: 'utf8' });
   const mergeBase = git('merge-base', base, 'HEAD').trim();
-  const changed = new Map(); // file -> Set of changed line numbers in the working tree
-  let file;
-  for (const line of git(
-    'diff',
-    '--unified=0',
-    mergeBase,
-    '--',
-    ...ruleFiles,
-  ).split('\n')) {
-    if (line.startsWith('+++ ')) {
-      file = line.slice(6);
-      changed.set(file, new Set());
-      continue;
+  // A rule or principle has changed when its full text differs from the base version's (an
+  // added, edited or deleted line all count).
+  const block = (lines, id) => {
+    const i = lines.findIndex(
+      (l) => l.startsWith(`- **${id}** `) || l.startsWith(`## ${id} `),
+    );
+    if (i < 0) return undefined;
+    const more = lines[i].startsWith('## ')
+      ? (l) => !l.startsWith('## ')
+      : (l) => /^\s+\S/.test(l);
+    let j = i + 1;
+    while (j < lines.length && more(lines[j])) j++;
+    return lines.slice(i, j).join('\n').trimEnd();
+  };
+  const baseLines = new Map();
+  const before = (file) => {
+    if (!baseLines.has(file)) {
+      let text = '';
+      try {
+        text = lf(
+          execFileSync('git', ['-C', root, 'show', `${mergeBase}:${file}`], {
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'ignore'],
+          }),
+        );
+      } catch {
+        /* a new file */
+      }
+      baseLines.set(file, text.split('\n'));
     }
-    const h = line.match(/^@@ -\S+ \+(\d+)(?:,(\d+))? @@/);
-    if (h)
-      for (let k = 0; k < Number(h[2] ?? 1); k++)
-        changed.get(file).add(Number(h[1]) + k);
-  }
+    return baseLines.get(file);
+  };
   for (const t of tagged) {
-    const lines = changed.get(t.file);
-    if (!lines || ![...lines].some((n) => n >= t.from && n <= t.to)) continue;
+    if (block(read(t.file), t.id) === block(before(t.file), t.id)) continue;
     const row = registerIds.get(t.tag);
     // A new tag's row exists only if this change added it.
     if (!row)
