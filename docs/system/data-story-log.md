@@ -2,7 +2,7 @@
 
 Covers: who may read and write `storyStatusLog` (`schema-04-stories.surql`) and how the database hides a story for its media; the story itself is in [data-stories.md](data-stories.md).
 Data: `libs/database/schema/schema-04-stories.surql` is the source of truth.
-Next id: REQ-DBL-048
+Next id: REQ-DBL-046
 
 ## Contents
 

@@ -2,7 +2,7 @@
 
 Covers: who may read and write `story` (`schema-04-stories.surql`); its status log is in [data-story-log.md](data-story-log.md), its files in [data-media.md](data-media.md).
 Data: `libs/database/schema/schema-04-stories.surql` is the source of truth.
-Next id: REQ-DBS-045
+Next id: REQ-DBS-048
 
 ## Contents
 

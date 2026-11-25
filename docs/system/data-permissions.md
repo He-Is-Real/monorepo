@@ -2,7 +2,7 @@
 
 Covers: who may read and write the tables in `schema-01`, `-02`, `-03`, `-05` and `-06`; logins and person data are in [data-model.md](data-model.md).
 Data: `libs/database/schema` is the source of truth.
-Next id: REQ-DBP-061
+Next id: REQ-DBP-063
 
 ## Contents
 
@@ -56,7 +56,7 @@ Tests: `person-session`, `erasure`, `service-permissions`, `favourites`, `images
 - **REQ-DBP-031** api-admin's login reads, creates, deletes and updates block-list rows (it checks the caller is an Admin); an update changes only `note`, and the value, `addedBy` and `addedAt` are read-only, with no record of who edited it. [BN-4]
 - **REQ-DBP-032** `note` has its own field permission: only api-admin reads or writes it. [BN-6]
 - **REQ-DBP-033** api-user may read one block-list row it names: the rule is `email = $blockCheck` or `ip = $blockCheck`, the query's own parameter. [G21]
-  Why: api-user asks whether one email or address is blocked (at a person's first call and when a story is sent), but can't list the block list or see a note.
+  Why: api-user asks whether one email or address is blocked (at first call and story send), never listing them or seeing a note.
 - **REQ-DBP-034** No other service or person reads `blockedEmail` or `blockedIp`. [G21]
 - **REQ-DBP-035** Block-list rows are not linked to `user` and are kept after erasure on purpose: a block is permanent until an Admin removes it. [G21]
 
