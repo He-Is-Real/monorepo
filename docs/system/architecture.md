@@ -17,7 +17,7 @@ Next id: REQ-ARC-041
 
 ## A sign-in pass that runs out mid-request
 
-- **REQ-ARC-009** When a request in `api-user` is quick, it runs on the person's own Clerk pass (it lasts 60 seconds) while that pass lasts 10 seconds more. [DEC-T]
+- **REQ-ARC-009** When a request in `api-user` is quick, it runs on the person's own Clerk pass (it lasts 60 seconds) while that pass lasts 10 seconds more, else on a fresh pass. [DEC-T]
   Why: the database library ends the person's session when their pass expires, which would cut the request off midway.
 - **REQ-ARC-010** Slow work in `api-user` (submit, an upload link, Download my data) always runs as the person on a fresh 6-minute pass `api-user` gets from Clerk for the same sign-in. [DEC-T]
 - **REQ-ARC-011** When work runs on a fresh pass, it starts no new try after 2 minutes. [DEC-T]
