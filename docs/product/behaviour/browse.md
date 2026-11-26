@@ -2,7 +2,7 @@
 
 Who: Visitor, Signed-in person, the system.
 Data: `docs/db-permissions.md` ("Stories", "Themes").
-Next id: REQ-BRW-085
+Next id: REQ-BRW-086
 
 ## Contents
 
@@ -95,7 +95,8 @@ Next id: REQ-BRW-085
 - **REQ-BRW-052** In production, a story that is taken down can show for up to 60 seconds in total on Home and Stories, and up to 30 seconds on its story page. [PC-2]
 - **REQ-BRW-053** Single story pages are never kept. Signed-in, staff, moderation, account, share, consent and sign-in pages can never be kept: a build check and the server refuse a page-cache file that lists one. [PC-1]
 - **REQ-BRW-054** A saved page is never shown after its time, even if making a fresh one fails: the Visitor gets the "try again later" message instead. [PC-1]
-- **REQ-BRW-055** A page whose stories, texts or founder's video could not be read is never saved: the Visitor sees the usual message or "Video coming soon", and the next visit tries again. [PC-1]
+- **REQ-BRW-055** A page whose stories or texts could not be read is never saved: the Visitor sees the usual message, and the next visit tries again. [PC-1]
+- **REQ-BRW-085** A page whose founder's video could not be read is never saved: the Visitor sees "Video coming soon", and the next visit tries again. [UNTRACED]
 - **REQ-BRW-056** Saved pages hold nothing personal (sign-in runs in the browser), and the "noindex" header still applies to them. [PC-1]
 - **REQ-BRW-057** While the database restarts, each running copy of the public API answers from its last answers, kept for 30 minutes, instead of the restarting message, and tells browsers and CDNs not to keep them. [J-2026-11-07-BRW]
 - **REQ-BRW-058** During a database restart, a story deleted in the last 30 minutes can still show; this rare case is accepted. [J-2026-11-07-BRW]

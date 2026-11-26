@@ -2,7 +2,7 @@
 
 Who: Moderator, Admin, Visitor and Signed-in person (the navigation link only).
 Data: `docs/db-permissions.md` ("Themes", "Settings and limits").
-Next id: REQ-ADM-032
+Next id: REQ-ADM-034
 
 ## Header and navigation
 
@@ -13,11 +13,12 @@ Next id: REQ-ADM-032
 - **REQ-ADM-005** Admin and moderation pages always keep room for the scrollbar, so a page that scrolls does not shift sideways from one that does not. [J-2026-11-17-ADM]
 - **REQ-ADM-006** A story's review page has the staff menu in the same place but no page title or description: its heading is the story's own title, inside the story exactly as the public will see it. [OQ-3]
 - **REQ-ADM-007** Moderators and Admins see one more link, "Admin", after the public links in the site's navigation, in the same row and style with no divider, so their header is the same height as everyone else's. [J-2026-11-20-ADM]
-- **REQ-ADM-008** From 1280 px the account area is a little narrower so the "Admin" link fits the row; only where the row has no room (very large text) does it wrap under the other links. [J-2026-11-20-ADM]
-- **REQ-ADM-009** In the phone menu, the "Admin" link comes after a gap and a line. [J-2026-11-14-ADM]
+- **REQ-ADM-008** Only where the row has no room (very large text) does the "Admin" link wrap under the other links. [J-2026-11-20-ADM]
+- **REQ-ADM-032** From 1280 px the account area is a little narrower so the "Admin" link fits the row. [UNTRACED]
+- **REQ-ADM-009** In the phone menu, the "Admin" link comes after a gap and a line. [UNTRACED]
 - **REQ-ADM-010** The "Admin" link shows as the current page on the admin landing page and on every admin and moderation page. [J-2026-11-20-ADM]
 - **REQ-ADM-011** Visitors and Signed-in people without a staff role never see the "Admin" link, and nobody sees it until api-user has said their role, so no link flashes. [J-2026-11-14-ADM]
-- **REQ-ADM-012** The "Admin" link reflects the role when the page was loaded; after a role change it updates on the next full page load or sign-in. The staff pages' servers check the role on every call. [J-2026-11-14-ADM]
+- **REQ-ADM-012** The "Admin" link reflects the role when the page was loaded; after a role change it updates on the next full page load or sign-in. The staff pages' servers check the role on every call. [UNTRACED]
 
 ## Admin landing page
 
@@ -27,7 +28,8 @@ Next id: REQ-ADM-032
 
 ## Limits
 
-- **REQ-ADM-015** The Limits page (Admins) shows the submission limits in plain words with their units, the largest picture file in KB (1 KB = 1,024 bytes) under "Pictures", and the two deletion times: rejected stories and stories left in editing. [G3]
+- **REQ-ADM-015** The Limits page (Admins) shows the submission limits in plain words with their units, and the two deletion times: rejected stories and stories left in editing. [G3]
+- **REQ-ADM-033** The Limits page shows the largest picture file in KB (1 KB = 1,024 bytes) under "Pictures". [J-2026-11-20-ADMb]
 - **REQ-ADM-016** The Limits page shows one group at a time, picked from a side list, or from a "Group" drop-down on phones. [J-2026-11-17-ADMb]
 - **REQ-ADM-017** On the Limits page a changed box is outlined in teal, and a save bar lists every unsaved change with Undo and Save. [J-2026-11-17-ADMb]
 - **REQ-ADM-018** When an Admin presses Save on the Limits page, it lists the changes and asks to confirm. [UNTRACED]
