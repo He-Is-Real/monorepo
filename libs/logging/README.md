@@ -132,7 +132,7 @@ slowest { name, ms } }`, `external.<name> { calls, ms, status }`.
   the instance's next request, or until shutdown, when Cloud Run gives the instance CPU for 10 s
   and the flush above sends the rest. An instance killed without SIGTERM loses at most the queued
   lines in Axiom; Google's copy from stdout is complete.
-- **Reading:** in Axiom first (`docs/logs-runbook.md`); Google's copy with
+- **Reading:** in Axiom first (`docs/runbooks/logs.md`); Google's copy with
   `gcloud logging read 'jsonPayload.ref="<ref>"' --project heisreal-dev --freshness=1d --format=json`.
 - **Fields:** Axiom's free plan keeps 256 fields per dataset. `src/fields.ts` lists every
   flattened field name we write; its test fails past 200.

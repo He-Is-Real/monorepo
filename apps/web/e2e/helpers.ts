@@ -89,7 +89,7 @@ export async function expectTarget(page: Page, locator: Locator) {
 
 /**
  * Every visible link, button and form control in the header, main content and footer is at
- * least 44 × 44 px (AGENTS.md). A card's title link is stretched over the whole card, so cards are
+ * least 44 × 44 px (apps/web/AGENTS.md). A card's title link is stretched over the whole card, so cards are
  * measured instead. Elements hidden at this width (display: none) are skipped.
  */
 export async function expectAllTargets(page: Page) {

@@ -402,7 +402,7 @@ describe('result writer: the worker’s answers → the job’s file row and the
     });
     expect(await isPublic(story)).toBe(false);
 
-    // Back at Bunny (docs/media-runbook.md): ready again, maybe with another frame.
+    // Back at Bunny (docs/runbooks/media.md): ready again, maybe with another frame.
     await answer(video, ready(story, { thumbnailFileName: 'thumbnail_2.jpg' }));
     expect(await storyRow(story)).toMatchObject({
       current: { status: 'approved', actor: 'system' },

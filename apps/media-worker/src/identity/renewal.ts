@@ -254,7 +254,7 @@ export function httpRequestCertificate(
     if (res.status === 403) {
       // The service doesn't say why (its log does): expired, cancelled, or not the newest.
       throw new Error(
-        "the signing service refused this machine's certificate (403): if the name wasn't cancelled, another copy of it may have renewed first; cancel the name and enrol a new one (docs/media-runbook.md, Worker identity)",
+        "the signing service refused this machine's certificate (403): if the name wasn't cancelled, another copy of it may have renewed first; cancel the name and enrol a new one (docs/runbooks/media.md, Worker identity)",
       );
     }
     if (!res.ok) throw new Error(`the signing service answered ${res.status}`);

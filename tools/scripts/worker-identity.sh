@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The media worker's own identity (W1-A; docs/media-runbook.md, "Worker identity"): run by a
+# The media worker's own identity (W1-A; docs/runbooks/media.md, "Worker identity"): run by a
 # developer with their own gcloud login. No key file is ever made outside the worker machine,
 # and the authority's key never leaves Cloud KMS.
 #

@@ -49,7 +49,7 @@ test('a failed load’s Try again fits with a full-size target', async ({
   await expectNoHorizontalOverflow(page);
 });
 
-// Readable line length (AGENTS.md; Joel, R1 = A, 2026-10-24: the reading column): body text
+// Readable line length (apps/web/AGENTS.md; Joel, R1 = A, 2026-10-24: the reading column): body text
 // (15 px and up) runs to at most 80 characters per rendered line on one device per layout band,
 // About (kept wide by Joel) included. Only text a reader sees: FAQ answers opened and
 // "Continue reading" expanded first; hidden, collapsed, aria-hidden and screen-reader-only

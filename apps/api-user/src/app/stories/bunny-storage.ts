@@ -17,7 +17,7 @@ import { PICTURE_START_BYTES, type PictureStart } from './picture-check';
  * `upload_key_readers`, bunny root; api-admin reads it too, for an Admin's Delete) comes from Secret Manager at startup and is never logged.
  * Without `BUNNY_STORAGE_PASSWORD_SECRET`, image uploads are off and RequestUpload answers `503`.
  * api-user never deletes a replaced or removed picture (one may still be on an approved story's
- * public copy; the clean-up sweep removes orphans, media-runbook), only the folders of stories that
+ * public copy; the clean-up sweep removes orphans, docs/runbooks/media.md), only the folders of stories that
  * are gone: from the deletion queue (D40) straight after an erasure, and a story's own folder
  * straight after its owner deletes it (OD-1, Joel 2026-11-14).
  */

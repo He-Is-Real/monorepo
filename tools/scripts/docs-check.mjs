@@ -13,8 +13,8 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// The root AGENTS.md is trimmed in a later change, which turns this on.
-const ROOT_LIMIT_ENFORCED = false;
+// The root AGENTS.md must stay within its limit.
+const ROOT_LIMIT_ENFORCED = true;
 // About 240 old decision ids are still cited; a later change removes them and turns this on.
 const OLD_IDS_ENFORCED = false;
 

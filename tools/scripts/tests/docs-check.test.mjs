@@ -388,11 +388,11 @@ test('files with CRLF line endings pass', () => {
   assert.equal(r.status, 0, r.stderr);
 });
 
-test('the root AGENTS.md limit only warns for now', () => {
+test('a root AGENTS.md over 150 lines fails', () => {
   const r = check((root) =>
     appendFileSync(join(root, 'AGENTS.md'), 'Line.\n'.repeat(160)),
   );
-  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.status, 1);
   assert.match(r.stdout + r.stderr, /AGENTS\.md: 16\d lines, limit 150/);
 });
 

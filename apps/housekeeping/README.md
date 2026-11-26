@@ -107,7 +107,7 @@ whether more were waiting (`more`), and the ids it acted on.
 - **A chore's `error`, or `failed` ids:** the next run tries again. The same ids failing night
   after night means a key or an outside service is broken; the chore's line says which.
 - **`more: true` every night:** more is waiting than `max_deletions` allows; raise it in OpenTofu.
-- **Videos, pictures, media jobs:** [docs/media-runbook.md](../../docs/media-runbook.md) ("Media
+- **Videos, pictures, media jobs:** [docs/runbooks/media.md](../../docs/runbooks/media.md) ("Media
   ready", "Replaced and orphaned videos", "Replaced and orphaned images").
 - **Setting it up or its accounts and keys:** [infra/terraform/README.md](../../infra/terraform/README.md),
   "Housekeeping".

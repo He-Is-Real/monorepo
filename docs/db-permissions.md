@@ -266,7 +266,7 @@ their fence (see "Transactions").
   story the system hid comes back (a system `approved` entry, first `publishedAt` kept) only while
   it points at both reviewed files, they are ready, and the person still has testimony consent.
   The owner sees a hidden story as published (api-user's `OWNER_STATUS_FIELDS`). Runbook:
-  [media-runbook.md](media-runbook.md). Specs: `media-processing`.
+  [runbooks/media.md](runbooks/media.md). Specs: `media-processing`.
 - **`storyFile` (R12): one row per uploaded file.** Id = the Bunny video id or the picture's path
   (`stories/<story id>/<32 hex>.webp`, `fn::media::own_image`; dev-seed's `dev-seed/<name>.webp`
   only for system users).

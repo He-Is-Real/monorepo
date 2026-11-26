@@ -3,7 +3,7 @@ import type { LibraryVideo } from './stream';
 import type { Task, TaskContext, TaskResult } from './tasks';
 
 /**
- * Orphaned story videos (docs/media-runbook.md, "Replaced and orphaned videos"): a video in the
+ * Orphaned story videos (docs/runbooks/media.md, "Replaced and orphaned videos"): a video in the
  * stories' Stream library that no story shows. A video is deleted only if all of these hold:
  *
  * - it's a story video: titled with a story id (a ULID, D69), in no collection. So site videos

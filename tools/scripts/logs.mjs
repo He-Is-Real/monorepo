@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // `pnpm logs`: reads our JSON log lines (libs/logging) on stdin and prints one short, coloured
-// line each, for people reading a local run (docs/logs-runbook.md; logging decision LG-5). The
+// line each, for people reading a local run (docs/runbooks/logs.md; logging decision LG-5). The
 // services always write plain JSON (writing-logs skill, rule 11); this only reads it.
 //
 //   pnpm nx serve api-user 2>&1 | pnpm -s logs

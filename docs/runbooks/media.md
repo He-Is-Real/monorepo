@@ -3,6 +3,17 @@
 Joel, 2026-10-23: an approved story stays approved when its media breaks. We get the media
 loading again; we don't approve the story again.
 
+## Contents
+
+- What happens
+- Find hidden stories
+- Get a video loading again
+- Media ready
+- Where uploads land
+- Replaced and orphaned videos
+- Replaced and orphaned images
+- The Stream player
+
 ## What happens
 
 - Processing records each video, audio file and image as `ready`, `processing` or `failed`,
@@ -99,7 +110,7 @@ How a video or audio file becomes `ready` (M2 plan item 13; D78, D126, D129; des
    `gone` answer (Bunny has no such video) leaves the file `processing` and ends the job
    `gave_up` with `errorType` `other`. Its log is one `event: "job"` per call, ids only, with the
    worker's reference; the worker writes one per delivery to Cloud Logging too
-   (`docs/logs-runbook.md`, "Media jobs").
+   (`docs/runbooks/logs.md`, "Media jobs").
 4. If the worker can't do a job it calls `.../failed` with a short code: `bunny_unreachable`
    (no answer, a timeout, Bunny's 5xx or 429), `bunny_refused` (Bunny refused the read-only key),
    `bunny_error` or `bunny_bad_reply` (an answer it can't use), `bunny_facts_missing` (finished,
@@ -387,7 +398,7 @@ webhook` (bad signature: check the secret `bunny-stream-readonly-key` has the li
      problem on our side" until the worker answers it. Starting the worker is usually enough: the queue
      still holds the earlier sends for 31 days. A redelivered
      duplicate is harmless. To resend now: `gcloud run jobs execute housekeeping --region europe-west2 --wait
---update-env-vars HOUSEKEEPING_CHORES=media-resend` ([apps/housekeeping/README.md](../apps/housekeeping/README.md)).
+--update-env-vars HOUSEKEEPING_CHORES=media-resend` ([apps/housekeeping/README.md](../../apps/housekeeping/README.md)).
    - **Open with failures:** the worker keeps failing; `lastError` says why, and the worker's own
      log says more.
    - **`gave_up`:** `errorType` says why (api-admin reads it): `file_unusable` (Bunny failed the
@@ -413,7 +424,7 @@ webhook` (bad signature: check the secret `bunny-stream-readonly-key` has the li
 
 People's uploads go straight from their browser to Bunny; our services never handle the bytes
 (M2). api-user creates each upload and signs a short-lived link for that one item. How it's
-signed and what each link enforces: [infra/terraform/README.md](../infra/terraform/README.md),
+signed and what each link enforces: [infra/terraform/README.md](../../infra/terraform/README.md),
 "Uploads".
 
 | Upload       | Goes to                                                                  | Stored in                                            |
@@ -513,7 +524,7 @@ video kept`: never deleted then, since it may be the draft's file; the person's 
   same Idempotency-Key settles it), or when a person
   abandons a draft whose file never finished (Bunny keeps it at status 0, "created").
 - **The nightly sweep** (the `housekeeping` Cloud Run Job, `apps/housekeeping`; set up in
-  [infra/terraform/README.md](../infra/terraform/README.md), "Housekeeping") deletes them at
+  [infra/terraform/README.md](../../infra/terraform/README.md), "Housekeeping") deletes them at
   03:30 London time. A video goes only if all of these hold:
   - it's a story video: its title is a story id, and it's in no collection. So site videos (the
     `site-assets` collection) and dev-seed's clips (titled `dev-seed/clip-NN`) are never touched;
@@ -525,7 +536,7 @@ video kept`: never deleted then, since it may be the draft's file; the person's 
 
   It deletes at most 50 videos a night (`max_deletions`), oldest first; the rest wait for the
   next night. With `dry_run` on it only logs what it would delete; dev runs with it off
-  (Joel, 2026-11-07; [apps/housekeeping/README.md](../apps/housekeeping/README.md)).
+  (Joel, 2026-11-07; [apps/housekeeping/README.md](../../apps/housekeeping/README.md)).
   Its log is one JSON line per chore with counts and ids only:
   `gcloud logging read 'resource.labels.job_name="housekeeping"' --limit 20`.
 
@@ -615,19 +626,19 @@ from the Stream library's settings in OpenTofu (`bunnynet_stream_library.media` 
 `infra/terraform/modules/bunny/main.tf`), matched to the site theme (`libs/web-ui/src/styles/theme.css`).
 Change them there, never in Bunny's dashboard: a dashboard change shows up as drift in the next plan.
 
-| Setting                                                          | Value                  | Why                                                                                                                                                                     |
-| ---------------------------------------------------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `player_version`                                                 | 2                      | Bunny's current player. `player-head.html` targets its element names.                                                                                                   |
-| `player_primary_color`                                           | `#4e9ba0`              | The brand teal: the progress bar, volume level and large play button. Bunny's default is orange.                                                                        |
-| `player_font_family`                                             | `inter`                | The time, menus and captions. The site's DM Sans isn't one of Bunny's eight fonts; Inter is the closest. Bunny serves it from fonts.bunny.net.                          |
-| `player_captions_font_color`, `player_captions_background_color` | `#ffffff` on `#000000` | Captions sit on the picture, not on the page, so they don't follow the site theme. White on opaque black is readable on any frame.                                      |
-| `player_captions_font_size`                                      | 20                     | Bunny's default size.                                                                                                                                                   |
-| `player_language`                                                | `en`                   | The player's own labels.                                                                                                                                                |
-| `player_controls`                                                | Bunny's set            | Bunny's defaults without AirPlay (no Apple-specific technology). Bunny draws them in its own order.                                                                     |
-| `player_watchtime_heatmap_enabled`                               | off                    | No viewing data on the progress bar (no public engagement signals).                                                                                                     |
-| `watermark_*`                                                    | 0                      | No watermark.                                                                                                                                                           |
-| `vast_tag_url`                                                   | empty                  | No adverts.                                                                                                                                                             |
-| `player_custom_head` (`player-head.html`)                        | CSS                    | 44 px touch targets (AGENTS.md), an opaque black background, the site's teal focus ring, and a dark icon on the teal large play button (5.9:1; white on teal is 3.2:1). |
+| Setting                                                          | Value                  | Why                                                                                                                                                                              |
+| ---------------------------------------------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `player_version`                                                 | 2                      | Bunny's current player. `player-head.html` targets its element names.                                                                                                            |
+| `player_primary_color`                                           | `#4e9ba0`              | The brand teal: the progress bar, volume level and large play button. Bunny's default is orange.                                                                                 |
+| `player_font_family`                                             | `inter`                | The time, menus and captions. The site's DM Sans isn't one of Bunny's eight fonts; Inter is the closest. Bunny serves it from fonts.bunny.net.                                   |
+| `player_captions_font_color`, `player_captions_background_color` | `#ffffff` on `#000000` | Captions sit on the picture, not on the page, so they don't follow the site theme. White on opaque black is readable on any frame.                                               |
+| `player_captions_font_size`                                      | 20                     | Bunny's default size.                                                                                                                                                            |
+| `player_language`                                                | `en`                   | The player's own labels.                                                                                                                                                         |
+| `player_controls`                                                | Bunny's set            | Bunny's defaults without AirPlay (no Apple-specific technology). Bunny draws them in its own order.                                                                              |
+| `player_watchtime_heatmap_enabled`                               | off                    | No viewing data on the progress bar (no public engagement signals).                                                                                                              |
+| `watermark_*`                                                    | 0                      | No watermark.                                                                                                                                                                    |
+| `vast_tag_url`                                                   | empty                  | No adverts.                                                                                                                                                                      |
+| `player_custom_head` (`player-head.html`)                        | CSS                    | 44 px touch targets (apps/web/AGENTS.md), an opaque black background, the site's teal focus ring, and a dark icon on the teal large play button (5.9:1; white on teal is 3.2:1). |
 
 Rules for `player-head.html`, checked by the module's tftest: CSS only, with no script, imports or
 external URLs. It relies on the player's element names, so a Bunny player update could undo it;

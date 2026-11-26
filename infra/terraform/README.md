@@ -279,7 +279,7 @@ SurrealDB and External Secrets go on Spot like dev's (no prod resources exist ye
 The `housekeeping` Cloud Run Job (`modules/gcp/housekeeping.tf`, app `apps/housekeeping`) runs
 the nightly chores: queued deletions (videos, pictures, Clerk accounts),
 abandoned drafts (D71) and orphaned story videos at Bunny
-([docs/media-runbook.md](../../docs/media-runbook.md), "Replaced and orphaned videos"). Cloud
+([docs/runbooks/media.md](../../docs/runbooks/media.md), "Replaced and orphaned videos"). Cloud
 Scheduler starts it at 03:30 London time; both are in `europe-west2`, written out in OpenTofu.
 
 - **Identities.** `housekeeping` runs the Job: it reads `surreal-housekeeping-password` (granted
@@ -309,7 +309,7 @@ Scheduler starts it at 03:30 London time; both are in `europe-west2`, written ou
 
 `modules/gcp/media.tf` (`media_ready` in the gcp root; plan:
 `project/context/research/m2-media-ready-plan.html` and `media-worker-final.html`; how to run it:
-[docs/media-runbook.md](../../docs/media-runbook.md), "Media ready"). Bunny posts video events to
+[docs/runbooks/media.md](../../docs/runbooks/media.md), "Media ready"). Bunny posts video events to
 api-user, which writes a job to the `mediaJob` table and queues it; the media worker on Joel's
 machine (D78, D126) pulls it and calls the result writer on Cloud Run directly (J5), which writes
 the answer. No answers queue and no dead letters (Joel, 2026-11-07, J4): the job table records
@@ -341,7 +341,7 @@ failures, and a job gives up after 3 (the retries rule).
 
 `modules/gcp/worker_identity.tf` (`worker_identity` in the gcp root; W1-A, Joel 2026-11-08,
 `project/context/research/worker-and-gcloud-sign-in.html`; how to run it:
-[docs/media-runbook.md](../../docs/media-runbook.md), "Worker identity"). The media worker signs in
+[docs/runbooks/media.md](../../docs/runbooks/media.md), "Worker identity"). The media worker signs in
 with its own certificate, not a person's login and not a Google key file.
 
 - **Authority:** KMS key `worker-identity/worker-ca` (London, EC P-256, software, never
@@ -467,7 +467,7 @@ Kept originals are on (`original_files_keep = true`; RE-1 A, Joel 2026-11-17): B
 video's original upload for later social media processing; deleting the video deletes it too.
 
 **Keys and state.** The provider stores the library keys, the zone passwords and the pull zone's
-token key in state, with no write-only alternative: the approved exception in `AGENTS.md` (D57 C).
+token key in state, with no write-only alternative: the approved exception in `infra/terraform/AGENTS.md` (D57 C).
 Mitigation: only developers and `tf-bunny` can read `dev/bunny/` or use `tofu-bunny`, which
 encrypts its state and saved plans; CI gets `tf-bunny` only on `main`, in `tofu-apply.yml` and
 `tofu-drift.yml`, never on a PR; and debug logs are refused. The account API key lives in Secret
@@ -592,12 +592,12 @@ Rollout, in order (a revision that can't read its keys doesn't start):
 3. Run "Dev behavioural tests": `media.behaviour.ts` checks signed links load and unsigned or
    tampered ones get 403.
 
-The player's controls are made 44 × 44 px (AGENTS.md touch targets) by CSS in the library's
+The player's controls are made 44 × 44 px (`apps/web/AGENTS.md` touch targets) by CSS in the library's
 custom head (`player_custom_head`, `modules/bunny/player-head.html`; plain CSS, no script, checked
 by the module's tftest). It targets the player's media-chrome element names, so a Bunny player
 update could undo it: the behavioural media checks measure the real player on a 320 px phone.
 The player's other settings (key colour, font, captions, controls) match the site theme; what
-each is for: `docs/media-runbook.md`, "The Stream player".
+each is for: `docs/runbooks/media.md`, "The Stream player".
 
 Rotating a token key: reset it at Bunny, apply bunny (new secret version), then start a new
 api-public-read revision (keys are read at startup). Links signed with the old key stop working
@@ -775,7 +775,7 @@ version exists, each service writes one start-up warning and logs to stdout only
 block. The organisation id is `he-is-real-uuwg` (not a secret); the provider needs none, since an
 advanced token belongs to one organisation, and talks to `api.axiom.co` (only ingest and queries go
 to the edge). The root also holds the dashboards (`dashboard-*.tf`, one file each, described in
-`docs/logs-runbook.md`, "Dashboards"); monitors and notifiers come later, once Joel has chosen what
+`docs/runbooks/logs.md`, "Dashboards"); monitors and notifiers come later, once Joel has chosen what
 to watch and who gets told.
 
 **The token.** The provider runs with the advanced token `heisreal-terraform` (Axiom's "Terraform"

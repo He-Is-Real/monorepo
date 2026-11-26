@@ -49,7 +49,7 @@ import {
  *
  * The worker marks the job taken (acks it) after a 2xx, except when the failed route answers
  * `retry: true`; after anything else (the writer or database unreachable, a 5xx) it doesn't, and
- * the queue redelivers the job later: nothing is lost (docs/media-runbook.md).
+ * the queue redelivers the job later: nothing is lost (docs/runbooks/media.md).
  */
 @Controller('v1/media-jobs')
 export class MediaJobsController {

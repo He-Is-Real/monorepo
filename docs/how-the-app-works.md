@@ -1112,7 +1112,7 @@ Planned (M3):
   2026-11-17). **The block list** is kept until
   an Admin removes an entry, even after the person deletes their account. (G21 D, Joel 2026-11-11)
 - Backups are nightly, in the UK, and age out; they aren't edited after a deletion. Restoring one
-  replays the erasures logged since it was taken: [restore runbook](restore-runbook.md).
+  replays the erasures logged since it was taken: [restore runbook](runbooks/restore.md).
 - Our services' logs are stored in London for 30 days (D101), and a copy in Axiom, in the EU
   (Frankfurt; its free plan has no UK region), also for 30 days. (LG-3, Joel 2026-11-25)
 - **Where data lives:** in the UK wherever possible (London), declared in our infrastructure
@@ -1380,7 +1380,7 @@ For developers. Details are in the linked documents.
   machine is cancelled by taking its name out of the OpenTofu list. After a refusal as "not the
   newest", the name is cancelled and the machine enrolled under a new name. The worker uses only Dapr's
   Pub/Sub part, and stores nothing on the machine but its identity (D129). Media ready is the first
-  such work (`docs/media-runbook.md`, "Media ready"). Every answer names the job's video, and the
+  such work (`docs/runbooks/media.md`, "Media ready"). Every answer names the job's video, and the
   writer refuses one that names another; anything the worker can't do, the writer refusing its
   answer and the worker's own errors included, counts as a failure, and a job gives up after 3,
   so none loops for ever (Joel, 2026-11-08).

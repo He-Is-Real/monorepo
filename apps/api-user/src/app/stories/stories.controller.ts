@@ -440,7 +440,7 @@ export class StoriesController {
       new StoryStore(session).delete(sid, version),
     );
     // Only once the delete has committed: its videos and picture folder at Bunny, at once, under
-    // one time budget, never failing the Delete (D71, OD-1; media-runbook.md).
+    // one time budget, never failing the Delete (D71, OD-1; docs/runbooks/media.md).
     await discardDeletedStoryMedia(this.deletedMedia, sid, videos);
     res.status(HttpStatus.NO_CONTENT);
   }

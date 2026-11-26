@@ -74,7 +74,7 @@ resource "bunnynet_stream_library" "media" {
   # explicit, so a dashboard change shows up as drift. The player is dark in both site themes,
   # like the design's player: it's a frame from Bunny's domain, and Bunny has no theme option
   # (no URL parameter), so it can't follow the site's light/dark switch. What each setting
-  # does: docs/media-runbook.md, "The Stream player".
+  # does: docs/runbooks/media.md, "The Stream player".
   player_version       = 2         # Bunny's current player (media-chrome), which player-head.html targets
   player_primary_color = "#4e9ba0" # brand teal: progress bar, volume, large play button
   # The site's font (DM Sans) isn't one of Bunny's eight; Inter is the closest. Bunny serves it
