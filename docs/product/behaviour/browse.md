@@ -17,7 +17,6 @@ Next id: REQ-BRW-089
 
 ## Home
 
-- **REQ-BRW-001** Only approved stories are ever public. [R11]
 - **REQ-BRW-002** Home shows the 3 newest stories under "Recently shared". [M1O-A4]
 - **REQ-BRW-082** Home shows a row of highlighted themes per category. [D130]
 - **REQ-BRW-003** No page shows story counts: no totals and no counts per theme. [D62]
@@ -36,7 +35,6 @@ Next id: REQ-BRW-089
 - **REQ-BRW-011** A chosen theme that does not exist (deleted, or never existed) filters nothing; the other chosen themes still filter. [UNTRACED]
 - **REQ-BRW-012** At most 10 themes filter at once, and the API refuses more. With 10 chosen, another stays unchosen and a note near the themes says "You can choose up to 10 themes.", read out by screen readers, until a theme is taken off. [J-2026-11-21-BRW]
 - **REQ-BRW-013** Sort is a set of radio buttons, as on the moderators' list. [J-2026-11-20-BRW]
-- **REQ-BRW-014** The search box has a magnifier button inside it, and Enter searches too. [UNTRACED]
 - **REQ-BRW-015** The search, the sort and every filter stay in the address. [BS-1]
 - **REQ-BRW-016** What is chosen (each theme, the format, a sort other than the default, "Favourites only") shows under the search box as chips, each removed with one tap, plus "Clear all", which keeps the search. [BS-1]
 
@@ -110,23 +108,12 @@ Next id: REQ-BRW-089
 - **REQ-BRW-060** Every page works from 320 px phones to large desktops, in light or dark (following the device, with a switch), with text enlarged to 200%. [J-2026-10-21-BRW]
 - **REQ-BRW-061** Body text sits in a reading column of at most about 80 characters a line. [R1]
 - **REQ-BRW-062** A page laid out in columns may be wider than the site's 1200 px content width, as long as no single column is wider than 1200 px. [J-2026-11-17-BRW]
-- **REQ-BRW-063** Every "Are you sure?" step sits in place of the button that opened it: a bold question, what will happen, the action button named for what it does and the way out, side by side, stacked full width on phones. [CD-1]
-  Example: saving the submission limits, removing a staff member, Delete on My submissions.
 - **REQ-BRW-064** The way out of an "Are you sure?" step says "Keep it" when deleting and "Cancel" for saves and edits. [CD-2]
 - **REQ-BRW-065** When an "Are you sure?" step opens, keyboard focus lands on the question, never on the action button, so a second Enter does nothing. Escape means no and puts focus back on the button that opened it. [CD-1]
 - **REQ-BRW-066** Screen readers hear an "Are you sure?" step as a question: an alert dialog named by the question. [CD-1]
-- **REQ-BRW-067** Every delete for good (an Admin's Delete on the moderation review page, "Delete my account" on Your data, Delete on My submissions) sits in a red-outlined "Danger zone" box with a warning sign. [DL-2]
 - **REQ-BRW-068** A delete-for-good button is solid danger red with a bin icon and says "Delete", or "Delete my account". Reject stays a plain red button among the moderation decisions. [DL-1]
-- **REQ-BRW-069** A switch is used only where pressing it changes the page at once ("Favourites only" on Stories), and its knob shows a ✓ when on. A choice saved later is a check box ("★ Highlighted" in the Themes panel). [SW-1]
-- **REQ-BRW-070** A check box is one 22 px box, and pressing its words ticks it too. [CB-1]
-- **REQ-BRW-071** A closed open/close section is link-coloured underlined words with a small triangle before them that turns down when open. [DS-1]
-- **REQ-BRW-072** An open short helper ("See all versions", "How to format it") hangs from a grey bar on its left; open long reading ("Read the full version 3") sits in a light panel with a fine edge. [DS-1]
 - **REQ-BRW-073** Open/close sections are the browser's own open/close element: they work before the page's JavaScript loads, and Enter or Space opens and closes them. [DS-1]
 - **REQ-BRW-074** Every button, and every link that looks like one, is 44 px tall (48 px for the home page's large calls to action), with semibold words, the site's keyboard outline and 8 px corners. [BT-1]
 - **REQ-BRW-075** In the header at 1280 px and wider with large text, the main links wrap onto more lines instead of running over the logo. [PR-257]
 - **REQ-BRW-076** A notice (something happened or needs attention) is a tinted box with a coloured bar on the left and its kind's icon, with an optional bold first line ("What our team said"). [NT-1]
-- **REQ-BRW-077** A notice is one of four kinds by meaning: something went wrong (red), needs a second look (amber), done (green), worth knowing (teal). [NT-1]
 - **REQ-BRW-078** Screen readers hear an error notice at once and any other notice when the screen reader is free. [NT-1]
-- **REQ-BRW-079** Quiet context (the weekly limit, empty lists) is a plain grey box, not a notice. [NT-1]
-- **REQ-BRW-080** Where the page knows why a button is greyed out, a short line under it says why. [OT-2]
-  Example: "Write a reason first." under Take down before a reason is typed; "Write a note first." for Send back and Reject.

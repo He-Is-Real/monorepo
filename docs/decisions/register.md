@@ -100,7 +100,7 @@ in the pull request that builds it, in the format in `.agents/skills/writing-the
 | TC-7   | 2026-11-21 | Pictures have no smallest size; small ones are enlarged in the browser with hard pixel edges                                           | docs/how-the-app-works.md                                                   | in force           | thumbnail-crop.html                 |
 | TC-8   | 2026-11-21 | Cropping uses the react-easy-crop library                                                                                              | docs/how-the-app-works.md                                                   | in force           | thumbnail-crop.html                 |
 | PC-1   | 2026-11-21 | Next.js page caching is on; missing pages and old-address moves are handled inside the page, answering 200                             | docs/how-the-app-works.md                                                   | in force           | page-caching.html                   |
-| NT-1 | 2026-11-21 | One notice look: tinted box, coloured bar and icon, four kinds by meaning | REQ-BRW-076, REQ-BRW-077, REQ-BRW-078, REQ-BRW-079 | in force | web-library-looks.html |
+| NT-1 | 2026-11-21 | One notice look: tinted box, coloured bar and icon, four kinds by meaning | REQ-BRW-076, REQ-BRW-078 | in force | web-library-looks.html |
 | J-2026-11-21-ADM | 2026-11-21 | The staff menu marks the current page bold with a teal line, like the site navigation | REQ-ADM-002 | in force | chat |
 | J-2026-11-21-BRWb | 2026-11-21 | The Stories filters column needs page content at least 50rem wide, not 57rem | REQ-BRW-017 | in force | chat: "merge 50 change in" |
 | J-2026-11-21-BRW | 2026-11-21 | At most 10 themes filter at once, with a note when the limit is reached | REQ-BRW-012 | in force | chat: "yes display a theme limit note" |
@@ -113,15 +113,11 @@ in the pull request that builds it, in the format in `.agents/skills/writing-the
 | BS-1   | 2026-11-20 | Browse's filters sit in a column on the left; only the search box sits above the stories                                               | docs/how-the-app-works.md                                                   | in force           | browse-search-compact.html          |
 | BS-2   | 2026-11-20 | The search box has a magnifier inside it; Enter also searches                                                                          | docs/how-the-app-works.md                                                   | in force           | browse-search-compact.html          |
 | BS-4   | 2026-11-20 | The moderators' list keeps its own layout and shares the search box and theme chips                                                    | docs/how-the-app-works.md                                                   | in force           | browse-search-compact.html          |
-| OT-2 | 2026-11-20 | A greyed-out button says why in a short line under it, where the page knows | REQ-BRW-080 | in force | web-library-looks.html |
 | BT-1 | 2026-11-20 | One button look: 44 px tall, semibold words, keyboard outline, 8 px corners | REQ-BRW-074 | in force | web-library-looks.html |
-| DS-1 | 2026-11-20 | One look for open/close sections, built on the browser's own open/close element | REQ-BRW-071, REQ-BRW-072, REQ-BRW-073 | in force | web-library-looks.html |
-| CB-1 | 2026-11-20 | One 22 px check box, ticked by pressing its words too | REQ-BRW-070 | in force | web-library-looks.html |
-| SW-1 | 2026-11-20 | A switch only where pressing it acts at once; a choice saved later is a check box | REQ-BRW-069 | in force | web-library-looks.html |
-| DL-2 | 2026-11-20 | Every delete for good, the person's own included, sits in a red "Danger zone" box | REQ-BRW-067 | in force | delete-button-looks.html |
+| DS-1 | 2026-11-20 | One look for open/close sections, built on the browser's own open/close element | REQ-BRW-073 | in force | web-library-looks.html |
 | DL-1 | 2026-11-20 | A delete for good is a solid red button with a bin icon saying "Delete" | REQ-BRW-068 | in force | delete-button-looks.html |
 | CD-2 | 2026-11-20 | The way out of an "Are you sure?" step says "Keep it" on deletes, "Cancel" on saves | REQ-BRW-064 | in force | web-library-looks.html |
-| CD-1 | 2026-11-20 | One "Are you sure?" step everywhere, in place of the button, focus on the question | REQ-BRW-063, REQ-BRW-065, REQ-BRW-066 | in force | web-library-looks.html |
+| CD-1 | 2026-11-20 | One "Are you sure?" step everywhere, in place of the button, focus on the question | REQ-BRW-065, REQ-BRW-066 | in force | web-library-looks.html |
 | J-2026-11-20-BRW | 2026-11-20 | The Stories page's sort is radio buttons, as on the moderators' list | REQ-BRW-013 | in force | chat: "can we set sort to be radio buttons for sorting on the public search instead of pills" |
 | J-2026-11-20-ADM | 2026-11-20 | Staff see one "Admin" link in the navigation, leading to a landing page with the staff menu | REQ-ADM-007, REQ-ADM-008, REQ-ADM-010, REQ-ADM-013, REQ-ADM-014 | in force | chat |
 | J-2026-11-20-ADMb | 2026-11-20 | Admins set the largest picture file on the Limits page, shown in KB | REQ-ADM-033, REQ-ADM-039 | in force | chat: "add admin modifiable limitations for image object size when uploading to bunny.net storage" "picture assumptions and changes are ok!" |
