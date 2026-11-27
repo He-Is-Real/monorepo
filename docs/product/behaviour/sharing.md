@@ -76,13 +76,13 @@ Next id: REQ-SHR-140
 - **REQ-SHR-033** When the same draft is open in two tabs, each keeps its own changes, and the person is asked only when both changed the same thing. [D70]
 - **REQ-SHR-034** Text stays in the tab until the server has it, through reloads and outages. [D70]
 - **REQ-SHR-129** A person can start a draft only as themselves, with an existing account, after agreeing to the latest terms of use and testimony consent. [J-2026-11-01-DB]
-- **REQ-SHR-130** Only the person can change their story's words, and only while it is in editing; staff and the system never change them. [D41]
+- **REQ-SHR-130** Only the person can change their story's content (title, words, name, story type, themes, picture and file), and only while it is in editing; staff and the system never change it, apart from an audio story's picture video (REQ-SHR-106). [D41]
 
 ## Limits
 
 - **REQ-SHR-035** An Admin can change each limit in this section; the numbers given are the values in force. [D112]
-- **REQ-SHR-131** A story's text is never over 50,000 characters and it never has more than 20 themes, whatever the settings. [J-2026-10-28-DB]
-- **REQ-SHR-132** Limits are there to stop spam, not absolute: a change applies to actions started after it, and one already under way may finish under the old values. [J-2026-10-28-DB]
+- **REQ-SHR-131** A story's text is never over 50,000 characters and it never has more than 20 themes, whatever the settings. [PR-118]
+- **REQ-SHR-132** When an Admin changes a limit, only the one save already in progress may finish under the old value; every later save uses the new one. [PR-118]
 - **REQ-SHR-036** A written story's text is 200 to 10,000 characters; a video or audio story's text has no minimum and is at most 10,000. [M1-A3]
 - **REQ-SHR-037** Invisible zero-width characters count towards the 200-character minimum. [M1O-A2]
 - **REQ-SHR-038** A story's title is at most 140 characters. [UNTRACED]
@@ -93,7 +93,7 @@ Next id: REQ-SHR-140
 - **REQ-SHR-134** Only a story's first send counts towards the weekly limit; sending it again after editing does not, and the limit applies only to what the person does themselves. [D113]
 - **REQ-SHR-135** Each first send of a story counts towards the weekly limit for 7 days, even if the story is deleted meanwhile. [D113]
 - **REQ-SHR-042** When a limit changes, it applies to everyone at once: every later action must meet the limits in force. [J-2026-10-30-SHRb]
-- **REQ-SHR-136** When a limit changes, a story already sent or published is never checked against it again. [J-2026-10-30-DB]
+- **REQ-SHR-136** When a limit changes, a story already sent or published is never checked against it again. [UNTRACED]
 - **REQ-SHR-043** An edit over a maximum is accepted only if it does not make it worse, so a long draft can still be trimmed; submitting needs every current minimum and maximum. [J-2026-10-30-SHRb]
 - **REQ-SHR-044** Trusted submitters have no open-drafts or weekly limits, only the hourly upload limit, and get the largest video and audio sizes and lengths (not bigger pictures). [UNTRACED]
 - **REQ-SHR-045** An Admin can also set a person's own limits; there is no admin page for that. [D112]
