@@ -381,7 +381,7 @@ describe('a render job (audio-picture-video 1B, K1)', () => {
 describe('a job sent back to the queue (the retries rule, RT-9)', () => {
   it('counts trouble towards three tries, then marks the job taken for the 18:00 resend and writes the retry_limit line', async () => {
     const { d } = deps(READY, { answer: { status: 503, body: {} } });
-    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
       await expect(handleJob(check, d)).resolves.toBe('RETRY');
       // A refused sign-in counts as trouble too.

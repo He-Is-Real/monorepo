@@ -115,7 +115,7 @@ describe('housekeeping: media jobs', () => {
     [...logs].reverse().find((l) => l['task'] === task);
   /** The shared "tries ran out" lines (the retries rule) `work` writes. */
   const retryLimits = async (work: () => Promise<unknown>) => {
-    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
       await work();
       return errors.mock.calls

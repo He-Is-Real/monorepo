@@ -134,7 +134,7 @@ describe('runIdempotent', () => {
       lookups: [],
       transactions: Array(10).fill('conflict'),
     });
-    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
       await expect(
         runIdempotent(db, scope, 'h', async () => command, { backoffMs: 1 }),
