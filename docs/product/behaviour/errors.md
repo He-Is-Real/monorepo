@@ -8,8 +8,8 @@ Next id: REQ-ERR-033
 
 - **REQ-ERR-001** When something goes wrong on our side (a server error, a technical refusal, a rate limit), the website says only "Something went wrong. Please try again later." on every page, admin pages included. [J-2026-11-09-ERR]
 - **REQ-ERR-002** The website never shows an HTTP status, error code, error type or what the server is doing; the logs keep the full detail. [J-2026-11-09-ERR]
-- **REQ-ERR-032** An error message never repeats story text or other personal data. [D30]
   Not: the database restart, which is named with its countdown (REQ-ERR-020).
+- **REQ-ERR-032** An error message never repeats story text or other personal data. [D30]
 - **REQ-ERR-003** Where it helps, the generic message adds what of the person's is safe, for example "Your story is saved.". [J-2026-11-09-ERR]
 - **REQ-ERR-004** When the page's own JavaScript fails in the browser, it says "This page stopped working. Reloading it usually fixes this.", with "Reload page" and "Go to the home page". [LG-13c]
   Not: a page that fails while the server builds it, which shows the generic message.
