@@ -46,7 +46,7 @@ Next id: REQ-MOD-143
   Why: the database knows Moderators only as api-admin's login, so it can't check the role itself.
 - **REQ-MOD-020** Moderators and Admins may decide on their own stories. [J-2026-11-11-MODb]
 - **REQ-MOD-021** Any Moderator or Admin can decide any story waiting for review: there is no pick-up locking, escalation or assignment. [J-2026-11-11-MOD]
-- **REQ-MOD-022** Moderators see the byline the owner chose, never the owner's name, email, account id or join date, and never which Moderator made a step. [UNTRACED]
+- **REQ-MOD-022** Moderators see the byline the owner chose, never the owner's name, email, account id or join date, and never which Moderator made a step. [PR-210]
 
 ## The moderators' list
 
