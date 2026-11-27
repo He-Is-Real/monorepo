@@ -2,7 +2,7 @@
 
 Who: Visitor, Signed-in person, Moderator, Admin, the system.
 Data: `docs/db-permissions.md`.
-Next id: REQ-ACS-017
+Next id: REQ-ACS-018
 
 - **REQ-ACS-001** Each person's access rules are enforced by the database itself, not only by the app's code. [BE-5]
 - **REQ-ACS-002** No part of the system can read more personal data than its job needs. For example, the nightly clean-up never reads a story's words. [BE-6]
@@ -20,7 +20,8 @@ Next id: REQ-ACS-017
 - **REQ-ACS-008** The staff member's email on a step is visible to staff only; the story's owner never sees it. [EM-1]
 - **REQ-ACS-009** A person can read the history of their own stories, including the Moderators' decisions and notes. [R6]
 - **REQ-ACS-010** Everyone else can read, of a story's history, only that it is approved and when it was first published, and only from the entry that makes it public now. [R11]
-- **REQ-ACS-015** Of the staff, only Admins see the email and IP address a story was sent with, on its moderation page; Moderators never do. The person who sent it can see the email too. [EM-1]
+- **REQ-ACS-015** Of the staff, only Admins see the email and IP address a story was sent with, on its moderation page; Moderators never do. [EM-1]
+- **REQ-ACS-017** The person who sent a story can see the email it was sent with. [UNTRACED]
 - **REQ-ACS-016** The person who sent a story can see the IP address it was sent from, while it is kept. [BL-4]
 
 ## Files

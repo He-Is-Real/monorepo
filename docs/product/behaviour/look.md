@@ -2,11 +2,12 @@
 
 Who: Visitor, Signed-in person, Moderator, Admin.
 Data: none.
-Next id: REQ-LOOK-035
+Next id: REQ-LOOK-036
 
 ## Pieces
 
-- **REQ-LOOK-001** Closed, a drop-down shows the site's field and chevron; opened on a computer (a mouse or trackpad), it shows the site's own list in every browser. [U3]
+- **REQ-LOOK-001** Closed, a drop-down shows the site's field and chevron; opened on a computer (a mouse or trackpad), it shows the site's own list. [U3]
+- **REQ-LOOK-035** On a computer the site's own open list shows in every browser. [UNTRACED]
 - **REQ-LOOK-002** On phones and tablets, and before the page's scripts run or without them, a drop-down is the device's own picker, so forms still work. [UNTRACED]
 - **REQ-LOOK-003** Every search box has a magnifier button inside it, and Enter searches too. [UNTRACED]
 - **REQ-LOOK-004** Every chip a person presses has one look, the browse chip's, with a tick when chosen. [CH-1]
@@ -21,7 +22,7 @@ Next id: REQ-LOOK-035
 - **REQ-LOOK-011** Every switch has one look, its knob showing a ✓ when on, and is used only where pressing it changes the page at once ("Favourites only" on Stories). A choice saved later is a check box ("★ Highlighted" in the Themes panel). [SW-1]
 - **REQ-LOOK-012** Every set of tabs is underlined tabs. [TB-1]
 - **REQ-LOOK-013** A message that is not news (the weekly limit line, an empty list) sits in a plain grey box, not a notice. [NT-2]
-- **REQ-LOOK-014** Where the page knows why, a greyed-out button says so on a line of its own underneath. [OT-2]
+- **REQ-LOOK-014** Where the page knows why, a greyed-out button says so in a short line of its own underneath. [OT-2]
   Example: "Write a reason first." under Take down before a reason is typed; "Write a note first." for Send back and Reject.
 - **REQ-LOOK-015** Text boxes come in two sizes: a compact one beside drop-downs, a standard one wherever people type. [TF-1]
 - **REQ-LOOK-016** A notice comes in four kinds by meaning: danger, something went wrong (red); warning, needs a second look (amber); success, done (green); information, worth knowing (teal). [NT-1]
