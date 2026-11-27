@@ -2,8 +2,8 @@
 
 The He Is Real web library: the site's theme (colours, font, shapes), its building blocks (React
 components that `apps/web` pages use instead of their own styled copies) and the lint checks that
-keep pages on them (`docs/how-the-app-works.md`, layout and UI rules; LB-1 and OT-1, Joel,
-20 November 2026). Another website gets the whole look from it.
+keep pages on them (direction REQ-DIR-020 in `docs/system/direction.md`; the looks people see are in
+`docs/product/behaviour/look.md`). Another website gets the whole look from it.
 
 ## Styling order (Joel, 2026-11-21)
 

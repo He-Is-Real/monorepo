@@ -1,10 +1,13 @@
 # Delivery status
 
-Where the build is, in plain words. **Last updated:** 2026-11-25
+Where the build is, in plain words. **Last updated:** 2026-11-27
 
 Everything here runs on the **dev** test site only, with made-up stories. Nothing reaches the
 public until the "Go live" milestone. The old prototype and the Squarespace site keep running until
 then.
+
+The milestones come in the order below: the building milestones first, then "Real stories", then
+"Go live", then "Emails".
 
 **Key:** ✅ done · 🟡 being built · ⏸ waiting for a decision or a step from Joel · ⚪ not started
 

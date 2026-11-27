@@ -67,6 +67,7 @@ source of truth, so change them in the same PR as the code.
   - Don't test an API route that no finished frontend feature uses yet.
   - Tests must give the same result locally and in CI: no dependence on timing, machine load, ports or shared state.
   - Remove a flaky test, or one that stubs away the behaviour it claims to check, or rebuild it at the right level. Deleting low-value tests is welcome.
+  - A flaky test with no clear cause or fix is rewritten one level lower (an e2e test becomes a component test of the same behaviour); if still unreliable, propose deleting it, and Joel approves.
   - TDD belongs at the behaviour level, at the point in our process where that behaviour is defined.
 - **Performance and scale tests stay local and separate (Joel, 2026-11-06).** They run only on a
   developer's machine against a throwaway local SurrealDB in Docker: never in CI, and never against
