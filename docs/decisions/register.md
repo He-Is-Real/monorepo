@@ -5,6 +5,7 @@ in the pull request that builds it, in the format in `.agents/skills/writing-the
 
 | Id     | Date       | Decided, in plain words                                                                                                                | Now at                                                                      | Status             | Source                              |
 | ------ | ---------- | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ------------------ | ----------------------------------- |
+| BE-14 | 2026-11-27 | An Admin sets the largest upload on the Limits page, at most 10 GB video, 2 GB audio, 3 hours | REQ-ADM-043 | in force | knowledge-system-behaviour-vs-engineering.html |
 | J-2026-11-01-DB | 2026-11-01 | Legal texts are immutable versions; people agree in their own session; the database enforces agree first | REQ-ADM-041 | in force | privacy-consent-architecture.html |
 | J-2026-10-31-DB | 2026-10-31 | Themes, categories and the theme catalog: everyone reads, api-admin writes; Other is fixed | REQ-ADM-034 | in force | themes-rebuild-plan.html |
 | J-2026-10-28-DB | 2026-10-28 | Submission settings and story text and theme limits are admin settings with fixed ceilings | REQ-ADM-038 | in force | m2-wave-b-ok.html |

@@ -2,7 +2,7 @@
 
 Who: Moderator, Admin, Visitor and Signed-in person (the navigation link, reading themes, and their own limits).
 Data: `docs/db-permissions.md` ("Themes", "Settings and limits").
-Next id: REQ-ADM-043
+Next id: REQ-ADM-044
 
 ## Header and navigation
 
@@ -30,6 +30,7 @@ Next id: REQ-ADM-043
 
 - **REQ-ADM-015** The Limits page (Admins) shows the submission limits in plain words with their units, and the two deletion times: rejected stories and stories left in editing. [G3]
 - **REQ-ADM-033** The Limits page shows the largest picture file in KB (1 KB = 1,024 bytes) under "Pictures". [J-2026-11-20-ADMb]
+- **REQ-ADM-043** On the Limits page an Admin sets the largest upload allowed, up to 10 GB for a video, 2 GB for an audio file and 3 hours long. [BE-14]
 - **REQ-ADM-016** The Limits page shows one group at a time, picked from a side list, or from a "Group" drop-down on phones. [J-2026-11-17-ADMb]
 - **REQ-ADM-017** On the Limits page a changed box is outlined in teal, and a save bar lists every unsaved change with Undo and Save. [J-2026-11-17-ADMb]
 - **REQ-ADM-018** When an Admin presses Save on the Limits page, it lists the changes and asks to confirm. [UNTRACED]
