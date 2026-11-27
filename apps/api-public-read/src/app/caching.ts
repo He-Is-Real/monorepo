@@ -11,7 +11,7 @@ export const PUBLIC_MAX_AGE_SECONDS = 30;
  * D51: API responses are `no-store` in dev, so a story that is hidden, taken down to edit, deleted or erased
  * disappears from browsers and CDNs at once (this service's own memory keeps it at most 30 seconds,
  * R13). Shared caching needs `PUBLIC_RESPONSE_CACHING=on`, which no environment sets yet (Go
- * live's front door decides it, D56). Anything else fails safe. When on, a public query may be
+ * live's front door decides it). Anything else fails safe. When on, a public query may be
  * kept for the `seconds` its answer has left, and never served stale beyond them (no
  * `stale-while-revalidate`): 30 seconds is the total (R13). An answer with no time left is
  * `no-store`. Signed media links outlive that by

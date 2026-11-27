@@ -11,7 +11,7 @@ info:
     - Called by the browser, and server-side by `web` to prerender pages (D32).
     - Every path is under `/v1` except `/health` (D30). Errors are RFC 9457 `application/problem+json`.
     - Queries return an `ETag` and `Cache-Control: no-store` (D51); shared caching (`public,
-      max-age=N`, N ≤ 30, the seconds left) only when turned on for Go live (D56).
+      max-age=N`, N ≤ 30, the seconds left) only when turned on (decided at Go live).
     - A repeated request is answered from the service's memory for up to 30 seconds (R13), so a
       change (a story hidden, withdrawn or erased) reaches the public within 30 seconds.
     - Public stories are addressed by slug; an old slug answers `301` (D30).

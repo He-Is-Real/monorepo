@@ -8,7 +8,7 @@ import {
 } from '@/lib/sitemap';
 
 // D51: nothing that lists stories is cached, so a story taken off the site doesn't linger here.
-// Caching at Go live is the front door's question (D56).
+// Caching is the front door's question, decided at Go live.
 const NO_STORE = { 'Cache-Control': 'no-store' };
 
 /** Failures that mean "try again later": the API, the walk's budget, or an aborted walk. */

@@ -211,7 +211,7 @@ short-lived upload credentials.
 - **Caching:** api-public-read answers a repeated public query from its own memory for up to 30
   seconds (R13; per running copy, at most 500 answers, no timers: `public-cache.ts`). Public
   queries send `Cache-Control: no-store` until shared caching is turned on
-  (`PUBLIC_RESPONSE_CACHING=on` on api-public-read; D51: never in dev; Go live decides, D56), then
+  (`PUBLIC_RESPONSE_CACHING=on` on api-public-read; D51: never in dev; decided at Go live), then
   `public, max-age=N`, N being the seconds the answer has left of its 30 (counted from when the
   database was asked; `no-store` when none is left), with no
   `stale-while-revalidate`: a public answer is never more than 30 seconds old in total (a `304`

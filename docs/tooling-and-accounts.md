@@ -158,7 +158,7 @@ tool runs APL like the CLI; `getDatasetFields` lists the real field names.
 
 | Service              | When                        | For                                                                                                                                   |
 | -------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| **Cloudflare**       | Go live                     | DNS for `heisreal.today` (D3, D51); proxy/WAF optional. Possibly the front door for the custom domain (D56). Never a CDN for the APIs |
+| **Cloudflare**       | Go live                     | DNS for `heisreal.today` (D3, D51); proxy/WAF optional. Possibly the front door for the custom domain (decided at Go live). Never a CDN for the APIs |
 | **Clerk production** | Go live                     | A production instance on our domain, with its own `prod.json`, keys and PEM ([infra/clerk/README.md](../infra/clerk/README.md))       |
 | **Stripe**           | M4 Donations                | Donations; Apple Pay only through Stripe (no Apple-specific technology)                                                               |
 | **Sentry, Umami**    | Deferred (D5)               | Error tracking and analytics; GCP Cloud Logging / Error Reporting meanwhile. Anything non-essential needs cookie opt-in first         |
