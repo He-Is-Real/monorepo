@@ -2,12 +2,13 @@
 
 Who: Visitor, Signed-in person, Moderator, Admin, the system.
 Data: none.
-Next id: REQ-ERR-031
+Next id: REQ-ERR-033
 
 ## When something goes wrong on our side
 
 - **REQ-ERR-001** When something goes wrong on our side (a server error, a technical refusal, a rate limit), the website says only "Something went wrong. Please try again later." on every page, admin pages included. [J-2026-11-09-ERR]
 - **REQ-ERR-002** The website never shows an HTTP status, error code, error type or what the server is doing; the logs keep the full detail. [J-2026-11-09-ERR]
+- **REQ-ERR-032** An error message never repeats story text or other personal data. [D30]
   Not: the database restart, which is named with its countdown (REQ-ERR-020).
 - **REQ-ERR-003** Where it helps, the generic message adds what of the person's is safe, for example "Your story is saved.". [J-2026-11-09-ERR]
 - **REQ-ERR-004** When the page's own JavaScript fails in the browser, it says "This page stopped working. Reloading it usually fixes this.", with "Reload page" and "Go to the home page". [LG-13c]
@@ -33,6 +34,7 @@ The database runs on Google's Spot capacity in dev and production; Google can ta
 
 - **REQ-ERR-019** When Google takes the database's Spot capacity back, the database restarts elsewhere within a few minutes and no data is lost. [J-2026-11-07-ERR]
 - **REQ-ERR-020** While the database restarts, everything except public browsing (signed-in pages, saving, sharing, uploads, admin pages) shows "Our compute is currently restarting. Please try again in about 2 minutes." [J-2026-11-09-ERR]
+- **REQ-ERR-031** While the database cannot be reached, every request not answered from the kept public answers, the sign-in lookup included, is answered at once with the restarting message and when to try again; nothing hangs. [J-2026-11-07-ARC]
 - **REQ-ERR-021** The minutes count down in the browser from the server's estimate, in whole minutes rounded up; when the countdown runs out it says "Please try again later." instead, never "about 1 minute" or 0. [J-2026-11-09-ERR]
 - **REQ-ERR-022** Without JavaScript, the page shows the server's estimate as it was. [J-2026-11-09-ERR]
 - **REQ-ERR-023** After a save, a submit or an upload, the restart message shows at the bottom of the screen and the page keeps what the person typed. [J-2026-11-09-ERR]
