@@ -7,7 +7,7 @@
 #   tools/scripts/tf.sh axiom apply
 #
 # Never planned on pull requests (tf-planner can't read the token); tofu-apply.yml plans it on
-# main in wave 1, under the same approval as gcp, bunny and stripe, and tofu-drift.yml checks it
+# main in wave 1, with gcp, bunny and stripe, and tofu-drift.yml checks it
 # weekly. The state holds the dataset's settings and the dashboards, never a token.
 #
 # API tokens are never managed here: an `axiom_token` resource would put the token's value in

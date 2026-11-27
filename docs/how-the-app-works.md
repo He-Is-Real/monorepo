@@ -1316,8 +1316,8 @@ For developers. Details are in the linked documents.
   OpenTofu only (Joel, 2026-11-08).
 - **Temporary patched SurrealDB:** v3.2.4 built with the upstream fix so it accepts Clerk's
   tokens, until an official release has it. (D111; `infra/k8s/surrealdb/README.md`)
-- **Infrastructure:** OpenTofu for every cloud change, encrypted state, one approval per apply;
-  dev plans that only change image versions apply themselves. (decision 3, D54, D57, D120;
+- **Infrastructure:** OpenTofu for every cloud change, encrypted state; plans and dev applies run
+  on their own, a production apply needs one manual approval. (decision 3, D54, D57, BE-18;
   AGENTS.md, `infra/terraform/README.md`)
 - **Clerk's settings are code** (`infra/clerk/dev.json`), applied with the Clerk CLI: the one
   exception to "everything through OpenTofu". (decision 17; `infra/clerk/README.md`)

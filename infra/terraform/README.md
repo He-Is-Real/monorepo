@@ -25,12 +25,12 @@ modules/
   stripe/      donations in Stripe: product, prices, Payment Links, donor portal (tested, mock provider)
 live/dev/      one root per concern, applied in this order:
   bootstrap/   developer only, locally (billing roles)                  state: dev/bootstrap
-  gcp/         tofu-apply.yml (approved) or a developer              state: dev/gcp
+  gcp/         tofu-apply.yml after merge, or a developer            state: dev/gcp
   images/      a developer (Docker), or tofu-apply.yml on request    state: dev/images
-  cluster/     tofu-apply.yml (approved) or a developer              state: dev/cluster
-  bunny/       tofu-apply.yml (approved, as tf-bunny) or a developer state: dev/bunny (private)
-  stripe/      tofu-apply.yml (approved) or a developer, Stripe sandbox state: dev/stripe
-  axiom/       tofu-apply.yml (approved) or a developer, the logs dataset state: dev/axiom
+  cluster/     tofu-apply.yml after merge, or a developer            state: dev/cluster
+  bunny/       tofu-apply.yml after merge (as tf-bunny), or a developer state: dev/bunny (private)
+  stripe/      tofu-apply.yml after merge, or a developer, Stripe sandbox state: dev/stripe
+  axiom/       tofu-apply.yml after merge, or a developer, the logs dataset state: dev/axiom
 live/org/      the organisation's settings (every project): an org admin, locally   state: org
 ```
 
@@ -73,7 +73,7 @@ config in code). For bunny: `state pull`, `show -json` and `output -json`, which
 | Replace a Cloud Run service | apply `gcp` with `-var run_deletion_protection=false`, then again with that and `-replace=<address>`, then plain |
 | Plan with your own rights   | `TF_SH_IDENTITY=self tools/scripts/tf.sh <root> plan`                                                            |
 
-A local apply is as deliberate as an approval in CI: read the plan first. After a local apply
+Read the plan before a local apply. After a local apply
 from a branch, the next `tofu-apply.yml` run moves dev back to what `main` says.
 
 ## Images
@@ -88,14 +88,14 @@ converges on git and git history is the deploy log. Decision doc:
 | `"snapshot"`   | newest development build (repo `apps-scratch`; unmerged code; never allowed in prod)  |
 | `"…@sha256:…"` | hold the service on exact build                                                       |
 
-| Task                        | How                                                                                                     |
-| --------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Deploy the latest `main`    | approve the gcp plan of the `tofu-apply.yml` run Release Images triggers; the plan shows the new digest |
-| Build a snapshot locally    | `pnpm nx run-many -t prune -p $(tools/scripts/image-services.sh)`, then `tf.sh images apply` (Docker)   |
-| Build a snapshot in CI      | Actions → "Snapshot images" → Run workflow on your branch                                               |
-| Run a snapshot in dev, once | apply `gcp` locally with `-var 'image_overrides={"api-public-read"="snapshot"}'`                        |
-| Keep dev on snapshots       | set the service to `"snapshot"` in `images.auto.tfvars` on your branch, apply `gcp` locally             |
-| Roll back                   | revert the change to `images.auto.tfvars` (or pin the previous digest), then apply                      |
+| Task                        | How                                                                                                   |
+| --------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Deploy the latest `main`    | nothing: the `tofu-apply.yml` run Release Images triggers plans the new digest and applies it         |
+| Build a snapshot locally    | `pnpm nx run-many -t prune -p $(tools/scripts/image-services.sh)`, then `tf.sh images apply` (Docker) |
+| Build a snapshot in CI      | Actions → "Snapshot images" → Run workflow on your branch                                             |
+| Run a snapshot in dev, once | apply `gcp` locally with `-var 'image_overrides={"api-public-read"="snapshot"}'`                      |
+| Keep dev on snapshots       | set the service to `"snapshot"` in `images.auto.tfvars` on your branch, apply `gcp` locally           |
+| Roll back                   | revert the change to `images.auto.tfvars` (or pin the previous digest), then apply                    |
 
 An apply from `main` always moves dev back to what `main` says; read the plan. `apps` tags
 are immutable. `apps-scratch` keeps the 15 newest builds per service and deletes older ones after
@@ -103,15 +103,15 @@ are immutable. `apps-scratch` keeps the 15 newest builds per service and deletes
 
 ## CI
 
-| Workflow                    | When                                                       | Identity                                                                                                         | Changes the cloud?                              |
-| --------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| `tofu-plan.yml`             | automatically on PRs touching infra                        | `tf-planner` (gcp, images; read-only); `tf-cluster-planner` (cluster, `cluster-plan` env)                        | Dry-run writes in `database`                    |
-| `tofu-apply.yml`            | every Release Images run (one per merge), dispatch         | `tf-deployer` (gcp, cluster, images, stripe, axiom), `tf-bunny` (bunny): only this workflow and drift, on `main` | Yes, after an approval in the `dev` environment |
-| `tofu-drift.yml`            | weekly (Monday 06:17 UTC) and dispatch                     | `tf-deployer` (gcp, cluster, stripe, axiom), `tf-planner` (bootstrap), `tf-bunny` (bunny)                        | No                                              |
-| `images.yml`                | every push to `main` ("Release Images"; builds if changed) | `ci-image-pusher`: only `main` pushes                                                                            | Pushes to `apps`                                |
-| `snapshot-images.yml`       | **manual** Run workflow, any branch                        | `ci-snapshot-pusher`: only that workflow                                                                         | Pushes to `apps-scratch`                        |
-| `reset-dev-data.yml`        | **manual** Run workflow, `main` (D50)                      | `ci-dev-seeder`: only this and `dev-behavioural-tests.yml`, dispatched on `main`                                 | Starts the dev-seed Job (dummy data, no apply)  |
-| `dev-behavioural-tests.yml` | **manual** Run workflow, `main` (D50)                      | `ci-dev-seeder` for the reset job; the test job has no identity                                                  | Resets dev data, then tests the dev URLs        |
+| Workflow                    | When                                                       | Identity                                                                                                         | Changes the cloud?                             |
+| --------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| `tofu-plan.yml`             | automatically on PRs touching infra                        | `tf-planner` (gcp, images; read-only); `tf-cluster-planner` (cluster, `cluster-plan` env)                        | Dry-run writes in `database`                   |
+| `tofu-apply.yml`            | every Release Images run (one per merge), dispatch         | `tf-deployer` (gcp, cluster, images, stripe, axiom), `tf-bunny` (bunny): only this workflow and drift, on `main` | Yes, dev only, no approval stop                |
+| `tofu-drift.yml`            | weekly (Monday 06:17 UTC) and dispatch                     | `tf-deployer` (gcp, cluster, stripe, axiom), `tf-planner` (bootstrap), `tf-bunny` (bunny)                        | No                                             |
+| `images.yml`                | every push to `main` ("Release Images"; builds if changed) | `ci-image-pusher`: only `main` pushes                                                                            | Pushes to `apps`                               |
+| `snapshot-images.yml`       | **manual** Run workflow, any branch                        | `ci-snapshot-pusher`: only that workflow                                                                         | Pushes to `apps-scratch`                       |
+| `reset-dev-data.yml`        | **manual** Run workflow, `main` (D50)                      | `ci-dev-seeder`: only this and `dev-behavioural-tests.yml`, dispatched on `main`                                 | Starts the dev-seed Job (dummy data, no apply) |
+| `dev-behavioural-tests.yml` | **manual** Run workflow, `main` (D50)                      | `ci-dev-seeder` for the reset job; the test job has no identity                                                  | Resets dev data, then tests the dev URLs       |
 
 All keyless (Workload Identity Federation, limited to this repository's ID; forks get nothing).
 The repository is public, so **Actions logs, summaries and artifacts are world-readable**
@@ -133,7 +133,14 @@ nothing changes). Builders, and Claude for Joel, approve it as soon as the PR is
 when the review starts: it used to wait 10 minutes or more on a quarter of infra PRs (pipeline
 speed review, P3).
 
-**`tofu-apply.yml` (merge → plan → approve → apply).**
+**Approvals (Joel, 2026-11-27).** Plans run on their own; dev applies run on their own after merge;
+an apply to production needs one manual approval. `tofu-apply.yml` signs in only as `heisreal-dev`
+identities (`tools/scripts/tests/tf-apply-order.test.mjs`), so it can't reach production. Outside
+dev, `modules/bootstrap` (`production_approval.cel.tftpl`) gives `tf-deployer` and `tf-bunny` to
+`tofu-apply.yml` only in a job that runs in the `production` GitHub environment, which must have a
+required reviewer; `tofu-drift.yml` still plans unattended.
+
+**`tofu-apply.yml` (merge → plan → apply).**
 
 - **One run per merge.** Release Images runs on every push to `main` (it skips the build when no
   service changed: under a minute), and its completion, success or failure, starts the run. There's
@@ -146,40 +153,31 @@ speed review, P3).
   changes" and skip their apply. If `main` moved past the merge that started the run, the first
   job waits for the new HEAD's Release Images (`tools/scripts/gh-wait-run.sh`); unless it
   succeeded, nothing plans (re-run Release Images: its completion starts a new run).
-- **Image-only dev plans apply themselves (D120, Joel 2026-10-30).** When gcp's plan changes
-  nothing but Cloud Run image digests from `apps` (`tools/scripts/tf-image-only.mjs` reads
-  `tofu show -json`; tests in `tools/scripts/tests/tf-image-only.test.mjs`) and bunny, stripe and
-  axiom have no changes, the `auto-approve-1` job takes approve-1's place: no click, and the summary
-  says "auto-approved: image versions only" with each service's new digest. It still waits for
-  the CI gate and re-checks for a newer `main`. Anything else (cluster, IAM, secrets, Bunny,
-  Stripe, a create, delete or replace, an `apps-scratch` image) waits for the `dev` approval,
-  which the environment still requires. Production never applies on its own.
 - **The CI gate.** No apply runs unless `ci.yml` passed on `main` for the target commit. The `ci`
-  job waits for it beside the plans and the first approval, so the wait mostly overlaps them; every
+  job waits for it beside the plans, so the wait mostly overlaps them; every
   apply job and wave 1's stages need it (`tools/scripts/tests/tf-apply-order.test.mjs`). If CI
   failed (say a flaky test), nothing applies and the run is red: re-run CI's failed jobs, and once
   it's green dispatch "OpenTofu apply". If CI was cancelled because `main` moved on, the newer
   run deploys.
-- **Two approval waves.** Wave 1: gcp, bunny, stripe and axiom plan in parallel; if any changes, `approve-1`
-  waits for one approval in `dev`, then each applies their saved plans, **bunny first**: gcp applies
+- **Two waves.** Wave 1: gcp, bunny, stripe and axiom plan in parallel; if any changes, `go-1`
+  checks the run is still `main`'s newest, then each applies their saved plans, **bunny first**: gcp applies
   once bunny applied or had no changes (bunny grants gcp's services access to keys they read at
   start-up, e.g. api-user's link-signing keys; a failed bunny plan or apply holds gcp back, and
   wave 2 with it, until a dispatched run; `tools/scripts/tests/tf-apply-order.test.mjs`). Wave 2: cluster (and images)
-  plan **after** gcp's apply, against its fresh outputs; if either changes, `approve-2` asks once
-  more. A single-root change asks once; gcp + cluster asks twice.
+  plan **after** gcp's apply, against its fresh outputs; if either changes, `go-2` checks again
+  and they apply.
 - **Each apply applies exactly its saved plan** (KMS-encrypted, in `gs://heisreal-dev-tfstate/plans/`,
-  or `dev/bunny/plans/` for bunny; unapproved plans expire after 7 days). OpenTofu refuses it if
+  or `dev/bunny/plans/` for bunny; unused plans expire after 7 days). OpenTofu refuses it if
   state changed meanwhile.
-- **Superseded runs.** If `main` moves while a run waits, its plan summaries say **"⚠ superseded by
-  <sha>: reject this run; the next run plans again."** Reject it. Approving it applies nothing:
-  the approve job re-checks `main` after the click. Then the `superseded` job warns "Superseded
-  by run N: …" and fails on purpose, so the run is red rather than a green tick. Its summary
-  names the roots that applied, failed or weren't applied (a failed or cancelled apply may have
-  changed some resources, so it never says "nothing applied" then). If one failed, read that job's log;
-  otherwise nothing is needed: the newer run plans `main` HEAD.
-- **Failed, rejected, stale or superseded stops every later stage** (`tools/scripts/tf-stage.sh`;
-  the `stage-*` jobs write each root's result to the summary). A rejected wave 1 skips wave 2.
-- **To recover from anything** (a failed, rejected or superseded run, or a CI run re-run green):
+- **Superseded runs.** If `main` moves before a wave applies, its plan summaries say **"⚠ superseded by
+  <sha>: this run applies nothing; the next run plans again."** and `go-1`/`go-2` apply nothing.
+  Then the `superseded` job warns "Superseded by run N: …" and fails on purpose, so the run is red
+  rather than a green tick. Its summary names the roots that applied, failed or weren't applied (a
+  failed or cancelled apply may have changed some resources, so it never says "nothing applied"
+  then). If one failed, read that job's log; otherwise nothing is needed: the newer run plans `main` HEAD.
+- **Failed, stopped, stale or superseded stops every later stage** (`tools/scripts/tf-stage.sh`;
+  the `stage-*` jobs write each root's result to the summary). A stopped wave 1 skips wave 2.
+- **To recover from anything** (a failed or superseded run, or a CI run re-run green):
   Actions → "OpenTofu apply" → Run workflow. It plans everything again.
 
 **`tofu-drift.yml`** runs a full-refresh plan without the lock; any change fails the job and the
@@ -239,9 +237,9 @@ kubectl -n database get secrets --as "$P"                                       
 | `ci-dev-seeder` (D50)         | `reset-dev-data.yml`, `dev-behavioural-tests.yml` (dispatched on `main`) | run and watch the `dev-seed` Cloud Run Job only (granted on that Job by the gcp root): no overrides, no secrets, no logs                                                                                                                                  |
 
 The gates are CEL expressions over GitHub's OIDC claims (`modules/bootstrap/*.cel.tftpl`, tested
-with claim fixtures in `modules/bootstrap/tests/`): ref, workflow file and event. Environments
-aren't part of the deploy and bunny gates; the `dev` approval is "read the plan", not access
-control.
+with claim fixtures in `modules/bootstrap/tests/`): ref, workflow file and event. In dev,
+environments aren't part of the deploy and bunny gates; outside dev, `tofu-apply.yml` must run in
+the `production` environment (its manual approval).
 
 - **tf-deployer** has custom roles that manage secrets and buckets **without reading secret values
   or backups**, and it may grant only the GKE node role at project level. Its secrets and buckets
@@ -249,7 +247,7 @@ control.
   state-bucket binding excludes `dev/bunny/` (`modules/bootstrap/ci_identity.tf`, `state.tf`). GKE
   admin also lets it read in-cluster Kubernetes Secrets, which ESO copies from Secret Manager.
   **tf-deployer could grant itself access to Bunny through its service-account roles. That's
-  accepted (D57).** It would take a change to code on `main` and an approved apply.
+  accepted (D57).** It would take a change to code on `main`, merged after review.
 - **Backups bucket:** only the backup job (create-only) and developers (restores).
 - **`dev/bunny/`:** readable by developers and `tf-bunny`, and by Google-managed service agents
   acting for their own services; its state is encrypted with `tofu-bunny`, which only developers
@@ -511,7 +509,7 @@ gcloud storage ls gs://heisreal-dev-tfstate/dev/bunny/logs/ | tail
 gcloud storage cat gs://heisreal-dev-tfstate/dev/bunny/logs/<run_id>-<attempt>-plan-bunny.log | less
 ```
 
-They're deleted after 7 days (about 14 more with versioning and soft delete), as are unapproved
+They're deleted after 7 days (about 14 more with versioning and soft delete), as are unused
 saved plans under `dev/bunny/plans/`.
 
 | Task                           | How                                                                                                                                                                                                                                                                                                  |
@@ -676,7 +674,7 @@ it's in neither state nor plans; the state holds Stripe IDs and public URLs only
 refuses to plan with a live key in dev (`sk_live_`/`rk_live_`; only the key's mode is checked,
 never printed). CI masks the key before any tofu step (`tf.sh stripe-mask`). PRs never plan
 stripe (tf-planner can't read the key); `tofu-apply.yml` plans it on `main` in wave 1, beside gcp
-and bunny, under the same approval, and `tofu-drift.yml` checks it weekly.
+and bunny, and `tofu-drift.yml` checks it weekly.
 
 **The buttons.** Stripe has no API for Buy Buttons, so they're made once in the Dashboard from
 the Payment Links. Only their public IDs and the publishable key reach the site, through
@@ -708,12 +706,11 @@ empty, subscriptions are not updateable"). Once a provider release expands the f
 
 **Clearing the first apply's taint (dev, once).** The portal exists in Stripe but its state is
 tainted, so every `tofu-apply.yml` run plans to deactivate it (it's the account's default) and
-make another (`delete,create`), under wave 1's shared approval (approve-1).
+make another (`delete,create`) in wave 1, with no approval stop.
 
 1. Run `tools/scripts/tf.sh stripe untaint module.stripe.stripe_billing_portal_configuration.donors`
-   **before** merging the fix, or before approving any `tofu-apply.yml` run.
-2. If a run has already planned the portal's `delete,create`, reject it, untaint, then dispatch
-   `tofu-apply.yml` and check that the stripe plan says "No changes".
+   **before** merging the fix.
+2. Then dispatch `tofu-apply.yml` and check that the stripe plan says "No changes".
 
 `modules/stripe/tests/link-lifecycle.sh` checks both cases (untainted: no change; tainted:
 `delete,create`). Nothing to clean up in Stripe: there is one portal configuration.
@@ -726,7 +723,7 @@ Dashboard), whose ID then goes into `web_donations`. The apply makes the new pri
 then deactivates the old link and archives the old price, so **the old button stops working at
 that apply** until gcp applies the new ID. Either:
 
-- do it in one sitting: approve the stripe apply, make the new button, update `web_donations`
+- do it in one sitting: once the stripe apply runs, make the new button, update `web_donations`
   and apply gcp straight away (the gap is those few minutes); or
 - for no gap: before the run that plans the change, let OpenTofu forget the old ones so they stay
   live (`tools/scripts/tf.sh stripe state rm module.stripe.stripe_payment_link.one_off
@@ -786,7 +783,7 @@ preset), read from Secret Manager (`axiom-terraform-token`, container from the b
 London only, readable by tf-deployer only) through an `ephemeral` read, so it's in neither state
 nor plans. CI masks it before any tofu step (`tf.sh axiom-mask`). PRs never plan axiom (tf-planner
 can't read the token); `tofu-apply.yml` plans it on `main` in wave 1, beside gcp, bunny and stripe,
-under the same approval (never the image-only auto-apply), and `tofu-drift.yml` checks it weekly.
+with the others, and `tofu-drift.yml` checks it weekly.
 **API tokens are never managed here:** an `axiom_token` resource would put the token's value in
 state, so every token is made by hand (the three tokens: `docs/tooling-and-accounts.md`, "Axiom").
 
@@ -811,7 +808,7 @@ were D119's interim guard while the organisation settings were postponed, and st
    `bootstrap` and `bunny` (`europe-west2`), bunny's `storage_region` (`UK`, Bunny's London), and
    `modules/org`'s `log_storage_location` (`europe-west2`) and `allowed_locations` (UK values only).
 2. **Every plan is checked** (`tools/scripts/tf-location-check.sh`, run by `tf.sh <root> plan` for
-   every root: PR plans, `tofu-apply.yml` before approval, the weekly drift job and local plans,
+   every root: PR plans, `tofu-apply.yml` before applying, the weekly drift job and local plans,
    bootstrap's included), for the root's environment, taken from its path (`live/<environment>/`)
    so it can't be forgotten. It reports a resource the plan creates or updates that has a `location`,
    `region` or `zone` (any case, at any depth; on Google resources also names built on them, such
@@ -836,7 +833,7 @@ were D119's interim guard while the organisation settings were postponed, and st
    so it also runs on bunny's plans. **In dev** a finding is a `location-check: WARNING` line in
    the log and the job's step summary, and the plan or deploy goes on with tofu's own exit code.
    **Anywhere else** (prod at launch) it fails the plan (exit 1), so it never reaches an
-   approval. Clerk (US, D6) isn't in OpenTofu, so neither check sees it.
+   apply. Clerk (US, D6) isn't in OpenTofu, so neither check sees it.
 
 Tip: applying a saved plan (`tf.sh <root> plan -out=f`, then `tf.sh <root> apply f`) applies
 exactly what was checked.

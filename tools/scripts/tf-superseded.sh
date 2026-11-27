@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# What tofu-apply.yml's `superseded` job says when an approved run was superseded
+# What tofu-apply.yml's `superseded` job says when a run was superseded before applying
 # (tests: tests/tf-superseded.test.mjs).
 #
 #   tools/scripts/tf-superseded.sh <newer_run> <root>=<plan>,<changes>,<apply> ...
@@ -37,7 +37,7 @@ for arg in "$@"; do
         failed+=("$root")
         started=1
         ;;
-      *) pending+=("$root") ;; # skipped: superseded (or never approved)
+      *) pending+=("$root") ;; # skipped: superseded (or stopped before go)
       esac
     fi
     ;;

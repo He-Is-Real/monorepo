@@ -80,15 +80,13 @@ source of truth, so change them in the same PR as the code.
   Exceptions: the Clerk instance's settings (`infra/clerk/dev.json`, applied with
   `infra/clerk/clerk-config.mjs`, decision 17 in `docs/how-the-app-works.md`), and recovering a KMS key
   version (`infra/terraform/README.md`, "Break-glass").
-- **Plans run on their own; every apply needs one approval.** An approval means "I read this plan and
-  choose to apply it". It isn't access control, and approving your own run is expected. Claude may approve
-  dev applies. Applies happen through the `dev` environment in `tofu-apply.yml` (it applies exactly the plan
-  it saved) or a developer running `tf.sh <root> apply`. `bootstrap` is applied locally only.
-  **One exception, dev only (Joel, 2026-10-30; D120):** a dev plan whose every change is a Cloud Run
-  service or job moving to a new image digest from our own `apps` repository applies without the click
-  (`tools/scripts/tf-image-only.mjs`, job `auto-approve-1`). Anything else (the database or cluster, IAM,
-  secrets, Bunny, Stripe, any create, delete or replace) waits for the approval. Production never applies
-  on its own; don't widen the check or remove the `dev` environment's required approval.
+- **Plans run on their own; dev applies run on their own after merge; an apply to production needs
+  one manual approval (Joel, 2026-11-27; BE-18).** Dev applies happen through `tofu-apply.yml` (it applies
+  exactly the plan it saved, signing in only as `heisreal-dev` identities) or a developer running
+  `tf.sh <root> apply`; read the plan first. `bootstrap` is applied locally only. Outside dev,
+  `tf-deployer` and `tf-bunny` reach `tofu-apply.yml` only in the `production` GitHub environment
+  (`modules/bootstrap/production_approval.cel.tftpl`), which must require a reviewer. Never weaken
+  that gate or the `cluster-plan` one (it keeps PR code from cloud credentials until approved).
 - **Local plans need no permission (Joel, 2026-11-05).** Any agent may run `tools/scripts/tf.sh <root> plan`
   (and `plan-summary`, `location-check`) locally without asking Joel first. A plan changes no cloud
   resource; it only takes the state lock while it runs and writes a plan file. Applies are different: see

@@ -75,3 +75,36 @@ run "ci_state_access" {
     error_message = "Every object role on the state bucket is conditioned."
   }
 }
+
+# BE-18: in dev the deploy and bunny gates are the plain templates; anywhere else tofu-apply.yml
+# also needs the `production` GitHub environment (claims: tests/production-approval.test.mjs).
+run "apply_gates_dev_unchanged" {
+  command = plan
+
+  assert {
+    condition = alltrue([for name in ["deploy_gate", "bunny_gate"] :
+      google_iam_workload_identity_pool_provider.github.attribute_mapping["attribute.${name}"] ==
+      trimspace(templatefile("${path.module}/${name}.cel.tftpl", { repository = "He-Is-Real/monorepo" }))
+    ])
+    error_message = "dev's deploy and bunny gates must be the plain templates"
+  }
+}
+
+run "apply_gates_need_production_outside_dev" {
+  command = plan
+
+  variables {
+    project_id  = "heisreal-prod"
+    environment = "prod"
+  }
+
+  assert {
+    condition = alltrue([for name in ["deploy_gate", "bunny_gate"] :
+      strcontains(
+        google_iam_workload_identity_pool_provider.github.attribute_mapping["attribute.${name}"],
+        "assertion.environment == 'production'"
+      )
+    ])
+    error_message = "outside dev, tofu-apply.yml must need the production environment"
+  }
+}

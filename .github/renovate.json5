@@ -137,8 +137,8 @@
     },
 
     // OpenTofu providers in every root and module: one PR, from the OpenTofu registry (the lock
-    // files pin registry.opentofu.org). They may merge after CI; applying still needs its approval
-    // in tofu-apply.yml. `required_version` is a floor (">= 1.11"), not a pin: left alone.
+    // files pin registry.opentofu.org). They may merge after CI; on dev the apply then runs on
+    // its own in tofu-apply.yml. `required_version` is a floor (">= 1.11"), not a pin: left alone.
     {
       matchManagers: ['terraform'],
       matchDepTypes: ['required_version'],
@@ -201,7 +201,7 @@
       groupSlug: 'opentofu-cli',
       automerge: false,
       prBodyNotes: [
-        'OpenTofu moves in mise.toml, the workflows and `.github/actions/tofu` together (tf.sh refuses any other version). Read the release notes for state, encryption and lock-file changes before merging; the next apply still needs its approval.',
+        'OpenTofu moves in mise.toml, the workflows and `.github/actions/tofu` together (tf.sh refuses any other version). Read the release notes for state, encryption and lock-file changes before merging: on dev the next apply runs on its own after the merge.',
       ],
     },
     {

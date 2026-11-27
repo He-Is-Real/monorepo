@@ -116,8 +116,8 @@ GKE Autopilot Spot Pods, about £3–5/month.
   environment runs is committed in `infra/terraform/live/<env>/gcp/images.auto.tfvars`.
 - **`tofu-plan.yml`**: automatic, read-only OpenTofu plans of the roots a PR touches (never bunny).
 - **`tofu-apply.yml`**: the only CI path that changes the cloud. One run per merge, started when
-  Release Images finishes; it plans every root unattended, and each apply waits for one approval in
-  the `dev` environment and for the merge's CI on `main` to pass, then applies exactly the saved plan. Dispatch it to recover from anything. After a
+  Release Images finishes; it plans every root unattended, waits for the merge's CI on `main` to pass, then applies
+  exactly the saved plan, with no approval stop (dev only; production applies will need one). Dispatch it to recover from anything. After a
   successful apply it dispatches **`dev-behavioural-tests.yml`** (reset dev, then test the real site,
   API and Bunny together).
 - **`tofu-drift.yml`**: weekly full-refresh plans; fails on drift.

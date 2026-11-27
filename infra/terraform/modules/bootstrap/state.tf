@@ -23,7 +23,7 @@ resource "google_storage_bucket" "tfstate" {
     }
   }
 
-  # Saved plans from tofu-apply.yml that were never approved (gcp, images, cluster).
+  # Saved plans from tofu-apply.yml that were never applied (gcp, images, cluster).
   lifecycle_rule {
     condition {
       age            = 7

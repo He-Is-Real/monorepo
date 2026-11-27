@@ -53,7 +53,7 @@ const gcpReady = {
   target: { result: 'success' },
   ci: { result: 'success' },
   'plan-gcp': { result: 'success', outputs: { changes: 'true' } },
-  'approve-1': { result: 'success', outputs: { go: 'true' } },
+  'go-1': { result: 'success', outputs: { go: 'true' } },
 };
 const bunny = (plan, changes, apply) => ({
   ...gcpReady,
@@ -85,13 +85,13 @@ test('a failed or cancelled bunny plan or apply holds gcp back', () => {
     );
 });
 
-test('gcp still needs its own changes, the approval and go', () => {
+test('gcp still needs its own changes and go-1 saying go', () => {
   const ok = bunny('success', 'false', 'skipped');
   for (const broken of [
     { 'plan-gcp': { result: 'success', outputs: { changes: 'false' } } },
     { 'plan-gcp': { result: 'failure', outputs: {} } },
-    { 'approve-1': { result: 'success', outputs: { go: 'false' } } },
-    { 'approve-1': { result: 'skipped', outputs: {} } },
+    { 'go-1': { result: 'success', outputs: { go: 'false' } } },
+    { 'go-1': { result: 'skipped', outputs: {} } },
   ])
     assert.equal(evaluate(job.if, { ...ok, ...broken }), false);
 });
@@ -116,23 +116,23 @@ const ready = {
   'apply-gcp': bunny('success', 'false', 'skipped'),
   'apply-bunny': {
     'plan-bunny': { result: 'success', outputs: { changes: 'true' } },
-    'approve-1': { result: 'success', outputs: { go: 'true' } },
+    'go-1': { result: 'success', outputs: { go: 'true' } },
   },
   'apply-stripe': {
     'plan-stripe': { result: 'success', outputs: { changes: 'true' } },
-    'approve-1': { result: 'success', outputs: { go: 'true' } },
+    'go-1': { result: 'success', outputs: { go: 'true' } },
   },
   'apply-axiom': {
     'plan-axiom': { result: 'success', outputs: { changes: 'true' } },
-    'approve-1': { result: 'success', outputs: { go: 'true' } },
+    'go-1': { result: 'success', outputs: { go: 'true' } },
   },
   'apply-cluster': {
     'plan-cluster': { result: 'success', outputs: { changes: 'true' } },
-    'approve-2': { result: 'success', outputs: { go: 'true' } },
+    'go-2': { result: 'success', outputs: { go: 'true' } },
   },
   'apply-images': {
     'plan-images': { result: 'success', outputs: { changes: 'true' } },
-    'approve-2': { result: 'success', outputs: { go: 'true' } },
+    'go-2': { result: 'success', outputs: { go: 'true' } },
   },
 };
 
@@ -178,90 +178,60 @@ test("a failed CI blocks wave 1's stages, and so wave 2 and the behavioural test
   }
 });
 
-// D120 (Joel, 2026-10-30): dev plans that change only image versions apply without the approval.
+// BE-18 (Joel, 2026-11-27): dev applies run on their own after merge; an apply to production
+// needs one manual approval. This workflow deploys dev only, so it has no approval stop.
 const wave1 = ({
-  gcp = 'true',
-  imageOnly = 'true',
+  gcp = 'false',
   bunny = 'false',
   stripe = 'false',
   axiom = 'false',
 } = {}) => ({
   target: { result: 'success' },
-  'plan-gcp': {
-    result: 'success',
-    outputs: { changes: gcp, image_only: imageOnly },
-  },
+  'plan-gcp': { result: 'success', outputs: { changes: gcp } },
   'plan-bunny': { result: 'success', outputs: { changes: bunny } },
   'plan-stripe': { result: 'success', outputs: { changes: stripe } },
   'plan-axiom': { result: 'success', outputs: { changes: axiom } },
 });
-const approve1 = workflow.jobs['approve-1'];
-const auto1 = workflow.jobs['auto-approve-1'];
+const go1 = workflow.jobs['go-1'];
 
-test('image versions only, nothing else in wave 1 → the auto job, not the approval', () => {
-  assert.equal(evaluate(auto1.if, wave1()), true);
-  assert.equal(evaluate(approve1.if, wave1()), false);
-});
-
-test('anything else in wave 1 waits for the dev approval, never the auto job', () => {
-  for (const [what, needs] of Object.entries({
-    'gcp not image-only': wave1({ imageOnly: 'false' }),
-    'gcp check missing': wave1({ imageOnly: '' }),
-    'bunny changes': wave1({ bunny: 'true' }),
-    'stripe changes': wave1({ stripe: 'true' }),
-    'axiom changes': wave1({ axiom: 'true' }),
-    'axiom plan failed': {
-      ...wave1(),
+test('any change in wave 1 goes to go-1; no change skips it', () => {
+  assert.equal(evaluate(go1.if, wave1()), false);
+  for (const root of ['gcp', 'bunny', 'stripe', 'axiom']) {
+    assert.equal(evaluate(go1.if, wave1({ [root]: 'true' })), true, root);
+  }
+  assert.equal(
+    evaluate(go1.if, {
+      ...wave1({ gcp: 'true' }),
       'plan-axiom': { result: 'failure', outputs: {} },
-    },
-    'bunny plan failed': {
-      ...wave1(),
-      'plan-bunny': { result: 'failure', outputs: {} },
-    },
-  })) {
-    assert.equal(evaluate(auto1.if, needs), false, `${what}: auto`);
-    assert.equal(evaluate(approve1.if, needs), true, `${what}: approval`);
-  }
-});
-
-test('the dev environment keeps its approval; the auto job has none and no permissions', () => {
-  assert.equal(approve1.environment, 'dev');
-  assert.equal(
-    approve1.permissions && Object.keys(approve1.permissions).length,
-    0,
-  );
-  assert.equal(auto1.environment, undefined);
-  assert.deepEqual(auto1.permissions, {});
-  // The check is asked about dev, literally: this workflow only deploys dev.
-  const check = workflow.jobs['plan-gcp'].steps.find(
-    (s) => s.id === 'image-only',
-  );
-  assert.match(check.run, /tf-image-only\.mjs dev "/);
-});
-
-test('gcp applies after the auto job; bunny, stripe, axiom and wave 2 never do without an approval', () => {
-  const auto = {
-    ...bunny('success', 'false', 'skipped'),
-    'approve-1': { result: 'skipped', outputs: {} },
-    'auto-approve-1': { result: 'success', outputs: { go: 'true' } },
-  };
-  assert.equal(evaluate(job.if, auto), true);
-  assert.equal(
-    evaluate(job.if, {
-      ...auto,
-      'auto-approve-1': { result: 'success', outputs: { go: 'false' } },
     }),
-    false,
-    'superseded',
+    true,
+    'a failed plan on one side',
   );
-  for (const name of [
-    'apply-bunny',
-    'apply-stripe',
-    'apply-axiom',
-    'apply-cluster',
-    'apply-images',
-  ]) {
-    assert.ok(!workflow.jobs[name].needs.includes('auto-approve-1'), name);
-    assert.ok(!workflow.jobs[name].if.includes('auto-approve-1'), name);
+});
+
+test('dev applies wait for no approval: no job runs in a GitHub environment', () => {
+  for (const [name, j] of Object.entries(workflow.jobs)) {
+    assert.equal(j.environment, undefined, name);
   }
+  for (const name of ['go-1', 'go-2']) {
+    assert.deepEqual(workflow.jobs[name].permissions, {}, name);
+  }
+});
+
+test('this workflow signs in only as dev identities, so it can never apply production', () => {
+  const text = readFileSync(
+    fileURLToPath(
+      new URL('../../../.github/workflows/tofu-apply.yml', import.meta.url),
+    ),
+    'utf8',
+  );
+  const accounts = text.match(/[\w-]+@[\w-]+\.iam\.gserviceaccount\.com/g);
+  assert.ok(accounts.length > 0);
+  for (const account of accounts) {
+    assert.match(account, /@heisreal-dev\.iam\.gserviceaccount\.com$/);
+  }
+  assert.doesNotMatch(
+    text,
+    /service_account: (?!\$\{\{ env\.(DEPLOYER|TF_BUNNY) \}\})/,
+  );
 });
