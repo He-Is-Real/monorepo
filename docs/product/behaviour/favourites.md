@@ -7,7 +7,7 @@ Next id: REQ-FAV-025
 ## Hearts
 
 - **REQ-FAV-001** A Signed-in person hearts a story on its card or its page. [J-2026-10-25-FAV]
-- **REQ-FAV-023** A person can have only one heart on a story. [R14]
+- **REQ-FAV-023** A person can have only one heart on a story. [PR-117]
 - **REQ-FAV-002** Hearts are private: only the person sees theirs, and there are no counts. [J-2026-10-25-FAV]
 - **REQ-FAV-024** Only the person adds or removes their own hearts, and a heart never changes once made. [J-2026-10-25-DB]
 - **REQ-FAV-003** Only a public story can be hearted; a story that stops being public stays hearted but doesn't show. [J-2026-10-25-FAV]

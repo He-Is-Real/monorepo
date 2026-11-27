@@ -2,13 +2,14 @@
 
 Who: Visitor, Signed-in person, Admin, the system.
 Data: `docs/db-permissions.md#legal-texts-and-agreements-schema-05-legal-textssurql-plan-4e`
-Next id: REQ-CON-047
+Next id: REQ-CON-048
 
 ## The four texts
 
 - **REQ-CON-001** There are four texts: the terms of use (which include being 18 or over), the testimony consent (keeping and publishing a person's stories, special-category data under GDPR Article 9), the social media sharing consent (per story, optional) and the privacy notice. [J-2026-11-01-CON]
 - **REQ-CON-002** Each text has numbered versions from 0; a saved version can never be changed or deleted. [J-2026-11-01-CON]
-- **REQ-CON-044** Each version of a text keeps its full text and when it was published; Visitors and Signed-in people never see which Admin published it. [J-2026-11-01-DB]
+- **REQ-CON-044** Each version of a text keeps its full text and when it was published. [J-2026-11-01-DB]
+- **REQ-CON-047** Visitors and Signed-in people never see which Admin published a version of a text. [PR-182]
 - **REQ-CON-045** Everyone, signed in or not, can read every version of each text; only an Admin publishes a new version, and it always takes the next number. [J-2026-11-01-DB]
 - **REQ-CON-046** A mistake in a published version is fixed by publishing a new version. [J-2026-11-01-DB]
 - **REQ-CON-003** Version 0 of each text is a draft written from how the system works today, marked "Draft, to be reviewed before go-live". [J-2026-11-01-CON]
