@@ -8,9 +8,10 @@
 #   ci-image-pusher     images.yml on a push to main          push to apps
 #   ci-snapshot-pusher  manual snapshot-images.yml, any branch push to apps-scratch only
 #   tf-deployer         tofu-apply.yml / tofu-drift.yml on     gcp, images and cluster applies
-#                       main
+#                       main (outside dev, tofu-apply.yml
+#                       only in the `production` environment)
 #   tf-bunny            tofu-apply.yml / tofu-drift.yml on     the bunny root only (tf_bunny.tf)
-#                       main
+#                       main (same rule outside dev)
 #   ci-dev-seeder       reset-dev-data.yml / dev-behavioural-  start the dev-seed Job (D50; the
 #                       tests.yml dispatched on main           gcp root grants it on that Job only)
 #
@@ -64,12 +65,8 @@ resource "google_iam_workload_identity_pool_provider" "github" {
     # tf-deployer and tf-bunny: main only, in the apply and drift workflows. job_workflow_ref is what
     # the deploy gate has always checked; for a plain job it equals workflow_ref, the fallback if a
     # workflow_run token ever lacks it. Tests: tests/{deploy,bunny}-gate.test.mjs.
-    "attribute.deploy_gate" = trimspace(templatefile("${path.module}/deploy_gate.cel.tftpl", {
-      repository = var.github_repository
-    }))
-    "attribute.bunny_gate" = trimspace(templatefile("${path.module}/bunny_gate.cel.tftpl", {
-      repository = var.github_repository
-    }))
+    "attribute.deploy_gate" = local.apply_gates.deploy_gate
+    "attribute.bunny_gate"  = local.apply_gates.bunny_gate
     # D50: ci-dev-seeder. Only "Reset dev data" and "Dev behavioural tests" dispatched on main,
     # so branch code never gets it; in those workflows only the reset job asks for an OIDC token
     # (the test job can't sign in at all). Not as a reusable workflow called from elsewhere.
@@ -85,6 +82,21 @@ resource "google_iam_workload_identity_pool_provider" "github" {
 }
 
 locals {
+  # BE-18 (Joel, 2026-11-27): dev applies run on their own; an apply to production needs one
+  # manual approval. Outside dev, tofu-apply.yml gets tf-deployer and tf-bunny only in a job that
+  # runs in the `production` GitHub environment, which must have a required reviewer
+  # (production_approval.cel.tftpl; tests/production-approval.test.mjs). Drift still plans
+  # unattended. In dev the gates are unchanged.
+  apply_gates = {
+    for name in ["deploy_gate", "bunny_gate"] : name => (
+      var.environment == "dev"
+      ? trimspace(templatefile("${path.module}/${name}.cel.tftpl", { repository = var.github_repository }))
+      : trimspace(templatefile("${path.module}/production_approval.cel.tftpl", {
+        repository = var.github_repository
+        gate       = trimspace(templatefile("${path.module}/${name}.cel.tftpl", { repository = var.github_repository }))
+      }))
+    )
+  }
   pool = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}"
 }
 

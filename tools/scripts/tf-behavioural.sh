@@ -13,7 +13,7 @@
 #
 # Prints `dispatch` only after a complete deploy of the target's images: Release Images had
 # succeeded (so this run rolled them out; otherwise the run its completion triggers decides),
-# every stage is ok (nothing failed, was rejected, went stale or was superseded, so dev isn't
+# every stage is ok (nothing failed, went stale or was superseded, so dev isn't
 # half-deployed) and something was applied, in this run or pending from an earlier one.
 # Otherwise `skip: <reason>`. Exit codes: 64 usage, otherwise 0.
 set -euo pipefail

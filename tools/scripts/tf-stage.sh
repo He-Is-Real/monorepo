@@ -7,10 +7,10 @@
 #   selected      `true`, or `false` when the root isn't part of this run (images not requested)
 #   plan_result   the plan job's result (success|failure|cancelled|skipped|empty)
 #   changes       the plan job's `changes` output (`true`/`false`)
-#   go            the approval job's `go` output: `true` only if approved and not superseded
+#   go            the go job's `go` output: `true` only if not superseded
 #   apply_result  the apply job's result
 #
-# Prints `ok` or `blocked: <reason>`. Failed, rejected, stale and superseded block every later
+# Prints `ok` or `blocked: <reason>`. Failed, stopped, stale and superseded block every later
 # stage; "not selected" and "no changes" don't. Any result other than `success` blocks.
 # Exit codes: 64 usage, otherwise 0.
 set -euo pipefail
@@ -32,7 +32,7 @@ elif [ "$changes" = false ]; then
 elif [ "$changes" != true ]; then
   echo "blocked: plan published no changes output"
 elif [ "$go" != true ]; then
-  echo 'blocked: superseded or rejected'
+  echo 'blocked: superseded or stopped'
 elif [ "$apply" != success ]; then
   echo "blocked: apply ${apply:-not run}"
 else

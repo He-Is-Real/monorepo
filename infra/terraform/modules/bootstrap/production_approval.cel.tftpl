@@ -1,0 +1,4 @@
+(assertion.job_workflow_ref.startsWith('${repository}/.github/workflows/tofu-apply.yml@')
+  && !(has(assertion.environment) && assertion.environment == 'production'))
+  ? 'denied'
+  : (${gate})

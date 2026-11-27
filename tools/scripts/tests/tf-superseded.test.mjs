@@ -1,5 +1,5 @@
 // tools/scripts/tf-superseded.sh and tofu-apply.yml's `superseded` job (Joel, 2026-10-23): a run
-// whose approved plan was superseded warns and ends red, never as a green tick.
+// whose plan was superseded before applying warns and ends red, never as a green tick.
 //
 //   node --test tools/scripts/tests/
 import assert from 'node:assert/strict';
@@ -147,11 +147,11 @@ test('usage errors → exit 64', () => {
 
 const job = workflow.jobs.superseded;
 
-test('tofu-apply.yml: the superseded job runs last, only when an approval was superseded', () => {
+test('tofu-apply.yml: the superseded job runs last, only when a go job found the run superseded', () => {
   assert.ok(job, 'no superseded job');
   for (const need of [
-    'approve-1',
-    'approve-2',
+    'go-1',
+    'go-2',
     'stage-gcp',
     'stage-bunny',
     'stage-cluster',
@@ -159,8 +159,8 @@ test('tofu-apply.yml: the superseded job runs last, only when an approval was su
   ])
     assert.ok(job.needs.includes(need), `superseded must wait for ${need}`);
   assert.match(job.if, /^always\(\) && /);
-  assert.match(job.if, /needs\.approve-1\.outputs\.go == 'false'/);
-  assert.match(job.if, /needs\.approve-2\.outputs\.go == 'false'/);
+  assert.match(job.if, /needs\.go-1\.outputs\.go == 'false'/);
+  assert.match(job.if, /needs\.go-2\.outputs\.go == 'false'/);
 });
 
 test('tofu-apply.yml: the superseded job is given every root’s plan and apply results', () => {
@@ -193,7 +193,7 @@ test('tofu-apply.yml: the superseded job asks only to read', () => {
   assert.deepEqual(job.permissions, { contents: 'read', actions: 'read' });
   assert.ok(
     !('environment' in job),
-    'no environment: it must never need an approval',
+    'no environment: it must never wait for anyone',
   );
 });
 
@@ -201,8 +201,8 @@ test('tofu-apply.yml: no job is called `main` (the required check’s name)', ()
   assert.ok(!('main' in workflow.jobs));
 });
 
-test('tofu-apply.yml: both approve jobs warn when superseded', () => {
-  for (const name of ['approve-1', 'approve-2']) {
+test('tofu-apply.yml: both go jobs warn when superseded', () => {
+  for (const name of ['go-1', 'go-2']) {
     const run = workflow.jobs[name].steps.map((s) => s.run ?? '').join('\n');
     assert.match(run, /::warning title=Superseded::superseded by \$main/);
     assert.match(run, /echo go=false/);

@@ -33,8 +33,8 @@ opens version-update PRs. GitHub's Dependabot security alerts stay on, and Renov
   together (`mise.toml`, the workflows and `.github/actions/tofu`). At most 5 PRs are open at a
   time.
 - **Minor and patch updates merge themselves** (squash, through GitHub's auto-merge) once the
-  required `main` check passes. A provider update that merges this way still waits for the usual
-  approval before `tofu-apply.yml` applies it.
+  required `main` check passes. A provider update that merges this way is applied to dev by
+  `tofu-apply.yml` like any merge.
 - **These never merge themselves:** majors; GitHub Actions, which run in workflows that sign in
   to Google (check that the new SHA belongs to the release the comment names: the three-day wait
   dates a tag by its release, so it can't catch a tag that was moved to other code); OpenTofu itself (read its release notes first);

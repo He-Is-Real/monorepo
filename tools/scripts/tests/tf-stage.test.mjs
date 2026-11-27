@@ -47,17 +47,17 @@ test('plan success, no changes → ok', () => {
   assert.equal(stage('ok', 'true', 'success', 'false', '', ''), 'ok');
 });
 
-test('changes, go false (superseded) → blocked: superseded or rejected', () => {
+test('changes, go false (superseded) → blocked: superseded or stopped', () => {
   assert.equal(
     stage('ok', 'true', 'success', 'true', 'false', 'skipped'),
-    'blocked: superseded or rejected',
+    'blocked: superseded or stopped',
   );
 });
 
-test('changes, go empty (rejected) → blocked: superseded or rejected', () => {
+test('changes, go empty (stopped) → blocked: superseded or stopped', () => {
   assert.equal(
     stage('ok', 'true', 'success', 'true', '', 'skipped'),
-    'blocked: superseded or rejected',
+    'blocked: superseded or stopped',
   );
 });
 

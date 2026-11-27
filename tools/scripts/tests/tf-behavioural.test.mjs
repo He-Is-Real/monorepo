@@ -26,13 +26,13 @@ const stage = (prev, selected, plan, changes, go, apply) =>
 /**
  * One tofu-apply run: the target's Release Images when it started, whether an earlier run left
  * applies untested, each root's plan result, changes output and apply result, and the two
- * approvals' results and `go` outputs. Unset roots planned "no changes".
+ * go jobs' results and `go` outputs. Unset roots planned "no changes".
  */
 function decide({
   release = 'success',
   pending = false,
-  approve1 = { result: 'skipped', go: '' },
-  approve2 = { result: 'skipped', go: '' },
+  go1 = { result: 'skipped', go: '' },
+  go2 = { result: 'skipped', go: '' },
   images = false, // dispatched with `images`
   ...roots
 }) {
@@ -50,7 +50,7 @@ function decide({
     'true',
     gcp.plan,
     gcp.changes,
-    approve1.go,
+    go1.go,
     gcp.apply,
   );
   const stageBunny = stage(
@@ -58,14 +58,14 @@ function decide({
     'true',
     bunny.plan,
     bunny.changes,
-    approve1.go,
+    go1.go,
     bunny.apply,
   );
-  // Wave 2 starts only if wave 1 is ok and approve-1 was skipped or approved (tofu-apply.yml).
+  // Wave 2 starts only if wave 1 is ok and go-1 was skipped or said go (tofu-apply.yml).
   const wave1 =
     stageGcp === 'ok' &&
-    (approve1.result === 'skipped' ||
-      (approve1.result === 'success' && approve1.go === 'true'))
+    (go1.result === 'skipped' ||
+      (go1.result === 'success' && go1.go === 'true'))
       ? 'ok'
       : 'blocked: wave 1';
   const stageCluster = stage(
@@ -73,7 +73,7 @@ function decide({
     'true',
     cluster.plan,
     cluster.changes,
-    approve2.go,
+    go2.go,
     cluster.apply,
   );
   const stageImages = stage(
@@ -81,7 +81,7 @@ function decide({
     String(images),
     imgs.plan,
     imgs.changes,
-    approve2.go,
+    go2.go,
     imgs.apply,
   );
   return sh('tf-behavioural.sh', [
@@ -100,22 +100,22 @@ function decide({
 }
 
 const applied = { plan: 'success', changes: 'true', apply: 'success' };
-const approved = { result: 'success', go: 'true' };
+const goes = { result: 'success', go: 'true' };
 
 test('full success (gcp, then cluster) → dispatch', () => {
   assert.equal(
     decide({
       gcp: applied,
       cluster: applied,
-      approve1: approved,
-      approve2: approved,
+      go1: goes,
+      go2: goes,
     }),
     'dispatch',
   );
 });
 
 test('only gcp changed and applied → dispatch', () => {
-  assert.equal(decide({ gcp: applied, approve1: approved }), 'dispatch');
+  assert.equal(decide({ gcp: applied, go1: goes }), 'dispatch');
 });
 
 test('no changes anywhere → no dispatch', () => {
@@ -127,16 +127,16 @@ test('#79: a push run applies cluster before its Release Images finished → no 
     decide({
       release: 'pending',
       bunny: applied,
-      approve1: approved,
+      go1: goes,
       cluster: applied,
-      approve2: approved,
+      go2: goes,
     }),
     /^skip: Release Images for the target was still running/,
   );
 });
 
 test('#79: the run after Release Images applies the new images → dispatch', () => {
-  assert.equal(decide({ gcp: applied, approve1: approved }), 'dispatch');
+  assert.equal(decide({ gcp: applied, go1: goes }), 'dispatch');
 });
 
 test('the run after Release Images applies nothing, the push run before it did → dispatch', () => {
@@ -148,7 +148,7 @@ test('applies left untested, but this run is half-deployed → no dispatch', () 
     decide({
       pending: true,
       gcp: { plan: 'success', changes: 'true', apply: 'failure' },
-      approve1: approved,
+      go1: goes,
     }),
     /^skip: a stage is blocked: apply failure/,
   );
@@ -156,7 +156,7 @@ test('applies left untested, but this run is half-deployed → no dispatch', () 
 
 test('the target’s Release Images failed → no dispatch', () => {
   assert.equal(
-    decide({ release: 'failure', gcp: applied, approve1: approved }),
+    decide({ release: 'failure', gcp: applied, go1: goes }),
     'skip: Release Images for the target is failure',
   );
 });
@@ -165,22 +165,22 @@ test('gcp applied, then the cluster plan failed → no dispatch', () => {
   assert.match(
     decide({
       gcp: applied,
-      approve1: approved,
+      go1: goes,
       cluster: { plan: 'failure', changes: '', apply: 'skipped' },
     }),
     /^skip: a stage is blocked: plan failure/,
   );
 });
 
-test('gcp applied, wave 2 rejected (approve-2 failed, go empty) → no dispatch', () => {
+test('gcp applied, wave 2 stopped (go-2 failed, go empty) → no dispatch', () => {
   assert.match(
     decide({
       gcp: applied,
-      approve1: approved,
+      go1: goes,
       cluster: { plan: 'success', changes: 'true', apply: 'skipped' },
-      approve2: { result: 'failure', go: '' },
+      go2: { result: 'failure', go: '' },
     }),
-    /^skip: a stage is blocked: superseded or rejected/,
+    /^skip: a stage is blocked: superseded or stopped/,
   );
 });
 
@@ -188,7 +188,7 @@ test('superseded after wave 1 (go false) → no dispatch', () => {
   assert.match(
     decide({
       gcp: { plan: 'success', changes: 'true', apply: 'skipped' },
-      approve1: { result: 'success', go: 'false' },
+      go1: { result: 'success', go: 'false' },
     }),
     /^skip: a stage is blocked/,
   );
@@ -198,11 +198,11 @@ test('superseded in wave 2 after gcp applied → no dispatch', () => {
   assert.match(
     decide({
       gcp: applied,
-      approve1: approved,
+      go1: goes,
       cluster: { plan: 'success', changes: 'true', apply: 'skipped' },
-      approve2: { result: 'success', go: 'false' },
+      go2: { result: 'success', go: 'false' },
     }),
-    /^skip: a stage is blocked: superseded or rejected/,
+    /^skip: a stage is blocked: superseded or stopped/,
   );
 });
 
@@ -211,7 +211,7 @@ test('gcp applied, bunny apply failed → no dispatch', () => {
     decide({
       gcp: applied,
       bunny: { plan: 'success', changes: 'true', apply: 'failure' },
-      approve1: approved,
+      go1: goes,
     }),
     /^skip: a stage is blocked: apply failure/,
   );
@@ -221,9 +221,9 @@ test('a cancelled cluster apply → no dispatch', () => {
   assert.match(
     decide({
       gcp: applied,
-      approve1: approved,
+      go1: goes,
       cluster: { plan: 'success', changes: 'true', apply: 'cancelled' },
-      approve2: approved,
+      go2: goes,
     }),
     /^skip: a stage is blocked: apply cancelled/,
   );
