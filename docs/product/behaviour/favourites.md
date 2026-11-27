@@ -2,12 +2,14 @@
 
 Who: Visitor, Signed-in person, the system.
 Data: `docs/db-permissions.md#stories-schema-04-storiessurql`
-Next id: REQ-FAV-023
+Next id: REQ-FAV-025
 
 ## Hearts
 
 - **REQ-FAV-001** A Signed-in person hearts a story on its card or its page. [J-2026-10-25-FAV]
+- **REQ-FAV-023** A person can have only one heart on a story. [R14]
 - **REQ-FAV-002** Hearts are private: only the person sees theirs, and there are no counts. [J-2026-10-25-FAV]
+- **REQ-FAV-024** Only the person adds or removes their own hearts, and a heart never changes once made. [J-2026-10-25-DB]
 - **REQ-FAV-003** Only a public story can be hearted; a story that stops being public stays hearted but doesn't show. [J-2026-10-25-FAV]
 - **REQ-FAV-004** While a person is signed out, or before they agree to the terms of use, their hearts are kept in the browser only, with no expiry, and never sent to us. [J-2026-10-28-FAV]
 - **REQ-FAV-005** After signing in, the site offers to add the browser's hearts to the account; they are added only if the person chooses to. [J-2026-10-28-FAV]

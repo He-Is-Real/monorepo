@@ -2,12 +2,15 @@
 
 Who: Visitor, Signed-in person, Admin, the system.
 Data: `docs/db-permissions.md#legal-texts-and-agreements-schema-05-legal-textssurql-plan-4e`
-Next id: REQ-CON-041
+Next id: REQ-CON-047
 
 ## The four texts
 
 - **REQ-CON-001** There are four texts: the terms of use (which include being 18 or over), the testimony consent (keeping and publishing a person's stories, special-category data under GDPR Article 9), the social media sharing consent (per story, optional) and the privacy notice. [J-2026-11-01-CON]
 - **REQ-CON-002** Each text has numbered versions from 0; a saved version can never be changed or deleted. [J-2026-11-01-CON]
+- **REQ-CON-044** Each version of a text keeps its full text and when it was published; Visitors and Signed-in people never see which Admin published it. [J-2026-11-01-DB]
+- **REQ-CON-045** Everyone, signed in or not, can read every version of each text; only an Admin publishes a new version, and it always takes the next number. [J-2026-11-01-DB]
+- **REQ-CON-046** A mistake in a published version is fixed by publishing a new version. [J-2026-11-01-DB]
 - **REQ-CON-003** Version 0 of each text is a draft written from how the system works today, marked "Draft, to be reviewed before go-live". [J-2026-11-01-CON]
 - **REQ-CON-004** The testimony consent and the privacy notice say who sees a story before it is public: while it is a draft, the person and a small number of admins (for support and safety); while it is waiting for review, the person and our moderators. [J-2026-11-05-CON]
 - **REQ-CON-005** The terms of use (section 5) say we may permanently block the email and IP addresses of someone who breaks them. [LT-1]
@@ -30,10 +33,13 @@ Next id: REQ-CON-041
 - **REQ-CON-016** Boxes are never ticked in advance. [J-2026-11-01-CON]
 - **REQ-CON-017** The database refuses to start, edit, upload or submit a story until the person has agreed to the latest terms of use and testimony consent, and refuses a heart until they have agreed to the latest terms of use. [J-2026-11-01-CON]
 - **REQ-CON-018** A person can agree only to the latest version, and only to the version the page showed them; the time recorded is the database's. [J-2026-11-01-CON]
+- **REQ-CON-041** When a person agrees again to a version they have already agreed to, nothing changes. [J-2026-11-01-DB]
+- **REQ-CON-042** Nobody can agree or consent on another person's behalf. [J-2026-11-01-DB]
 - **REQ-CON-019** Withdrawing their own story (pressing Edit, which takes it down) or deleting it never needs a new agreement. [J-2026-11-01-CON]
 - **REQ-CON-020** Nothing is shared beyond heisreal.today until the story is public there. [J-2026-11-01-CON]
 - **REQ-CON-021** Agreeing to the testimony consent doesn't waive the person's right to object to how their story is edited or presented. [J-2026-11-01-CON]
 - **REQ-CON-022** Deleting the account withdraws everything; deleting a story withdraws consent for that story, and taking it down to edit stops its use until it is approved again. There is no other withdrawal. [J-2026-11-01-CON]
+- **REQ-CON-043** Deleting the account never needs an agreement. [J-2026-11-01-DB]
 
 ## When a text changes
 
