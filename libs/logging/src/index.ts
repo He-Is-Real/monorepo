@@ -283,3 +283,5 @@ export function createLog(context: LogFields = {}): Log {
     critical: at('CRITICAL'),
   };
 }
+
+export { MAX_TRIES } from './retries';

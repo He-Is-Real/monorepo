@@ -5,6 +5,11 @@ in the pull request that builds it, in the format in `.agents/skills/writing-the
 
 | Id     | Date       | Decided, in plain words                                                                                                                | Now at                                                                      | Status             | Source                              |
 | ------ | ---------- | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ------------------ | ----------------------------------- |
+| RT-17 | 2026-11-27 | Not measured first: build the cap of 3 now; raise a number later only where errors show a need | docs/how-the-app-works.md, libs/logging/src/retries.ts | in force | retries-cap.html |
+| RT-16 | 2026-11-27 | Retries follow four kinds: person waiting, background work, duty that must finish, finding the way back | docs/how-the-app-works.md, libs/logging/src/retries.ts | in force | retries-cap.html |
+| RT-3 | 2026-11-27 | For now a developer is told by one clearly named error line in the logs; alerts come later | docs/how-the-app-works.md, libs/logging/src/event/wide-event.ts | in force | retries-cap.html |
+| RT-2 | 2026-11-27 | Reconnecting (database, worker certificate, secrets, log token) is exempt from the cap of 3 | docs/how-the-app-works.md, libs/logging/src/retries.ts | in force | retries-cap.html |
+| RT-1 | 2026-11-27 | Retries stop at three tries in all: the first try and two more | docs/how-the-app-works.md, libs/logging/src/retries.ts | in force | retries-cap.html |
 | DEC-21 | 2026-11-27 | Pages kept out of search engines say noindex in a header and a page tag, whatever the robots file says | apps/web/src/app/robots.ts | in force | knowledge-system-rule-questions.html |
 | D125 | 2026-10-30 | Legal texts are Markdown, shown by one renderer with the same look everywhere, including the Admin's live preview | apps/web/src/lib/markdown.ts | in force | knowledge-system-rule-questions.html |
 | D121 | 2026-10-30 | The privacy policy and terms are numbered versions that Admins publish; the public page shows the published version | libs/contracts/openapi/api-admin.yaml | in force | knowledge-system-rule-questions.html |

@@ -136,7 +136,7 @@ export function toAnswer(video: BunnyVideo | null): CheckResult {
     thumbnailFileName === '..'
   ) {
     // Finished, but without the facts a ready answer needs: try again later (it counts as a
-    // failure, so it gives up after 5).
+    // failure, so it gives up after 3).
     return { failure: 'bunny_facts_missing' };
   }
   return {

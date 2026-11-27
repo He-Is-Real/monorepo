@@ -155,8 +155,14 @@ class RetryableCommitError(Exception):
     """The server refused a step's COMMIT with a retryable conflict: nothing was kept."""
 
 
+# The retries rule (Joel, 2026-11-27, retries-cap.html; RT-1 A: three tries IN ALL, the first
+# included). The services share their own copy (libs/logging MAX_TRIES). A deploy that runs out
+# fails, and the developer applying it sees why; waiting for the database to start is a deadline,
+# not a count (wait_until).
+MAX_TRIES = 3
+
 # A step whose COMMIT is refused with a retryable conflict runs again, at most this often in all.
-STEP_ATTEMPTS = 3
+STEP_ATTEMPTS = MAX_TRIES
 
 
 class PartialCommitError(Exception):
@@ -658,12 +664,13 @@ def migrate(client, top, data, params, deadline):
 
     # 2. The token, then read-only checks.
     lease = None
-    for attempt in range(10):
+    # Taking the token: MAX_TRIES tries (RT-14: it was 10).
+    for attempt in range(MAX_TRIES):
         try:
             lease = run(client, "token", in_transaction(BOOKKEEPING, TAKE_TOKEN), {"migration_bundle": bundle_id})
             break
         except MigrationError as err:
-            if "conflict" not in str(err).lower() or attempt == 9:
+            if "conflict" not in str(err).lower() or attempt == MAX_TRIES - 1:
                 raise
             time.sleep(0.2)
     token = lease[-2]["result"][0]["token"]

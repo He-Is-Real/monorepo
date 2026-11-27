@@ -1,3 +1,4 @@
+import { retryLimitFields } from '@heisreal/logging/event';
 import type { SurrealQueryable } from 'surrealdb';
 import type { ClerkUsers } from './clerk';
 import type { ImageZone } from './images';
@@ -51,6 +52,18 @@ export interface Task {
 export type Log = (entry: Record<string, unknown>) => void;
 
 /**
+ * A chore's failures for the night: each item is tried once a night and found again the next
+ * (the retries rule, RT-15: no change in tries), so its ERROR line carries the shared retry_limit
+ * fields, `then: nightly_cleanup`, with the failed ids beside them.
+ */
+const choreFailed = (task: Task) =>
+  retryLimitFields({
+    what: `housekeeping_${task.name.replace(/-/g, '_')}`,
+    tries: 1,
+    then: 'nightly_cleanup',
+  });
+
+/**
  * Runs each chore in order; one failing doesn't stop the next. Answers 0 when every chore
  * finished with no failed deletion, else 1.
  */
@@ -68,6 +81,7 @@ export async function runTasks(
           ? {
               severity: 'ERROR',
               message: `${task.name}: some deletions failed`,
+              ...choreFailed(task),
             }
           : { message: `${task.name}: done` }),
         task: task.name,
@@ -85,6 +99,7 @@ export async function runTasks(
       log({
         severity: 'ERROR',
         message: `${task.name}: failed`,
+        ...choreFailed(task),
         task: task.name,
         dryRun: ctx.dryRun,
         error: (err as Error).message,

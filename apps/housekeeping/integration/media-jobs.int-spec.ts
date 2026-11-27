@@ -113,6 +113,19 @@ describe('housekeeping: media jobs', () => {
     );
   const lastLog = (task: string) =>
     [...logs].reverse().find((l) => l['task'] === task);
+  /** The shared "tries ran out" lines (the retries rule) `work` writes. */
+  const retryLimits = async (work: () => Promise<unknown>) => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await work();
+      return errors.mock.calls
+        .map(([line]) => JSON.parse(String(line)) as Record<string, unknown>)
+        .filter((l) => l['event'] === 'retry_limit')
+        .map((l) => l['retry']);
+    } finally {
+      errors.mockRestore();
+    }
+  };
 
   beforeAll(async () => {
     t = await TestDatabase.create();
@@ -210,6 +223,37 @@ describe('housekeeping: media jobs', () => {
       await sweep(RUNS['media-resend']);
       expect(queue.sent.map((s) => s.job.jobId)).toEqual([a.job]);
       await ended(a.job, 'applied');
+    });
+
+    // The retries rule (Joel, 2026-11-27, RT-10): the first send and three evenings, then no more.
+    it('stops after the third evening: no more sends, one retry_limit line, and "a problem on our side"', async () => {
+      const used = await openJob();
+      // The first send (api-user's) and three evenings' resends, the last 13 hours ago.
+      for (let i = 0; i < 4; i++) await sent(used.job, '13h');
+
+      const lines = await retryLimits(() => sweep(RUNS['media-resend']));
+      expect(queue.sent.map((s) => s.job.jobId)).not.toContain(used.job);
+      expect(await job(used.job)).toMatchObject({ sends: 4 });
+      expect(lines).toEqual([
+        { what: 'media_job_resend', id: used.job, tries: 4, then: 'gave_up' },
+      ]);
+      expect(
+        await rows(
+          await t.service('api_admin'),
+          `RETURN fn::media::our_problem(type::record('storyFile', $video))`,
+          { video: used.video },
+        ),
+      ).toEqual([{ retry: false, ours: true }]);
+
+      // The worker answers it after all (Pub/Sub kept the message): no longer our problem.
+      await ended(used.job, 'applied');
+      expect(
+        await rows(
+          await t.service('api_admin'),
+          `RETURN fn::media::our_problem(type::record('storyFile', $video))`,
+          { video: used.video },
+        ),
+      ).toEqual([{ retry: false, ours: false }]);
     });
 
     it('the nightly run never resends', async () => {
@@ -398,7 +442,18 @@ describe('housekeeping: media jobs', () => {
       expect(await retried()).toEqual([ours.video]);
     }
     await ended((await openCheck(ours.video))!.id, 'gave_up', '0s', 'other');
-    expect(await retried()).toEqual([]);
+    // The retries ran out: the next night says so once, with the shared line (RT-15).
+    let left: string[] = [];
+    const lines = await retryLimits(async () => (left = await retried()));
+    expect(left).toEqual([]);
+    expect(lines).toEqual([
+      {
+        what: 'media_nightly_retry',
+        id: ours.video,
+        tries: 4,
+        then: 'gave_up',
+      },
+    ]);
     expect(await openCheck(ours.video)).toBeUndefined();
     expect(
       await rows(

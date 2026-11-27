@@ -612,7 +612,7 @@ describe('result writer: the worker’s answers → the job’s file row and the
       ]);
     });
 
-    it('a Bunny call that fails counts as the job’s failure (ours: bunny_unavailable at the fifth)', async () => {
+    it('a Bunny call that fails counts as the job’s failure (ours: bunny_unavailable at the third)', async () => {
       const { video } = await videoStory();
       const id = await queue(video);
       const bunny = fakeBunny(new BunnyCallFailed('bunny_unreachable'));
@@ -633,7 +633,7 @@ describe('result writer: the worker’s answers → the job’s file row and the
   });
 
   describe('failures (J4: the table replaces dead letters)', () => {
-    it('says "try again" four times, then gives up on the fifth and drops later calls', async () => {
+    it('says "try again" twice, then gives up on the third and drops later calls', async () => {
       const { video } = await videoStory();
       const id = await queue(video);
 
@@ -645,7 +645,7 @@ describe('result writer: the worker’s answers → the job’s file row and the
         );
       }
       expect(await job(id)).toMatchObject({
-        failures: 4,
+        failures: 2,
         lastError: 'bunny_unreachable',
         done: false,
       });
@@ -654,7 +654,7 @@ describe('result writer: the worker’s answers → the job’s file row and the
         outcome: 'gave_up',
       });
       expect(await job(id)).toMatchObject({
-        failures: 5,
+        failures: 3,
         lastError: 'bunny_timeout',
         outcome: 'gave_up',
         // Part 1a: ours, never the file's.
@@ -666,7 +666,7 @@ describe('result writer: the worker’s answers → the job’s file row and the
         retry: false,
         outcome: 'gave_up',
       });
-      expect(await job(id)).toMatchObject({ failures: 5 });
+      expect(await job(id)).toMatchObject({ failures: 3 });
       // The file is untouched; a new notice opens a new job.
       expect(await file(video)).toEqual({});
       expect(await queue(video)).not.toBe(id);
@@ -951,7 +951,7 @@ describe('result writer: the worker’s answers → the job’s file row and the
       expect(await job(id)).toMatchObject({ done: false, failures: 0 });
     });
 
-    it('failed: 200 with "try again", then "give up" on the fifth', async () => {
+    it('failed: 200 with "try again", then "give up" on the third', async () => {
       const { video } = await videoStory();
       const id = await queue(video);
       const fail = () =>

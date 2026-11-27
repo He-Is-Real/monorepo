@@ -1,3 +1,5 @@
+import { MAX_TRIES } from '@heisreal/logging';
+import { writeRetryLimit } from '@heisreal/logging/event';
 import { VIDEO_ID, type CheckResult } from './bunny';
 import type { RenderPass, Renderer } from './render';
 import type { Writer, WriterReply } from './writer';
@@ -10,7 +12,8 @@ import type { Writer, WriterReply } from './writer';
  * - RETRY: leave it in the queue (Pub/Sub nacks it and redelivers it later, 10 seconds up to 10
  *   minutes apart): the writer couldn't be reached, or it says "try again later".
  * - DROP: mark it taken without doing anything: the job is gone (404, it went with its file), the
- *   writer refused to count a failure (400), or the message isn't a job we can read.
+ *   writer refused to count a failure (400), the message isn't a job we can read, or the job's
+ *   tries ran out here ({@link SendBacks}).
  */
 export type Delivery = 'SUCCESS' | 'RETRY' | 'DROP';
 
@@ -53,6 +56,48 @@ export class RenderSlot {
   }
 }
 
+/**
+ * The retries rule for a job sent back to the queue (Joel, 2026-11-27, RT-9: "count real failures
+ * towards the same 3, then the nightly clean-up picks it up; do not count 'the worker is busy'").
+ * Every delivery of a job that ends in RETRY for trouble counts here: the writer or the database
+ * behind it couldn't be reached or answered 5xx (a restart), Google refused the worker's sign-in,
+ * or the writer counted a failure. Not counted: waiting in line (another render holds the slot)
+ * and the writer's "not yet" (Bunny hasn't settled a video's picture, or doesn't agree yet that a
+ * video failed), which pass by themselves. At the third, the message is marked taken (DROP)
+ * instead: the job stays open in the table, the 18:00 resend sends it again (at most three
+ * evenings), and the shared ERROR line says so. The writer's own count (MAX_FAILURES) ends the job
+ * as gave_up before this when every failure was counted there.
+ *
+ * Kept in this process's memory only (no database change; the job table can't be written while
+ * the database is away): a worker restart starts every count again, so a job may get a few more
+ * tries, never fewer. At most {@link SendBacks.MAX_JOBS} jobs are remembered, the oldest dropped.
+ */
+export class SendBacks {
+  static readonly MAX_JOBS = 1000;
+  private readonly counts = new Map<string, number>();
+
+  /** Counts one try of `job` that ended in trouble; how many it has had. */
+  failed(job: string): number {
+    const n = (this.counts.get(job) ?? 0) + 1;
+    this.counts.delete(job);
+    this.counts.set(job, n);
+    if (this.counts.size > SendBacks.MAX_JOBS) {
+      const oldest = this.counts.keys().next().value;
+      if (oldest !== undefined) this.counts.delete(oldest);
+    }
+    return n;
+  }
+
+  /** The job left the queue: forget it. */
+  forget(job: string): void {
+    this.counts.delete(job);
+  }
+}
+
+/** A RETRY that is waiting, not trouble: it doesn't count towards the job's tries. */
+const isWaiting = (entry: Omit<LogEntry, 'delivery'>) =>
+  entry.step === 'busy' || entry.code === 'not_yet';
+
 export interface JobDeps {
   /** Asks Bunny about the video now (bunny.ts checkAnswer). */
   check(videoId: string): Promise<CheckResult>;
@@ -60,6 +105,8 @@ export interface JobDeps {
   renderer: Renderer;
   /** Taken before a render asks for its pass, given back when it ends. */
   renderSlot: RenderSlot;
+  /** How many times each job went back to the queue for trouble (RT-9). */
+  sendBacks: SendBacks;
   writer: Writer;
   log(entry: LogEntry): void;
 }
@@ -85,8 +132,22 @@ export async function handleJob(
       : {}),
   };
   const done = (entry: Omit<LogEntry, keyof typeof ids>): Delivery => {
-    deps.log({ ...ids, ...entry });
-    return entry.delivery;
+    let delivery = entry.delivery;
+    if (ids.job && delivery === 'RETRY' && !isWaiting(entry)) {
+      const tries = deps.sendBacks.failed(ids.job);
+      if (tries >= MAX_TRIES) {
+        delivery = 'DROP';
+        writeRetryLimit({
+          what: 'media_job_delivery',
+          id: ids.job,
+          tries,
+          then: 'nightly_cleanup',
+        });
+      }
+    }
+    if (ids.job && delivery !== 'RETRY') deps.sendBacks.forget(ids.job);
+    deps.log({ ...ids, ...entry, delivery });
+    return delivery;
   };
 
   // Not a job we can answer on (every call to the writer names the job's video, Joel,
@@ -103,7 +164,7 @@ export async function handleJob(
   try {
     result = await deps.check(ids.video);
   } catch {
-    // Our own bug: counted like any other failure, so the job gives up after 5 instead of coming
+    // Our own bug: counted like any other failure, so the job gives up after 3 instead of coming
     // back for good (Joel, 2026-11-08).
     return fail('worker_error');
   }
@@ -136,7 +197,7 @@ export async function handleJob(
     return done({ step: 'answered', status: 404, delivery: 'DROP' });
   }
   // The writer refused the answer itself (malformed, or not the job's video): counted as a
-  // failure, so the job gives up after 5 instead of looping (Joel, 2026-11-08).
+  // failure, so the job gives up after 3 instead of looping (Joel, 2026-11-08).
   if (isStatus(reply, 400)) return fail('answer_rejected');
   return done({ step: 'answered', status: statusOf(reply), delivery: 'RETRY' });
 }

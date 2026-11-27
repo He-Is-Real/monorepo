@@ -29,7 +29,7 @@ import { cloudLoggingSink } from './cloud-logging';
 import { workerIdentity } from './identity';
 import { FfmpegRenderer, isPicture } from './render';
 import { workerServer } from './server';
-import { RenderSlot } from './worker';
+import { RenderSlot, SendBacks } from './worker';
 import { httpWriter } from './writer';
 
 /** How long the read-only key is used before it is read again (a rotated key arrives). */
@@ -146,6 +146,7 @@ async function main() {
       check: (video) => checkAnswer(bunny, video),
       renderer,
       renderSlot: new RenderSlot(),
+      sendBacks: new SendBacks(),
       writer: httpWriter(writerUrl.toString(), idToken),
     },
     appApiToken,

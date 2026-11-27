@@ -513,11 +513,14 @@ Specs: `erasure`, `person-linked`, `concurrency`, api-user's `erasure`, `libs/au
 retried`. One fence per person: unrelated people never conflict. The same goes for a Clerk id
   (`fence:identity-…`) and a theme (`fence:theme-…`).
 - **Retry the whole command** (re-read, re-check, re-write) with a small bounded backoff
-  (`retryOnConflict`, `isTransactionConflict` in `libs/database`: 3 attempts, 4 with an
-  `Idempotency-Key`). The retry sees the committed state, so a newer legal version or an erasure
-  now refuses it.
-- **Erasure retries until it commits** (D39 makes it idempotent) and then erases the write that
-  beat it.
+  (`retryOnConflict`, `isTransactionConflict` in `libs/database`: 3 tries in all, with an
+  `Idempotency-Key` too; the retries rule, `MAX_TRIES` in `libs/logging`). The retry sees the
+  committed state, so a newer legal version or an erasure now refuses it. A third try notes which
+  record was fought over (`db.conflict_third_try`); a conflict on the third writes the shared
+  `retry_limit` ERROR line.
+- **Erasure retries like any other command** (3 tries; D39 makes it idempotent), and a retry
+  erases the write that beat it. After the third the person sees the usual error and presses
+  Delete again; nothing is half-deleted.
 - **Expected conflicts:** a moderator approving while the person edits, two tabs of one person, a
   file failing while a moderator approves, two admins saving the themes or the same legal version.
 - **Handle three outcomes:** rules in events throw errors (codes the APIs map); permissions give

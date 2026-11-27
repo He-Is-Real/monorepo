@@ -65,6 +65,11 @@ slowest { name, ms } }`, `external.<name> { calls, ms, status }`.
   unexpected-error line is `writeErrorLine(err, { ref, traceId, fields })` (`stack_trace`, for Error
   Reporting). `ProblemFilter` (libs/http) does both for the APIs; the website's `onRequestError`
   writes the line with its route and Next's `digest`.
+- **Tries ran out** (the retries rule, Joel 2026-11-27; `MAX_TRIES` = 3 in all, from
+  `@heisreal/logging`): `writeRetryLimit({ what, id, tries, then })` writes one ERROR line of its
+  own, `event: "retry_limit"`, with the current work's `ref` (`then`: `gave_up`,
+  `nightly_cleanup` or `keeps_trying`); `retryLimitFields` gives the same fields for a line written
+  anyway. One shape, so one Axiom monitor can watch it later.
 - **Browser error reports** (LG-1c, LG-9a): `writeErrorReport({ reference, route, kind, client })`
   writes `event: "error_report"` with the person's reference as `ref` (api-user's
   `POST /v1/error-reports`); `kind` is `browser_crash` or `no_answer`.

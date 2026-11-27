@@ -16,6 +16,8 @@ import {
   type KeyObject,
   X509Certificate,
 } from 'node:crypto';
+import { MAX_TRIES } from '@heisreal/logging';
+import { retryLimitFields } from '@heisreal/logging/event';
 import { renewalRequest, type RenewalRequest } from '@heisreal/worker-identity';
 import type { IdentityStore } from './store';
 
@@ -159,6 +161,8 @@ export function startRenewal(options: {
   let handle: unknown;
   let stopped = false;
   let retryMs = FIRST_RETRY_MS;
+  /** Failed renewals in a row (the retries rule, kind 4: exempt, but loud from the third). */
+  let failures = 0;
 
   const schedule = (ms: number, fn: () => Promise<void>) => {
     if (!stopped)
@@ -185,13 +189,24 @@ export function startRenewal(options: {
       // An older layout's separate files, now that nothing names them.
       await store.remove(await store.unused()).catch(() => undefined);
       retryMs = FIRST_RETRY_MS;
+      failures = 0;
       log({ step: 'identity_renewed', notAfter: notAfter.toISOString() });
       const validity = await currentValidity();
       schedule(validity ? renewalDue(validity, intervalMs) - now() : 0, renew);
     } catch (err) {
       const validTo = (await currentValidity())?.validTo;
       const wait = retryWait(retryMs, validTo, now());
+      failures += 1;
       log({
+        // Finding the way back is exempt from the retries rule (RT-2 A): it keeps trying. From
+        // the third failure in a row each line also carries the shared retry_limit fields.
+        ...(failures >= MAX_TRIES
+          ? retryLimitFields({
+              what: 'worker_certificate_renewal',
+              tries: failures,
+              then: 'keeps_trying',
+            })
+          : {}),
         step: 'identity_renewal_failed',
         code: err instanceof Error ? err.message : 'error',
         // No readable certificate: say so through expiresAt only.

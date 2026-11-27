@@ -1,3 +1,6 @@
+import { MAX_TRIES } from '@heisreal/logging';
+import { writeRetryLimit } from '@heisreal/logging/event';
+
 /**
  * Why an account is erased (D39), one per caller. `account_deleted` is "Delete my account" (also
  * how a person withdraws all consent, plan 4e): the Clerk account is queued for deletion too;
@@ -30,6 +33,8 @@ export interface PendingDeletion {
   key: string;
   kind: 'bunny_video' | 'image' | 'clerk_user';
   ref: string;
+  /** How many tries have failed so far (each failure adds one: {@link PENDING_DELETION_FAILED}). */
+  attempts: number;
 }
 
 /**
@@ -39,7 +44,7 @@ export interface PendingDeletion {
  * own), or null for any.
  */
 export const PENDING_DELETIONS_DUE = `
-  SELECT record::id(id) AS key, kind, ref, nextAttemptAt FROM pendingDeletion
+  SELECT record::id(id) AS key, kind, ref, attempts, nextAttemptAt FROM pendingDeletion
     WHERE nextAttemptAt <= time::now() AND kind IN $kinds
       AND (!type::is_array($keys) OR record::id(id) IN $keys)
     ORDER BY nextAttemptAt LIMIT $limit`;
@@ -56,3 +61,20 @@ export const PENDING_DELETION_FAILED = `
   UPDATE type::record('pendingDeletion', $key)
     SET attempts += 1, nextAttemptAt = time::now() + fn::erasure::retry_after(attempts)
     RETURN NONE`;
+
+/**
+ * A queued deletion failed again (the retries rule, kind 3, RT-11: a duty that must finish). It
+ * keeps being tried, nightly and slowly, for ever; from its third failure on, every failure also
+ * writes the shared ERROR line, `then: keeps_trying`, so a developer can see what is stuck.
+ * `row.attempts`: the failures before this one.
+ */
+export function pendingDeletionFailed(row: PendingDeletion): void {
+  const tries = (row.attempts ?? 0) + 1;
+  if (tries < MAX_TRIES) return;
+  writeRetryLimit({
+    what: `pending_deletion_${row.kind}`,
+    id: row.key,
+    tries,
+    then: 'keeps_trying',
+  });
+}

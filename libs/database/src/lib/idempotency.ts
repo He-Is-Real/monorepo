@@ -1,8 +1,11 @@
 import { createHash } from 'node:crypto';
+import { MAX_TRIES } from '@heisreal/logging';
 import type { RecordId, SurrealQueryable } from 'surrealdb';
 import {
+  conflictGaveUp,
   DatabaseQueryError,
   isTransactionConflict,
+  noteThirdTry,
   requireWritten,
   runQuery,
 } from './query';
@@ -94,6 +97,7 @@ const KEY_TAKEN = /already exists/i;
  * other request committed this key, its response is replayed, even when preparing again would
  * now refuse (e.g. a newer terms of use version was saved meanwhile).
  *
+ * {@link MAX_TRIES} tries in all, like every conflicting save (the retries rule, RT-4: it was 4).
  * `deadline` (ms since the epoch): no new attempt starts after it; the last retryable error is
  * thrown instead, as when the attempts run out. Work that waits on others (Bunny) passes its
  * person session's (`PersonContext.deadline`), so it ends before the session does.
@@ -104,7 +108,7 @@ export async function runIdempotent(
   hash: string,
   prepare: () => Promise<PreparedCommand>,
   {
-    attempts = 4,
+    attempts = MAX_TRIES,
     backoffMs = 20,
     deadline = Infinity,
   }: { attempts?: number; backoffMs?: number; deadline?: number } = {},
@@ -148,12 +152,20 @@ export async function runIdempotent(
         isTransactionConflict(err) ||
         (err instanceof DatabaseQueryError && KEY_TAKEN.test(err.message));
       const wait = backoffMs * attempt;
-      if (!retryable || attempt >= attempts || Date.now() + wait >= deadline) {
+      if (!retryable) throw err;
+      // The saves fought over the person's own records (their fence).
+      const subject = { record: String(scope.owner) };
+      if (attempt >= attempts || Date.now() + wait >= deadline) {
+        conflictGaveUp(err, attempt, subject);
         throw err;
       }
+      if (attempt + 1 === MAX_TRIES) noteThirdTry(err, subject);
       await new Promise((r) => setTimeout(r, wait));
       // The timer may fire late (a busy machine): check again before starting the next attempt.
-      if (Date.now() >= deadline) throw err;
+      if (Date.now() >= deadline) {
+        conflictGaveUp(err, attempt, subject);
+        throw err;
+      }
     }
   }
 }

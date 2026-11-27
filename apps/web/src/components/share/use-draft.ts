@@ -11,6 +11,7 @@ import {
   plainMessage,
   StaleVersion,
 } from '@/lib/api-user';
+import { MAX_TRIES } from '@/lib/retries';
 import { forgetShareStorageExcept, PREFIX } from '@/lib/share-storage';
 import {
   EMPTY_FIELDS,
@@ -287,7 +288,8 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
 
   const saveOnce = useCallback(async (): Promise<boolean> => {
     if (!api) return false;
-    for (let round = 0; round < 5; round++) {
+    // The retries rule (RT-6): three rounds of "re-read, re-apply, save" at most.
+    for (let round = 0; round < MAX_TRIES; round++) {
       if (!alive.current) return false;
       const s = state.current;
       if (!s.draftId) {
@@ -374,7 +376,7 @@ export function useDraft(api: ShareApi | null, owner: string): Draft {
         if (!(err instanceof StaleVersion)) throw err;
         // Still stale on the last round: stop with the usual error and its "Try saving again"
         // (Codex review, round 1), rather than stay "Saving…" with nothing running.
-        if (round === 4) throw err;
+        if (round === MAX_TRIES - 1) throw err;
         // D70: re-read, and re-apply only what nobody else changed.
         const story = await api.story(s.draftId);
         if (!alive.current) return false;

@@ -1,4 +1,5 @@
-import { timeDb } from '@heisreal/logging/event';
+import { MAX_TRIES } from '@heisreal/logging';
+import { note, timeDb, writeRetryLimit } from '@heisreal/logging/event';
 import type { SurrealQueryable } from 'surrealdb';
 
 /**
@@ -11,6 +12,8 @@ export class DatabaseQueryError extends Error {
     message: string,
     /** Index of the statement that failed. */
     readonly statement: number,
+    /** The query's name ({@link queryName}): our own SurrealQL, never its variables. */
+    readonly query?: string,
   ) {
     super(message);
     this.name = 'DatabaseQueryError';
@@ -41,7 +44,7 @@ export async function runQuery(
   );
   if (failed.length) {
     const root = failed.find((f) => !f.message.includes(NOT_RUN)) ?? failed[0];
-    throw new DatabaseQueryError(root.message, root.i);
+    throw new DatabaseQueryError(root.message, root.i, queryName(sql));
   }
   return responses.map((r) => (r.success ? r.result : undefined));
 }
@@ -89,22 +92,78 @@ export function isTransactionConflict(err: unknown): boolean {
 }
 
 /**
+ * What a conflict retry says about itself in the logs (the retries rule, Joel, 2026-11-27):
+ * `record`, the record the saves fought over when the caller knows it (a person's `user` record,
+ * whose fence both bumped), else the name of the query that conflicted. Ids only.
+ */
+export interface ConflictSubject {
+  record?: string;
+}
+
+/** The record (or, failing that, the query) a conflict was about, for the logs. */
+export function conflictSubject(
+  err: unknown,
+  subject: ConflictSubject = {},
+): string | undefined {
+  return (
+    subject.record ??
+    (err instanceof DatabaseQueryError ? err.query : undefined)
+  );
+}
+
+/**
+ * Before a save's third try (the retries rule: "whenever a save needs its third try, write one
+ * log line naming which record was fought over"): a fact on the request's or job's event
+ * (`db.conflict_third_try`), or its own WARNING line outside one. Often for one place means too
+ * much fights over one record: change what they fight over, don't raise the number.
+ */
+export function noteThirdTry(err: unknown, subject?: ConflictSubject): void {
+  note(
+    { db: { conflict_third_try: conflictSubject(err, subject) ?? 'unknown' } },
+    { severity: 'WARNING', message: 'A save needed its third try' },
+  );
+}
+
+/** The save's tries ran out on a conflict: the one shared ERROR line (writeRetryLimit). */
+export function conflictGaveUp(
+  err: unknown,
+  tries: number,
+  subject?: ConflictSubject,
+): void {
+  writeRetryLimit({
+    what: 'conflicting_save',
+    id: conflictSubject(err, subject),
+    tries,
+    then: 'gave_up',
+  });
+}
+
+/**
  * Re-runs the whole command (re-read, re-check, re-write) on a retryable transaction conflict,
- * with a small bounded backoff. Any other error is thrown at once. The retry sees the committed
- * state, so a newer legal version or an erasure now refuses it.
+ * with a small bounded backoff: {@link MAX_TRIES} tries in all (the retries rule, kind 1, RT-4 and
+ * RT-5: 20 ms, then 40 ms between them). Any other error is thrown at once. The retry sees the
+ * committed state, so a newer legal version or an erasure now refuses it. The third try is noted
+ * ({@link noteThirdTry}); a conflict on the last writes the retry_limit line, then is thrown, so a
+ * person sees the usual "Something went wrong".
  */
 export async function retryOnConflict<T>(
   work: () => Promise<T>,
   {
-    attempts = 3,
+    attempts = MAX_TRIES,
     backoffMs = 20,
-  }: { attempts?: number; backoffMs?: number } = {},
+    record,
+  }: { attempts?: number; backoffMs?: number } & ConflictSubject = {},
 ): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
       return await work();
     } catch (err) {
-      if (attempt >= attempts || !isTransactionConflict(err)) throw err;
+      if (!isTransactionConflict(err)) throw err;
+      if (attempt >= attempts) {
+        conflictGaveUp(err, attempt, { record });
+        throw err;
+      }
+      if (attempt + 1 === MAX_TRIES) noteThirdTry(err, { record });
       await new Promise((r) => setTimeout(r, backoffMs * attempt));
     }
   }

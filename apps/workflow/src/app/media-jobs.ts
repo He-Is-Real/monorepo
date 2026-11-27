@@ -1,4 +1,6 @@
 import { retryOnConflict, runQuery } from '@heisreal/database';
+import { MAX_TRIES } from '@heisreal/logging';
+import { writeRetryLimit } from '@heisreal/logging/event';
 import type { SurrealQueryable } from 'surrealdb';
 import { BunnyCallFailed, type WriterBunny } from './bunny';
 import type { QueuedJob } from './media-queue';
@@ -44,7 +46,7 @@ export class InvalidMediaJobCall extends Error {
 }
 /**
  * The call names another video than the job's (Joel, 2026-11-08, B): nothing is written, and the
- * worker counts it as a failure, so a mixed-up job gives up after 5 instead of looping.
+ * worker counts it as a failure, so a mixed-up job gives up after 3 instead of looping.
  */
 export class MediaJobWrongVideo extends Error {
   override name = 'MediaJobWrongVideo';
@@ -54,8 +56,13 @@ export class MediaJobNotFound extends Error {
   override name = 'MediaJobNotFound';
 }
 
-/** After this many failures a job gives up (J4: the table replaces dead letters). */
-export const MAX_FAILURES = 5;
+/**
+ * After this many failures a job gives up (J4: the table replaces dead letters), and the nightly
+ * clean-up's new check picks its file up (the retries rule, kind 2, RT-8: it was 5; Joel,
+ * 2026-11-27). The queue redelivers 10 s, then 20 s, apart, so a job gives up after about 30
+ * seconds of trouble.
+ */
+export const MAX_FAILURES = MAX_TRIES;
 
 /**
  * Why a job gave up (mediaJob.errorType; Part 1a, P1a-4 A: a fixed list). `file_unusable` is the
@@ -425,13 +432,13 @@ const FAILURE_SQL = `BEGIN TRANSACTION;
       errorType = IF $end { $errorType } ELSE { NONE } RETURN NONE;
   };
   IF $j.doneAt != NONE { { retry: false, outcome: $j.outcome } }
-    ELSE IF $end { { retry: false, outcome: 'gave_up' } }
+    ELSE IF $end { { retry: false, outcome: 'gave_up', ended: true } }
     ELSE { { retry: true } };
   COMMIT TRANSACTION;`;
 
 /**
  * Counts the worker's failure on the job, with its short code (J4). Under {@link MAX_FAILURES}:
- * try again later (the worker doesn't mark it taken, and the queue redelivers it). At the fifth:
+ * try again later (the worker doesn't mark it taken, and the queue redelivers it). At the third:
  * the job ends as gave_up, with why ({@link errorTypeOf}: always ours, never the file's; Part 1a),
  * and the worker marks it taken so the story's later jobs carry on. A
  * job that has already ended counts nothing more and is dropped. Refused with
@@ -451,7 +458,19 @@ export async function failJob(
       errorType: errorTypeOf(code),
       max: MAX_FAILURES,
     }).catch(notFound);
-    const reply = results[results.length - 2] as FailureReply;
+    const { ended, ...reply } = results[results.length - 2] as FailureReply & {
+      ended?: boolean;
+    };
+    // This failure ended it: the shared ERROR line (the retries rule); the nightly clean-up
+    // opens a new check of its file (fn::media::our_problem), up to 3 nights.
+    if (ended) {
+      writeRetryLimit({
+        what: 'media_job',
+        id: job,
+        tries: MAX_FAILURES,
+        then: 'nightly_cleanup',
+      });
+    }
     return reply.outcome === undefined ? { retry: reply.retry } : reply;
   });
 }

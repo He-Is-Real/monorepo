@@ -118,7 +118,7 @@ paths:
         (it went with its file): the worker drops the message. `400` for a malformed answer or a job
         that isn't a check (`validation_failed`), or an answer whose `videoId` isn't the job's video
         (`video_mismatch`; Joel, 2026-11-08); nothing is written, and the worker reports it as a
-        failure (`answer_rejected`), so the job gives up after 5 like any other.
+        failure (`answer_rejected`), so the job gives up after 3 like any other.
       security:
         - mediaWorkerOidc: []
       x-milestone: M2
@@ -165,8 +165,8 @@ paths:
       summary: Record that the media worker couldn't do a job
       description: |
         Counts the failure on the job (`failures`, `lastError`; J4: the table replaces dead letters).
-        Under 5 failures: `retry: true`, and the worker leaves the job in the queue, which redelivers it
-        later. At the fifth: the job ends as `gave_up` (with `errorType` from the code: `bunny_*` codes
+        Under 3 failures: `retry: true`, and the worker leaves the job in the queue, which redelivers it
+        later. At the third: the job ends as `gave_up` (with `errorType` from the code: `bunny_*` codes
         `bunny_unavailable`, the worker's own `worker_error`, anything else `other`; never
         `file_unusable`, Part 1a) and `retry: false`, and the worker marks it taken,
         so the story's later jobs carry on. A job that has already ended counts nothing more:

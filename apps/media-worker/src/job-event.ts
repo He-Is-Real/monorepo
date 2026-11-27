@@ -49,8 +49,10 @@ export function jobOutcome(entry: LogEntry): Outcome {
   if (entry.step === 'unreadable') return 'input_refused';
   if (entry.step === 'failed' || entry.code === 'failed') return 'error';
   if (entry.status === 404) return 'not_found';
-  // The writer couldn't be reached or answered 5xx: the job goes back to the queue.
-  if (entry.status !== undefined && entry.delivery === 'RETRY') return 'error';
+  // The writer couldn't be reached or answered 5xx: the job goes back to the queue, or, its
+  // tries used (worker.ts SendBacks), is marked taken for the 18:00 resend.
+  if (entry.status !== undefined && entry.delivery !== 'SUCCESS')
+    return 'error';
   return 'ok';
 }
 

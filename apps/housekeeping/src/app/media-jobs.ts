@@ -1,5 +1,6 @@
 import { PubSub } from '@google-cloud/pubsub';
-import { traceAttributes } from '@heisreal/logging/event';
+import { MAX_TRIES } from '@heisreal/logging';
+import { traceAttributes, writeRetryLimit } from '@heisreal/logging/event';
 import { retryOnConflict, runQuery } from '@heisreal/database';
 import { withTimeout } from '@heisreal/secrets';
 import type { Task, TaskContext, TaskResult } from './tasks';
@@ -13,7 +14,7 @@ import type { Task, TaskContext, TaskResult } from './tasks';
  *   resend at 18:00 UK local time, as that is when my pc is on and will have a worker
  *   available"), its own run (modules/gcp/housekeeping.tf): every job not ended whose last send
  *   (or, if it was never sent, its writing) is over 12 hours old goes to the queue again, so a job
- *   sent the same evening isn't doubled;
+ *   sent the same evening isn't doubled, for at most three evenings ({@link MAX_SENDS});
  * - the tidy-up, in the nightly run: ended jobs go 30 days after they ended (J2). While their
  *   story waits for review or is off the site because the site took it off (fn::media::job_kept,
  *   P1-3, P1-9), the tidy-up skips them; once that ends, the next run deletes those already over
@@ -75,6 +76,18 @@ export function pubsubMediaJobs(project: string, topic: string): MediaJobs {
 
 /** How long after its last send a job not yet ended is sent again. */
 export const RESEND_AFTER = '12h';
+/**
+ * The retries rule, kind 2 (Joel, 2026-11-27, RT-10: "cap at 3 evenings"): a job goes to the
+ * queue at most this many times, its first send and three evenings' resends (`sends`, which
+ * counts both). After the third evening it is no longer sent: the shared ERROR line says so once
+ * (the next evening's run, {@link GAVE_UP_WINDOW}), and the moderators' list shows "Can't be
+ * reviewed yet: a problem on our side" while it stays unanswered (fn::media::our_problem, which
+ * holds the same 4 and 12 hours). If the worker answers later (Pub/Sub keeps the message 31
+ * days), the job ends as usual.
+ */
+export const MAX_SENDS = 1 + MAX_TRIES;
+/** A job whose sends are used is reported once: by the first run after its last send was due. */
+const GAVE_UP_WINDOW = '36h';
 /** How long an ended job is kept (J2); the table's delete permission says the same. */
 const KEEP_ENDED = '30d';
 /** Ended jobs are tiny rows: a run deletes up to this many times maxDeletions of them. */
@@ -90,9 +103,15 @@ interface DueJob {
 /** The longest-waiting jobs to send again, oldest first (so a story's stay in order). */
 const DUE = `SELECT record::id(id) AS job, kind, record::id(file) AS video,
     record::id(file.story) AS story, queuedAt
-  FROM mediaJob WHERE doneAt = NONE
+  FROM mediaJob WHERE doneAt = NONE AND sends < ${MAX_SENDS}
     AND (sentAt ?? queuedAt) < time::now() - ${RESEND_AFTER}
   ORDER BY queuedAt ASC LIMIT $limit`;
+
+/** Jobs whose last evening's resend went unanswered since the previous run (RT-10). */
+const SENDS_USED = `SELECT VALUE record::id(id) FROM mediaJob
+  WHERE doneAt = NONE AND sends >= ${MAX_SENDS}
+    AND sentAt < time::now() - ${RESEND_AFTER}
+    AND sentAt >= time::now() - ${GAVE_UP_WINDOW}`;
 
 /** Records a resend, only if the job is still open. */
 const RESENT = `UPDATE type::record('mediaJob', $job)
@@ -114,6 +133,15 @@ export const mediaResendTask: Task = {
       more: (found ?? []).length > ctx.maxDeletions,
     };
     if (ctx.dryRun) return result;
+    const [used] = (await runQuery(ctx.db, SENDS_USED)) as [string[]];
+    for (const job of used ?? []) {
+      writeRetryLimit({
+        what: 'media_job_resend',
+        id: job,
+        tries: MAX_SENDS,
+        then: 'gave_up',
+      });
+    }
     for (const j of due) {
       try {
         await ctx.mediaJobs.publish(
@@ -159,9 +187,33 @@ const OUR_GIVE_UPS = `LET $files = array::distinct((SELECT file, doneAt FROM med
  * queue shows "Can't be reviewed yet: a problem on our side"; the person keeps seeing "Waiting for
  * review".
  */
+/**
+ * The files whose third nightly retry gave up since the last night (RT-15: the retries ran out,
+ * so the shared ERROR line says so once; the moderators' list already shows "a problem on our
+ * side"). The nightly run comes once a day, so a give-up in the last day is reported once.
+ */
+const RETRIES_USED = `LET $files = array::distinct((SELECT file, doneAt FROM mediaJob
+    WHERE outcome = 'gave_up' AND doneAt > time::now() - 1d ORDER BY doneAt ASC).file);
+  RETURN $files.filter(|$f| $f.story.mediaFile = $f
+      AND fn::story::keeps_media_jobs($f.story)
+      AND fn::media::our_problem($f).ours)
+    .map(|$f| record::id($f));`;
+
 export const ourGiveUpsTask: Task = {
   name: 'media-retry',
   async run(ctx): Promise<TaskResult> {
+    if (!ctx.dryRun) {
+      const used = (await runQuery(ctx.db, RETRIES_USED)).at(-1) as
+        string[] | undefined;
+      for (const video of used ?? []) {
+        writeRetryLimit({
+          what: 'media_nightly_retry',
+          id: video,
+          tries: 1 + MAX_TRIES,
+          then: 'gave_up',
+        });
+      }
+    }
     const found = (
       await runQuery(ctx.db, OUR_GIVE_UPS, { limit: ctx.maxDeletions + 1 })
     ).at(-1) as string[] | undefined;

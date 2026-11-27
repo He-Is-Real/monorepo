@@ -1,6 +1,6 @@
 import type { CheckResult } from './bunny';
 import type { RenderPass, RenderResult } from './render';
-import { handleJob, type JobDeps, RenderSlot } from './worker';
+import { handleJob, type JobDeps, RenderSlot, SendBacks } from './worker';
 import type { WriterCall, WriterReply } from './writer';
 
 /**
@@ -42,6 +42,7 @@ function deps(
       },
     },
     renderSlot: new RenderSlot(),
+    sendBacks: new SendBacks(),
     writer: async (call) => {
       calls.push(call);
       const reply = replies[call.route];
@@ -374,5 +375,44 @@ describe('a render job (audio-picture-video 1B, K1)', () => {
       rendered: { status: 500, body: {} },
     });
     await expect(handleJob(render, d)).resolves.toBe('RETRY');
+  });
+});
+
+describe('a job sent back to the queue (the retries rule, RT-9)', () => {
+  it('counts trouble towards three tries, then marks the job taken for the 18:00 resend and writes the retry_limit line', async () => {
+    const { d } = deps(READY, { answer: { status: 503, body: {} } });
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await expect(handleJob(check, d)).resolves.toBe('RETRY');
+      // A refused sign-in counts as trouble too.
+      d.writer = async () => 'no_token';
+      await expect(handleJob(check, d)).resolves.toBe('RETRY');
+      d.writer = async () => ({ status: 503, body: {} });
+      await expect(handleJob(check, d)).resolves.toBe('DROP');
+      expect(
+        errors.mock.calls.map(([line]) => JSON.parse(String(line))),
+      ).toContainEqual(
+        expect.objectContaining({
+          event: 'retry_limit',
+          retry: {
+            what: 'media_job_delivery',
+            id: JOB,
+            tries: 3,
+            then: 'nightly_cleanup',
+          },
+        }),
+      );
+    } finally {
+      errors.mockRestore();
+    }
+    // Its next delivery (the 18:00 resend) starts counting again.
+    await expect(handleJob(check, d)).resolves.toBe('RETRY');
+  });
+
+  it('never counts waiting: Bunny’s picture not settled yet', async () => {
+    const { d } = deps(READY, { answer: ok({ retry: true }) });
+    for (let i = 0; i < 5; i++) {
+      await expect(handleJob(check, d)).resolves.toBe('RETRY');
+    }
   });
 });

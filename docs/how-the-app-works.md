@@ -14,7 +14,7 @@ the limits, and what we keep and delete. Progress (what is built and what is nex
 - The bracketed codes, like (D71), point to the decision record in the `project` repo
   (`context/research/*.html`), for anyone who needs the reasoning.
 
-**Last updated:** 2026-11-21
+**Last updated:** 2026-11-27
 
 ## Needs Joel to confirm
 
@@ -778,8 +778,8 @@ Built in the database (the decisions and their pages are planned, M3):
   once. Every other give-up is ours, never the person's (`bunny_unavailable`, `worker_error`,
   `other`; a fixed list, readable by api-admin only): the nightly housekeeping opens a new check
   for a waiting story whose newest job gave up, for up to 3 nights; after that the moderators' list
-  shows "Can't be reviewed yet: a problem on our side", and the person keeps seeing "Waiting for
-  review". A video Bunny no longer has is ours too (`other`). The same nightly retry
+  shows "Can't be reviewed yet: a problem on our side", an error line is logged for a developer
+  (RT-15), and the person keeps seeing "Waiting for review". A video Bunny no longer has is ours too (`other`). The same nightly retry
   covers a published story the site took off itself (P1-5, Joel 2026-11-14), e.g. while Bunny
   has lost its video, never one a moderator hid: up to 3 nights, then it stays off the site, its
   owner keeps seeing "We're fixing your video", and the moderators' list shows "A problem on our
@@ -836,12 +836,19 @@ Built in the database (the decisions and their pages are planned, M3):
   answer about a file the story no longer shows is dropped (the job ends "gone"), and so is one
   that reached the writer before the last answer recorded for that file (the job ends "stale"),
   so a late answer can't bring back a story whose video has since failed (F1). If the worker
-  fails a job 5 times, the job ends "gave up" (no dead-letter queues, J4), with why (Part 1a:
+  fails a job 3 times (three tries in all, about 30 seconds; the retries rule, RT-8), the job ends
+  "gave up" (no dead-letter queues, J4), with why (Part 1a:
   `bunny_unavailable`, `worker_error` or `other`, never the file's fault). Jobs hold ids only and
   go with their file (erasure, tidy-up); done jobs are deleted after 30 days (J2), except while their story waits for review (P1-3). Every evening
   at 18:00 UK time, when Joel's machine is on to take them, every job not done whose last send
   is over 12 hours old is sent again (Joel, 2026-11-07), so a job the queue lost (31 days, a
-  failed send) still gets done. Sending a video or audio story for review writes a check of its
+  failed send) still gets done. That stops after the third evening (RT-10): the job is no longer
+  sent, one error line is logged for a developer, and the moderators' list shows "Can't be
+  reviewed yet: a problem on our side" until the worker answers it; if Joel's machine is off for
+  more than 3 days, a developer sends those jobs again. A job that goes back to the queue because
+  of trouble on our side (the database restarting, the worker's sign-in refused) counts towards
+  the same 3 tries, and is then left for the 18:00 resend; the worker being busy with another
+  video is waiting in line and doesn't count (RT-9). Sending a video or audio story for review writes a check of its
   file too, so a moderator never approves before the worker has looked (J6).
 - **Picture videos, step by step (Joel, 2026-11-07: audio-picture-video.html 1B, K1):** a check
   that finds an audio file ready writes a "render" job (an audio story's picture change writes
@@ -1089,7 +1096,9 @@ Planned (M3):
   reports).
 - **Deleting an account** (see "Delete my account") keeps only the account record marked deleted
   and the sign-in fingerprint. Their files at Bunny and their Clerk account go straight after;
-  anything that fails is retried. (D39, D40, D82)
+  anything that fails is retried every night, slowly, until it is done, never given up; from its
+  third failure on, every failure also logs an error line for a developer (RT-11). (D39, D40,
+  D82)
 - The record of what a person submitted in the last 7 days (for the weekly limit) is kept 7 days
   and deleted with the account. Upload records stay when a story is deleted, so the upload limits
   still count them.
@@ -1201,8 +1210,9 @@ RL-10; `project/context/research/rate-limiting.html`).
 - **The browser reports only its own failures (LG-1c, LG-9a; Joel, 22 and 24 Nov 2026).** A crash
   in the page's JavaScript, and a call that got no answer (offline, a timeout), send api-user one
   small report: the reference, the page's path and which of the two it was. A "no answer" report
-  goes once the page can reach us again. Reports are kept in the page's memory only, never the
-  browser's storage, and are lost if the page closes first. Server errors are never reported from
+  goes once the page can reach us again, and is tried three times at most, then dropped (RT-13).
+  Reports are kept in the page's memory only, never the browser's storage, and are lost if the
+  page closes first. Server errors are never reported from
   the browser: the servers log them.
 - **Mistakes people can fix stay visible** (Joel, 2026-11-09: "errors caused by user mistakes
   should be visible. errors where the backend is crashing or would be useful for attackers should
@@ -1213,6 +1223,31 @@ RL-10; `project/context/research/rate-limiting.html`).
   listed too (`SYSTEM_CODES`), and a test (`error-codes.spec.ts`) fails when an API answers a code
   that is on neither list, so someone decides which it is before it ships. Any code web doesn't
   know still gets the plain message.
+- **Retries stop at three tries (Joel, 2026-11-27: "cap any retires on the system to 3,
+  otherwise it needs to be either picked up by cleanup job or raised as an error for a developer
+  to look at"; RT-1, RT-2, RT-3, RT-16, RT-17).** Three means three tries in all, the first one
+  included. Every place the system tries something again on its own is one of four kinds:
+  - **A person is waiting** (two saves colliding, "Delete my account", autosave of a draft changed
+    in another tab, a piece of an upload): three quick tries, then the person sees the message
+    they would have seen anyway ("Something went wrong. Please try again later.", "Your story
+    couldn't be saved…", "Upload failed" with _Try again_).
+  - **Background work** (media jobs, the 18:00 resend, putting the baseline Admins in place when
+    api-admin starts): three tries, then the nightly clean-up picks it up where there is one; the
+    clean-up also stops after 3 nights. Then one error line is logged, and for a story the
+    moderators' list shows "Can't be reviewed yet: a problem on our side".
+  - **A duty that must finish** (deleting an erased person's files and sign-in account, a deleted
+    story's pictures): keeps trying for ever, slowly, and logs an error line at every failure from
+    the third on.
+  - **Finding the way back** (reconnecting to the database after a restart, the media worker
+    renewing its certificate, re-reading a secret or the log token): not capped, so the site comes
+    back by itself after a database restart; the certificate renewal logs an error line from its
+    third failure on.
+  - Only what passes by itself is tried again (a collision, a timeout, "busy"), never a refusal,
+    and each action is retried in one place only. Waiting in line is not a failure. When a save
+    needs its third try, the log says which record was fought over.
+  - For now a developer is told only by that one clearly named error line in the logs; an alert
+    that emails comes later, with emails and alerts. The numbers were not measured first: one is
+    raised later only where errors show a real need.
 - Pages that expect "not found" or "not allowed" explain it themselves ("This draft no longer
   exists", a story page that isn't there, "This page is for admins" or "for moderators"): that is
   not backend state.
@@ -1347,7 +1382,7 @@ For developers. Details are in the linked documents.
   Pub/Sub part, and stores nothing on the machine but its identity (D129). Media ready is the first
   such work (`docs/media-runbook.md`, "Media ready"). Every answer names the job's video, and the
   writer refuses one that names another; anything the worker can't do, the writer refusing its
-  answer and the worker's own errors included, counts as a failure, and a job gives up after 5,
+  answer and the worker's own errors included, counts as a failure, and a job gives up after 3,
   so none loops for ever (Joel, 2026-11-08).
 - **A worker machine keeps its clock right (Joel, 2026-11-17).** Every machine that runs workers
   (Joel's, and each church machine when it is set up) has automatic time sync on
