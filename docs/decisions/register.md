@@ -5,6 +5,7 @@ in the pull request that builds it, in the format in `.agents/skills/writing-the
 
 | Id     | Date       | Decided, in plain words                                                                                                                | Now at                                                                      | Status             | Source                              |
 | ------ | ---------- | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ------------------ | ----------------------------------- |
+| BE-14 | 2026-11-27 | An Admin sets the largest upload on the Limits page, at most 10 GB video, 2 GB audio, 3 hours | REQ-SHR-140 | in force | knowledge-system-behaviour-vs-engineering.html |
 | PR-140 | 2026-10-31 | Assumptions listed for Joel in pull request 140 (pictures on stories), accepted as approved | REQ-SHR-057 | in force | https://github.com/He-Is-Real/monorepo/pull/140, accepted by Joel 2026-11-27 |
 | PR-133 | 2026-10-30 | Assumptions listed for Joel in pull request 133 (video and audio uploads), accepted as approved | REQ-SHR-124 | in force | https://github.com/He-Is-Real/monorepo/pull/133, accepted by Joel 2026-11-27 |
 | PR-118 | 2026-10-30 | Assumptions listed for Joel in pull request 118 (written stories and submission limits), accepted as approved | REQ-SHR-131, REQ-SHR-132 | in force | https://github.com/He-Is-Real/monorepo/pull/118, accepted by Joel 2026-11-27 |

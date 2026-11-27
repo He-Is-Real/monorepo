@@ -2,7 +2,7 @@
 
 Who: Signed-in person (sharing their own story and its files), Admin (limits), Moderator, the system.
 Data: `docs/db-permissions.md`.
-Next id: REQ-SHR-140
+Next id: REQ-SHR-141
 
 ## Contents
 
@@ -95,7 +95,8 @@ Next id: REQ-SHR-140
 - **REQ-SHR-042** When a limit changes, it applies to everyone at once: every later action must meet the limits in force. [J-2026-10-30-SHRb]
 - **REQ-SHR-136** When a limit changes, a story already sent or published is never checked against it again. [UNTRACED]
 - **REQ-SHR-043** An edit over a maximum is accepted only if it does not make it worse, so a long draft can still be trimmed; submitting needs every current minimum and maximum. [J-2026-10-30-SHRb]
-- **REQ-SHR-044** Trusted submitters have no open-drafts or weekly limits, only the hourly upload limit, and get the largest video and audio sizes and lengths (not bigger pictures). [UNTRACED]
+- **REQ-SHR-044** Trusted submitters have no open-drafts or weekly limits, only the hourly upload limit. [UNTRACED]
+- **REQ-SHR-140** Trusted submitters get the largest video and audio sizes and lengths an Admin could set. [BE-14]
 - **REQ-SHR-045** An Admin can also set a person's own limits; there is no admin page for that. [D112]
 - **REQ-SHR-046** Before a limit is reached, the share page shows what's left this week ("2 of 3 stories left…"). [UNTRACED]
 - **REQ-SHR-047** At a limit, the share page explains kindly, says when the person can carry on, and holds that step back. [UNTRACED]
