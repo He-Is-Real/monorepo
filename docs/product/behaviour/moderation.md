@@ -38,8 +38,7 @@ Next id: REQ-MOD-156
 - **REQ-MOD-014** When a Moderator or Admin makes a status entry (approve, send back, reject, take down, show again, approve anyway), the system records their email from their verified sign-in. [EM-1]
   Why: to show which staff member took which action.
 - **REQ-MOD-015** The review page's history shows that email to Moderators and Admins ("Approved by …"); it can't be blocked. [EM-1]
-- **REQ-MOD-016** The owner never sees which staff member made a step: their pages and "Download my data" say "a moderator". [EM-1]
-- **REQ-MOD-017** The owner can read the Moderators' decisions and notes on their own stories, never who made them. [EM-1]
+- **REQ-MOD-016** Where a staff member made a step, the owner's pages and "Download my data" say "a moderator". [EM-1]
 
 ## Who moderates
 
