@@ -14,11 +14,11 @@ Next id: REQ-ADM-034
 - **REQ-ADM-006** A story's review page has the staff menu in the same place but no page title or description: its heading is the story's own title, inside the story exactly as the public will see it. [OQ-3]
 - **REQ-ADM-007** Moderators and Admins see one more link, "Admin", after the public links in the site's navigation, in the same row and style with no divider, so their header is the same height as everyone else's. [J-2026-11-20-ADM]
 - **REQ-ADM-008** Only where the row has no room (very large text) does the "Admin" link wrap under the other links. [J-2026-11-20-ADM]
-- **REQ-ADM-032** From 1280 px the account area is a little narrower so the "Admin" link fits the row. [UNTRACED]
-- **REQ-ADM-009** In the phone menu, the "Admin" link comes after a gap and a line. [UNTRACED]
+- **REQ-ADM-032** From 1280 px the account area is a little narrower so the "Admin" link fits the row. [PR-252]
+- **REQ-ADM-009** In the phone menu, the "Admin" link comes after a gap and a line. [PR-227]
 - **REQ-ADM-010** The "Admin" link shows as the current page on the admin landing page and on every admin and moderation page. [J-2026-11-20-ADM]
 - **REQ-ADM-011** Visitors and Signed-in people without a staff role never see the "Admin" link, and nobody sees it until api-user has said their role, so no link flashes. [J-2026-11-14-ADM]
-- **REQ-ADM-012** The "Admin" link reflects the role when the page was loaded; after a role change it updates on the next full page load or sign-in. The staff pages' servers check the role on every call. [UNTRACED]
+- **REQ-ADM-012** The "Admin" link reflects the role when the page was loaded; after a role change it updates on the next full page load or sign-in. The staff pages' servers check the role on every call. [PR-227]
 
 ## Admin landing page
 
