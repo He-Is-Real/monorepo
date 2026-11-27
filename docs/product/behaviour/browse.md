@@ -2,7 +2,7 @@
 
 Who: Visitor, Signed-in person, the system.
 Data: `docs/db-permissions.md` ("Stories", "Themes").
-Next id: REQ-BRW-086
+Next id: REQ-BRW-089
 
 ## Contents
 
@@ -21,6 +21,7 @@ Next id: REQ-BRW-086
 - **REQ-BRW-002** Home shows the 3 newest stories under "Recently shared". [M1O-A4]
 - **REQ-BRW-082** Home shows a row of highlighted themes per category. [D130]
 - **REQ-BRW-003** No page shows story counts: no totals and no counts per theme. [D62]
+- **REQ-BRW-087** No public page or public answer shows any count of views, hearts or other engagement, and no public answer gives a total number of stories. [D30]
 - **REQ-BRW-004** Home's impact numbers stay hidden until real figures exist. [UNTRACED]
 - **REQ-BRW-005** For 7 days after a story is published, its cards show a "NEW" badge. [D72]
 - **REQ-BRW-081** Nothing is stored per person: there is no personalised home and no "New for you". [D72]
@@ -76,6 +77,8 @@ Next id: REQ-BRW-086
 - **REQ-BRW-038** A story page shows the player, picture or text, and 3 related stories: shared themes first, then newest. [UNTRACED]
 - **REQ-BRW-039** A long written story shows about its first 600 characters with "Continue reading", unless that would hide fewer than 100 characters. [M1O-A1]
 - **REQ-BRW-040** When a story's title changes, its old address takes the Visitor to the new one. The move happens in the page, not as a "moved permanently" (301) answer. [PC-1]
+- **REQ-BRW-086** Every earlier address of a story keeps leading to it, however many times its title has changed. [D30]
+- **REQ-BRW-088** A story keeps the date it was first published through every later approval, also after an edit. [R6]
 - **REQ-BRW-041** A withdrawn, erased or unknown story, or a legal-text version that does not exist, shows the "not found" page, which tells search engines not to index it ("noindex"). [PC-1]
 - **REQ-BRW-042** The "not found" page answers "OK" (200), not "not found" (404). [PC-1]
   Why: Next.js sends a page's start before the page has checked anything.

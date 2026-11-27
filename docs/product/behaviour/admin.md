@@ -1,8 +1,8 @@
 # Admin pages
 
-Who: Moderator, Admin, Visitor and Signed-in person (the navigation link only).
+Who: Moderator, Admin, Visitor and Signed-in person (the navigation link, reading themes, and their own limits).
 Data: `docs/db-permissions.md` ("Themes", "Settings and limits").
-Next id: REQ-ADM-034
+Next id: REQ-ADM-043
 
 ## Header and navigation
 
@@ -35,13 +35,20 @@ Next id: REQ-ADM-034
 - **REQ-ADM-018** When an Admin presses Save on the Limits page, it lists the changes and asks to confirm. [UNTRACED]
 - **REQ-ADM-019** When another Admin saved the limits meanwhile, the Limits page asks to reload. [D29]
 - **REQ-ADM-020** The limits keep the name and role of the Admin who changed them last; there is no history of changes. [DB2-R3]
+- **REQ-ADM-038** Everyone can read the submission limits; only Admins change them, nobody can delete them, and a minimum can never be set above its maximum. [J-2026-10-28-DB]
+- **REQ-ADM-039** The largest picture file is a setting between 200 KiB and 20 MiB, 3 MiB unless changed, and is the same for everyone, trusted people included. [J-2026-11-20-DB]
+- **REQ-ADM-040** A person can see their own limits; only Admins set a person's limits or trusted mark, every change (a reset too) records the Admin, and the limits go only when the account is deleted. [D112]
 
 ## Themes page
 
 - **REQ-ADM-021** The Themes page (Admins) shows categories and themes on one page, moved by dragging on desktop and by tap or keyboard on phones, with one Save for the whole picture. [D130]
+- **REQ-ADM-034** Everyone can read the themes and their categories; only Admins change them, and the Admin who saved last is recorded. [J-2026-10-31-DB]
 - **REQ-ADM-022** A delete on the Themes page is confirmed by typing "delete <name>". [A10]
 - **REQ-ADM-023** Deleting a theme removes it from every story. [D130]
+- **REQ-ADM-035** When a theme is deleted, published stories lose it too, without their owners being asked; a story left with fewer themes than the minimum is checked only when it is next sent. [A9]
+- **REQ-ADM-036** When an Admin renames a theme, every story carrying it shows the new name; when an Admin deletes a theme, it comes off every story in the same save. [D15]
 - **REQ-ADM-024** When someone else saved the themes meanwhile, the Themes page asks to reload. [A2]
+- **REQ-ADM-037** When the Themes page asks to reload, it says "Someone else changed themes. Reload to see their changes", and nothing the second Admin changed is saved. [A2]
 - **REQ-ADM-025** Theme and category names are tidied (trimmed, single spaces, capital first letter), and a duplicate name is refused. [A4]
 - **REQ-ADM-026** Deleting a category moves its themes to "Other", not highlighted. [D130]
 
@@ -52,3 +59,5 @@ Next id: REQ-ADM-034
 - **REQ-ADM-029** The Staff page (Admins) lists the staff with email, role, and who added them and when, with the baseline admins marked. [S-6]
 - **REQ-ADM-030** Before an Admin removes someone on the Staff page, the page asks "Remove …? They become a User.". [UNTRACED]
 - **REQ-ADM-031** The Block list page (Admins) lists blocked emails and IP addresses newest first, each with its note (or "No note yet"), who blocked it and when. [BN-2]
+- **REQ-ADM-042** Changing the note on a blocked email or address records nobody as having changed it. [BN-4]
+- **REQ-ADM-041** When two Admins publish a new version of the same legal text at once, only the first is saved; the second is told the text changed. [J-2026-11-01-DB]

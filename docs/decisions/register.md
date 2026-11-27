@@ -5,6 +5,10 @@ in the pull request that builds it, in the format in `.agents/skills/writing-the
 
 | Id     | Date       | Decided, in plain words                                                                                                                | Now at                                                                      | Status             | Source                              |
 | ------ | ---------- | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ------------------ | ----------------------------------- |
+| J-2026-11-20-DB | 2026-11-20 | The largest picture file is a setting, 200 KiB to 20 MiB, 3 MiB by default, trusted people too | REQ-ADM-039 | in force | chat |
+| J-2026-11-01-DB | 2026-11-01 | Legal texts are immutable versions; people agree in their own session; the database enforces agree first | REQ-ADM-041 | in force | privacy-consent-architecture.html |
+| J-2026-10-31-DB | 2026-10-31 | Themes, categories and the theme catalog: everyone reads, api-admin writes; Other is fixed | REQ-ADM-034 | in force | themes-rebuild-plan.html |
+| J-2026-10-28-DB | 2026-10-28 | Submission settings and story text and theme limits are admin settings with fixed ceilings | REQ-ADM-038 | in force | m2-wave-b-ok.html |
 | PR-263 | 2026-11-21 | Assumptions listed for Joel in pull request 263 (page caching), accepted as approved | REQ-BRW-084 | in force | https://github.com/He-Is-Real/monorepo/pull/263, accepted by Joel 2026-11-27 |
 | PR-265 | 2026-11-21 | Assumptions listed for Joel in pull request 265 (centred Stories page layout), accepted as approved | REQ-BRW-021 | in force | https://github.com/He-Is-Real/monorepo/pull/265, accepted by Joel 2026-11-27 |
 | PR-257 | 2026-11-21 | Assumptions listed for Joel in pull request 257 (header at large text), accepted as approved | REQ-BRW-075 | in force | https://github.com/He-Is-Real/monorepo/pull/257, accepted by Joel 2026-11-27 |
