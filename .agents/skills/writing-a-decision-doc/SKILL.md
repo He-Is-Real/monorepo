@@ -40,7 +40,8 @@ description: >
 ## The decided box
 
 - An open question has no decided box and no empty placeholder for one. An open table row's answer cell is empty.
-- When the owner decides, a green box goes directly with that question: the label "Decided", the date, the owner's exact words in quotes, and one sentence on what that means in practice.
+- When the owner decides, the decision is recorded in green with that question: the label "Decided", the date, the owner's exact words in quotes, and one sentence on what that means in practice.
+- A compacted answered line carries those four things itself. It replaces the expanded question and any separate box.
 - The label never contains a person's name.
 - An answer that asks something back is not a decision. The page answers it under the question, in plain words, with a revised recommendation, and the question stays open.
 
