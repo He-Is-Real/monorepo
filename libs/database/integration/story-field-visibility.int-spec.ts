@@ -47,12 +47,14 @@ const PUBLIC_FIELDS: Record<string, string[]> = {
 
 /**
  * The only select conditions that keep a field from the public, as SurrealDB prints them: the
- * person the row belongs to, or one or more named services.
+ * person the row belongs to, or one or more of the services that are not the public one
+ * (`service:api_public_read` serves anonymous visitors, so a rule naming it is public).
  */
+const PRIVATE_SERVICE = 'service:(?:api_user|api_admin|workflow|housekeeping)';
 const PRIVATE_RULES = [
   /^(person|submitter|story\.submitter) = \$auth$/,
-  /^\$auth = \(?service:\w+\)?$/,
-  /^\$auth INSIDE \[service:\w+(, service:\w+)*\]$/,
+  new RegExp(`^\\$auth = \\(?${PRIVATE_SERVICE}\\)?$`),
+  new RegExp(`^\\$auth INSIDE \\[${PRIVATE_SERVICE}(, ${PRIVATE_SERVICE})*\\]$`),
 ];
 
 /** Private when every OR branch has at least one AND part that is a private rule. */
