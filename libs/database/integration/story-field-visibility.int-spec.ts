@@ -12,29 +12,60 @@ import { rows, TestDatabase } from './support/harness';
  * A field with no select rule shows as `select: true` (FULL); `FOR select FULL` written out looks
  * the same, and needs the list too.
  *
+ * A select rule only counts as private when every branch of it is one of PRIVATE_RULES (the person
+ * the row belongs to, or named services). Any other rule, such as `WHERE true` or "everyone but
+ * the nightly clean-up", still lets the public read the field, so that field needs the list too.
+ *
  * Sub-fields (`a.b`, `a.*`) are checked one by one, like any field. SurrealDB makes `a.*` itself
  * for an array field, with no select rule. A private parent hides its sub-fields from those who
  * can't read it, whatever their own rule; a public parent shows each sub-field that has no rule.
  */
 const PUBLIC_FIELDS: Record<string, string[]> = {
   story: [
+    'body',
+    'bylineName',
     'currentStatus',
+    'description',
     'image',
     'image.file',
     'mediaFile',
     'primaryFormat',
+    'slug',
     'slugHistory',
     'slugHistory.*',
     'themeIds',
     'themeIds.*',
     'themeRefs',
     'themeRefs.*',
+    'title',
     'updatedAt',
     'version',
   ],
-  storyStatusLog: ['status', 'story'],
+  storyStatusLog: ['publishedAt', 'status', 'story'],
   storyFile: ['format', 'height', 'lengthSeconds', 'thumbnailPath', 'width'],
 };
+
+/**
+ * The only select conditions that keep a field from the public, as SurrealDB prints them: the
+ * person the row belongs to, or one or more named services.
+ */
+const PRIVATE_RULES = [
+  /^(person|submitter|story\.submitter) = \$auth$/,
+  /^\$auth = \(?service:\w+\)?$/,
+  /^\$auth INSIDE \[service:\w+(, service:\w+)*\]$/,
+];
+
+/** Private when every OR branch has at least one AND part that is a private rule. */
+function isPrivate(select: boolean | string): boolean {
+  if (select === false) return true;
+  if (typeof select !== 'string') return false;
+  return select.split(/\s+OR\s+/).every((branch) =>
+    branch
+      .split(/\s+AND\s+/)
+      .map((part) => part.replace(/\s+/g, ' ').trim())
+      .some((part) => PRIVATE_RULES.some((rule) => rule.test(part))),
+  );
+}
 
 interface FieldInfo {
   name: string;
@@ -58,7 +89,7 @@ describe('which story fields everyone can read (BE-12)', () => {
       const fields = info?.fields ?? [];
       expect(fields.length).toBeGreaterThan(0);
       const publicNow = fields
-        .filter((f) => f.permissions.select === true)
+        .filter((f) => !isPrivate(f.permissions.select))
         .map((f) => f.name)
         .sort();
       const listed = [...(PUBLIC_FIELDS[table] ?? [])].sort();
@@ -67,7 +98,7 @@ describe('which story fields everyone can read (BE-12)', () => {
       expect(
         unmarked,
         `Everyone can read these ${table} fields of a published story, and nobody chose that: ` +
-          `${unmarked.join(', ')}. Give each one its own \`PERMISSIONS FOR select WHERE ...\` in ` +
+          `${unmarked.join(', ')}. Give each one a select rule made only of PRIVATE_RULES in ` +
           `libs/database/schema, or, only if Joel decided it is public, add it to PUBLIC_FIELDS ` +
           `in this test.`,
       ).toEqual([]);
