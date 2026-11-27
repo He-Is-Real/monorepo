@@ -23,7 +23,7 @@ Next id: REQ-MOD-156
 - **REQ-MOD-001** A story is in one of five states: editing (a draft never sent, or one sent back), pending (waiting for review), approved, hidden (approved, but off the site while its media is fixed, or hidden by a Moderator) and rejected. [J-2026-11-11-MOD]
 - **REQ-MOD-002** There is no "in review" state: a Moderator or Admin decides straight from pending. [J-2026-11-11-MOD]
 - **REQ-MOD-003** When a story takes a step, the system adds a status-log entry saying what happened (its action), the state it left the story in, who made it (the owner, a Moderator or Admin, or the system), when, and which edit of the story it was about. [R6]
-- **REQ-MOD-004** While the story exists, its status-log entries are never edited or deleted. [R6]
+- **REQ-MOD-004** While the story exists, its status-log entries are never edited or deleted (the one exception: REQ-DAT-033). [R6]
 - **REQ-MOD-005** A story's state is that of its newest status-log entry that moved it; a story with none is a draft. [R6]
 - **REQ-MOD-006** The database fixes who may take which step: the owner sends (from editing) and starts editing with Edit (from pending, approved or hidden). [R6]
 - **REQ-MOD-007** A Moderator or Admin approves, sends back or rejects a pending story, and hides an approved one. [R6]
@@ -33,8 +33,6 @@ Next id: REQ-MOD-156
 - **REQ-MOD-009** When a Moderator or Admin sends back, rejects or hides a story, the step needs a note; a Moderator's or Admin's entry can carry a note to the owner. [R6]
 - **REQ-MOD-010** When a sent story gets a new video or audio file or a new picture while it is being edited, the system adds a history-only entry that leaves its state unchanged. [M3-7]
 - **REQ-MOD-011** When the owner changes a sent story's title, description, text or themes, the system adds one "words changed" entry per round of editing, however many saves, and none if nothing changed. [M3-7]
-- **REQ-MOD-012** A draft never sent has no history entries. [M3-7]
-- **REQ-MOD-013** The status log is the moderation history; there is no separate audit log. [J-2026-11-05-MOD]
 - **REQ-MOD-014** When a Moderator or Admin makes a status entry (approve, send back, reject, take down, show again, approve anyway), the system records their email from their verified sign-in. [EM-1]
   Why: to show which staff member took which action.
 - **REQ-MOD-015** The review page's history shows that email to Moderators and Admins ("Approved by …"); it can't be blocked. [EM-1]
@@ -63,12 +61,10 @@ Next id: REQ-MOD-156
 - **REQ-MOD-141** The sort uses browse's own radio buttons. [J-2026-11-20-BRW]
 - **REQ-MOD-142** The title search uses browse's own search box. [UNTRACED]
 - **REQ-MOD-031** The format filter takes one format at a time (All formats, Video, Audio or Written), each showing how many of this tab's stories it holds with the search and theme applied. [OQ-2]
-- **REQ-MOD-032** Themes stack from browse's theme picker: each turns on and off on its own with a ✓, a story shows only if it has every chosen theme, and "Clear themes" appears once one is chosen. [BS-7]
 - **REQ-MOD-033** A chosen theme that has been deleted filters nothing. [OQ-2]
 - **REQ-MOD-034** "Clear filters" takes off the search, format and themes; the tab and the sort stay. [MQ-1]
 - **REQ-MOD-035** Every filter and the sort are in the address, so a link or Back shows the same list, and choices made quickly one after another all count. [MQ-1]
 - **REQ-MOD-036** The sorts are Oldest first (the default, by when the story entered its state), Newest first, and Recently changed (by when the story last changed, newest first). [MQ-1]
-- **REQ-MOD-037** On "Waiting for review", Oldest first puts the story sent longest ago first, and a story sent again after changes goes to the back. [MD-4]
 - **REQ-MOD-038** Each line shows the title with a format icon (opening the review page), the state with what put it there, its themes, the time in this state, when it was sent and when it last changed; 20 at a time with "Show more". [MQ-1]
 - **REQ-MOD-039** The time column is called "Waiting" on "Waiting for review" and "In this state" on the other tabs. [OQ-2]
 - **REQ-MOD-040** On "Waiting for review" only, the time turns orange after 2 days. [MQ-1]
@@ -85,7 +81,6 @@ Next id: REQ-MOD-156
 - **REQ-MOD-047** Each timeline step shows what happened, whether the owner, a Moderator (by email) or the system made it, when, and any note a Moderator left. [EM-1]
   Example: sent, sent again, sent back with the note, taken down to edit, approved, rejected, taken down with the reason, shown again, a new file or picture, words changed, a file that can't be used.
 - **REQ-MOD-048** Any story on the list opens, and a published one; a draft never sent opens for Admins only. [MD-3]
-- **REQ-MOD-049** A waiting, published, taken-down or rejected story has a decision to make; a story being edited is read only. [OV-1]
 - **REQ-MOD-050** The player and picture links are signed for one hour from when the page loads; reloading the page gets fresh ones. [J-2026-11-09-MOD]
 - **REQ-MOD-051** Until Bunny has processed a video or audio file, the page says it is still being processed instead of playing it. [J-2026-11-09-MOD]
 - **REQ-MOD-052** While a review page is open, it checks every minute, and when the tab comes back into view, whether the story changed; if so it says "This story changed while you had it open." with "Reload to see it". [J-2026-11-10-MOD]
@@ -95,53 +90,41 @@ Next id: REQ-MOD-156
 ## Decisions
 
 - **REQ-MOD-055** On a waiting story, a Moderator or Admin chooses Approve, Send back or Reject. [J-2026-11-11-MOD]
-- **REQ-MOD-056** Send back and Reject need a note of 1 to 2,000 characters, written pastorally; the owner reads it as "What our team said". [J-2026-11-11-MOD]
+- **REQ-MOD-056** Send back and Reject need a note of 1 to 2,000 characters, written pastorally. [J-2026-11-11-MOD]
 - **REQ-MOD-057** On a published story, a Moderator or Admin can Take down with a required reason. [G5]
 - **REQ-MOD-058** After a take-down, the owner reads the reason under "What our team said", like a sent-back note, and it is in "Download my data". [MD-2]
-- **REQ-MOD-059** Only a Moderator or Admin shows a hidden story again, with Show again on the review page. [G5]
 - **REQ-MOD-060** When a signed-in Moderator or Admin views a published story on the public site, they see "Take down" under it, which opens the review page's take-down form (reason required) and takes the story off the same way. [MD-1]
-- **REQ-MOD-061** The public story page is the same for everyone; the "Take down" button appears in the Moderator's browser once their role is known, and nobody else sees it. [MD-1]
 - **REQ-MOD-062** When two Moderators decide the same story at once, the first decision wins; the second is refused, and their page says "Another moderator has already decided this story" and refreshes. [D-1]
 - **REQ-MOD-063** A decision names the story's newest status entry and the files the page showed, not its edit number: background work on a file doesn't refuse it, and a story whose files changed since is refused. [G14]
 - **REQ-MOD-064** When a story moved on since the page opened (another Moderator decided first, or the owner pressed Edit), the decision is refused, the page says so and refreshes. [G14]
 - **REQ-MOD-065** When a decision is refused, the page says why in plain words, never with a code. [J-2026-11-09-MODb]
   Example: "The video is still being processed. You can approve it from 14:05."
 - **REQ-MOD-066** After each decision the page confirms it and shows the story as it now is. [OV-1]
-- **REQ-MOD-145** Approving a story publishes it at once. Edit or a hide takes it off the site at once, and erasing the account deletes the story and its history. [R11]
-- **REQ-MOD-067** Moderators and Admins can never change the words of someone's story. [D41]
+- **REQ-MOD-145** Approving a story publishes it at once, and a hide takes it off the site at once. [R11]
 
 ## Overturning a decision
 
 - **REQ-MOD-068** On a taken-down story, whoever took it down (a Moderator, or the site while its video or audio can't play), a Moderator or Admin chooses Show again, Send back (with a note) or Reject (with a note). [OV-2]
-- **REQ-MOD-069** When a taken-down story is rejected, it is deleted with the other rejected stories. [P1-11]
 - **REQ-MOD-070** For a story the site took down, Show again waits until its video plays again. [OV-2]
 - **REQ-MOD-071** On a rejected story, a Moderator or Admin chooses Approve (publish it), Send back (with a note) or "Put back in the waiting list". [OV-1]
 - **REQ-MOD-072** "Put back in the waiting list" returns the story to "Waiting for review" unchanged, with no note, as its own step in the history, for any Moderator to decide again. [OV-1]
 - **REQ-MOD-073** Approving a rejected story runs every check a first approval does (the media, the picture at Bunny, the owner's story consent); Approve anyway stays Admin only. [OV-1]
-- **REQ-MOD-074** Approve, Show again and "Put back in the waiting list" need no note; Send back and Reject need the note the owner reads. [OV-3]
 - **REQ-MOD-075** When a decision is overturned, the owner sees the new state and only the latest note, as with any decision; the full history is in "Download my data", and no email is sent. [OV-4]
 - **REQ-MOD-076** A re-approved story keeps its first publication date (its place in newest first); one rejected while waiting was never published, so it is published that day. [OV-5]
 - **REQ-MOD-077** A decision can be overturned any number of times, any time until the story is deleted. [OV-6]
-- **REQ-MOD-078** Once a story leaves Rejected, the 90-day deletion of rejected stories stops applying to it; a story sent back starts the 186-day editing clock. [OV-6]
 
 ## Admin delete
 
 - **REQ-MOD-079** On the review page of a story in any state they can open, an Admin has Delete, after one "This can't be undone" question, as for the owner's Delete. [P1-11]
-- **REQ-MOD-080** Moderators have no Delete. [DEL-2]
-- **REQ-MOD-081** An Admin's Delete deletes the story exactly as the owner's Delete does: its status log and others' hearts go with it, and it leaves the site and search at once. [P1-11]
-- **REQ-MOD-082** An Admin's Delete also deletes the story's videos and picture folder at Bunny at once, side by side, waiting at most 8 seconds for Bunny so the Admin isn't kept waiting. [DEL-1]
-- **REQ-MOD-083** If Bunny fails or is still busy then, the Delete still succeeds: the nightly orphan sweep removes the videos and the nightly clean-up removes the queued picture folder, as for the owner's Delete. [DEL-1]
 - **REQ-MOD-084** The owner isn't told of an Admin's Delete, beyond the story leaving My submissions. [P1-11]
 - **REQ-MOD-085** An Admin's Delete doesn't check what the Admin saw: the story goes even if it changed since the page opened; a story already gone answers that it wasn't found. [DEL-3]
-- **REQ-MOD-144** An Admin's Delete names nobody: no account is stored with the deletion or on any history entry for it. [UNTRACED]
 
 ## Media before approval
 
 - **REQ-MOD-086** A story can't be approved until every upload is processed and its size and length are known, so nothing unchecked reaches the public. [M1-A2]
-- **REQ-MOD-087** For a picture, "processed" means it passed the picture check when the story was sent for review. [R3]
 - **REQ-MOD-146** A story can't be approved unless the person who sent it has agreed to a testimony consent, of any version. [J-2026-11-01-DB]
 - **REQ-MOD-152** A video story can't be approved until the picture shown for its video is the story's current picture. [J-2026-11-06-SHR]
-- **REQ-MOD-155** An audio story can't be approved until its picture video is made from the story's current picture. [DEC-1B]
+- **REQ-MOD-155** An audio story counts as ready, and can be approved, only once its picture video is made from the story's current picture. [DEC-1B]
 - **REQ-MOD-088** While the story's video, audio file or picture could still be replaced through its upload link, a Moderator can't approve, and is told the time from which they can. [DEC-5]
   Why: what the Moderator watched is what gets published.
 - **REQ-MOD-089** An upload link can replace a video or audio file for an hour after it was signed, or signed again for a resumed upload, and a picture for 10 minutes. [DEC-5]
@@ -166,7 +149,6 @@ Next id: REQ-MOD-156
 - **REQ-MOD-101** The result writer believes a worker's "failed" only once Bunny says the same; then it marks the file failed and the job "gave up" with the reason `file_unusable`. [UNTRACED]
   Why: the worker runs on a home PC and can never blame the file.
 - **REQ-MOD-102** In that same write, the database sends a story that is waiting for review, published, or off the site back to its owner with a system "file unusable" entry: "Needs a new file". [G2]
-- **REQ-MOD-103** A published story whose file is unusable goes back to its owner at once, with no timer. [G2]
 - **REQ-MOD-104** The "file unusable" entry records `recording` (the story's video or audio file) or `picture` (an audio story's picture video made with its picture), and only the database writes it. [P1-2]
 - **REQ-MOD-105** A picture video made on the site's default background, with no picture, counts as the `recording`. [G17]
 - **REQ-MOD-106** Every other give-up is ours, never the owner's: `bunny_unavailable`, `worker_error` or `other`, a fixed list readable by api-admin only; a video Bunny has lost counts as `other`. [P1a-4]
@@ -178,8 +160,6 @@ Next id: REQ-MOD-156
 - **REQ-MOD-112** The 30-day tidy-up of done jobs skips those jobs; they go 30 days after the story is decided, shown again or deleted. [P1-3]
 - **REQ-MOD-113** Once the 3 retries are used, the database refuses every new check or render job for that story's file, in one place: a chore, Bunny's notice, a late copy of an answer from the queue, or the owner sending the same file again after Edit. [P1-9]
 - **REQ-MOD-114** A new file the owner uploads starts with no give-ups, and the cap doesn't apply while the story is back with its owner. [P1-9]
-- **REQ-MOD-115** The nightly clean-up never deletes a story the site took off itself. [P1-9]
-- **REQ-MOD-116** For a story the site took off itself, its owner can use Edit and upload a new file, a Moderator or Admin can send it back or reject it (then it is deleted like any rejected story), and an Admin can delete it. [P1-9]
 
 ## Media jobs
 
