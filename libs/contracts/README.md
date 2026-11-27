@@ -1,8 +1,8 @@
 # contracts
 
 The OpenAPI 3.1 contracts for every service. **They are the source of truth (D23):** change the
-spec in the same PR as the code that implements it. The rules they follow are in
-[docs/api-conventions.md](../../docs/api-conventions.md).
+spec in the same PR as the code that implements it. The rules they all follow are under
+[Conventions](#conventions) below.
 
 | Spec                                                   | Service                                               | Callers                                                 |
 | ------------------------------------------------------ | ----------------------------------------------------- | ------------------------------------------------------- |
@@ -22,3 +22,32 @@ pnpm exec redocly bundle libs/contracts/openapi/api-user.yaml -o /tmp/api-user.y
 
 Lint exceptions are listed, with reasons, in `.redocly.lint-ignore.yaml`. TypeScript types for
 `web` will be generated from these specs (openapi-typescript) when it first calls an API.
+
+## Conventions
+
+These hold across `api-public-read`, `api-user` and `api-admin`; each operation's own entry wins.
+
+- Every path is under `/v1` except `/health`: widgets on church websites can't be updated in step with the APIs.
+- Path segments are kebab-case. Collections are plural nouns (`/stories`, `/themes`), singletons singular
+  (`/account`, `/feed`); the method says what happens. A verb is only the last segment of a state-changing `POST`
+  (`/{id}/submit`, `/{id}/approve`), never in a `GET`: `/{id}/verb`, not Google's `/{id}:verb`, which clashes
+  with Express route parameters.
+- JSON fields are camelCase, times RFC 3339 UTC, and ids opaque (the record id without its table): clients never
+  parse them.
+- Queries change nothing. There is no event store: the tables are the state.
+- Lists page by cursor (`?limit=&cursor=` → `{ data, nextCursor }`); public lists carry no totals.
+- Errors are RFC 9457 `application/problem+json` with our `code`, and never echo testimony text or other personal
+  data. Each operation lists every status it can answer, `5XX` included, and a status means the same everywhere:
+
+| Status | Means                                                                                                                     |
+| ------ | ------------------------------------------------------------------------------------------------------------------------- |
+| 400    | Malformed or invalid request (also a missing `Idempotency-Key`)                                                           |
+| 401    | Missing or invalid Clerk token                                                                                            |
+| 403    | Role or ownership check failed, or the person must agree first (`terms_agreement_required`, `testimony_consent_required`) |
+| 404    | Not found, or not visible to the caller                                                                                   |
+| 409    | The resource's state doesn't allow it                                                                                     |
+| 412    | `If-Match` doesn't match the current version                                                                              |
+| 422    | `Idempotency-Key` reused with a different body                                                                            |
+| 428    | `If-Match` missing                                                                                                        |
+| 5XX    | The service couldn't answer: a bare `title` and `status`, never the cause (a rate limit answers exactly this too)         |
+| 503    | `service_restarting`: the database is restarting; `Retry-After` and `retryAfterSeconds` say when to try again             |

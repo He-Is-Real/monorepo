@@ -19,7 +19,7 @@ import {
  * Once per page load and signed-in person: client-side navigation keeps the header, so it
  * doesn't call again, and a different person signing in calls again. Nothing is stored in the
  * browser. **A failure blocks nothing**: the header and the page work as before, and the state
- * is just `failed`.
+ * is just `failed`; the database still refuses any write that needs an agreement.
  */
 export type AccountBootstrap =
   | { status: 'idle' }

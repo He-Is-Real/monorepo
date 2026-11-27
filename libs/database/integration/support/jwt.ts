@@ -58,7 +58,7 @@ export interface ClerkTokenOptions {
 
 /**
  * The claims a Clerk session token carries once the JWT template adds `ns`, `db` and `ac`
- * (see docs/db-permissions.md, "Clerk side"). `sub` is the Clerk user ID.
+ * (infra/clerk/dev.json). `sub` is the Clerk user ID.
  */
 export function clerkClaims(
   clerkUserId: string,

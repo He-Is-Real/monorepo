@@ -592,7 +592,8 @@ export class ModerationController {
    * An Admin's Delete (P1-11, Joel 2026-11-14): the story in any state an Admin can open, gone as
    * its owner's Delete takes it (decisions.ts, deleteStory), whatever changed since the page was
    * opened (DEL-3: no If-Match). Then its videos and picture folder go at Bunny at once (DEL-1,
-   * StoryMedia). Moderators are refused (403, DEL-2 A).
+   * StoryMedia). Moderators are refused (403, DEL-2 A). No Admin's account id is sent or stored:
+   * the status log goes with the story, so the database keeps no record of who deleted it.
    */
   @Delete('stories/:id')
   @HttpCode(204)

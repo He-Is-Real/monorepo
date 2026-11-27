@@ -5,6 +5,8 @@
  * bucket (infra/terraform/modules/gcp/worker_identity.tf); not a database. A copied certificate
  * and key can't keep a second line of renewals going: whichever copy renews first makes the other
  * one stale, and its next renewal is refused.
+ * Why this and not a key bound to the machine's hardware: church machines have no security chip
+ * (TPM), so nothing on the machine can stop a key being copied.
  *
  * Writes carry the generation that was read (ifGenerationMatch), so two renewals of the same
  * certificate can't both win.

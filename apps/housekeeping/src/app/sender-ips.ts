@@ -6,7 +6,7 @@ import type { Task, TaskContext, TaskResult } from './tasks';
  * (`storyStatusLog.senderIp`) is kept 30 days, so an Admin can block a recent abuser's address,
  * then cleared. The database lets service:housekeeping see only status entries still holding an
  * address 30 days old (`fn::story::sender_ips_expire_before`), never the address itself, and
- * change nothing but clearing it (docs/db-permissions.md), so these queries only pick. The entry
+ * change nothing but clearing it (storyStatusLog's permissions, schema-04-stories.surql), so these queries only pick. The entry
  * itself stays: the story's status log is append-only.
  *
  * Clearing is tiny, so a run clears up to `ENTRIES_PER_DELETION` times maxDeletions entries, in

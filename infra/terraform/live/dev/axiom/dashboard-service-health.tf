@@ -3,6 +3,9 @@
 # Grouped by service, route, outcome or rate-limit group (LG-8). One table reads the traces
 # dataset instead: each route's slowest request with its trace id, to open in Axiom's trace view
 # (`ref` is a random id, not a person, so LG-8 allows it).
+#
+# Dashboards are made here only, never in Axiom's own editor: a hand-made one is lost or drifts
+# from this file.
 locals {
   health_charts = [
     {

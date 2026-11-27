@@ -4,7 +4,7 @@
 -- token can open a person session: there is never a stand-in key whose private half exists.
 -- $clerk_jwt_public_key is Clerk's PEM public key, pinned because GKE has no internet egress to
 -- fetch the JWKS; it's public, so it can sit in tfvars. Tokens carry the ns/db/ac claims
--- SurrealDB needs (docs/db-permissions.md, "Clerk side").
+-- SurrealDB needs (infra/clerk/dev.json).
 -- An already-open person session outlives erasure (up to its 5m session), so every person write
 -- in the schema also checks `$auth.status != 'deleted'`. $auth is a record id, so this reads
 -- the user row as of the transaction's snapshot (not as of sign-in); a transaction that overlaps

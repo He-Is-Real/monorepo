@@ -23,7 +23,7 @@ info:
       checked, exactly as for any unexpected failure, by design.
     - `x-milestone` on each operation is the delivery milestone that builds it.
 
-    Conventions: `docs/api-conventions.md`.
+    Conventions: `libs/contracts/README.md`.
   contact:
     name: He Is Real Today
     url: https://www.heisreal.today

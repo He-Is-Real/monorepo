@@ -12,6 +12,8 @@
 # package: it makes audio stories' picture videos), and the repo's packages (`pnpm install`). Stop
 # it with Ctrl+C. Settings: IDENTITY_RENEW_HOURS (default 6), WORKER_IDENTITY_DIR. A picture
 # video's files live in $XDG_RUNTIME_DIR (memory, readable by you only), removed when it stops.
+# Keep the machine's automatic time sync on: the certificates and the Google sign-in they give
+# are checked against the clock, and a drifting clock makes them look not yet valid or expired.
 set -euo pipefail
 
 project=heisreal-dev

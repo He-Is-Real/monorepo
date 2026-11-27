@@ -39,7 +39,7 @@ export interface IdempotentResponse {
 /**
  * A command to run inside the transaction. `statements` must end by setting
  * `LET $result = { id: <record>, version: <int | NONE> };` and must contain no `RETURN`,
- * `BEGIN` or `COMMIT` (docs/db-permissions.md, gotchas). Parameter names starting with
+ * `BEGIN` or `COMMIT` (libs/database/SURREALDB-NOTES.md). Parameter names starting with
  * `idem_` are reserved.
  */
 export interface PreparedCommand {

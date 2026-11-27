@@ -92,8 +92,9 @@ DEFINE EVENT OVERWRITE user_not_erased_identity ON user
   };
 -- Every table holding or linking person data (directly or through story) refuses a new or
 -- changed row for a person who doesn't exist or is erased, and bumps that person's fence, so a
--- write racing erasure conflicts at commit. The per-table list is in docs/db-permissions.md;
--- integration/person-linked.int-spec.ts fails if a table is added without being classified.
+-- write racing erasure conflicts at commit. The per-table list is the classification in
+-- integration/person-linked.int-spec.ts, which fails if a table is added without being
+-- classified. A new table that holds or links person data calls this on create and update.
 DEFINE FUNCTION OVERWRITE fn::person::live($user: option<record<user>>) {
   IF $user = NONE OR !record::exists($user) OR $user.status = 'deleted' {
     THROW 'this row belongs to a person who doesn’t exist or has been erased';
@@ -106,8 +107,9 @@ DEFINE EVENT OVERWRITE user_fence ON user                         -- erasure, bi
 -- ---------------------------------------------------------------- favourite (M2: hearts)
 -- A person's hearts: their private favourites list (founder, 2026-10-25). Only the person who
 -- hearted a story can read the row: no service login, and not the story's owner (who will see a
--- count per story on their profile later, never who gave it: not built, see
--- docs/db-permissions.md, `favourite`). One per person and story. A heart needs the person to have
+-- count per story on their profile later, never who gave it: not built). Planned: that count is
+-- a counter in its own table, kept by favourite_rules, never on story (it would bump
+-- story.version); the owner reads only the number. One per person and story. A heart needs the person to have
 -- agreed to the latest terms of use (plan 4e, Q2: their own write) and a story that is public now
 -- (approved: its newest status entry, R6/R11). A story that stops being public later keeps the
 -- heart, but lists show public stories only, so it no longer shows (C15). Person-linked twice: a new
@@ -251,6 +253,8 @@ DEFINE FUNCTION OVERWRITE fn::erasure::retry_after($attempts: int) {
 -- Plan 4e: the stub keeps no agreement (the terms and testimony pointers are cleared with it), and
 -- nothing else kept (the tombstone) records consent. On a caller's own
 -- permissions (api-user's rights are exactly these); anyone else's leave nothing done.
+-- Accepted risk (D13): api-user's own login can erase anyone's account. It destroys but discloses
+-- nothing, and the backup restores it.
 DEFINE FUNCTION OVERWRITE fn::account::erase($clerkUserId: string, $reason: string) {
   LET $fingerprint = type::record('erasedIdentity', crypto::sha256($clerkUserId));
   IF !record::exists($fingerprint) { CREATE $fingerprint RETURN NONE };

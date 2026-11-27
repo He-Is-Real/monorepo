@@ -109,7 +109,11 @@ export async function run(
   return (await db.query(sql, vars).json().collect()) as unknown[];
 }
 
-/** The last statement's result, as an array of rows (empty when nothing matched or was allowed). */
+/**
+ * The last statement's result, as an array of rows (empty when nothing matched or was allowed).
+ * A denied write also answers empty, so a test of one asserts the empty result AND reads the row
+ * back as the migrator: unchanged, or absent.
+ */
 export async function rows<T = Row>(
   db: SurrealQueryable,
   sql: string,
