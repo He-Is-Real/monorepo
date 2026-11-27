@@ -36,7 +36,7 @@ Next id: REQ-ADM-043
 - **REQ-ADM-019** When another Admin saved the limits meanwhile, the Limits page asks to reload. [D29]
 - **REQ-ADM-020** The limits keep the name and role of the Admin who changed them last; there is no history of changes. [DB2-R3]
 - **REQ-ADM-038** Everyone can read the submission limits; only Admins change them, nobody can delete them, and a minimum can never be set above its maximum. [J-2026-10-28-DB]
-- **REQ-ADM-039** The largest picture file is a setting between 200 KiB and 20 MiB, 3 MiB unless changed, and is the same for everyone, trusted people included. [J-2026-11-20-DB]
+- **REQ-ADM-039** The largest picture file is a setting between 200 KiB and 20 MiB, 3 MiB unless changed, and is the same for everyone, trusted people included. [J-2026-11-20-ADMb]
 - **REQ-ADM-040** A person can see their own limits; only Admins set a person's limits or trusted mark, every change (a reset too) records the Admin, and the limits go only when the account is deleted. [D112]
 
 ## Themes page
@@ -60,4 +60,4 @@ Next id: REQ-ADM-043
 - **REQ-ADM-030** Before an Admin removes someone on the Staff page, the page asks "Remove …? They become a User.". [UNTRACED]
 - **REQ-ADM-031** The Block list page (Admins) lists blocked emails and IP addresses newest first, each with its note (or "No note yet"), who blocked it and when. [BN-2]
 - **REQ-ADM-042** Changing the note on a blocked email or address records nobody as having changed it. [BN-4]
-- **REQ-ADM-041** When two Admins publish a new version of the same legal text at once, only the first is saved; the second is told the text changed. [J-2026-11-01-DB]
+- **REQ-ADM-041** When an Admin publishes a new version of a legal text and another version was published since they opened the page, the save is refused and they are told the text changed. [J-2026-11-01-DB]

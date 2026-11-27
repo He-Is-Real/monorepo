@@ -21,7 +21,7 @@ Next id: REQ-BRW-089
 - **REQ-BRW-002** Home shows the 3 newest stories under "Recently shared". [M1O-A4]
 - **REQ-BRW-082** Home shows a row of highlighted themes per category. [D130]
 - **REQ-BRW-003** No page shows story counts: no totals and no counts per theme. [D62]
-- **REQ-BRW-087** No public page or public answer shows any count of views, hearts or other engagement, and no public answer gives a total number of stories. [D30]
+- **REQ-BRW-087** No public page or public answer shows any count of views, hearts or other engagement, and no public answer gives a total number of stories. [UNTRACED]
 - **REQ-BRW-004** Home's impact numbers stay hidden until real figures exist. [UNTRACED]
 - **REQ-BRW-005** For 7 days after a story is published, its cards show a "NEW" badge. [D72]
 - **REQ-BRW-081** Nothing is stored per person: there is no personalised home and no "New for you". [D72]
