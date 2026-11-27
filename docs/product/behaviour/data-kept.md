@@ -52,7 +52,7 @@ Next id: REQ-DAT-051
 - **REQ-DAT-050** After an account is deleted, its sign-in account is deleted last, which signs the person out everywhere. [UNTRACED]
 - **REQ-DAT-039** After an account is deleted, all that remains of the account itself is an empty record with its creation date and the word "deleted", and a one-way fingerprint of the old sign-in id that cannot be turned back into it. [D37]
 - **REQ-DAT-040** The fingerprint of a deleted account's sign-in holds no date and no link to anything else, and nobody can change or remove it. [D82]
-- **REQ-DAT-041** The fingerprint is kept so that sign-in can never come back; it still counts as personal data, and the privacy policy says so. [UNTRACED]
+- **REQ-DAT-041** The fingerprint is kept so that sign-in can never come back; it still counts as personal data, and the privacy policy says so. [PR-145]
 - **REQ-DAT-042** A staff member can delete their account like anyone else, and their account then becomes an empty record like anyone's. [D37]
 - **REQ-DAT-043** Staff work emails on the staff list are not story data: they are not linked to a person's account and are not deleted when an account is deleted. [S-1]
 - **REQ-DAT-044** Nothing new can be stored for a person whose account has been deleted, even from a page they still had open. [D39]

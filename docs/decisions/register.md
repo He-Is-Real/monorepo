@@ -5,6 +5,7 @@ in the pull request that builds it, in the format in `.agents/skills/writing-the
 
 | Id     | Date       | Decided, in plain words                                                                                                                | Now at                                                                      | Status             | Source                              |
 | ------ | ---------- | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ------------------ | ----------------------------------- |
+| PR-145 | 2026-10-31 | Assumptions listed for Joel in pull request 145 (erasure, account deletion), accepted as approved | REQ-DAT-041 | in force | https://github.com/He-Is-Real/monorepo/pull/145, accepted by Joel 2026-11-27 |
 | S-1 | 2026-11-11 | Admins add, change and remove Moderators and Admins on the Staff page; roles live in Clerk | REQ-DAT-043 | in force | m3-plan-and-m2-extras.html |
 | J-2026-11-07-ARC | 2026-11-07 | Services notice database restarts, keep reconnecting, start without the database and answer 503 at once | REQ-ERR-031 | in force | chat: "we can handle occasional forced restarts" |
 | PR-261 | 2026-11-22 | Assumptions listed for Joel in pull request 261 (rate limits), accepted as approved | REQ-LIM-029 | in force | https://github.com/He-Is-Real/monorepo/pull/261, accepted by Joel 2026-11-27 |

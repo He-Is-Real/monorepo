@@ -1070,6 +1070,23 @@ Planned (M3):
   sign-in.
 - Planned (M5): the dashboard and the user list.
 
+## Dev and test environment
+
+- Milestones M1 to M8 are built and tested on the dev site only, with made-up stories. Then
+  "Real stories" brings in the 24 existing testimonies, then "Go live" opens the real site, then
+  Emails. (D46, D87)
+- The dev site uses Google's own web addresses (`*.run.app`); heisreal.today stays with the
+  prototype until Go live. Dev isn't listed by search engines. (D7)
+- Dev has about 25 obviously fake stories covering every type and status, with fake people and
+  short test videos. "Reset dev data" puts it back in about a minute. (D47, D49)
+- Automatic tests sign real test people in on dev after each deploy, and clean up what they
+  upload. Dev's test accounts are trusted submitters (never outside dev). (D50)
+- **Public submissions open only once emails work,** so nobody shares a testimony without a
+  confirmation. Go live may put the site up first; the 24 imported testimonies need no emails.
+  (D95, D87)
+- Error tracking (Sentry) and visitor statistics (Umami) are not part of this phase. (D5)
+- YouTube is a later feature; Bunny.net is the only video host. (D8)
+
 ## Technical decisions
 
 For developers. Details are in the linked documents.
