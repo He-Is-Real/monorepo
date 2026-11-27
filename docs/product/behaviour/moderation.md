@@ -2,7 +2,7 @@
 
 Who: Moderator, Admin, Signed-in person (a story's owner), the system.
 Data: `docs/db-permissions.md#stories-schema-04-storiessurql`
-Next id: REQ-MOD-154
+Next id: REQ-MOD-156
 
 ## Contents
 
@@ -134,14 +134,15 @@ Next id: REQ-MOD-154
 - **REQ-MOD-083** If Bunny fails or is still busy then, the Delete still succeeds: the nightly orphan sweep removes the videos and the nightly clean-up removes the queued picture folder, as for the owner's Delete. [DEL-1]
 - **REQ-MOD-084** The owner isn't told of an Admin's Delete, beyond the story leaving My submissions. [P1-11]
 - **REQ-MOD-085** An Admin's Delete doesn't check what the Admin saw: the story goes even if it changed since the page opened; a story already gone answers that it wasn't found. [DEL-3]
-- **REQ-MOD-144** Nothing records which Admin deleted a story. [DEL-3]
+- **REQ-MOD-144** An Admin's Delete names nobody: no account is stored with the deletion or on any history entry for it. [UNTRACED]
 
 ## Media before approval
 
 - **REQ-MOD-086** A story can't be approved until every upload is processed and its size and length are known, so nothing unchecked reaches the public. [M1-A2]
 - **REQ-MOD-087** For a picture, "processed" means it passed the picture check when the story was sent for review. [R3]
 - **REQ-MOD-146** A story can't be approved unless the person who sent it has agreed to a testimony consent, of any version. [J-2026-11-01-DB]
-- **REQ-MOD-152** A story can't be approved until the picture shown for its video or audio is the story's current picture. [P1-13]
+- **REQ-MOD-152** A video story can't be approved until the picture shown for its video is the story's current picture. [J-2026-11-06-SHR]
+- **REQ-MOD-155** An audio story can't be approved until its picture video is made from the story's current picture. [DEC-1B]
 - **REQ-MOD-088** While the story's video, audio file or picture could still be replaced through its upload link, a Moderator can't approve, and is told the time from which they can. [DEC-5]
   Why: what the Moderator watched is what gets published.
 - **REQ-MOD-089** An upload link can replace a video or audio file for an hour after it was signed, or signed again for a resumed upload, and a picture for 10 minutes. [DEC-5]
@@ -157,7 +158,8 @@ Next id: REQ-MOD-154
 - **REQ-MOD-098** When an approved story's media breaks, the system hides it, not un-approves it, and it comes back on its own when the same files work again. [D60]
 - **REQ-MOD-099** The approval records which video or audio file and which picture the Moderator reviewed; the story shows again only while it points at both, so after a new video or picture it stays hidden until a Moderator looks. [R12]
 - **REQ-MOD-150** When a published story's files stop being ready, or stop being the files that were reviewed, the site hides the story in that same moment. [J-2026-10-23-DB]
-- **REQ-MOD-151** A story the site hid comes back on its own only while the person who sent it still has testimony consent, and it keeps its first publish date. [J-2026-10-23-DB]
+- **REQ-MOD-151** A story the site hid comes back on its own only while the person who sent it still has testimony consent. [D61]
+- **REQ-MOD-154** A story the site hid keeps its first publish date when it comes back. [R6]
 
 ## Unusable files and retries
 
@@ -173,7 +175,6 @@ Next id: REQ-MOD-154
 - **REQ-MOD-108** After those 3 nights, the moderators' list shows "Can't be reviewed yet: a problem on our side" on the story, and the owner keeps seeing "Waiting for review". [P1-9]
 - **REQ-MOD-109** The same nightly retry covers a published story the site took off itself (for example while Bunny has lost its video), never one a Moderator hid: up to 3 nights, then it stays off the site. [P1-5]
 - **REQ-MOD-110** After those 3 nights the owner keeps seeing "We're fixing your video", and the moderators' list shows "A problem on our side" on the story. [P1-5]
-- **REQ-MOD-153** No signed-in person and no visitor can see the media work behind a story; only staff are told when a story can't be reviewed because of a problem on our side. [J-2026-11-07-DB]
 - **REQ-MOD-111** While a story waits for review or is off the site because the site took it off, its media jobs are kept, so its give-ups keep counting and its 3 nightly retries never start again. [P1-3]
 - **REQ-MOD-112** The 30-day tidy-up of done jobs skips those jobs; they go 30 days after the story is decided, shown again or deleted. [P1-3]
 - **REQ-MOD-113** Once the 3 retries are used, the database refuses every new check or render job for that story's file, in one place: a chore, Bunny's notice, a late copy of an answer from the queue, or the owner sending the same file again after Edit. [P1-9]
