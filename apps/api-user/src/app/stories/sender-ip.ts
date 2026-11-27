@@ -9,8 +9,8 @@ import type { Request } from 'express';
  * api-user runs on Cloud Run with no load balancer in front, so Google's front end is the only
  * proxy: it appends the address it saw the request come from to `X-Forwarded-For`. Anything
  * before that entry was sent by the client itself and can say anything, so the address is the
- * header's LAST entry, the one Google set (docs/how-the-app-works.md). With no header (local
- * runs, tests without one) it is the socket's peer.
+ * header's LAST entry, the one Google set (REQ-ACC-047, docs/product/behaviour/accounts.md). With
+ * no header (local runs, tests without one) it is the socket's peer.
  *
  * In the block list's one form (`canonicalIp`); undefined if it isn't an IP address.
  */
