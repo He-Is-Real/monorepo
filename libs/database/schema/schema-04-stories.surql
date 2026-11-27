@@ -18,6 +18,9 @@
 -- session; storyFile_attach), except that the person may take their picture off or change its
 -- description; the status pointer by the status log's event only. A field write outside its
 -- scope is silently dropped (field PERMISSIONS or VALUE), so check the stored state.
+-- WARNING (BE-12): a field on story is public for a published story unless it has its own
+-- `PERMISSIONS FOR select`. Every new field must say which: its own select rule, or Joel's
+-- choice to make it public. story-field-visibility.int-spec.ts (libs/database) enforces it.
 DEFINE TABLE OVERWRITE story SCHEMAFULL PERMISSIONS               -- id = story:<ulid>
   -- housekeeping reads every story's status pointer, dates and file pointers (never its words: the
   -- content fields below refuse it) to find abandoned drafts and stories, rejected stories and
@@ -889,6 +892,9 @@ DEFINE EVENT OVERWRITE storySearch_theme_renamed ON theme
 -- else: of the pending entries it sees only those still holding an address that old, and
 -- storyStatusLog_append_only
 -- refuses any other change.
+-- WARNING (BE-12): a field on storyStatusLog is public for a published story unless it has its own
+-- `PERMISSIONS FOR select`. Every new field must say which: its own select rule, or Joel's
+-- choice to make it public. story-field-visibility.int-spec.ts (libs/database) enforces it.
 DEFINE TABLE OVERWRITE storyStatusLog SCHEMAFULL PERMISSIONS        -- id = storyStatusLog:<ulid>
   -- housekeeping, two needs, kept apart by status (only a "sent" entry is pending, and only a
   -- "sent" entry holds senderIp):
@@ -1249,6 +1255,9 @@ DEFINE FUNCTION OVERWRITE fn::story::draft_expired($story: record<story>) {
 -- Everyone reads the published fields (format, width, height, lengthSeconds, thumbnailPath, and
 -- the id: the Bunny video id or the picture's path) of a file an approved story points at now
 -- (R12; db review 2, section 6 item 4); the rest only the person and the services.
+-- WARNING (BE-12): a field on storyFile is public for a published story unless it has its own
+-- `PERMISSIONS FOR select`. Every new field must say which: its own select rule, or Joel's
+-- choice to make it public. story-field-visibility.int-spec.ts (libs/database) enforces it.
 DEFINE TABLE OVERWRITE storyFile SCHEMAFULL PERMISSIONS
   FOR select WHERE person = $auth
     OR $auth IN [service:api_user, service:api_admin, service:workflow, service:housekeeping]
