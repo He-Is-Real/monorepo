@@ -930,8 +930,8 @@ test.describe('behaviour', () => {
     }),
   });
 
-  // Codex review of the share review polish, round 1: a save still stale after its five tries
-  // ends in the usual error and "Try saving again", not "Saving…" forever.
+  // Codex review of the share review polish, round 1: a save still stale after its tries (three,
+  // the retries rule, RT-6) ends in the usual error and "Try saving again", not "Saving…" forever.
   test('a save that stays stale ends in the error with “Try saving again”, and “Save Draft and Exit” is usable', async ({
     page,
     request,
@@ -959,7 +959,7 @@ test.describe('behaviour', () => {
     await expect(
       page.getByRole('button', { name: 'Save Draft and Exit' }),
     ).toBeEnabled();
-    expect(patches).toBe(5);
+    expect(patches).toBe(3);
   });
 
   // Codex review of the share review polish, round 1: choosing themes again on Review clears
