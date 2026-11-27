@@ -1,6 +1,6 @@
 // The Greatest Story's five illustrations, from the design mockup (greatest-story.html, adapted
 // from its inspiration/ SVGs). Decorative: hidden from screen readers. Drawn in the current
-// text colour, which the page sets to brand teal (decoration only, decision 19).
+// text colour, which the page sets to brand teal (decoration only).
 
 type Props = { className?: string };
 

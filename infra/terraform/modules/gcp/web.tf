@@ -5,7 +5,7 @@
 # (`log-hmac`, `log-search-hmac`); its service account may read only those (Stripe's publishable key
 # and Buy Button IDs are public by design).
 # Public since the walking-skeleton page (0.9), together with api-public-read
-# (D31; was private, decision 8).
+# (D31).
 
 resource "google_service_account" "web" {
   project      = var.project_id
