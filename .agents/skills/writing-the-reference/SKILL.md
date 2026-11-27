@@ -18,14 +18,14 @@ description: >
 - Must never be broken: a check that runs (lint, CI, a refusal), with the text as explanation only.
 - True for one person or one machine: that person's own files, never the repo.
 
-| File                                    | Holds                                  | Id                 |
-| --------------------------------------- | -------------------------------------- | ------------------ |
-| `docs/product/behaviour/<area>.md`      | behaviour rules                        | `REQ-<AREA>-<NNN>` |
-| `docs/system/<area>.md`                 | system rules (architecture, data, API) | `REQ-<AREA>-<NNN>` |
-| `docs/process/working-agreements.md`    | how we work                            | `WORK-<NNN>`       |
-| `docs/product/principles.md`            | opinions                               | `PRIN-<NN>`        |
-| `docs/product/glossary.md`, `actors.md` | terms, actors                          | the word itself    |
-| `docs/decisions/register.md`            | one row per decision                   | the decision id    |
+| File                                    | Holds                               | Id                 |
+| --------------------------------------- | ----------------------------------- | ------------------ |
+| `docs/product/behaviour/<area>.md`      | behaviour rules                     | `REQ-<AREA>-<NNN>` |
+| `docs/system/direction.md`              | direction: what we build with today | `REQ-DIR-<NNN>`    |
+| `docs/process/working-agreements.md`    | how we work                         | `WORK-<NNN>`       |
+| `docs/product/principles.md`            | opinions                            | `PRIN-<NN>`        |
+| `docs/product/glossary.md`, `actors.md` | terms, actors                       | the word itself    |
+| `docs/decisions/register.md`            | one row per decision                | the decision id    |
 
 ## How to write here
 

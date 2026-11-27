@@ -1,7 +1,7 @@
 # web
 
 The Next.js site (App Router, Tailwind v4 + shadcn/ui). It server-renders from api-public-read
-only, and Clerk runs in the browser only (`docs/system/architecture.md`, REQ-ARC-004 and REQ-ARC-005). Run it with
+only, and Clerk runs in the browser only (direction REQ-DIR-007 in `docs/system/direction.md`). Run it with
 `pnpm nx dev web` (copy `.env.example` to `.env.local`); the e2e device matrix is
 `pnpm nx e2e web` (`e2e/`).
 

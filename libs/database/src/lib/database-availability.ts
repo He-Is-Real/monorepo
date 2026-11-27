@@ -24,7 +24,7 @@ import { SURREAL } from './database.constants';
 // SurrealDB runs on Spot capacity (Joel, 2026-11-07): Google may take its machine back, and the
 // database is away for a few minutes while it restarts elsewhere. Every service notices, answers
 // `503 service_restarting` with an estimate of when to try again, and logs when the outage began
-// and ended (docs/system/architecture.md, REQ-ARC-016 to REQ-ARC-019).
+// and ended.
 
 /** The database can't be reached: it's restarting, not refusing a query. */
 export class DatabaseUnavailableError extends Error {
