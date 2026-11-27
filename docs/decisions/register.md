@@ -5,6 +5,9 @@ in the pull request that builds it, in the format in `.agents/skills/writing-the
 
 | Id     | Date       | Decided, in plain words                                                                                                                | Now at                                                                      | Status             | Source                              |
 | ------ | ---------- | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ------------------ | ----------------------------------- |
+| J-2026-11-01-DB | 2026-11-01 | Legal texts are immutable versions; people agree in their own session; the database enforces agree first | REQ-SHR-129 | in force | privacy-consent-architecture.html |
+| J-2026-10-30-DB | 2026-10-30 | No grandfathering: every later action meets the limits in force | REQ-SHR-136 | in force | chat |
+| J-2026-10-28-DB | 2026-10-28 | Submission settings and story text and theme limits are admin settings with fixed ceilings | REQ-SHR-131, REQ-SHR-132 | in force | m2-wave-b-ok.html |
 | PR-140 | 2026-10-31 | Assumptions listed for Joel in pull request 140 (pictures on stories), accepted as approved | REQ-SHR-057 | in force | https://github.com/He-Is-Real/monorepo/pull/140, accepted by Joel 2026-11-27 |
 | PR-133 | 2026-10-30 | Assumptions listed for Joel in pull request 133 (video and audio uploads), accepted as approved | REQ-SHR-124 | in force | https://github.com/He-Is-Real/monorepo/pull/133, accepted by Joel 2026-11-27 |
 | J-2026-11-22-SHR | 2026-11-22 | "Save Draft and Exit" sits right of Back on every step, greyed and reading "Saving…" while it saves | REQ-SHR-025, REQ-SHR-026 | in force | chat |

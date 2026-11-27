@@ -2,10 +2,11 @@
 
 Who: Signed-in person (sharing their own story and its files), Admin (limits), Moderator, the system.
 Data: `docs/db-permissions.md`.
-Next id: REQ-SHR-125
+Next id: REQ-SHR-140
 
 ## Contents
 
+- When sharing opens
 - Story types
 - The share page's steps
 - Review and submit
@@ -21,9 +22,16 @@ Next id: REQ-SHR-125
 - Attached files on the page
 - Media storage
 
+## When sharing opens
+
+- **REQ-SHR-125** Public submissions open only once confirmation emails work, so nobody shares a story without a confirmation; the site may go live first, as the 24 imported stories need no emails. [D95]
+
 ## Story types
 
 - **REQ-SHR-001** A story is one of three types: written (text, with an optional picture), video (one video, with optional text) or audio (one audio file, with optional text). [D53]
+- **REQ-SHR-126** A story's video is one uploaded to us; linking a YouTube video is a later feature. [D8]
+- **REQ-SHR-127** A written story needs text that is not blank and has no video or audio; it may have a picture. [D53]
+- **REQ-SHR-128** From the moment it is sent, a video or audio story has exactly one file of its own kind. [D53]
 - **REQ-SHR-002** When a Signed-in person shares a story, they choose the name shown on it, an optional first name; a story without one shows "Anonymous". [J-2026-10-25-SHR]
 
 ## The share page's steps
@@ -67,17 +75,25 @@ Next id: REQ-SHR-125
 - **REQ-SHR-032** Autosave saves the draft once it has a title and text, then after each pause. [D70]
 - **REQ-SHR-033** When the same draft is open in two tabs, each keeps its own changes, and the person is asked only when both changed the same thing. [D70]
 - **REQ-SHR-034** Text stays in the tab until the server has it, through reloads and outages. [D70]
+- **REQ-SHR-129** A person can start a draft only as themselves, with an existing account, after agreeing to the latest terms of use and testimony consent. [J-2026-11-01-DB]
+- **REQ-SHR-130** Only the person can change their story's words, and only while it is in editing; staff and the system never change them. [D41]
 
 ## Limits
 
 - **REQ-SHR-035** An Admin can change each limit in this section; the numbers given are the values in force. [D112]
+- **REQ-SHR-131** A story's text is never over 50,000 characters and it never has more than 20 themes, whatever the settings. [J-2026-10-28-DB]
+- **REQ-SHR-132** Limits are there to stop spam, not absolute: a change applies to actions started after it, and one already under way may finish under the old values. [J-2026-10-28-DB]
 - **REQ-SHR-036** A written story's text is 200 to 10,000 characters; a video or audio story's text has no minimum and is at most 10,000. [M1-A3]
 - **REQ-SHR-037** Invisible zero-width characters count towards the 200-character minimum. [M1O-A2]
 - **REQ-SHR-038** A story's title is at most 140 characters. [UNTRACED]
 - **REQ-SHR-039** A story has 1 to 5 themes, counted when it is submitted. [J-2026-10-28-SHR]
 - **REQ-SHR-040** A person has at most 3 open drafts; only never-sent stories count. [J-2026-10-25-SHR]
+- **REQ-SHR-133** The open-drafts limit applies only to what the person does themselves. [D112]
 - **REQ-SHR-041** A person sends at most 1 story for review in any 7 days. [D94]
+- **REQ-SHR-134** Only a story's first send counts towards the weekly limit; sending it again after editing does not, and the limit applies only to what the person does themselves. [D113]
+- **REQ-SHR-135** Each first send of a story counts towards the weekly limit for 7 days, even if the story is deleted meanwhile. [D113]
 - **REQ-SHR-042** When a limit changes, it applies to everyone at once: every later action must meet the limits in force. [J-2026-10-30-SHRb]
+- **REQ-SHR-136** When a limit changes, a story already sent or published is never checked against it again. [J-2026-10-30-DB]
 - **REQ-SHR-043** An edit over a maximum is accepted only if it does not make it worse, so a long draft can still be trimmed; submitting needs every current minimum and maximum. [J-2026-10-30-SHRb]
 - **REQ-SHR-044** Trusted submitters have no open-drafts or weekly limits, only the hourly upload limit, and get the largest video and audio sizes and lengths (not bigger pictures). [UNTRACED]
 - **REQ-SHR-045** An Admin can also set a person's own limits; there is no admin page for that. [D112]
@@ -89,6 +105,8 @@ Next id: REQ-SHR-125
 - **REQ-SHR-048** Files go straight from the person's browser to Bunny.net; our servers never handle the files. [D80]
 - **REQ-SHR-049** Video and audio uploads show progress, can pause and resume, and carry on after a reload. [UNTRACED]
 - **REQ-SHR-050** Our server, never the browser, decides which file belongs to a story, so nobody can point their story at someone else's media. [D80]
+- **REQ-SHR-137** A file can be uploaded only to the person's own story, only while it is in editing and unchanged since the page loaded it, and only if it is the story's kind. [D80]
+- **REQ-SHR-138** A picture's or video's width and height are above zero, and it is never taller than 1:3 or wider than 3:1. [D53]
 - **REQ-SHR-051** A story has one video or audio file; replacing it deletes the old one at Bunny at once. [J-2026-10-25-SHR]
 - **REQ-SHR-052** When a story is sent for review, the system checks that its file arrived and is within the limits. [UNTRACED]
 - **REQ-SHR-053** When the person leaves the upload step while a video, audio file or picture is still uploading, by Back or the steps at the top, the step changes and the upload stops, with no question and no message. [J-2026-11-11-SHR]
@@ -100,6 +118,7 @@ Next id: REQ-SHR-125
 - **REQ-SHR-056** An Admin can change each limit in this section; the numbers given are the values in force. [D112]
 - **REQ-SHR-057** A person makes at most 5 video and audio uploads in any 7 days; pictures never count towards it. [PR-140]
 - **REQ-SHR-058** A person makes at most 10 upload requests, for any file, an hour. [J-2026-10-25-SHR]
+- **REQ-SHR-139** Replacing a file or deleting a story frees no upload limit: the limits count every upload made. [D113]
 - **REQ-SHR-059** A video file is at most 4 GB. [M2-A4]
 - **REQ-SHR-122** An audio file is at most 500 MB. [M2-A4]
 - **REQ-SHR-123** A video file is at most 15 minutes long. [M2-A4]
