@@ -49,7 +49,7 @@ defaults:
 
 env:
   # Keep in step with mise.toml (tf.sh refuses any other OpenTofu version).
-  TOFU_VERSION: 1.13.2
+  TOFU_VERSION: 1.13.9
   # Keep in step with mise.toml and ci.yml (Renovate bumps all three; the checksum by hand, from
   # the release's CHECKSUMS file).
   KUBECONFORM_VERSION: v0.8.0
