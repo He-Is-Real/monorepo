@@ -2,7 +2,7 @@
 
 Who: Moderator, Admin, Signed-in person (a story's owner), the system.
 Data: `docs/db-permissions.md#stories-schema-04-storiessurql`
-Next id: REQ-MOD-143
+Next id: REQ-MOD-154
 
 ## Contents
 
@@ -27,7 +27,9 @@ Next id: REQ-MOD-143
 - **REQ-MOD-005** A story's state is that of its newest status-log entry that moved it; a story with none is a draft. [R6]
 - **REQ-MOD-006** The database fixes who may take which step: the owner sends (from editing) and starts editing with Edit (from pending, approved or hidden). [R6]
 - **REQ-MOD-007** A Moderator or Admin approves, sends back or rejects a pending story, and hides an approved one. [R6]
+- **REQ-MOD-148** No step other than those in REQ-MOD-006 to REQ-MOD-008 and the overturns below is possible: a rejected story is never hidden, shown again or rejected again. [OV-2]
 - **REQ-MOD-008** The system hides a story and shows it again when its media breaks and works again, and sends a story back when its file can't be used. [R6]
+- **REQ-MOD-149** When the site itself hides a story, the hide records why. [J-2026-10-23-DB]
 - **REQ-MOD-009** When a Moderator or Admin sends back, rejects or hides a story, the step needs a note; a Moderator's or Admin's entry can carry a note to the owner. [R6]
 - **REQ-MOD-010** When a sent story gets a new video or audio file or a new picture while it is being edited, the system adds a history-only entry that leaves its state unchanged. [M3-7]
 - **REQ-MOD-011** When the owner changes a sent story's title, description, text or themes, the system adds one "words changed" entry per round of editing, however many saves, and none if nothing changed. [M3-7]
@@ -106,6 +108,7 @@ Next id: REQ-MOD-143
 - **REQ-MOD-065** When a decision is refused, the page says why in plain words, never with a code. [J-2026-11-09-MODb]
   Example: "The video is still being processed. You can approve it from 14:05."
 - **REQ-MOD-066** After each decision the page confirms it and shows the story as it now is. [OV-1]
+- **REQ-MOD-145** Approving a story publishes it at once. Edit or a hide takes it off the site at once, and erasing the account deletes the story and its history. [R11]
 - **REQ-MOD-067** Moderators and Admins can never change the words of someone's story. [D41]
 
 ## Overturning a decision
@@ -131,11 +134,14 @@ Next id: REQ-MOD-143
 - **REQ-MOD-083** If Bunny fails or is still busy then, the Delete still succeeds: the nightly orphan sweep removes the videos and the nightly clean-up removes the queued picture folder, as for the owner's Delete. [DEL-1]
 - **REQ-MOD-084** The owner isn't told of an Admin's Delete, beyond the story leaving My submissions. [P1-11]
 - **REQ-MOD-085** An Admin's Delete doesn't check what the Admin saw: the story goes even if it changed since the page opened; a story already gone answers that it wasn't found. [DEL-3]
+- **REQ-MOD-144** Nothing records which Admin deleted a story. [DEL-3]
 
 ## Media before approval
 
 - **REQ-MOD-086** A story can't be approved until every upload is processed and its size and length are known, so nothing unchecked reaches the public. [M1-A2]
 - **REQ-MOD-087** For a picture, "processed" means it passed the picture check when the story was sent for review. [R3]
+- **REQ-MOD-146** A story can't be approved unless the person who sent it has agreed to a testimony consent, of any version. [J-2026-11-01-DB]
+- **REQ-MOD-152** A story can't be approved until the picture shown for its video or audio is the story's current picture. [P1-13]
 - **REQ-MOD-088** While the story's video, audio file or picture could still be replaced through its upload link, a Moderator can't approve, and is told the time from which they can. [DEC-5]
   Why: what the Moderator watched is what gets published.
 - **REQ-MOD-089** An upload link can replace a video or audio file for an hour after it was signed, or signed again for a resumed upload, and a picture for 10 minutes. [DEC-5]
@@ -150,6 +156,8 @@ Next id: REQ-MOD-143
 - **REQ-MOD-097** If Bunny can't answer the picture check within 10 seconds, the story isn't approved or shown ("Something went wrong. Please try again later."): it never goes on the site unchecked. [RE-2]
 - **REQ-MOD-098** When an approved story's media breaks, the system hides it, not un-approves it, and it comes back on its own when the same files work again. [D60]
 - **REQ-MOD-099** The approval records which video or audio file and which picture the Moderator reviewed; the story shows again only while it points at both, so after a new video or picture it stays hidden until a Moderator looks. [R12]
+- **REQ-MOD-150** When a published story's files stop being ready, or stop being the files that were reviewed, the site hides the story in that same moment. [J-2026-10-23-DB]
+- **REQ-MOD-151** A story the site hid comes back on its own only while the person who sent it still has testimony consent, and it keeps its first publish date. [J-2026-10-23-DB]
 
 ## Unusable files and retries
 
@@ -165,6 +173,7 @@ Next id: REQ-MOD-143
 - **REQ-MOD-108** After those 3 nights, the moderators' list shows "Can't be reviewed yet: a problem on our side" on the story, and the owner keeps seeing "Waiting for review". [P1-9]
 - **REQ-MOD-109** The same nightly retry covers a published story the site took off itself (for example while Bunny has lost its video), never one a Moderator hid: up to 3 nights, then it stays off the site. [P1-5]
 - **REQ-MOD-110** After those 3 nights the owner keeps seeing "We're fixing your video", and the moderators' list shows "A problem on our side" on the story. [P1-5]
+- **REQ-MOD-153** No signed-in person and no visitor can see the media work behind a story; only staff are told when a story can't be reviewed because of a problem on our side. [J-2026-11-07-DB]
 - **REQ-MOD-111** While a story waits for review or is off the site because the site took it off, its media jobs are kept, so its give-ups keep counting and its 3 nightly retries never start again. [P1-3]
 - **REQ-MOD-112** The 30-day tidy-up of done jobs skips those jobs; they go 30 days after the story is decided, shown again or deleted. [P1-3]
 - **REQ-MOD-113** Once the 3 retries are used, the database refuses every new check or render job for that story's file, in one place: a chore, Bunny's notice, a late copy of an answer from the queue, or the owner sending the same file again after Edit. [P1-9]
@@ -187,6 +196,7 @@ Next id: REQ-MOD-143
 - **REQ-MOD-139** The system deletes a done media job 30 days after it ended, except as REQ-MOD-112 says. [J2]
 - **REQ-MOD-123** Every evening at 18:00 UK time, when the worker machine is on to take them, every job not done whose last send is over 12 hours old is sent again. [J-2026-11-07-MODb]
   Why: a job the queue lost (after 31 days, or a failed send) still gets done.
+- **REQ-MOD-143** While the worker machine is off, its work waits for up to 31 days, held in London. [D78]
 - **REQ-MOD-124** When the owner sends a video or audio story for review, the system writes a check job for its file too, so a Moderator never approves before the worker has looked. [J-2026-11-07-MOD]
 - **REQ-MOD-125** When a check finds an audio file ready, or an audio story's picture changes, the system writes a "render" job for its picture video. [DEC-1B]
 - **REQ-MOD-126** For a render, the worker asks the result writer for a pass; the writer makes the new Bunny video and gives the worker a pass to upload to that one video for one hour, with a 10-minute link to the picture. [DEC-2]
