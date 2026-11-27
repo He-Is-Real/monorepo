@@ -158,7 +158,7 @@ Next id: REQ-MOD-156
 - **REQ-MOD-098** When an approved story's media breaks, the system hides it, not un-approves it, and it comes back on its own when the same files work again. [D60]
 - **REQ-MOD-099** The approval records which video or audio file and which picture the Moderator reviewed; the story shows again only while it points at both, so after a new video or picture it stays hidden until a Moderator looks. [R12]
 - **REQ-MOD-150** When a published story's files stop being ready, or stop being the files that were reviewed, the site hides the story in that same moment. [J-2026-10-23-DB]
-- **REQ-MOD-151** A story the site hid comes back on its own only while the person who sent it still has testimony consent. [D61]
+- **REQ-MOD-151** Once the person who sent it withdrew testimony consent, a story the site hid never comes back on its own, not even after they give consent again. [D61]
 - **REQ-MOD-154** A story the site hid keeps its first publish date when it comes back. [R6]
 
 ## Unusable files and retries
