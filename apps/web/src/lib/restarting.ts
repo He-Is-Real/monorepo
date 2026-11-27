@@ -2,7 +2,7 @@
 // `503 service_restarting` with `retryAfterSeconds` (components.yaml, `ServiceRestarting`). Web
 // says "Our compute is currently restarting. Please try again in about N minutes", counted down in
 // the browser, then "Please try again later." once the estimate has run out (Joel, 2026-11-09;
-// docs/how-the-app-works.md, "When the database restarts"). Shared by web's server and the
+// docs/product/behaviour/errors.md, "When the database restarts"). Shared by web's server and the
 // browser.
 
 /** When an answer says it's restarting but gives no usable estimate: the APIs' default. */

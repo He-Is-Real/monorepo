@@ -186,8 +186,8 @@ short-lived upload credentials.
   Contracts list every status an operation can answer, `5XX` included: api-public-read's
   integration tests and web's e2e stub are checked against the contract (`@heisreal/contracts/testing`).
 
-- **Rate limits (Joel 2026-11-21, RL-1..RL-10; rules in `docs/how-the-app-works.md`, "Rate
-  limits"):** express-rate-limit, set up once in `libs/http` (`RateLimitModule`, the groups and
+- **Rate limits (Joel 2026-11-21, RL-1..RL-10; rules in
+  `docs/product/behaviour/rate-limits.md`):** express-rate-limit, set up once in `libs/http` (`RateLimitModule`, the groups and
   numbers in `limits.ts`) and attached to each API's controllers in its app module. **A limited
   caller gets exactly the generic `5XX` (`ServerError`): `500`, the same body
   (`{"type":"about:blank","title":"Internal server error","status":500}`), the same headers
