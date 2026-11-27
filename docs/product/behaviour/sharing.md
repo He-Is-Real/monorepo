@@ -98,12 +98,12 @@ Next id: REQ-SHR-125
 ## Upload limits
 
 - **REQ-SHR-056** An Admin can change each limit in this section; the numbers given are the values in force. [D112]
-- **REQ-SHR-057** A person makes at most 5 video and audio uploads in any 7 days; pictures never count towards it. [UNTRACED]
+- **REQ-SHR-057** A person makes at most 5 video and audio uploads in any 7 days; pictures never count towards it. [PR-140]
 - **REQ-SHR-058** A person makes at most 10 upload requests, for any file, an hour. [J-2026-10-25-SHR]
 - **REQ-SHR-059** A video file is at most 4 GB. [M2-A4]
 - **REQ-SHR-122** An audio file is at most 500 MB. [M2-A4]
 - **REQ-SHR-123** A video file is at most 15 minutes long. [M2-A4]
-- **REQ-SHR-124** An audio file is at most 15 minutes long. [UNTRACED]
+- **REQ-SHR-124** An audio file is at most 15 minutes long. [PR-133]
 - **REQ-SHR-060** The largest picture file is 3 MB; an Admin sets it between 200 KB and 20 MB. [J-2026-11-20-SHR]
 - **REQ-SHR-061** The largest picture file is the same for everyone, trusted submitters too, and covers every picture: a written story's, an audio story's and a video's thumbnail. [J-2026-11-20-SHR]
 - **REQ-SHR-062** The largest picture file is measured after the browser has made the picture smaller. [J-2026-11-20-SHR]
