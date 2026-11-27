@@ -18,10 +18,10 @@ Next id: REQ-DAT-029
 
 ## Files, records and logs
 
-- **REQ-DAT-010** The nightly clean-up runs at 03:30 London time. [UNTRACED]
+- **REQ-DAT-010** The nightly clean-up runs at 03:30 London time. [PR-141]
 - **REQ-DAT-011** When a video at Bunny is older than 48 hours and no story uses it, the nightly clean-up deletes it. [J-2026-10-30-DAT]
-- **REQ-DAT-025** The clean-up of leftover videos deletes at most 50 of each kind a night. [UNTRACED]
-- **REQ-DAT-012** On dev, the clean-up of leftover videos only reports what it would delete. [UNTRACED]
+- **REQ-DAT-025** The clean-up of leftover videos deletes at most 50 of each kind a night. [PR-141]
+- **REQ-DAT-012** On dev, the clean-up of leftover videos only reports what it would delete. [PR-141]
 - **REQ-DAT-013** When deleting an account's files at Bunny fails, the system retries it. [D40]
 - **REQ-DAT-026** When deleting an account's Clerk account fails, the system retries it. [D39]
 - **REQ-DAT-014** The record of what a person submitted, for the weekly limit, is kept 7 days and deleted with the account. [D113]

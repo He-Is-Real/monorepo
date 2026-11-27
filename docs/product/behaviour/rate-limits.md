@@ -31,7 +31,7 @@ Each number is per caller and per running copy of the service.
 - **REQ-LIM-013** A caller's count covers the last full window (for example the last 60 seconds), not a clock minute that resets. [J-2026-11-21-LIM]
   Not: a fixed minute that resets, where waiting for the reset and bursting works.
 - **REQ-LIM-014** One caller is the IP address Google's front end saw. [RL-8]
-- **REQ-LIM-029** An IPv6 address counts as its /56 network. [UNTRACED]
+- **REQ-LIM-029** An IPv6 address counts as its /56 network. [PR-261]
 - **REQ-LIM-015** The website counts each Visitor's page loads and actions; the sitemap has its own allowance; images, scripts and other static files are not counted. [RL-8]
 - **REQ-LIM-016** api-user counts each caller by groups of routes (reads, ordinary changes, upload links, "Download my data", deleting, browser error reports), so a busy account can still delete its story or itself. [RL-8]
 - **REQ-LIM-017** api-public-read counts each caller, except the website's own server, whose calls carry a private key and share one large allowance. [RL-8]
