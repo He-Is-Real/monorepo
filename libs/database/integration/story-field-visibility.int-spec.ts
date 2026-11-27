@@ -54,7 +54,9 @@ const PRIVATE_SERVICE = 'service:(?:api_user|api_admin|workflow|housekeeping)';
 const PRIVATE_RULES = [
   /^(person|submitter|story\.submitter) = \$auth$/,
   new RegExp(`^\\$auth = \\(?${PRIVATE_SERVICE}\\)?$`),
-  new RegExp(`^\\$auth INSIDE \\[${PRIVATE_SERVICE}(, ${PRIVATE_SERVICE})*\\]$`),
+  new RegExp(
+    `^\\$auth INSIDE \\[${PRIVATE_SERVICE}(, ${PRIVATE_SERVICE})*\\]$`,
+  ),
 ];
 
 /** Private when every OR branch has at least one AND part that is a private rule. */
