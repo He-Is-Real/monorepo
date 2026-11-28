@@ -16,7 +16,7 @@ in the pull request that builds it, in the format in `.agents/skills/writing-the
 | J-2026-11-14-SHRb | 2026-11-14 | "See your story as others will" is an outline button opening the preview in a new tab | REQ-SHR-016 | in force | chat |
 | J-2026-11-14-SHR | 2026-11-14 | "Save Draft and Exit" saves the draft and goes to My submissions; people need not write in one go | REQ-SHR-027, REQ-SHR-028, REQ-SHR-029, REQ-SHR-030, REQ-SHR-031 | in force | chat: "people needn't write their story in one go" |
 | J-2026-11-11-SHR | 2026-11-11 | Leaving the upload step mid-upload just cancels the upload, with no question | REQ-SHR-053, REQ-SHR-054, REQ-SHR-055 | in force | m3-plan-and-m2-extras.html |
-| J-2026-11-10-SHRb | 2026-11-10 | The person sees their own upload on review and an owner-only preview page; can send before it is ready | REQ-SHR-012, REQ-SHR-014, REQ-SHR-017, REQ-SHR-019, REQ-SHR-020 | in force | chat |
+| J-2026-11-10-SHRb | 2026-11-10 | The person sees their own upload on review and an owner-only preview page; can send before it is ready | REQ-SHR-012, REQ-SHR-014, REQ-SHR-017, REQ-SHR-019 | in force | chat |
 | J-2026-11-10-SHR | 2026-11-10 | The steps at the top of the share page are buttons | REQ-SHR-005, REQ-SHR-006, REQ-SHR-007, REQ-SHR-008 | in force | chat |
 | J-2026-11-09-SHR | 2026-11-09 | A chosen picture is added straight away, with no Add button | REQ-SHR-070, REQ-SHR-071 | in force | chat |
 | J-2026-11-08-SHR | 2026-11-08 | The story page shows Bunny's player with no picture of our own over it | REQ-SHR-104 | in force | org-setup-and-picture-video.html |
