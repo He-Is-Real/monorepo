@@ -72,7 +72,7 @@ Next id: REQ-BRW-089
 - **REQ-BRW-038** A story page shows the player, picture or text, and 3 related stories: shared themes first, then newest. [UNTRACED]
 - **REQ-BRW-039** A long written story shows about its first 600 characters with "Continue reading", unless that would hide fewer than 100 characters. [M1O-A1]
 - **REQ-BRW-088** A story keeps the date it was first published (its place in newest first) through every later approval or showing again, also after an edit. [R6]
-- **REQ-BRW-041** A withdrawn, erased or unknown story, or a legal-text version that does not exist, shows the "not found" page, which tells search engines not to index it ("noindex"). [PC-1]
+- **REQ-BRW-041** A story taken down (by Edit or a Moderator's Take down), erased or unknown, or a legal-text version that does not exist, shows the "not found" page, which tells search engines not to index it ("noindex"). [PC-1]
 - **REQ-BRW-042** The "not found" page answers as a found page, not "not found"; only its "noindex" keeps it out of search engines. [PC-1]
 - **REQ-BRW-043** The page shown when a page fails to build ("Something went wrong. Please try again later.") or crashes in the browser ("This page stopped working. Reloading it usually fixes this.") tells search engines not to index it and answers as a found page. [PC-3]
 - **REQ-BRW-044** Sharing links show the site's brand picture, not the story's. [UNTRACED]
