@@ -9,6 +9,8 @@ description: >
 
 # Writing a decision doc
 
+The wording follows the `writing-for-agents` skill (`.agents/skills/writing-for-agents/SKILL.md`). The rules below are about the page.
+
 ## Where and what
 
 - A decision doc is one plain HTML page in the project repository's `context/research/` folder.
@@ -22,7 +24,6 @@ description: >
 - It has its own id with a prefix no other page uses. Its title is the question in plain words.
 - It carries level pills: "Database", "API", "Behaviour", or "No database change", "Docs only" and the like, so the owner sees what the answer touches.
 - It says in plain words what happens today, what the problem is for a person or for the data, and what is being asked.
-- No shorthand: a decision id, question id, rule id or pull-request number never stands alone. The words it points at come first, the id after.
 - It shows the current proposal only: options in a table (what it means, good, less good). No history, no struck-out or withdrawn text.
 - It ends with a recommendation that weighs cost against benefit and prefers the simpler option.
 - A question that changes what is stored has a database diagram. A question about structure has an architecture diagram.
@@ -53,4 +54,4 @@ description: >
 ## Afterwards
 
 - A decided answer is what the register row and the pull request's "Approved:" line cite (register rows: the `writing-the-reference` skill).
-- Behaviour and direction lines are written in the `writing-the-reference` style, never in the owner's typed words.
+- The behaviour and direction lines that follow from a decision are written as the `writing-the-reference` skill says.
