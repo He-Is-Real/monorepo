@@ -13,6 +13,9 @@ description: >
 The reader is a capable agent that has none of your context. It has not seen your conversation, your tool calls
 or the files you opened. It follows what you write closely and reads it literally.
 
+Contents: What to include · Wording · Reasons and examples · Structure · Where it goes · By kind of text ·
+Before you finish.
+
 ## What to include
 
 1. Write only what the reader cannot find by reading the repository, or would not go and look for.
@@ -20,7 +23,8 @@ or the files you opened. It follows what you write closely and reads it literall
 3. Give each fact one home. Elsewhere, point to it; do not say it again. Two versions of one rule leave the
    reader to pick one.
 4. Say what is true now. Leave out dates, who decided, what it used to be and which option won. History is in
-   git and the decision register.
+   git and the decision register. A record whose format asks for a date (a register row, a decided answer on a
+   decision page) keeps it.
 5. When something changes, rewrite the line in place and delete the old words everywhere. Delete a caution
    whose reason no longer holds.
 
