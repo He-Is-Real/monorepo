@@ -1,6 +1,6 @@
 # Delivery status
 
-Where the build is, in plain words. **Last updated:** 2026-11-25
+Where the build is, in plain words. **Last updated:** 2026-11-28
 
 Everything here runs on the **dev** test site only, with made-up stories. Nothing reaches the
 public until the "Go live" milestone. The old prototype and the Squarespace site keep running until
@@ -25,20 +25,22 @@ This file is for the project owner, who is not technical. Joel asked for it to s
 
 ## Milestones at a glance
 
-| Milestone               | Status | What it gives people                                         |
-| ----------------------- | ------ | ------------------------------------------------------------ |
-| M0 Foundations          | ✅     | The code base, cloud set-up, database, sign-in, first page   |
-| M1 Browse and watch     | ✅     | Anyone can read, watch, listen, browse and search stories    |
-| M2 Accounts and sharing | 🟡     | People sign up, agree to the terms and share their own story |
-| M3 Moderation           | 🟡     | Staff check every story before it goes public                |
-| M4 Donations            | 🟡     | People can give money through Stripe                         |
-| M5 Admin dashboard      | ⚪     | One place for admins to run the site                         |
-| M6 Community vetting    | ⚪     | Trusted members help check stories                           |
-| M7 Background AI        | ⚪     | Transcripts, captions and summaries made automatically       |
-| M8 Embeddable widgets   | ⚪     | Stories shown on other websites                              |
-| Real stories            | ⚪     | The 24 existing testimonies brought in                       |
-| Go live                 | ⚪     | The real heisreal.today site replaces Squarespace            |
-| Emails                  | ⚪     | Confirmation and result emails to storytellers               |
+| Milestone                | Status | What it gives people                                         |
+| ------------------------ | ------ | ------------------------------------------------------------ |
+| M0 Foundations           | ✅     | The code base, cloud set-up, database, sign-in, first page   |
+| M1 Browse and watch      | ✅     | Anyone can read, watch, listen, browse and search stories    |
+| M2 Accounts and sharing  | 🟡     | People sign up, agree to the terms and share their own story |
+| M3 Moderation            | 🟡     | Staff check every story before it goes public                |
+| M4 Donations             | 🟡     | People can give money through Stripe                         |
+| M5 Admin dashboard       | ⚪     | One place for admins to run the site                         |
+| M6 Community vetting     | ⚪     | Trusted members help check stories                           |
+| M7 Background AI         | ⚪     | Transcripts, captions and summaries made automatically       |
+| M8 Embeddable widgets    | ⚪     | Stories shown on other websites                              |
+| Real stories             | ⚪     | The 24 existing testimonies brought in                       |
+| Go live                  | ⚪     | The real heisreal.today site replaces Squarespace            |
+| Emails                   | ⚪     | Confirmation and result emails to storytellers               |
+| Recording in the browser | ⚪     | Record a video or audio story straight in the browser        |
+| Media work               | ⚪     | A "media" staff group for trusted uploaders                  |
 
 ## M0 Foundations ✅
 
@@ -62,7 +64,7 @@ This file is for the project owner, who is not technical. Joel asked for it to s
 
 ## M2 Accounts and sharing 🟡
 
-Everything is built. Two small steps are left.
+Almost everything is built. Three steps are left.
 
 - ✅ Sign up and sign in with Google or email
 - ✅ Agree to the terms, consent and privacy texts, and agree again when they change
@@ -82,6 +84,7 @@ Everything is built. Two small steps are left.
 - ✅ Pictures of any size, even tiny pixel art (enlarged with crisp edges)
 - ⏸ Joel connects his PC to the video checker (it then renews its own sign-in while it runs; after
   more than a day switched off, Joel connects it again)
+- ⚪ Accounts that never agree to the terms are deleted after 30 days
 - ⚪ A final "try it all" walk-through on dev, then M2 is closed
 
 ## M3 Moderation 🟡
@@ -168,12 +171,21 @@ Bring in the 24 existing testimonies. Before that:
 - ⚪ Stripe switched from test mode to real payments (after a Stripe tool fix)
 - ⚪ Church hardware secured before it holds real data
 - ⚪ Church worker machines keep their clocks right (automatic time sync turned on)
+- ⚪ A banner on the next visit when the privacy notice changes in a way that matters
 - ⚪ Moving off Squarespace
 
 ## Emails ⚪
 
 - ⚪ Submission confirmations, moderation results and the draft-deletion reminder. Public sharing
   doesn't open until these work.
+
+## Recording in the browser ⚪
+
+- ⚪ Record video or audio on the share page instead of uploading a file
+
+## Media work ⚪
+
+- ⚪ Trusted uploaders become a "media" staff group, with their own upload limits
 
 ## Known issues
 
