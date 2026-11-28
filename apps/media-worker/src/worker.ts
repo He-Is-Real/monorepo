@@ -68,11 +68,11 @@ export class RenderSlot {
  * evenings), and the shared ERROR line says so. The writer's own count (MAX_FAILURES) ends the job
  * as gave_up before this when every failure was counted there.
  *
- * A job whose tries ran out is remembered for {@link SendBacks.SPENT_FOR_MS}, and any other copy of
- * it the queue holds (a second send of the same job) is marked taken at once instead of starting
- * again from nought. The message carries nothing that tells the 18:00 resend apart from such a
- * copy, so the memory is by time: shorter than the 12 hours between a job's sends (housekeeping
- * RESEND_AFTER), so the next evening's resend is always tried.
+ * A job whose tries ran out is remembered until a few minutes before the next 18:00 London-time
+ * resend ({@link resendSuppressedUntil}), and any other copy of it the queue holds (a second send
+ * of the same job) is marked taken at once instead of starting again from nought. The message
+ * carries nothing that tells the 18:00 resend apart from such a copy, so the memory is by the
+ * clock: it always ends before the next evening's resend, which is therefore always tried.
  *
  * Kept in this process's memory only (no database change; the job table can't be written while
  * the database is away): a worker restart starts every count again, so a job may get a few more
@@ -81,10 +81,9 @@ export class RenderSlot {
  */
 export class SendBacks {
   static readonly MAX_JOBS = 5000;
-  static readonly SPENT_FOR_MS = 6 * 60 * 60 * 1000;
   private readonly counts = new Map<string, number>();
-  /** Jobs whose tries ran out, and when. */
-  private readonly spentAt = new Map<string, number>();
+  /** Jobs whose tries ran out, and until when other copies are marked taken. */
+  private readonly spentUntil = new Map<string, number>();
 
   constructor(private readonly now: () => number = Date.now) {}
 
@@ -108,21 +107,69 @@ export class SendBacks {
   /** `job`'s tries ran out now. */
   spend(job: string): void {
     this.counts.delete(job);
-    this.spentAt.delete(job);
-    this.spentAt.set(job, this.now());
-    if (this.spentAt.size > SendBacks.MAX_JOBS) {
-      const oldest = this.spentAt.keys().next().value;
-      if (oldest !== undefined) this.spentAt.delete(oldest);
+    this.spentUntil.delete(job);
+    this.spentUntil.set(job, resendSuppressedUntil(this.now()));
+    if (this.spentUntil.size > SendBacks.MAX_JOBS) {
+      const oldest = this.spentUntil.keys().next().value;
+      if (oldest !== undefined) this.spentUntil.delete(oldest);
     }
   }
 
-  /** Whether `job`'s tries ran out within {@link SendBacks.SPENT_FOR_MS}. */
+  /** Whether `job`'s tries ran out since the last evening resend began. */
   spent(job: string): boolean {
-    const at = this.spentAt.get(job);
-    if (at === undefined) return false;
-    if (this.now() - at < SendBacks.SPENT_FOR_MS) return true;
-    this.spentAt.delete(job);
+    const until = this.spentUntil.get(job);
+    if (until === undefined) return false;
+    if (this.now() < until) return true;
+    this.spentUntil.delete(job);
     return false;
+  }
+}
+
+/**
+ * The evening media resend's hour, London time (housekeeping.tf, `media_resend_schedule`
+ * "0 18 * * *" in Europe/London). Change both together.
+ */
+const RESEND_HOUR_LONDON = 18;
+/** How long before the resend's hour a spent job's memory ends, so a slightly early run is tried. */
+const RESEND_MARGIN_MS = 5 * 60 * 1000;
+
+const londonParts = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Europe/London',
+  hourCycle: 'h23',
+  year: 'numeric',
+  month: 'numeric',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: 'numeric',
+  second: 'numeric',
+});
+
+/** London's wall-clock time at `ms`, read as if it were UTC (so the difference is the offset). */
+function londonWallClock(ms: number): number {
+  const p = Object.fromEntries(
+    londonParts.formatToParts(ms).map((x) => [x.type, Number(x.value)]),
+  );
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+}
+
+/**
+ * When a job spent at `at` stops being marked taken: a few minutes before the first 18:00 London
+ * time after `at`. Spent at 17:00, the 18:00 resend is tried; spent at 18:05 (during that
+ * evening's resend), copies are dropped until just before the next day's. 18:00 never falls in a
+ * clock change (those are at 01:00 UTC), so the offset read at that day's 18:00 is exact.
+ */
+export function resendSuppressedUntil(at: number): number {
+  const wall = new Date(londonWallClock(at));
+  for (let day = 0; ; day++) {
+    const wallEvening = Date.UTC(
+      wall.getUTCFullYear(),
+      wall.getUTCMonth(),
+      wall.getUTCDate() + day,
+      RESEND_HOUR_LONDON,
+    );
+    // Shift by London's offset at (about) that evening to get the real instant.
+    const evening = wallEvening - (londonWallClock(wallEvening) - wallEvening);
+    if (evening > at) return evening - RESEND_MARGIN_MS;
   }
 }
 

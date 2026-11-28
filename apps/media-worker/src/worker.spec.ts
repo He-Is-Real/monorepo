@@ -381,7 +381,8 @@ describe('a render job (audio-picture-video 1B, K1)', () => {
 describe('a job sent back to the queue (the retries rule, RT-9)', () => {
   it('counts trouble towards three tries, then marks the job taken for the 18:00 resend and writes the retry_limit line', async () => {
     const { d } = deps(READY, { answer: { status: 503, body: {} } });
-    let now = 0;
+    // 10:00 London time (GMT).
+    let now = Date.parse('2026-11-28T10:00:00Z');
     d.sendBacks = new SendBacks(() => now);
     const errors = vi
       .spyOn(console, 'error')
@@ -416,12 +417,33 @@ describe('a job sent back to the queue (the retries rule, RT-9)', () => {
       checked++;
       return READY;
     };
-    now += SendBacks.SPENT_FOR_MS - 1;
+    now = Date.parse('2026-11-28T17:54:59Z');
     await expect(handleJob(check, d)).resolves.toBe('DROP');
     expect(checked).toBe(0);
-    // The next evening's resend (12 hours after the last send) is tried again.
-    now += 1;
+    // That evening's 18:00 resend is tried again.
+    now = Date.parse('2026-11-28T18:00:00Z');
     await expect(handleJob(check, d)).resolves.toBe('RETRY');
+  });
+
+  it('tries the 18:00 resend of a job spent shortly before it (summer time)', () => {
+    let now = Date.parse('2026-07-01T16:50:00Z'); // 17:50 in London
+    const sendBacks = new SendBacks(() => now);
+    sendBacks.spend(JOB);
+    expect(sendBacks.spent(JOB)).toBe(true);
+    now = Date.parse('2026-07-01T17:00:00Z'); // 18:00 in London
+    expect(sendBacks.spent(JOB)).toBe(false);
+  });
+
+  it('drops copies of a job spent during the 18:00 resend until the next evening', () => {
+    let now = Date.parse('2026-11-28T18:05:00Z'); // 18:05 in London
+    const sendBacks = new SendBacks(() => now);
+    sendBacks.spend(JOB);
+    now = Date.parse('2026-11-28T19:00:00Z');
+    expect(sendBacks.spent(JOB)).toBe(true);
+    now = Date.parse('2026-11-29T17:50:00Z');
+    expect(sendBacks.spent(JOB)).toBe(true);
+    now = Date.parse('2026-11-29T18:00:00Z');
+    expect(sendBacks.spent(JOB)).toBe(false);
   });
 
   it('never counts waiting: Bunny’s picture not settled yet', async () => {
