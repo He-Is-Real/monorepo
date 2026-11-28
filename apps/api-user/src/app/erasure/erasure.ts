@@ -5,6 +5,7 @@ import {
   PENDING_DELETION_DONE,
   PENDING_DELETION_FAILED,
   PENDING_DELETIONS_DUE,
+  pendingDeletionFailed,
   type PendingDeletion,
   retryOnConflict,
   runQuery,
@@ -40,7 +41,7 @@ const RETRY_EARLIER = 10;
 /**
  * EraseAccount (D39) for its two callers: "Delete my account" (also how a person withdraws all
  * consent, plan 4e) and Clerk's `user.deleted` webhook. The database half is one
- * transaction on api-user's own login (`ERASE_ACCOUNT`), retried until it commits; it leaves the
+ * transaction on api-user's own login (`ERASE_ACCOUNT`), tried up to three times; it leaves the
  * erased-identity tombstone (D82) and queues what must go elsewhere (D40). Then the queue is
  * drained at once: the person's Bunny videos and pictures, and their Clerk account (which ends
  * their sessions). Draining never fails the erasure: once the database half has committed, the
@@ -58,16 +59,15 @@ export class Erasure {
   ) {}
 
   async erase(clerkUserId: string, reason: ErasureReason): Promise<void> {
-    const [user, pending] = await retryOnConflict(
-      async () => {
-        const results = await runQuery(this.db, ERASE_ACCOUNT, {
-          clerkUserId,
-          reason,
-        });
-        return results[results.length - 2] as [string | undefined, string[]];
-      },
-      { attempts: 8 },
-    );
+    // Three tries, like every save a person waits on (the retries rule, RT-5: it was 8). After
+    // the third the person sees the usual error and presses Delete again; nothing is half-deleted.
+    const [user, pending] = await retryOnConflict(async () => {
+      const results = await runQuery(this.db, ERASE_ACCOUNT, {
+        clerkUserId,
+        reason,
+      });
+      return results[results.length - 2] as [string | undefined, string[]];
+    });
     if (user) {
       // The record backup recovery replays from (D40): on the request's event, or its own line
       // (same ref) if the caller already hung up and the event was written.
@@ -121,6 +121,7 @@ export class Erasure {
       } catch (err) {
         // It stays queued.
         failed.push({ kind: row.kind, key: row.key, reason: errorName(err) });
+        pendingDeletionFailed(row);
         await runQuery(this.db, PENDING_DELETION_FAILED, { key: row.key });
         continue;
       }

@@ -2,6 +2,7 @@ import {
   PENDING_DELETION_DONE,
   PENDING_DELETION_FAILED,
   PENDING_DELETIONS_DUE,
+  pendingDeletionFailed,
   type PendingDeletion,
   runQuery,
 } from '@heisreal/database';
@@ -11,7 +12,8 @@ import type { Task, TaskContext, TaskResult } from './tasks';
  * The erasures' leftovers (D39, D40), retried every night, at most maxDeletions each, the
  * longest-waiting first. A try that fails counts and waits (1 h, doubling, at most a week:
  * fn::erasure::retry_after), so rows that keep failing go to the back and never hold up the
- * others. Ids in the logs are internal ones only: a user's record id, a pendingDeletion's key.
+ * others. It never stops (the retries rule, kind 3): from a row's third failure on, each failure
+ * also writes the shared ERROR line (pendingDeletionFailed). Ids in the logs are internal ones only: a user's record id, a pendingDeletion's key.
  */
 
 /** Whoever is due a try, at most `limit`. */
@@ -64,6 +66,7 @@ export const pendingDeletionsTask: Task = {
         else throw new Error(`Can't delete a ${row.kind} here`);
       } catch {
         result.failed.push(row.key);
+        pendingDeletionFailed(row);
         await runQuery(ctx.db, PENDING_DELETION_FAILED, { key: row.key }).catch(
           () => undefined,
         );

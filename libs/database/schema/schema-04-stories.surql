@@ -1660,7 +1660,7 @@ DEFINE FUNCTION OVERWRITE fn::upload::renew($story: record<story>, $person: reco
 -- - queuedAt: when it was first written; sentAt and sends: when it last went to the queue and how
 --   often (the first send and later resends).
 -- - failures and lastError: how often the worker reported it failed, and the last reason as a
---   short code (never file contents or personal details). At 5 failures it ends as gave_up (J4:
+--   short code (never file contents or personal details). At 3 failures it ends as gave_up (J4:
 --   the table replaces dead letters).
 -- - doneAt and outcome: set once, when it ends: applied (the answer was saved), stale (a newer
 --   answer was already in), gone (the file or story was deleted) or gave_up.
@@ -1818,18 +1818,29 @@ DEFINE FUNCTION OVERWRITE fn::media::nightly_retries() {
 -- and the retries never start again. With the caller's permissions: housekeeping and api-admin
 -- read the jobs. `$opening`: a job being opened now, left out (mediaJob_rules judges the file as
 -- it was before it).
+-- The retries rule (Joel, 2026-11-27, RT-10: the 18:00 resend stops after three evenings): a job
+-- still open after its first send and three evenings' resends (sends >= 4, or written over 84
+-- hours ago, when the evenings are over whatever was sent), the last over 12 hours ago, is
+-- `unanswered` until the worker answers it (apps/housekeeping media-jobs.ts: MAX_SENDS,
+-- EVENINGS_OVER and RESEND_AFTER hold the same numbers). The moderators' list shows "a problem on our
+-- side" for `ours` or `unanswered`; only `ours` stops new jobs (fn::media::retries_used), so a late
+-- answer still opens the render it needs.
 DEFINE FUNCTION OVERWRITE fn::media::our_problem($file: option<record<storyFile>>,
     $opening: option<record<mediaJob>>) {
-  IF $file = NONE { RETURN { retry: false, ours: false } };
-  LET $jobs = (SELECT outcome, doneAt, queuedAt FROM mediaJob WHERE file = $file
+  IF $file = NONE { RETURN { retry: false, ours: false, unanswered: false } };
+  LET $jobs = (SELECT outcome, doneAt, queuedAt, sends, sentAt FROM mediaJob WHERE file = $file
     AND id != $opening ORDER BY queuedAt DESC);
+  LET $usable = (SELECT VALUE processing FROM ONLY $file) != 'failed';
   LET $stuck = $jobs != [] AND $jobs[0].outcome = 'gave_up'
-    AND $jobs.all(|$j| $j.doneAt != NONE)
-    AND (SELECT VALUE processing FROM ONLY $file) != 'failed';
+    AND $jobs.all(|$j| $j.doneAt != NONE) AND $usable;
+  LET $unanswered = $usable AND $jobs.any(|$j| $j.doneAt = NONE
+    AND ($j.sends >= 4 OR $j.queuedAt < time::now() - 84h)
+    AND ($j.sentAt ?? $j.queuedAt) < time::now() - 12h);
   LET $gaveUp = array::len($jobs.filter(|$j| $j.outcome = 'gave_up'));
   RETURN {
     retry: $stuck AND $gaveUp <= fn::media::nightly_retries(),
-    ours: $stuck AND $gaveUp > fn::media::nightly_retries()
+    ours: $stuck AND $gaveUp > fn::media::nightly_retries(),
+    unanswered: $unanswered
   };
 };
 -- Part 1a (P1-9, Joel, 2026-11-14): the one nightly retry cap, shared by every path that opens a

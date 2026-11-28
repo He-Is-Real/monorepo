@@ -313,7 +313,7 @@ Scheduler starts it at 03:30 London time; both are in `europe-west2`, written ou
 api-user, which writes a job to the `mediaJob` table and queues it; the media worker on Joel's
 machine (D78, D126) pulls it and calls the result writer on Cloud Run directly (J5), which writes
 the answer. No answers queue and no dead letters (Joel, 2026-11-07, J4): the job table records
-failures, and a job gives up after 5.
+failures, and a job gives up after 3 (the retries rule).
 
 - **Topic** `media-jobs`: messages stored in London only (`allowed_persistence_regions`,
   `enforce_in_transit`; the UK guard checks it) and kept 31 days.

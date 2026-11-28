@@ -257,18 +257,20 @@ export async function decide(
   },
 ): Promise<{ version: number; tag: string }> {
   const run = (skip: boolean) =>
-    retryOnConflict(() =>
-      runQuery(db, DECIDE_SQL, {
-        id: input.id,
-        entry: input.reviewed.entry,
-        media: input.reviewed.media ?? undefined,
-        image: input.reviewed.image ?? undefined,
-        action: input.action,
-        by: input.by,
-        staffEmail: input.staffEmail,
-        comment: input.comment,
-        skip: skip ? true : undefined,
-      }),
+    retryOnConflict(
+      () =>
+        runQuery(db, DECIDE_SQL, {
+          id: input.id,
+          entry: input.reviewed.entry,
+          media: input.reviewed.media ?? undefined,
+          image: input.reviewed.image ?? undefined,
+          action: input.action,
+          by: input.by,
+          staffEmail: input.staffEmail,
+          comment: input.comment,
+          skip: skip ? true : undefined,
+        }),
+      { record: `story:${input.id}` },
     );
   let results: unknown[];
   try {
@@ -322,8 +324,9 @@ export async function deleteStory(
   id: string,
 ): Promise<{ videos: string[] }> {
   try {
-    const results = await retryOnConflict(() =>
-      runQuery(db, DELETE_SQL, { id }),
+    const results = await retryOnConflict(
+      () => runQuery(db, DELETE_SQL, { id }),
+      { record: `story:${id}` },
     );
     return { videos: (results.at(-2) ?? []) as string[] };
   } catch (err) {

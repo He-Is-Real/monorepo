@@ -419,56 +419,59 @@ export class StoryStore {
     patch: StoryFields,
   ): Promise<CommandResult> {
     try {
-      return await retryOnConflict(async () => {
-        const current = await this.get(id);
-        if (!current) throw new NotFoundException();
-        if (current.version !== ifMatch) throw new StaleVersionException();
-        if (!EDITABLE.includes(current.status)) throw this.locked();
-        if (
-          current.primaryFormat === 'written' &&
-          'body' in patch &&
-          !trimmedTextLength(patch.body ?? '')
-        ) {
-          textRequired();
-        }
-        // An edit over the text maximum is refused only if it makes it longer, so a draft over
-        // a newly lowered maximum can be trimmed (Joel, 2026-10-30); submitting needs them all.
-        // The number of themes is checked at submit only (themes plan v3).
-        this.checkLimits(await this.settings(), patch, current);
-        await this.checkThemes(patch.themeIds);
-        const sets: string[] = [];
-        const vars: Record<string, unknown> = { id, version: ifMatch };
-        for (const field of [
-          'title',
-          'description',
-          'body',
-          'bylineName',
-        ] as const) {
-          if (!(field in patch)) continue;
-          const value = patch[field];
-          sets.push(
-            value === null ? `${field} = NONE` : `${field} = $${field}`,
-          );
-          if (value !== null) vars[field] = value;
-        }
-        // SL-1 A (Joel, 2026-11-12): the address follows the title only until the story is first
-        // approved; after that it never changes, so shared links keep working.
-        if (patch.title !== undefined && !current.approvedAt) {
-          sets.push('slug = $slug');
-          vars['slug'] = slugFor(patch.title, slugSuffix(current.slug));
-        }
-        if (patch.themeIds) {
-          sets.push("themeRefs = $themes.map(|$t| type::record('theme', $t))");
-          vars['themes'] = patch.themeIds;
-        }
-        // The image (M2 plan PR 10): only removed here. A removed picture's row is detached, and
-        // housekeeping deletes its file later (R12). Only RequestUpload puts one on (D80).
-        if (patch.image === null) sets.push('image = NONE');
-        // An empty patch still makes a version step (nothing else to do; D29).
-        if (!sets.length) sets.push('title = title');
-        const results = await runQuery(
-          this.person,
-          `BEGIN TRANSACTION;
+      return await retryOnConflict(
+        async () => {
+          const current = await this.get(id);
+          if (!current) throw new NotFoundException();
+          if (current.version !== ifMatch) throw new StaleVersionException();
+          if (!EDITABLE.includes(current.status)) throw this.locked();
+          if (
+            current.primaryFormat === 'written' &&
+            'body' in patch &&
+            !trimmedTextLength(patch.body ?? '')
+          ) {
+            textRequired();
+          }
+          // An edit over the text maximum is refused only if it makes it longer, so a draft over
+          // a newly lowered maximum can be trimmed (Joel, 2026-10-30); submitting needs them all.
+          // The number of themes is checked at submit only (themes plan v3).
+          this.checkLimits(await this.settings(), patch, current);
+          await this.checkThemes(patch.themeIds);
+          const sets: string[] = [];
+          const vars: Record<string, unknown> = { id, version: ifMatch };
+          for (const field of [
+            'title',
+            'description',
+            'body',
+            'bylineName',
+          ] as const) {
+            if (!(field in patch)) continue;
+            const value = patch[field];
+            sets.push(
+              value === null ? `${field} = NONE` : `${field} = $${field}`,
+            );
+            if (value !== null) vars[field] = value;
+          }
+          // SL-1 A (Joel, 2026-11-12): the address follows the title only until the story is first
+          // approved; after that it never changes, so shared links keep working.
+          if (patch.title !== undefined && !current.approvedAt) {
+            sets.push('slug = $slug');
+            vars['slug'] = slugFor(patch.title, slugSuffix(current.slug));
+          }
+          if (patch.themeIds) {
+            sets.push(
+              "themeRefs = $themes.map(|$t| type::record('theme', $t))",
+            );
+            vars['themes'] = patch.themeIds;
+          }
+          // The image (M2 plan PR 10): only removed here. A removed picture's row is detached, and
+          // housekeeping deletes its file later (R12). Only RequestUpload puts one on (D80).
+          if (patch.image === null) sets.push('image = NONE');
+          // An empty patch still makes a version step (nothing else to do; D29).
+          if (!sets.length) sets.push('title = title');
+          const results = await runQuery(
+            this.person,
+            `BEGIN TRANSACTION;
            LET $s = (SELECT version, ${STORY_STATUS} AS status
              FROM type::record('story', $id) WHERE submitter = $auth)[0];
            IF $s = NONE { THROW 'story_cmd:not_found' };
@@ -478,14 +481,16 @@ export class StoryStore {
            IF $u = NONE { THROW 'story_cmd:not_written' };
            $u;
            COMMIT TRANSACTION;`,
-          vars,
-        );
-        const row = requireWritten<{ id: string; version: number }>(
-          results[results.length - 2],
-          'story',
-        );
-        return { id: recordKey(row.id), version: row.version };
-      });
+            vars,
+          );
+          const row = requireWritten<{ id: string; version: number }>(
+            results[results.length - 2],
+            'story',
+          );
+          return { id: recordKey(row.id), version: row.version };
+        },
+        { record: `story:${id}` },
+      );
     } catch (err) {
       throw this.problem(err);
     }
@@ -621,10 +626,11 @@ export class StoryStore {
    */
   async startEditing(id: string, ifMatch: number): Promise<CommandResult> {
     try {
-      return await retryOnConflict(async () => {
-        const results = await runQuery(
-          this.person,
-          `BEGIN TRANSACTION;
+      return await retryOnConflict(
+        async () => {
+          const results = await runQuery(
+            this.person,
+            `BEGIN TRANSACTION;
            LET $s = (SELECT version, ${STORY_STATUS} AS status
              FROM type::record('story', $id) WHERE submitter = $auth)[0];
            IF $s = NONE { THROW 'story_cmd:not_found' };
@@ -636,14 +642,16 @@ export class StoryStore {
            LET $u = (SELECT id, version FROM ONLY type::record('story', $id));
            $u;
            COMMIT TRANSACTION;`,
-          { id, version: ifMatch, from: CAN_START_EDITING },
-        );
-        const row = requireWritten<{ id: string; version: number }>(
-          results[results.length - 2],
-          'story',
-        );
-        return { id: recordKey(row.id), version: row.version };
-      });
+            { id, version: ifMatch, from: CAN_START_EDITING },
+          );
+          const row = requireWritten<{ id: string; version: number }>(
+            results[results.length - 2],
+            'story',
+          );
+          return { id: recordKey(row.id), version: row.version };
+        },
+        { record: `story:${id}` },
+      );
     } catch (err) {
       throw this.lifecycleProblem(err);
     }
@@ -659,10 +667,11 @@ export class StoryStore {
    */
   async delete(id: string, ifMatch: number): Promise<{ videos: string[] }> {
     try {
-      return await retryOnConflict(async () => {
-        const results = await runQuery(
-          this.person,
-          `BEGIN TRANSACTION;
+      return await retryOnConflict(
+        async () => {
+          const results = await runQuery(
+            this.person,
+            `BEGIN TRANSACTION;
            LET $s = (SELECT version, ${STORY_STATUS} AS status
              FROM type::record('story', $id) WHERE submitter = $auth)[0];
            IF $s = NONE { THROW 'story_cmd:not_found' };
@@ -673,10 +682,12 @@ export class StoryStore {
            IF array::len($gone) = 0 { THROW 'story_cmd:not_written' };
            $videos;
            COMMIT TRANSACTION;`,
-          { id, version: ifMatch },
-        );
-        return { videos: (results[results.length - 2] ?? []) as string[] };
-      });
+            { id, version: ifMatch },
+          );
+          return { videos: (results[results.length - 2] ?? []) as string[] };
+        },
+        { record: `story:${id}` },
+      );
     } catch (err) {
       throw this.lifecycleProblem(err);
     }

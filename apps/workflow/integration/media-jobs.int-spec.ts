@@ -488,6 +488,36 @@ describe('result writer: the worker’s answers → the job’s file row and the
       expect(await openJobs(video)).toEqual([]);
       expect(await ours(video)).toBe(true);
     });
+
+    // The retries rule (RT-10): a check sent on its first send and three evenings, unanswered, shows
+    // "a problem on our side", but never stops the render a late "ready" needs.
+    it('a ready audio file whose check was sent four times: its render opens', async () => {
+      const { story, video } = await videoStory('audio');
+      await submit(pat, story);
+      const [first] = await openJobs(video);
+      await rows(
+        migrator,
+        `UPDATE type::record('mediaJob', $id) SET sends = 4, sentAt = time::now() - 13h`,
+        { id: first },
+      );
+      const problem = await rows<{ ours: boolean; unanswered: boolean }>(
+        admin,
+        `RETURN fn::media::our_problem(type::record('storyFile', $video))`,
+        { video },
+      );
+      expect(problem[0]).toMatchObject({ ours: false, unanswered: true });
+
+      const result = await writeAnswer(
+        workflow,
+        first,
+        video,
+        ready(story),
+        next(),
+      );
+      expect(result).toMatchObject({ outcome: 'applied' });
+      expect(result.render).not.toBeNull();
+      expect(await openJobs(video)).toHaveLength(1);
+    });
   });
 
   describe('a "failed" answer (Part 1a)', () => {
@@ -612,7 +642,7 @@ describe('result writer: the worker’s answers → the job’s file row and the
       ]);
     });
 
-    it('a Bunny call that fails counts as the job’s failure (ours: bunny_unavailable at the fifth)', async () => {
+    it('a Bunny call that fails counts as the job’s failure (ours: bunny_unavailable at the third)', async () => {
       const { video } = await videoStory();
       const id = await queue(video);
       const bunny = fakeBunny(new BunnyCallFailed('bunny_unreachable'));
@@ -633,7 +663,7 @@ describe('result writer: the worker’s answers → the job’s file row and the
   });
 
   describe('failures (J4: the table replaces dead letters)', () => {
-    it('says "try again" four times, then gives up on the fifth and drops later calls', async () => {
+    it('says "try again" twice, then gives up on the third and drops later calls', async () => {
       const { video } = await videoStory();
       const id = await queue(video);
 
@@ -645,7 +675,7 @@ describe('result writer: the worker’s answers → the job’s file row and the
         );
       }
       expect(await job(id)).toMatchObject({
-        failures: 4,
+        failures: 2,
         lastError: 'bunny_unreachable',
         done: false,
       });
@@ -654,7 +684,7 @@ describe('result writer: the worker’s answers → the job’s file row and the
         outcome: 'gave_up',
       });
       expect(await job(id)).toMatchObject({
-        failures: 5,
+        failures: 3,
         lastError: 'bunny_timeout',
         outcome: 'gave_up',
         // Part 1a: ours, never the file's.
@@ -666,7 +696,7 @@ describe('result writer: the worker’s answers → the job’s file row and the
         retry: false,
         outcome: 'gave_up',
       });
-      expect(await job(id)).toMatchObject({ failures: 5 });
+      expect(await job(id)).toMatchObject({ failures: 3 });
       // The file is untouched; a new notice opens a new job.
       expect(await file(video)).toEqual({});
       expect(await queue(video)).not.toBe(id);
@@ -951,7 +981,7 @@ describe('result writer: the worker’s answers → the job’s file row and the
       expect(await job(id)).toMatchObject({ done: false, failures: 0 });
     });
 
-    it('failed: 200 with "try again", then "give up" on the fifth', async () => {
+    it('failed: 200 with "try again", then "give up" on the third', async () => {
       const { video } = await videoStory();
       const id = await queue(video);
       const fail = () =>

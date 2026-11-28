@@ -4,6 +4,7 @@ import { plainProblem, restartingProblem } from '@/components/errors/problem';
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Upload } from 'tus-js-client';
 import { ApiUserProblem, restartWait, StaleVersion } from '@/lib/api-user';
+import { MAX_TRIES } from '@/lib/retries';
 import { PREFIX } from '@/lib/share-storage';
 import { stripMediaMetadata } from '@/lib/strip-media-metadata';
 import { type MediaFacts, readMediaFacts } from '@/lib/video-shape';
@@ -109,6 +110,8 @@ const KINDS: Record<UploadFormat, string> = {
 };
 /** A link with less left than this is renewed before carrying on. */
 const RENEW_MS = 5 * 60_000;
+/** The waits before a failed piece's second and third tries (the retries rule, RT-7). */
+const UPLOAD_RETRY_DELAYS = [1000, 3000].slice(0, MAX_TRIES - 1);
 
 // The library's button looks (BT-1 A), on plain buttons and links; their words wrap at large
 // text sizes rather than widening the page.
@@ -436,7 +439,9 @@ export function UploadPanel({
           `heisreal-${videoId}-${file.size}-${file.lastModified}`,
         storeFingerprintForResuming: true,
         removeFingerprintOnSuccess: true,
-        retryDelays: [0, 1000, 3000],
+        // The retries rule (RT-7): a piece is tried three times in all, the second after 1 s,
+        // the third after 3 s (tus counts again once some of the file gets through).
+        retryDelays: UPLOAD_RETRY_DELAYS,
         onProgress: (sent, total) =>
           setPhase({ at: 'uploading', name: file.name, sent, total }),
         onSuccess: () => {

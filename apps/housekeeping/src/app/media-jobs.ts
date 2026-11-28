@@ -1,5 +1,6 @@
 import { PubSub } from '@google-cloud/pubsub';
-import { traceAttributes } from '@heisreal/logging/event';
+import { MAX_TRIES } from '@heisreal/logging';
+import { traceAttributes, writeRetryLimit } from '@heisreal/logging/event';
 import { retryOnConflict, runQuery } from '@heisreal/database';
 import { withTimeout } from '@heisreal/secrets';
 import type { Task, TaskContext, TaskResult } from './tasks';
@@ -13,7 +14,7 @@ import type { Task, TaskContext, TaskResult } from './tasks';
  *   resend at 18:00 UK local time, as that is when my pc is on and will have a worker
  *   available"), its own run (modules/gcp/housekeeping.tf): every job not ended whose last send
  *   (or, if it was never sent, its writing) is over 12 hours old goes to the queue again, so a job
- *   sent the same evening isn't doubled;
+ *   sent the same evening isn't doubled, for at most three evenings ({@link MAX_SENDS}, {@link EVENINGS_OVER});
  * - the tidy-up, in the nightly run: ended jobs go 30 days after they ended (J2). While their
  *   story waits for review or is off the site because the site took it off (fn::media::job_kept,
  *   P1-3, P1-9), the tidy-up skips them; once that ends, the next run deletes those already over
@@ -75,6 +76,29 @@ export function pubsubMediaJobs(project: string, topic: string): MediaJobs {
 
 /** How long after its last send a job not yet ended is sent again. */
 export const RESEND_AFTER = '12h';
+/**
+ * The retries rule, kind 2 (Joel, 2026-11-27, RT-10: "cap at 3 evenings"): a job goes to the
+ * queue at most this many times, its first send and three evenings' resends (`sends`, which
+ * counts both, but only sends that reached the queue).
+ */
+export const MAX_SENDS = 1 + MAX_TRIES;
+/**
+ * The same three evenings by the job's age, so a failed publish, or a first send that never
+ * happened, still uses up an evening (RT-10). The run is at 18:00 each day and sends a job 12 hours
+ * after its last send or its writing, so a job's first evening comes 12 to 36 hours after it was
+ * written, its third 60 to 84 hours after, and a fourth never under 84 hours: {@link LAST_EVENING}
+ * marks the third, {@link EVENINGS_OVER} ends them. A run delayed past the hour may lose a job's
+ * third evening; accepted (rare, and the job is then "a problem on our side" as below).
+ *
+ * The run that makes a job's last allowed send writes the shared ERROR line then (it is the
+ * job's last try, whether or not the publish works); a manual rerun of that evening's run may
+ * write it again. If the job stays unanswered, the moderators' list shows "Can't be reviewed yet:
+ * a problem on our side" (fn::media::our_problem's `unanswered`, which holds the same 4 sends, 84
+ * hours and 12 hours). If the worker answers later (Pub/Sub keeps the message 31 days), the job
+ * ends as usual.
+ */
+const LAST_EVENING = '60h';
+const EVENINGS_OVER = '84h';
 /** How long an ended job is kept (J2); the table's delete permission says the same. */
 const KEEP_ENDED = '30d';
 /** Ended jobs are tiny rows: a run deletes up to this many times maxDeletions of them. */
@@ -85,13 +109,21 @@ interface DueJob {
   kind: string;
   video: string;
   story: string;
+  /** This is the job's last allowed send (RT-10). */
+  last: boolean;
 }
 
-/** The longest-waiting jobs to send again, oldest first (so a story's stay in order). */
-const DUE = `SELECT record::id(id) AS job, kind, record::id(file) AS video,
-    record::id(file.story) AS story, queuedAt
-  FROM mediaJob WHERE doneAt = NONE
-    AND (sentAt ?? queuedAt) < time::now() - ${RESEND_AFTER}
+/**
+ * The longest-waiting jobs to send again, oldest first (so a story's stay in order). `$now`: the
+ * run's time.
+ */
+const DUE = `LET $now = <datetime> $at;
+  SELECT record::id(id) AS job, kind, record::id(file) AS video,
+    record::id(file.story) AS story, queuedAt,
+    sends + 1 >= ${MAX_SENDS} OR queuedAt < $now - ${LAST_EVENING} AS last
+  FROM mediaJob WHERE doneAt = NONE AND sends < ${MAX_SENDS}
+    AND queuedAt >= $now - ${EVENINGS_OVER}
+    AND (sentAt ?? queuedAt) < $now - ${RESEND_AFTER}
   ORDER BY queuedAt ASC LIMIT $limit`;
 
 /** Records a resend, only if the job is still open. */
@@ -103,9 +135,12 @@ export const mediaResendTask: Task = {
   name: 'media-resend',
   async run(ctx): Promise<TaskResult> {
     if (!ctx.mediaJobs) throw new Error('The media-jobs topic is not set');
-    const [found] = (await runQuery(ctx.db, DUE, {
-      limit: ctx.maxDeletions + 1,
-    })) as [DueJob[]];
+    const found = (
+      await runQuery(ctx.db, DUE, {
+        at: ctx.now.toISOString(),
+        limit: ctx.maxDeletions + 1,
+      })
+    ).at(-1) as DueJob[] | undefined;
     const due = (found ?? []).slice(0, ctx.maxDeletions);
     const result: TaskResult = {
       selected: due.map((j) => j.job),
@@ -115,12 +150,22 @@ export const mediaResendTask: Task = {
     };
     if (ctx.dryRun) return result;
     for (const j of due) {
+      if (j.last) {
+        writeRetryLimit({
+          what: 'media_job_resend',
+          id: j.job,
+          tries: MAX_SENDS,
+          then: 'gave_up',
+        });
+      }
       try {
         await ctx.mediaJobs.publish(
           { jobId: j.job, kind: j.kind, videoId: j.video },
           j.story,
         );
-        await retryOnConflict(() => runQuery(ctx.db, RESENT, { job: j.job }));
+        await retryOnConflict(() => runQuery(ctx.db, RESENT, { job: j.job }), {
+          record: `mediaJob:${j.job}`,
+        });
         result.deleted.push(j.job);
       } catch {
         // Not sent, or sent but not recorded: either way the next evening sends it (again).
@@ -146,7 +191,11 @@ const OUR_GIVE_UPS = `LET $files = array::distinct((SELECT file, doneAt FROM med
   RETURN $files.filter(|$f| $f.story.mediaFile = $f
       AND fn::story::keeps_media_jobs($f.story)
       AND fn::media::our_problem($f).retry)
-    .slice(0, $limit).map(|$f| record::id($f));`;
+    .slice(0, $limit).map(|$f| {
+      video: record::id($f),
+      last: array::len(SELECT VALUE id FROM mediaJob WHERE file = $f AND outcome = 'gave_up')
+        >= fn::media::nightly_retries()
+    });`;
 
 /**
  * Our own give-ups on a waiting story (Part 1a; Joel, 2026-11-10): "the nightly housekeeping opens
@@ -164,8 +213,9 @@ export const ourGiveUpsTask: Task = {
   async run(ctx): Promise<TaskResult> {
     const found = (
       await runQuery(ctx.db, OUR_GIVE_UPS, { limit: ctx.maxDeletions + 1 })
-    ).at(-1) as string[] | undefined;
-    const selected = (found ?? []).slice(0, ctx.maxDeletions);
+    ).at(-1) as { video: string; last: boolean }[] | undefined;
+    const picked = (found ?? []).slice(0, ctx.maxDeletions);
+    const selected = picked.map((f) => f.video);
     const result: TaskResult = {
       selected,
       deleted: [],
@@ -173,14 +223,26 @@ export const ourGiveUpsTask: Task = {
       more: (found ?? []).length > ctx.maxDeletions,
     };
     if (ctx.dryRun) return result;
-    for (const video of selected) {
+    for (const { video, last } of picked) {
+      // RT-15: this night's check is the file's last (its third nightly retry): the shared ERROR
+      // line says so now, as it is tried. A manual rerun the same night may say it again.
+      if (last) {
+        writeRetryLimit({
+          what: 'media_nightly_retry',
+          id: video,
+          tries: 1 + MAX_TRIES,
+          then: 'gave_up',
+        });
+      }
       try {
-        await retryOnConflict(() =>
-          runQuery(
-            ctx.db,
-            `RETURN fn::media::queue_job(type::record('storyFile', $video), 'check', 'resent')`,
-            { video },
-          ),
+        await retryOnConflict(
+          () =>
+            runQuery(
+              ctx.db,
+              `RETURN fn::media::queue_job(type::record('storyFile', $video), 'check', 'resent')`,
+              { video },
+            ),
+          { record: `storyFile:${video}` },
         );
         result.deleted.push(video);
       } catch {

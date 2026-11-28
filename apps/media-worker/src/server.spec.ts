@@ -2,7 +2,7 @@ import type { AddressInfo } from 'node:net';
 import { LOG_SINKS, type LogSink } from '@heisreal/logging/event';
 import { BunnyStreamReader, checkAnswer } from './bunny';
 import { SUBSCRIPTIONS, workerServer } from './server';
-import { RenderSlot } from './worker';
+import { RenderSlot, SendBacks } from './worker';
 import { httpWriter } from './writer';
 
 /**
@@ -54,6 +54,7 @@ async function start(writerStatus: number, writerBody: unknown) {
         },
       },
       renderSlot: new RenderSlot(),
+      sendBacks: new SendBacks(),
       writer,
     },
     TOKEN,

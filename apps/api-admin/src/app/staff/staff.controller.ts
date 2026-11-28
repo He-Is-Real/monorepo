@@ -35,7 +35,8 @@ import {
   type StaffClerk,
   type StaffRole,
 } from './staff-clerk';
-import { note } from '@heisreal/logging/event';
+import { MAX_TRIES } from '@heisreal/logging';
+import { note, writeRetryLimit } from '@heisreal/logging/event';
 
 const STAFF_ROLES: readonly StaffRole[] = ['Moderator', 'Admin'];
 /** G7 (Joel, 2026-11-11): "just enforce @heisreal.today domain emails only". */
@@ -346,8 +347,13 @@ export class StaffController {
   }
 }
 
-/** How often, and how long, the baseline step tries before giving up until the next start. */
-const BASELINE_ATTEMPTS = 20;
+/**
+ * How often, and how long, the baseline step tries before giving up until the next start: three
+ * tries 30 s apart, about a minute (the retries rule, kind 2, RT-12: it was 20 over ten minutes).
+ * A database restart outlasts that: the step is then skipped, and the next start of api-admin
+ * (every deploy) does it.
+ */
+const BASELINE_ATTEMPTS = MAX_TRIES;
 const BASELINE_RETRY_MS = 30_000;
 /** How long start-up waits for it before serving anyway (the rest carries on meanwhile). */
 const BASELINE_STARTUP_WAIT_MS = 15_000;
@@ -360,8 +366,8 @@ const BASELINE_STARTUP_WAIT_MS = 15_000;
  * has the email; one with no account yet (S-7: no invitations) is logged, and the next start
  * gives them the role once they have signed up. Nobody else is touched. It runs here, in api-admin, because api-admin already holds the one Clerk client and
  * the table's login; a separate job would need both again. Idempotent: an admin already in
- * place costs one Clerk update. Start-up waits up to 15 s for it, then carries on, retrying
- * (the database may be restarting) every 30 s for ten minutes. It logs what it did.
+ * place costs one Clerk update. Start-up waits up to 15 s for it, then carries on, trying again
+ * (the database may be restarting) 30 s later, three tries in all. It logs what it did.
  */
 @Injectable()
 export class StaffBaseline implements OnApplicationBootstrap {
@@ -418,9 +424,12 @@ export class StaffBaseline implements OnApplicationBootstrap {
         }
       }
     }
-    this.logger.error(
-      'Baseline admins could not be put in place; the next start tries again',
-    );
+    // The shared "tries ran out" line (the retries rule); the next start tries again.
+    writeRetryLimit({
+      what: 'baseline_admins',
+      tries: BASELINE_ATTEMPTS,
+      then: 'gave_up',
+    });
   }
 }
 

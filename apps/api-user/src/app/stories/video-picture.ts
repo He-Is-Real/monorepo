@@ -210,22 +210,24 @@ async function record(
   }: { picture?: string | null; thumbnailPath: string },
 ): Promise<void> {
   try {
-    await retryOnConflict(() =>
-      runQuery(
-        service,
-        `UPDATE type::record('storyFile', $video)
+    await retryOnConflict(
+      () =>
+        runQuery(
+          service,
+          `UPDATE type::record('storyFile', $video)
            SET thumbnailOf = IF !$setPicture { thumbnailOf }
                ELSE IF $picture = NONE { NONE } ELSE { type::record('storyFile', $picture) },
              thumbnailPath = $thumbnailPath
            WHERE thumbnailPath != $thumbnailPath OR $setPicture
            RETURN NONE`,
-        {
-          video: videoId,
-          setPicture: picture !== undefined,
-          picture: picture ?? undefined,
-          thumbnailPath,
-        },
-      ),
+          {
+            video: videoId,
+            setPicture: picture !== undefined,
+            picture: picture ?? undefined,
+            thumbnailPath,
+          },
+        ),
+      { record: `storyFile:${videoId}` },
     );
   } catch (err) {
     // The story moved on meanwhile (another tab changed its picture or sent it).

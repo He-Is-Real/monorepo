@@ -30,8 +30,11 @@ success or failure. Stripe calls it a canonical log line; the blog calls it a wi
    pass it down, add fields as you learn things, emit it once when the work ends (response closed,
    job `finally`). Lines inside a request or job are folded into its event (LG-2 C, Joel 22 Nov). A search also writes its own small `event: "search"`
    beside the request's wide event (LG-2g A, below). Otherwise only three kinds of line stay on their own:
-   start-up/settings, background work outside any request (health checks, queue state), and the
-   **immediate** unexpected-error line with `stack_trace` (Error Reporting groups errors from it).
+   start-up/settings, background work outside any request (health checks, queue state), the
+   **immediate** unexpected-error line with `stack_trace` (Error Reporting groups errors from it),
+   and the **retry_limit** line: whenever something's tries run out (the retries rule, Joel
+   27 Nov: three tries in all), one ERROR line `event: "retry_limit"`, `retry { what, id, tries,
+then }`, written with `writeRetryLimit` (`@heisreal/logging/event`), carrying the work's `ref`.
 2. **No breadcrumbs.** No `console.log`, no "got here", no "calling Bunny…" then "Bunny answered".
    If a fact helps debugging, it is a field on the event. Use `libs/logging`, never `console.*`.
 3. **Wide and specific.** Many fields (dimensionality) and fields with many values such as
@@ -86,7 +89,7 @@ success or failure. Stripe calls it a canonical log line; the blog calls it a wi
 
 - `severity`, `message`, `timestamp` first (Cloud Logging's names; `libs/logging` writes them).
   `message` is a short human summary of the event: `POST /stories/:id/submit 200 in 412 ms`.
-- Then `event` (`request` | `job` | `search` | `startup` | `health` | `error_report`), `ref`, the
+- Then `event` (`request` | `job` | `search` | `startup` | `health` | `error_report` | `retry_limit`), `ref`, the
   trace field (neither on `search`).
 - Group by area as nested objects: `service` (on every entry, rule 11), `process`, `http`, `user`,
   `client`, `story`, `upload`, `consent`, `moderation`, `db`, `external`, `rate_limit`, `cache`,

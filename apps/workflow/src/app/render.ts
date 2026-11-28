@@ -142,17 +142,21 @@ export async function uploadPassFor(
   job: string,
   video: string,
 ): Promise<PassReply> {
-  const read = await retryOnConflict(async () => {
-    const results = await runQuery(db, PASS_SQL, { job, videoId: video }).catch(
-      renderError,
-    );
-    return results[results.length - 2] as {
-      decision: AnswerOutcome | 'gave_up' | 'render';
-      story?: string | null;
-      picture?: string | null;
-      madeFile?: string | null;
-    };
-  });
+  const read = await retryOnConflict(
+    async () => {
+      const results = await runQuery(db, PASS_SQL, {
+        job,
+        videoId: video,
+      }).catch(renderError);
+      return results[results.length - 2] as {
+        decision: AnswerOutcome | 'gave_up' | 'render';
+        story?: string | null;
+        picture?: string | null;
+        madeFile?: string | null;
+      };
+    },
+    { record: `mediaJob:${job}` },
+  );
   if (read.decision !== 'render') return { outcome: read.decision };
   if (!read.story) throw new Error('A render job without its story');
 
@@ -160,13 +164,15 @@ export async function uploadPassFor(
   let made = read.madeFile ?? null;
   if (!made || !(await bunny.exists(made))) {
     made = await bunny.createVideo(read.story);
-    await retryOnConflict(() =>
-      runQuery(
-        db,
-        `UPDATE type::record('mediaJob', $job) SET madeFile = type::record('storyFile', $made)
+    await retryOnConflict(
+      () =>
+        runQuery(
+          db,
+          `UPDATE type::record('mediaJob', $job) SET madeFile = type::record('storyFile', $made)
            WHERE doneAt = NONE RETURN NONE`,
-        { job, made },
-      ),
+          { job, made },
+        ),
+      { record: `mediaJob:${job}` },
     );
   }
   const picture = read.picture ?? null;
@@ -230,15 +236,18 @@ export async function soundLinkFor(
   video: string,
   height: number,
 ): Promise<SoundLinkReply> {
-  const { decision } = await retryOnConflict(async () => {
-    const results = await runQuery(db, SOUND_SQL, {
-      job,
-      videoId: video,
-    }).catch(renderError);
-    return results[results.length - 2] as {
-      decision: AnswerOutcome | 'gave_up' | 'no_pass' | 'sound';
-    };
-  });
+  const { decision } = await retryOnConflict(
+    async () => {
+      const results = await runQuery(db, SOUND_SQL, {
+        job,
+        videoId: video,
+      }).catch(renderError);
+      return results[results.length - 2] as {
+        decision: AnswerOutcome | 'gave_up' | 'no_pass' | 'sound';
+      };
+    },
+    { record: `mediaJob:${job}` },
+  );
   if (decision === 'no_pass') {
     throw new InvalidMediaJobCall('a sound link comes after the job’s pass');
   }
@@ -281,25 +290,28 @@ export async function renderedJob(
   video: string,
   done: Rendered,
 ): Promise<{ outcome: AnswerOutcome | 'gave_up'; check: QueuedJob | null }> {
-  return retryOnConflict(async () => {
-    const results = await runQuery(db, RENDERED_SQL, {
-      job,
-      videoId: video,
-      renderId: done.renderVideoId,
-      picture: done.picture ?? undefined,
-      sizeBytes: done.sizeBytes,
-      // The pointer move isn't the person's edit: the story keeps its version (1B).
-      renderMove: true,
-    }).catch(renderError);
-    const r = results[results.length - 2] as {
-      outcome: AnswerOutcome | 'gave_up';
-      check?: Omit<QueuedJob, 'kind'> | null;
-    };
-    return {
-      outcome: r.outcome,
-      check: r.check ? { ...r.check, kind: 'check' } : null,
-    };
-  });
+  return retryOnConflict(
+    async () => {
+      const results = await runQuery(db, RENDERED_SQL, {
+        job,
+        videoId: video,
+        renderId: done.renderVideoId,
+        picture: done.picture ?? undefined,
+        sizeBytes: done.sizeBytes,
+        // The pointer move isn't the person's edit: the story keeps its version (1B).
+        renderMove: true,
+      }).catch(renderError);
+      const r = results[results.length - 2] as {
+        outcome: AnswerOutcome | 'gave_up';
+        check?: Omit<QueuedJob, 'kind'> | null;
+      };
+      return {
+        outcome: r.outcome,
+        check: r.check ? { ...r.check, kind: 'check' } : null,
+      };
+    },
+    { record: `mediaJob:${job}` },
+  );
 }
 
 function renderError(err: unknown): never {

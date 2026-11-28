@@ -109,10 +109,10 @@ How a video or audio file becomes `ready` (M2 plan item 13; D78, D126, D129; des
    job's codes are below. Every answer and
    failure carries the job's video id, and the writer refuses one that isn't the job's video
    (400 `video_mismatch`; Joel, 2026-11-08).
-   The writer counts it on the job (`failures`, `lastError`): under 5 it says "try again" and the
-   queue redelivers the job later; at 5 the job ends as `gave_up` and the story's later jobs carry
-   on. If the writer can't be reached at all, the worker leaves the job in the queue and it comes
-   back later. There are no dead-letter queues (Joel, 2026-11-07): the table is the record.
+   The writer counts it on the job (`failures`, `lastError`): under 3 it says "try again" and the
+   queue redelivers the job later; at 3 the job ends as `gave_up` (with a `retry_limit` ERROR line,
+   `what: media_job`) and the story's later jobs carry on. If the writer can't be reached at all,
+   the worker leaves the job in the queue and it comes back later, three tries at most (below). There are no dead-letter queues (Joel, 2026-11-07): the table is the record.
 
 ### Audio picture videos
 
@@ -286,7 +286,9 @@ lifetimes are the safety net.
   worker's own sign-in tries again at once, and Dapr's Pub/Sub connection reconnects on its own.
   A certificate shorter-lived than the interval is renewed in the last quarter of its life
   instead. A failure logs one `identity_renewal_failed` line and tries again after 1, 2, 4 … up
-  to 30 minutes, sooner if the certificate would expire first. `IDENTITY_RENEW_HOURS` above 596
+  to 30 minutes, sooner if the certificate would expire first, for as long as it takes; from the
+  third failure in a row the line also carries the shared `retry_limit` fields
+  (`what: worker_certificate_renewal`, `then: keeps_trying`). `IDENTITY_RENEW_HOURS` above 596
   (Node's longest timer, about 24.8 days) stops the worker at start-up.
 - **Checking Dapr still follows renewals** (after a Dapr upgrade: `go version -m
 ~/.dapr/bin/daprd | grep go/auth`, then move `apps/media-worker/compat/go-auth/go.mod` to that
@@ -321,9 +323,17 @@ lifetimes are the safety net.
 How it marks jobs: the writer saved the answer, or `/failed` says "give up": taken (acked). The
 job doesn't exist any more (404), or the writer refused to count a failure (400): dropped (acked)
 and logged. The writer refusing an answer (400) is reported to `/failed` as `answer_rejected`, so
-it gives up after 5 like any other failure. The writer unreachable or failing, Google
+it gives up after 3 like any other failure. The writer unreachable or failing, Google
 refusing to sign the worker in, or `/failed` saying "try again": left in the queue, which
-redelivers it 10 seconds to 10 minutes later (nacked). A message that isn't a job it can read is
+redelivers it 10 seconds to 10 minutes later (nacked), three tries at most: the third such
+delivery of a job is marked taken instead, with a `retry_limit` ERROR line
+(`what: media_job_delivery`), and the job, still open in the table, waits for the 18:00 resend.
+Any other copy of that job in the queue over the next 6 hours is marked taken unworked (the
+evening's resend, 12 hours after the last send, is tried as usual). The worker counts these in its
+memory (a restart starts again). Waiting does not count: a render while another render runs, or
+the writer's "not yet" (Bunny hasn't settled a picture, or doesn't agree yet that a video failed;
+a failed call to Bunny on a "failed" answer gets the same reply, so the worker can't count it,
+but the writer's own count still ends the job at its third). A message that isn't a job it can read is
 dropped and logged (that includes one without a video id: every call to the writer names the
 job's video).
 
@@ -369,17 +379,24 @@ webhook` (bad signature: check the secret `bunny-stream-readonly-key` has the li
      of `media-worker-media-jobs` in Cloud Monitoring.
      Each evening at 18:00 London time (when Joel's machine is on) the housekeeping Job's media
      resend sends every job not ended whose last send (or, never sent, its writing) is over 12
-     hours old again, adds the reason `resent` and counts the send. A redelivered duplicate is
-     harmless. To resend now: `gcloud run jobs execute housekeeping --region europe-west2 --wait
+     hours old again, adds the reason `resent` and counts the send, for three evenings: until the
+     job has been sent 4 times (its first send and three evenings), or is over 84 hours old (so a
+     failed send still uses up its evening). The run that makes its last send logs one
+     `retry_limit` ERROR line (`what: media_job_resend`; a manual rerun that evening may log it
+     again); after that it isn't sent again, and 12 hours on the moderators' list shows "a
+     problem on our side" until the worker answers it. Starting the worker is usually enough: the queue
+     still holds the earlier sends for 31 days. A redelivered
+     duplicate is harmless. To resend now: `gcloud run jobs execute housekeeping --region europe-west2 --wait
 --update-env-vars HOUSEKEEPING_CHORES=media-resend` ([apps/housekeeping/README.md](../apps/housekeeping/README.md)).
    - **Open with failures:** the worker keeps failing; `lastError` says why, and the worker's own
      log says more.
    - **`gave_up`:** `errorType` says why (api-admin reads it): `file_unusable` (Bunny failed the
-     file, the person was asked for a new one: nothing to do), or ours, after 5 failures
+     file, the person was asked for a new one: nothing to do), or ours, after 3 failures
      (`bunny_unavailable`, `worker_error`, `other`). For ours, the nightly housekeeping
      (`media-retry`) opens a new check of the file of a waiting story, or of a published story the
-     site took off itself (P1-5), on up to 3 nights; after that the moderators' list shows "a
-     problem on our side", and a story off the site stays off (never deleted automatically,
+     site took off itself (P1-5), on up to 3 nights; the night that opens the third logs one
+     `retry_limit` ERROR line (`what: media_nightly_retry`); after that the moderators' list shows
+     "a problem on our side", and a story off the site stays off (never deleted automatically,
      P1-9). The jobs of a waiting story or one the site took off aren't tidied away after 30
      days (P1-3, P1-9), so the count holds and the retries never start again. Once the
      3 retries are used, the database refuses every new job of that file, from whatever sends it

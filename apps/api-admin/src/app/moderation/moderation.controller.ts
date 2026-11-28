@@ -117,8 +117,8 @@ function paging(sort: Sort, t: string) {
  * entry of a story that has moved on is skipped. Bind `$state`, the filters, `$after` = [time,
  * entry id] or NONE, `$take`.
  * `ours` (Part 1a, P1-5, P1-9): a story waiting for review or taken off the site by the system
- * whose file's check gave up on our side and the nightly retries are used up
- * (fn::media::our_problem): "a problem on our side".
+ * whose file's check gave up on our side and the nightly retries are used up, or whose job went
+ * unanswered after its last evening's resend (fn::media::our_problem): "a problem on our side".
  */
 function listLoggedSql(sort: Sort): string {
   const p = paging(sort, sort === 'changed' ? 'story.updatedAt' : 'at');
@@ -131,7 +131,8 @@ function listLoggedSql(sort: Sort): string {
     array::max(SELECT VALUE at FROM storyStatusLog WHERE story = $parent.story AND action = 'sent')
       AS sentAt,
     IF fn::story::keeps_media_jobs(story) {
-      fn::media::our_problem(story.mediaFile).ours
+      LET $p = fn::media::our_problem(story.mediaFile);
+      $p.ours OR $p.unanswered
     } AS ours
   FROM storyStatusLog WITH INDEX storyStatusLog_queue
   WHERE ${LOGGED_WHERE} ${FILTERS('story.')}

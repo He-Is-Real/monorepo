@@ -7,8 +7,11 @@
  *
  * Held in this page's memory only, never the browser's storage (device storage law, LG-1c), and
  * dropped if the page closes first. A "no answer" report waits until the connection is back:
- * the next call that gets an answer, the browser coming back online, or a retry every 30 s.
+ * the next call that gets an answer, the browser coming back online, or a retry every 30 s. Each
+ * report is tried three times at most (the retries rule, RT-13), then dropped: an outage longer
+ * than about a minute and a half goes unreported (low stakes; the servers log their own side).
  */
+import { MAX_TRIES } from './retries';
 
 /** What went wrong (api-user's `ErrorReport.kind`). */
 export type ErrorReportKind = 'browser_crash' | 'no_answer';
@@ -26,6 +29,8 @@ const TIMEOUT_MS = 10_000;
 
 let base: string | undefined;
 const waiting: ErrorReport[] = [];
+/** How many sends of each waiting report got no answer. */
+const failedTries = new WeakMap<ErrorReport, number>();
 let sending = false;
 let retry: ReturnType<typeof setTimeout> | undefined;
 let listening = false;
@@ -90,6 +95,10 @@ export async function flushErrorReports(): Promise<void> {
           signal: AbortSignal.timeout(TIMEOUT_MS),
         });
       } catch {
+        const tries = (failedTries.get(report) ?? 0) + 1;
+        failedTries.set(report, tries);
+        // Its tries are used: dropped, and the next one waits for the next try.
+        if (tries >= MAX_TRIES) waiting.shift();
         break;
       }
       waiting.shift();

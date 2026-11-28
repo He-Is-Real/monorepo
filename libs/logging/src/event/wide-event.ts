@@ -621,6 +621,18 @@ export function note(
     event.set(fields);
     return;
   }
+  ownLine(fields, line);
+}
+
+/**
+ * One line of its own, carrying the current (or already written) request's or job's `ref`, trace
+ * and service when there is one, so it still joins that work's event. Never throws.
+ */
+function ownLine(
+  fields: LogFields,
+  line: { severity: Severity; message: string },
+): void {
+  const event = currentEvent();
   try {
     const entry: Record<string, unknown> = {};
     if (event) {
@@ -636,6 +648,56 @@ export function note(
   } catch {
     countFailedLogWrite();
   }
+}
+
+/**
+ * What happens after a retry's last try (the retries rule, Joel, 2026-11-27, retries-cap.html):
+ * - `gave_up`: nothing tries again on its own; a person was told, or a developer must look;
+ * - `nightly_cleanup`: the nightly clean-up (apps/housekeeping) picks it up;
+ * - `keeps_trying`: a duty that must finish, or finding the way back (kinds 3 and 4): it carries
+ *   on, slowly, and this line repeats at every failure from the third on.
+ */
+export type RetryThen = 'gave_up' | 'nightly_cleanup' | 'keeps_trying';
+
+export interface RetryLimit {
+  /** What was being tried, snake_case: `conflicting_save`, `media_job`, `pending_deletion`… */
+  what: string;
+  /** The record's id (a job, a queued deletion, a chore's item): ids only, never personal data. */
+  id?: string;
+  /** How many tries were made in all, the first included. */
+  tries: number;
+  then: RetryThen;
+}
+
+/**
+ * The fields of the one shared "retries ran out" line ({@link writeRetryLimit}):
+ * `event: "retry_limit"` and `retry { what, id, tries, then }`. For a line that is written
+ * anyway (the media worker's failed certificate renewal) and gains them from its third failure.
+ */
+export function retryLimitFields(limit: RetryLimit): LogFields {
+  return {
+    event: 'retry_limit',
+    retry: {
+      what: limit.what,
+      ...(limit.id ? { id: limit.id } : {}),
+      tries: limit.tries,
+      then: limit.then,
+    },
+  };
+}
+
+/**
+ * The one ERROR line every "the tries ran out" writes (RT-3, Joel, 2026-11-27: "for now just
+ * log"; one shape, so a single Axiom monitor can watch `event == "retry_limit"` later). Always a
+ * line of its own, even inside a request or job (like the immediate unexpected-error line), with
+ * that work's `ref`, so it can be found without reading every event. Never throws.
+ */
+export function writeRetryLimit(limit: RetryLimit): void {
+  const message =
+    limit.then === 'keeps_trying'
+      ? `Still failing after ${limit.tries} tries, still trying: ${limit.what}`
+      : `Gave up after ${limit.tries} tries: ${limit.what}`;
+  ownLine(retryLimitFields(limit), { severity: 'ERROR', message });
 }
 
 /**

@@ -129,15 +129,35 @@ describe('runIdempotent', () => {
     expect(calls).toEqual(['lookup', 'transaction', 'lookup', 'transaction']);
   });
 
-  it('gives up after a bounded number of attempts', async () => {
+  it('gives up after its third try (the retries rule) and writes the retry_limit line', async () => {
     const { db, calls } = scriptedDb({
       lookups: [],
       transactions: Array(10).fill('conflict'),
     });
-    await expect(
-      runIdempotent(db, scope, 'h', async () => command, { backoffMs: 1 }),
-    ).rejects.toThrow('Transaction conflict');
-    expect(calls.filter((c) => c === 'transaction')).toHaveLength(4);
+    const errors = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined);
+    try {
+      await expect(
+        runIdempotent(db, scope, 'h', async () => command, { backoffMs: 1 }),
+      ).rejects.toThrow('Transaction conflict');
+      const lines = errors.mock.calls.map(([line]) => JSON.parse(String(line)));
+      expect(lines).toEqual([
+        expect.objectContaining({
+          severity: 'ERROR',
+          event: 'retry_limit',
+          retry: {
+            what: 'conflicting_save',
+            id: String(scope.owner),
+            tries: 3,
+            then: 'gave_up',
+          },
+        }),
+      ]);
+    } finally {
+      errors.mockRestore();
+    }
+    expect(calls.filter((c) => c === 'transaction')).toHaveLength(3);
   });
 
   it('never retries other errors (e.g. the command refusing)', async () => {

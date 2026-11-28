@@ -113,6 +113,21 @@ describe('housekeeping: media jobs', () => {
     );
   const lastLog = (task: string) =>
     [...logs].reverse().find((l) => l['task'] === task);
+  /** The shared "tries ran out" lines (the retries rule) `work` writes. */
+  const retryLimits = async (work: () => Promise<unknown>) => {
+    const errors = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined);
+    try {
+      await work();
+      return errors.mock.calls
+        .map(([line]) => JSON.parse(String(line)) as Record<string, unknown>)
+        .filter((l) => l['event'] === 'retry_limit')
+        .map((l) => l['retry']);
+    } finally {
+      errors.mockRestore();
+    }
+  };
 
   beforeAll(async () => {
     t = await TestDatabase.create();
@@ -210,6 +225,85 @@ describe('housekeeping: media jobs', () => {
       await sweep(RUNS['media-resend']);
       expect(queue.sent.map((s) => s.job.jobId)).toEqual([a.job]);
       await ended(a.job, 'applied');
+    });
+
+    // The retries rule (Joel, 2026-11-27, RT-10): the first send and three evenings, then no more.
+    it('the third evening is the last: one retry_limit line as it is sent, then "a problem on our side"', async () => {
+      const used = await openJob();
+      // The first send (api-user's) and two evenings' resends, the last 13 hours ago.
+      for (let i = 0; i < 3; i++) await sent(used.job, '13h');
+
+      let lines = await retryLimits(() => sweep(RUNS['media-resend']));
+      expect(queue.sent.map((s) => s.job.jobId)).toContain(used.job);
+      expect(await job(used.job)).toMatchObject({ sends: 4 });
+      expect(lines).toEqual([
+        { what: 'media_job_resend', id: used.job, tries: 4, then: 'gave_up' },
+      ]);
+
+      // Unanswered 13 hours on: not sent again, nothing more logged, and the moderators see it.
+      await run(
+        migrator,
+        `UPDATE type::record('mediaJob', $job) SET sentAt = time::now() - 13h`,
+        { job: used.job },
+      );
+      queue = new FakeQueue();
+      lines = await retryLimits(() => sweep(RUNS['media-resend']));
+      expect(queue.sent.map((s) => s.job.jobId)).not.toContain(used.job);
+      expect(lines).not.toContainEqual(
+        expect.objectContaining({ id: used.job }),
+      );
+      expect(
+        await rows(
+          await t.service('api_admin'),
+          `RETURN fn::media::our_problem(type::record('storyFile', $video))`,
+          { video: used.video },
+        ),
+      ).toEqual([{ retry: false, ours: false, unanswered: true }]);
+
+      // The worker answers it after all (Pub/Sub kept the message): no longer our problem.
+      await ended(used.job, 'applied');
+      expect(
+        await rows(
+          await t.service('api_admin'),
+          `RETURN fn::media::our_problem(type::record('storyFile', $video))`,
+          { video: used.video },
+        ),
+      ).toEqual([{ retry: false, ours: false, unanswered: false }]);
+    });
+
+    it('failed sends use up the evenings too: three evenings by the job’s age, the line on the third', async () => {
+      // Never sent (api-user's send failed), and every evening's publish fails.
+      const lost = await openJob();
+      queue.failing = true;
+      const hour = 60 * 60 * 1000;
+      const evenings: { tried: boolean; lines: unknown[] }[] = [];
+      for (const after of [13, 37, 61, 85]) {
+        const lines = await retryLimits(() =>
+          sweep(RUNS['media-resend'], {
+            now: new Date(Date.now() + after * hour),
+          }),
+        );
+        evenings.push({
+          tried: (
+            (lastLog('media-resend')?.['failedIds'] as string[]) ?? []
+          ).includes(lost.job),
+          lines: lines.filter((l) => (l as { id?: string }).id === lost.job),
+        });
+      }
+      const line = {
+        what: 'media_job_resend',
+        id: lost.job,
+        tries: 4,
+        then: 'gave_up',
+      };
+      expect(evenings).toEqual([
+        { tried: true, lines: [] },
+        { tried: true, lines: [] },
+        { tried: true, lines: [line] },
+        { tried: false, lines: [] },
+      ]);
+      expect(await job(lost.job)).toMatchObject({ sends: 0 });
+      queue.failing = false;
     });
 
     it('the nightly run never resends', async () => {
@@ -392,13 +486,33 @@ describe('housekeeping: media jobs', () => {
     expect(await openCheck(draftJob.video)).toBeUndefined();
     expect(await openCheck(unusable.video)).toBeUndefined();
 
-    // That check gives up too, and the next, and the next: three nights, then no more.
+    // That check gives up too, and the next, and the next: three nights, then no more. The night
+    // that opens the third and last says so, once, with the shared line (RT-15).
+    const nights: unknown[][] = [];
     for (let night = 2; night <= 3; night++) {
       await ended((await openCheck(ours.video))!.id, 'gave_up');
-      expect(await retried()).toEqual([ours.video]);
+      nights.push(
+        await retryLimits(async () =>
+          expect(await retried()).toEqual([ours.video]),
+        ),
+      );
     }
+    expect(nights).toEqual([
+      [],
+      [
+        {
+          what: 'media_nightly_retry',
+          id: ours.video,
+          tries: 4,
+          then: 'gave_up',
+        },
+      ],
+    ]);
     await ended((await openCheck(ours.video))!.id, 'gave_up', '0s', 'other');
-    expect(await retried()).toEqual([]);
+    let left: string[] = [];
+    const lines = await retryLimits(async () => (left = await retried()));
+    expect(left).toEqual([]);
+    expect(lines).toEqual([]);
     expect(await openCheck(ours.video)).toBeUndefined();
     expect(
       await rows(
@@ -406,7 +520,7 @@ describe('housekeeping: media jobs', () => {
         `RETURN fn::media::our_problem(type::record('storyFile', $video))`,
         { video: ours.video },
       ),
-    ).toEqual([{ retry: false, ours: true }]);
+    ).toEqual([{ retry: false, ours: true, unanswered: false }]);
   });
 
   // P1-5 (Joel, 2026-11-14): the same nightly retry for a published story the site took off itself
@@ -490,7 +604,7 @@ describe('housekeeping: media jobs', () => {
         `RETURN fn::media::our_problem(type::record('storyFile', $video))`,
         { video: bySite.video },
       ),
-    ).toEqual([{ retry: false, ours: true }]);
+    ).toEqual([{ retry: false, ours: true, unanswered: false }]);
   });
 
   // P1-9 (Joel, 2026-11-14: "Retries must be capped"): after the 3 nightly retries no chore opens
@@ -532,7 +646,9 @@ describe('housekeeping: media jobs', () => {
     }
     expect(checks).toBe(3);
     expect(await openCheck(j.video)).toBeUndefined();
-    expect(await ourProblem(j.video)).toEqual([{ retry: false, ours: true }]);
+    expect(await ourProblem(j.video)).toEqual([
+      { retry: false, ours: true, unanswered: false },
+    ]);
   });
 
   it('housekeeping reads only an entry’s story, status, time and system hide reason from the status log (never publishedAt)', async () => {
