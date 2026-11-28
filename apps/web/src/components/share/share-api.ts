@@ -96,6 +96,12 @@ export interface StoryPicture {
   uploaded: boolean | null;
 }
 
+/**
+ * A story title's most characters: the contract's `maxLength`, which api-user and the database
+ * enforce too. The page's one copy of it, for the title field and its counter.
+ */
+export const TITLE_MAX = 140;
+
 /** The contract's `SubmissionLimits`: the admin's settings and the person's own (W3, D112). */
 export interface SubmissionLimits {
   storyText: { min: number; max: number };

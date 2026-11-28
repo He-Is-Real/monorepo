@@ -503,6 +503,7 @@ test.describe('behaviour', () => {
     const me = await person(page, request, SIGNED_UP);
     await toWrite(page);
     await page.getByLabel('Title').fill('Short');
+    await expect(page.getByText('5 / 140 characters.')).toBeVisible();
     await page.getByLabel('Your story').fill('Only a few words.');
     await expect(page.getByText('17 / 10,000 characters')).toBeVisible();
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
