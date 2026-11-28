@@ -92,7 +92,7 @@ Next id: REQ-MOD-156
 - **REQ-MOD-055** On a waiting story, a Moderator or Admin chooses Approve, Send back or Reject. [J-2026-11-11-MOD]
 - **REQ-MOD-056** Send back and Reject need a note of 1 to 2,000 characters, written pastorally. [J-2026-11-11-MOD]
 - **REQ-MOD-057** On a published story, a Moderator or Admin can Take down with a required reason. [G5]
-- **REQ-MOD-058** After a take-down, the owner reads the reason under "What our team said", like a sent-back note, and it is in "Download my data". [MD-2]
+- **REQ-MOD-058** After a take-down, the owner reads the reason under "What our team said", like a sent-back note. [MD-2]
 - **REQ-MOD-060** When a signed-in Moderator or Admin views a published story on the public site, they see "Take down" under it, which opens the review page's take-down form (reason required) and takes the story off the same way. [MD-1]
 - **REQ-MOD-062** When two Moderators decide the same story at once, the first decision wins; the second is refused, and their page says "Another moderator has already decided this story" and refreshes. [D-1]
 - **REQ-MOD-063** A decision names the story's newest status entry and the files the page showed, not its edit number: background work on a file doesn't refuse it, and a story whose files changed since is refused. [G14]
@@ -109,8 +109,8 @@ Next id: REQ-MOD-156
 - **REQ-MOD-071** On a rejected story, a Moderator or Admin chooses Approve (publish it), Send back (with a note) or "Put back in the waiting list". [OV-1]
 - **REQ-MOD-072** "Put back in the waiting list" returns the story to "Waiting for review" unchanged, with no note, as its own step in the history, for any Moderator to decide again. [OV-1]
 - **REQ-MOD-073** Approving a rejected story runs every check a first approval does (the media, the picture at Bunny, the owner's story consent); Approve anyway stays Admin only. [OV-1]
-- **REQ-MOD-075** When a decision is overturned, the owner sees the new state and only the latest note, as with any decision; the full history is in "Download my data", and no email is sent. [OV-4]
-- **REQ-MOD-076** A re-approved story keeps its first publication date (its place in newest first); one rejected while waiting was never published, so it is published that day. [OV-5]
+- **REQ-MOD-075** When a decision is overturned, the owner sees the new state and only the latest note, as with any decision, and no email is sent. [OV-4]
+- **REQ-MOD-076** A re-approved story keeps its place in newest first (REQ-BRW-088); a story rejected while waiting was never published, so it is published the day it is approved. [OV-5]
 - **REQ-MOD-077** A decision can be overturned any number of times, any time until the story is deleted. [OV-6]
 
 ## Admin delete
@@ -141,7 +141,6 @@ Next id: REQ-MOD-156
 - **REQ-MOD-099** The approval records which video or audio file and which picture the Moderator reviewed; the story shows again only while it points at both, so after a new video or picture it stays hidden until a Moderator looks. [R12]
 - **REQ-MOD-150** When a published story's files stop being ready, or stop being the files that were reviewed, the site hides the story in that same moment. [J-2026-10-23-DB]
 - **REQ-MOD-151** Once the person who sent it withdrew testimony consent, a story the site hid never comes back on its own, not even after they give consent again. [D61]
-- **REQ-MOD-154** A story the site hid keeps its first publish date when it comes back. [R6]
 
 ## Unusable files and retries
 
