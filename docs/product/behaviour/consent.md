@@ -11,7 +11,6 @@ Next id: REQ-CON-048
 - **REQ-CON-044** Each version of a text keeps its full text and when it was published. [J-2026-11-01-DB]
 - **REQ-CON-047** Visitors and Signed-in people never see which Admin published a version of a text. [PR-182]
 - **REQ-CON-045** Everyone, signed in or not, can read every version of each text; only an Admin publishes a new version, and it always takes the next number. [J-2026-11-01-DB]
-- **REQ-CON-046** A mistake in a published version is fixed by publishing a new version. [J-2026-11-01-DB]
 - **REQ-CON-003** Version 0 of each text is a draft written from how the system works today, marked "Draft, to be reviewed before go-live". [J-2026-11-01-CON]
 - **REQ-CON-004** The testimony consent and the privacy notice say who sees a story before it is public: while it is a draft, the person and a small number of admins (for support and safety); while it is waiting for review, the person and our moderators. [J-2026-11-05-CON]
 - **REQ-CON-005** The terms of use (section 5) say we may permanently block the email and IP addresses of someone who breaks them. [LT-1]
@@ -26,7 +25,6 @@ Next id: REQ-CON-048
 - **REQ-CON-011** When a Visitor signs up, they tick one box: "I am 18 or over and agree to the terms of use". [J-2026-11-01-CON]
 - **REQ-CON-012** Before their first story, a Signed-in person agrees to the testimony consent, once for their account; agreeing to a newer version covers their earlier stories too. [D85]
 - **REQ-CON-013** At the end of sharing a story, an optional, unticked box lets us share that story on social media, naming every platform; it is chosen per story. [J-2026-11-01-CON]
-- **REQ-CON-014** Social media sharing can't be withdrawn on its own: taking the story down to edit or deleting it stops any further sharing, but copies already posted can't be recalled. [J-2026-11-01-CON]
 - **REQ-CON-015** The privacy notice is shown and linked next to every box. [J-2026-11-01-CON]
 - **REQ-CON-038** Nobody ticks a box for the privacy notice. [J-2026-11-01-CON]
 - **REQ-CON-039** Nobody is recorded as having read the privacy notice. [PCA-P1]
@@ -47,14 +45,13 @@ Next id: REQ-CON-048
 - **REQ-CON-023** When a text changes, the person sees what changed (the old words struck through, the new ones marked) and the full text, and agrees again before carrying on. [J-2026-11-01-CON]
 - **REQ-CON-024** When the testimony consent changes, a banner after sign-in asks the person to agree again; it never shows on the share page, which asks within the flow, and "Not now" hides it for that page only. [J-2026-11-01-CON]
 - **REQ-CON-025** When an upload is refused because the person hasn't agreed to the latest text, the same agree-again screen opens, and the upload carries on once they agree. [J-2026-11-01-UPL]
-- **REQ-CON-026** A story can be approved if its writer has agreed to any version of the testimony consent; a newer version stops them starting, editing or submitting stories until they agree again. [J-2026-11-01-CON]
 - **REQ-CON-027** When the sharing text changes while someone is submitting, the submit is refused, the draft is kept, and they see the new text and decide again. [J-2026-11-01-CON]
 - **REQ-CON-028** Published stories stay up when a text changes. [J-2026-11-01-CON]
 
 ## Consent texts page
 
 - **REQ-CON-029** On the consent texts page an Admin publishes a new version of any of the four texts: a text box, the changes against the current version, a preview, then confirm. [J-2026-11-01-CON]
-- **REQ-CON-030** A saved version is in force at once and records which Admin published it. [PCA-P6]
+- **REQ-CON-030** A saved version is in force at once. [PCA-P6]
 - **REQ-CON-031** From 1280 px wide, the editor below the page's header is twice the standard content width, so the text box and the preview side by side each get up to the standard width; narrower screens keep the standard column. [J-2026-11-14-CON]
 - **REQ-CON-032** From 768 px wide the text box grows to its whole text, so it never scrolls inside and the page scrolls instead; on phones it is a 20-line box that scrolls inside. [J-2026-11-17-CON]
 - **REQ-CON-033** The texts are picked with underlined tabs, each giving its current version and the date it came into force ("v0 · 14 Nov"): one row from 768 px, two rows of two on phones. [CS-1]

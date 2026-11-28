@@ -16,14 +16,13 @@ Next id: REQ-ACC-066
 
 ## Signing in
 
-- **REQ-ACC-001** A Visitor reads, watches and listens to public stories without an account. [UNTRACED]
 - **REQ-ACC-002** When a Visitor signs up or signs in, they use Google or their email address; with email they use a one-time code or, if they choose, a password of at least 8 characters checked against known leaked passwords. [D2]
 - **REQ-ACC-003** When a person signs in with Google on an email that already has an account, the system joins them to that same account: one account per verified email. [D2]
 - **REQ-ACC-004** CAPTCHA and lockout after repeated failed sign-ins are on; two-step sign-in and passkeys are off. [D2]
   Why: two-step sign-in and passkeys need Clerk's paid plan, so turning them on is a cost decision.
 - **REQ-ACC-005** Moderators and Admins sign in the same way as everyone else; there is no Google-only sign-in and no two-step verification for staff. [G7]
   Why: staff are protected by the staff email rule, REQ-ACC-015.
-- **REQ-ACC-006** When a Visitor signs up, they confirm they are 18 or over only by agreeing to the terms of use; no date of birth is stored, and reading needs no age check. [D77]
+- **REQ-ACC-006** When a Visitor signs up, agreeing to the terms of use (REQ-CON-011) is the only age check: no date of birth is stored, and reading needs no age check. [D77]
 - **REQ-ACC-007** Clerk keeps the person's email, name and password; the database keeps only a link to their Clerk account. [D16]
 - **REQ-ACC-008** A Signed-in person changes their name, email and password in Clerk's own account panel, opened from My profile; there is no country, display name or notification setting. [D81]
 - **REQ-ACC-009** The parts of a page about the Signed-in person (hearts, their stories, their profile) are filled in by the browser, with space kept so nothing jumps; pages for signed-in people need JavaScript. [D83]
@@ -44,17 +43,15 @@ Next id: REQ-ACC-066
 
 ## Staff
 
-- **REQ-ACC-020** On the Staff page (`/admin/staff`), an Admin adds, changes and removes Moderators and Admins. [S-1]
-- **REQ-ACC-059** Only Admins can see or change the staff list. [S-1]
+- **REQ-ACC-020** On the Staff page (`/admin/staff`), an Admin adds, changes and removes Moderators and Admins; only Admins can see or change the staff list. [S-1]
 - **REQ-ACC-021** Only `@heisreal.today` emails can be staff. [G7]
-- **REQ-ACC-057** The staff list holds, for each staff member, their work email (only addresses at heisreal.today), their role (Moderator or Admin), who added them and when. [S-1]
+- **REQ-ACC-057** The staff list holds, for each staff member, their work email, their role (Moderator or Admin), who added them and when; the Staff page shows them. [S-1]
 - **REQ-ACC-058** Who added a staff member, and when, is recorded once, as the adding Admin's email, and a change of role keeps it. [S-6]
 - **REQ-ACC-065** On the Staff page, a baseline admin the system added itself reads "Added by the deploy". [PR-214]
 - **REQ-ACC-022** When an Admin adds or changes someone who has no account with that email, the page refuses with "Ask them to create an account first, then add them."; there are no invitations. [S-7]
 - **REQ-ACC-023** When an Admin removes a listed person who has no account, the system only takes them off the staff list. [S-7]
 - **REQ-ACC-024** When an Admin saves a staff change, the system writes the role to Clerk first, then to the staff list in the database; it takes effect within about a minute, the sign-in token's lifetime. [S-1]
-- **REQ-ACC-025** When an Admin removes or demotes the last Admin, the system refuses: there is always at least one Admin. [S-1]
-- **REQ-ACC-060** When two Admins remove or demote each other at the same moment and no other Admin would be left, the second change is refused. [S-1]
+- **REQ-ACC-025** When an Admin removes or demotes the last Admin, or two Admins remove or demote each other at the same moment, the change that would leave no Admin is refused: there is always at least one Admin. [S-1]
 - **REQ-ACC-026** When Clerk fails, or can't be confirmed to agree with the staff list after a save, the page says it couldn't save; saving that person again puts Clerk and the list back in step. [S-1]
 - **REQ-ACC-027** Each time api-admin starts (every deploy, and after it has been idle), it makes each baseline admin (`info@heisreal.today`, `joel@heisreal.today`) an Admin on the staff list, adding them back if missing, and in Clerk where an account has that email. [S-6]
 - **REQ-ACC-028** When a baseline admin has no account yet, api-admin logs it and gives them the role at a later start once they have signed up; start-up never fails over it and never removes anyone. [S-6]
@@ -76,7 +73,6 @@ Next id: REQ-ACC-066
 - **REQ-ACC-038** Any Admin can change a note later (Edit note, then Save or Cancel); a blank note clears it, the later save wins, and who edited it isn't recorded. [BN-4]
 - **REQ-ACC-061** Once a block list entry is added, its blocked email or address, who added it and when never change; only its note can be edited. [BN-4]
 - **REQ-ACC-039** When an Admin blocks something already on the list, the entry keeps its first note. [UNTRACED]
-- **REQ-ACC-040** Only Admins read a note: api-user's block check never sees it, and it goes when its entry is removed. [BN-6]
 
 ## Blocking at sign-up and at send
 
@@ -88,17 +84,13 @@ Next id: REQ-ACC-066
 
 ## Who sent a story
 
-- **REQ-ACC-045** When a story is sent, api-user keeps the IP address it came from on the story's "sent" status entry, so an Admin can block a recent abuser's address. [G21]
-- **REQ-ACC-063** The IP address a story was sent from is kept only on that send, never on any other step of the story's history. [G21]
+- **REQ-ACC-045** When a story is sent, api-user keeps the IP address it came from on the story's "sent" status entry only, never on any other step of its history, so an Admin can block a recent abuser's address. [G21]
 - **REQ-ACC-046** While the address is kept, an Admin sees it on the story's moderation view, with a link that fills it in on the Block list page; Moderators never see it, and no other staff page shows it. [G21]
 - **REQ-ACC-047** The address is the last entry of `X-Forwarded-For`, the one Google's front end appends; earlier entries come from the client and can say anything. [G21]
   Why: api-user runs on Cloud Run with no load balancer, so only Google's own entry can be trusted.
 - **REQ-ACC-048** IP addresses are compared exactly, in one form: IPv6 short and lower-case. [G21]
-- **REQ-ACC-049** When a story is sent, api-user keeps on the same "sent" entry the email it was sent with: the sign-in token's verified email, the one the block check uses, never anything the browser sends. [EM-1]
-- **REQ-ACC-064** The email a story was sent with is kept only on that send, never on any other step of the story's history. [EM-1]
+- **REQ-ACC-049** When a story is sent, api-user keeps the email it was sent with on the same "sent" entry only, never on any other step of its history: the sign-in token's verified email, the one the block check uses, never anything the browser sends. [EM-1]
 - **REQ-ACC-050** An Admin sees that email on the moderation view next to the address; Moderators never do. [EM-1]
 - **REQ-ACC-051** Next to "Sent with email …" and "Sent from IP address …" an Admin has a Block button; without leaving the page it asks "Block …? It stays until an Admin removes it." with the note box, then Block / Cancel. [EM-2]
 - **REQ-ACC-052** That note box starts with the story's title and the day it was sent, `Story "…" (sent <day> <month> <year>): `, with the cursor at the end; the Admin can clear it. [BN-7]
 - **REQ-ACC-053** After Block, the system adds the email or address to the block list with that note, and the line says "Blocked", as it does whenever the page opens on one already blocked. [EM-2]
-- **REQ-ACC-054** Once the address is cleared, only the email shows. [EM-2]
-- **REQ-ACC-055** When Block fails on the moderation view, the Admin sees the generic error message. [EM-2]
