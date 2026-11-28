@@ -70,10 +70,10 @@ Next id: REQ-SHR-141
 - **REQ-SHR-029** Before a draft can be saved (a written story needs its title and some text, a video or audio story its title), "Save Draft and Exit" stays and says what is needed, also for text brought back after a reload. [J-2026-11-14-SHR]
 - **REQ-SHR-030** "Save Draft and Exit" leaves straight away only when nothing has been typed; if the save fails, it stays and says so. [J-2026-11-14-SHR]
 - **REQ-SHR-031** On "Save Draft and Exit", a picture still uploading is waited for; a video or audio upload stops, and carries on when the person comes back and chooses the same file. [J-2026-11-14-SHR]
-- **REQ-SHR-032** Autosave saves the draft once it has a title and text, then after each pause. [D70]
+- **REQ-SHR-032** Autosave saves the draft once a written story has a title and some text, or a video or audio story has a title, then after each pause. [D70]
 - **REQ-SHR-034** Text stays in the tab until the server has it, through reloads and outages. [D70]
 - **REQ-SHR-129** A person can start a draft only as themselves, with an existing account, after agreeing to the latest terms of use and testimony consent. [J-2026-11-01-DB]
-- **REQ-SHR-130** Only the person can change their story's content (title, words, name, story type, themes, picture and file), and only while it is in editing; staff and the system never change it, apart from an audio story's picture video (REQ-SHR-106). [D41]
+- **REQ-SHR-130** Only the person can change their story's content (title, words, name, story type, themes, picture and file), and only while it is in editing; staff and the system never change it, apart from an audio story's picture video (REQ-SHR-106) and a theme an Admin renames or deletes (REQ-ADM-036). [D41]
 
 ## Limits
 
@@ -94,7 +94,7 @@ Next id: REQ-SHR-141
 - **REQ-SHR-043** An edit over a maximum is accepted only if it does not make it worse, so a long draft can still be trimmed; submitting needs every current minimum and maximum. [J-2026-10-30-SHRb]
 - **REQ-SHR-044** Trusted submitters have no open-drafts or weekly limits, only the hourly upload limit. [UNTRACED]
 - **REQ-SHR-140** Trusted submitters get the largest video and audio sizes and lengths an Admin could set. [BE-14]
-- **REQ-SHR-046** Before a limit is reached, the share page shows what's left this week ("2 of 3 stories left…"). [UNTRACED]
+- **REQ-SHR-046** Before a limit is reached, the share page shows what's left this week. [UNTRACED]
 - **REQ-SHR-047** At a limit, the share page explains kindly, says when the person can carry on, and holds that step back. [UNTRACED]
 
 ## Uploading files
@@ -142,7 +142,7 @@ Next id: REQ-SHR-141
 
 ## Checking a picture on send
 
-- **REQ-SHR-075** When a story with a picture is sent for review, the server reads only the first 40 bytes of the stored picture. [R3]
+- **REQ-SHR-075** When a story with a picture is sent for review, the server reads only the first 40 bytes of the stored picture (the file's own statement of its size, width and height, never the picture). [R3]
 - **REQ-SHR-076** The picture passes only if it is all there (its exact size as recorded at upload), a WebP of the width and height recorded, and has no EXIF or XMP metadata and no animation; a colour profile and transparency are allowed. [R3]
   Why: a picture our page made never has metadata or animation; Chrome adds a standard colour profile to every picture.
 - **REQ-SHR-077** When the picture fails that check, the story stays a draft and the person is told "Your picture hasn't finished uploading. Add it again, or remove it, then submit your story." [R3]
