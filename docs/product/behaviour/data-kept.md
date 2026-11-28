@@ -22,10 +22,10 @@ Next id: REQ-DAT-051
 ## Files, records and logs
 
 - **REQ-DAT-010** The nightly clean-up runs at 03:30 London time. [PR-141]
-- **REQ-DAT-011** When a video at Bunny is older than 48 hours and no story uses it, the nightly clean-up deletes it. [J-2026-10-30-DAT]
+- **REQ-DAT-011** When a video at the video host is older than 48 hours and no story uses it, the nightly clean-up deletes it. [J-2026-10-30-DAT]
 - **REQ-DAT-025** The clean-up of leftover videos deletes at most 50 of each kind a night. [PR-141]
 - **REQ-DAT-012** On dev, the clean-up of leftover videos only reports what it would delete. [PR-141]
-- **REQ-DAT-026** When deleting an account's Clerk account fails, the system retries it. [D39]
+- **REQ-DAT-026** When deleting an account's sign-in account fails, the system retries it. [D39]
 - **REQ-DAT-014** The record of what a person submitted, for the weekly limit, is kept 7 days and deleted with the account. [D113]
 - **REQ-DAT-046** The record of an upload is deleted with the account; otherwise the nightly clean-up deletes it once it is over 7 days old and its file has been removed or its story is gone. [R12]
 - **REQ-DAT-015** A request key (which stops a resent request being applied twice) keeps who sent the request, a fingerprint of it and the answer given, so a repeat gets the same one; it expires 24 hours after the request, and the nightly clean-up deletes expired ones. [R4]
@@ -33,7 +33,7 @@ Next id: REQ-DAT-051
 - **REQ-DAT-017** The email a story was sent with is kept as long as the story and goes with the story or with the account. [EM-1]
 - **REQ-DAT-019** Backups age out; they are never edited after a deletion, and restoring one replays the erasures logged since it was taken (`docs/restore-runbook.md`). [D40]
 - **REQ-DAT-028** Backups are taken nightly and kept in the UK. [UNTRACED]
-- **REQ-DAT-020** Our services' logs are kept 30 days in Google's London location, and a copy 30 days in Axiom in Frankfurt. [LG-3]
+- **REQ-DAT-020** Our services' logs are kept 30 days in London, and a copy 30 days at our log service in Frankfurt. [LG-3]
 - **REQ-DAT-048** There is no audit log. A setting that can be changed records only who changed it last, and a legal text version records who published it. [DB2-R3]
 
 ## Deleting an account
@@ -52,9 +52,9 @@ Next id: REQ-DAT-051
 
 ## Where data is held outside the UK
 
-- **REQ-DAT-021** Video and audio files are held at Bunny in Frankfurt. [D89]
-- **REQ-DAT-022** Clerk, which holds sign-in data, is hosted in the US. [D6]
-- **REQ-DAT-023** Bunny's delivery network serves files worldwide. [D103]
+- **REQ-DAT-021** Video and audio files are held by the video host in Frankfurt. [D89]
+- **REQ-DAT-022** The sign-in service, which holds sign-in data, is hosted in the US. [D6]
+- **REQ-DAT-023** The video host's delivery network serves files worldwide. [D103]
 
 ## Running costs
 
