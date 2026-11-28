@@ -8,6 +8,7 @@ import { spawnSync } from 'node:child_process';
 import {
   appendFileSync,
   cpSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -167,9 +168,22 @@ const failures = [
     'PRIN-01: no Applies: line',
   ],
   [
-    'a principle without a final tag',
-    replace('docs/product/principles.md', '[J-2026-01-01]', ''),
-    'PRIN-01: the last line must be the tag',
+    'a direction line without a tag',
+    (root) =>
+      writeFileSync(
+        join(root, 'docs/system/direction.md'),
+        '# Direction\n\nNext id: REQ-DIR-002\n\n- **REQ-DIR-001** Every service writes one wide event per request.\n',
+      ),
+    'docs/system/direction.md:5: rule line must be "- **<id>** <text> [<tag>]"',
+  ],
+  [
+    'a tag with no register row outside the behaviour files',
+    replace(
+      'docs/process/working-agreements.md',
+      'into it. [AB-2]',
+      'into it. [AB-8]',
+    ),
+    'WORK-001: tag [AB-8] has no row in docs/decisions/register.md',
   ],
   [
     'a principle position over 40 words',
@@ -388,12 +402,38 @@ test('files with CRLF line endings pass', () => {
   assert.equal(r.status, 0, r.stderr);
 });
 
-test('a root AGENTS.md over 150 lines fails', () => {
+test('tags are optional outside the behaviour files and the direction page', () => {
+  const r = check((root) => {
+    replace(
+      'docs/process/working-agreements.md',
+      'into it. [AB-2]',
+      'into it.',
+    )(root);
+    replace('docs/product/principles.md', '\n[J-2026-01-01]', '')(root);
+    replace('docs/decisions/register.md', 'WORK-001', 'removed')(root);
+    replace('docs/decisions/register.md', 'PRIN-01, ', '')(root);
+  });
+  assert.equal(r.status, 0, r.stderr);
+});
+
+test('a root AGENTS.md over 150 lines only warns', () => {
   const r = check((root) =>
     appendFileSync(join(root, 'AGENTS.md'), 'Line.\n'.repeat(160)),
   );
-  assert.equal(r.status, 1);
-  assert.match(r.stdout + r.stderr, /AGENTS\.md: 16\d lines, limit 150/);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /warning: AGENTS\.md: 16\d lines, limit 150/);
+});
+
+test('a folder AGENTS.md over 300 lines only warns', () => {
+  const r = check((root) => {
+    mkdirSync(join(root, 'apps/web'), { recursive: true });
+    writeFileSync(join(root, 'apps/web/AGENTS.md'), 'Line.\n'.repeat(310));
+  });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(
+    r.stdout,
+    /warning: apps\/web\/AGENTS\.md: 310 lines, limit 300/,
+  );
 });
 
 // --base: the rules a branch changes, compared with its merge base.

@@ -97,24 +97,24 @@ Nx generators (`pnpm nx g ...`).
 
 ## Where to read
 
-| Working on                                  | Read                                                                                                       |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Progress                                    | `docs/delivery-status.md`                                                                                  |
-| Behaviour rules                             | `docs/product/behaviour/<area>.md`; areas not moved there yet are in `docs/how-the-app-works.md`           |
-| Direction (technical choices for all code)  | `docs/system/direction.md`; until it exists, "Technical decisions" in `docs/how-the-app-works.md`          |
-| Decisions and their ids                     | `docs/decisions/register.md`                                                                               |
-| Any rule, opinion or term under `docs/`     | the `writing-the-reference` skill; then `pnpm docs:check`                                                  |
-| Any text an agent reads                     | the `writing-for-agents` skill (AGENTS.md, skills, briefs, code comments, PR bodies, reports)              |
-| Questions for the owner, answers to theirs  | the `writing-a-decision-doc` skill                                                                         |
-| Logging, errors, handlers, jobs, workers    | the `writing-logs` skill                                                                                   |
-| OpenTofu, any cloud change                  | `infra/terraform/AGENTS.md`, then `infra/terraform/README.md`                                              |
-| The website and `libs/web-ui`               | `apps/web/AGENTS.md`; `libs/web-ui/README.md`                                                              |
-| Database schema, queries, SurrealDB traps   | `libs/database/SURREALDB-NOTES.md`; `docs/db-permissions.md`                                               |
-| API contracts                               | `libs/contracts/README.md` (specs are the source of truth, changed with the code); `docs/api-conventions.md` |
-| Tests                                       | "Tests" above; the device matrix in `apps/web/e2e/devices.ts`                                              |
-| CLIs, accounts, local set-up                | `docs/tooling-and-accounts.md`                                                                             |
-| Reading logs, dashboards                    | `docs/runbooks/logs.md`                                                                                    |
-| Media worker, Bunny, media ready            | `docs/runbooks/media.md`                                                                                   |
-| Database restore and restore drill          | `docs/runbooks/restore.md`                                                                                 |
+| Working on                                 | Read                                                                                                         |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| Progress                                   | `docs/delivery-status.md`                                                                                    |
+| Behaviour rules                            | `docs/product/behaviour/<area>.md`; areas not moved there yet are in `docs/how-the-app-works.md`             |
+| Direction (technical choices for all code) | `docs/system/direction.md`; until it exists, "Technical decisions" in `docs/how-the-app-works.md`            |
+| Decisions and their ids                    | `docs/decisions/register.md`                                                                                 |
+| Any rule, opinion or term under `docs/`    | the `writing-the-reference` skill; then `pnpm docs:check`                                                    |
+| Any text an agent reads                    | the `writing-for-agents` skill (AGENTS.md, skills, briefs, code comments, PR bodies, reports)                |
+| Questions for the owner, answers to theirs | the `writing-a-decision-doc` skill                                                                           |
+| Logging, errors, handlers, jobs, workers   | the `writing-logs` skill                                                                                     |
+| OpenTofu, any cloud change                 | `infra/terraform/AGENTS.md`, then `infra/terraform/README.md`                                                |
+| The website and `libs/web-ui`              | `apps/web/AGENTS.md`; `libs/web-ui/README.md`                                                                |
+| Database schema, queries, SurrealDB traps  | `libs/database/SURREALDB-NOTES.md`; `docs/db-permissions.md`                                                 |
+| API contracts                              | `libs/contracts/README.md` (specs are the source of truth, changed with the code); `docs/api-conventions.md` |
+| Tests                                      | "Tests" above; the device matrix in `apps/web/e2e/devices.ts`                                                |
+| CLIs, accounts, local set-up               | `docs/tooling-and-accounts.md`                                                                               |
+| Reading logs, dashboards                   | `docs/runbooks/logs.md`                                                                                      |
+| Media worker, Bunny, media ready           | `docs/runbooks/media.md`                                                                                     |
+| Database restore and restore drill         | `docs/runbooks/restore.md`                                                                                   |
 
 Skills live in `.agents/skills/<name>/SKILL.md`.

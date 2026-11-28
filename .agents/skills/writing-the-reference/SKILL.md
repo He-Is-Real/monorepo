@@ -26,11 +26,11 @@ description: >
 The words follow the `writing-for-agents` skill (`.agents/skills/writing-for-agents/SKILL.md`): read it first.
 The rules below are the format this reference adds, and `pnpm docs:check` enforces the counts and banned words.
 
-1. The lines are behaviours (their ids stay `REQ-…`). A behaviour line stays true if the site is rewritten on another stack. A line that fails that test is engineering detail: it goes in a code comment beside the code it describes. The short list of direction lines (`docs/direction.md`) is the one exception.
+1. The lines are behaviours (their ids stay `REQ-…`). A behaviour line stays true if the site is rewritten on another stack. A line that fails that test is engineering detail: it goes in a code comment beside the code it describes. The short list of direction lines (`docs/system/direction.md`) is the one exception.
 2. One behaviour per entry, on one line, at most 50 words and 2 sentences.
 3. Trigger first, then who, then what happens. Present tense.
 4. Glossary and actor names only. No soft words ("should", "usually", "generally", "appropriate", "where possible", "as needed", "TBD").
-5. No dates, names, history ("used to", "previously", "no longer", "formerly", "superseded"), option letters or pull-request numbers. End with the approval tag.
+5. No dates, names, history ("used to", "previously", "no longer", "formerly", "superseded"), option letters or pull-request numbers. A line in a behaviour file (`docs/product/behaviour/`) or the direction page (`docs/system/direction.md`) ends with its approval tag; elsewhere the tag is optional.
 6. Each promise is written once; everywhere else cites its id. Remove a specialised line when a broader line implies it so plainly that a reader would infer it from the broader line alone. A pull request that removes lines for this reason lists each removed line with the broader line that covers it.
 7. Behaviour and direction lines are rewritten in this format, never kept in the owner's typed words. (The register's Source column quotes chat approvals as its template says.)
 8. Add `Why:` only when it changes a case the rule does not name (always for an opinion). Add `Example:` or `Not:` only for a judgement word or a rule that was misread.
@@ -55,14 +55,14 @@ The rules below are the format this reference adds, and `pnpm docs:check` enforc
   Not: <the near-miss that is wrong>
 ```
 
-| Part                | Rule                                                                                                                                                                         |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| id                  | Required, from `Next id:`.                                                                                                                                                   |
-| text                | Required. One behaviour, at most 2 sentences and 50 words.                                                                                                                   |
-| `(planned)`         | Optional, just before the tag, when approved but not built. The pull request that builds it removes the word.                                                                |
-| `[<decision id>]`   | Required, last on the line. Exactly one id with a register row: a question id from a decision doc's decided box, an old id, or `J-YYYY-MM-DD` for an approval given in chat. |
-| `Why:`              | Optional. One sentence, at most 25 words.                                                                                                                                    |
-| `Example:` / `Not:` | Optional, one line each. Typical cases, not a full list.                                                                                                                     |
+| Part                | Rule                                                                                                                                                                                                                                           |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| id                  | Required, from `Next id:`.                                                                                                                                                                                                                     |
+| text                | Required. One behaviour, at most 2 sentences and 50 words.                                                                                                                                                                                     |
+| `(planned)`         | Optional, just before the tag, when approved but not built. The pull request that builds it removes the word.                                                                                                                                  |
+| `[<decision id>]`   | Required in the behaviour files and the direction page, optional elsewhere; last on the line. Exactly one id with a register row: a question id from a decision doc's decided box, an old id, or `J-YYYY-MM-DD` for an approval given in chat. |
+| `Why:`              | Optional. One sentence, at most 25 words.                                                                                                                                                                                                      |
+| `Example:` / `Not:` | Optional, one line each. Typical cases, not a full list.                                                                                                                                                                                       |
 
 **Register row**, in `docs/decisions/register.md`, newest first. No file per decision.
 
@@ -91,7 +91,7 @@ Except: <the one allowed exception>
 [<decision id>]
 ```
 
-`Why:` and `Applies:` are required; `Except:` is optional; the tag is the last line.
+`Why:` and `Applies:` are required; `Except:` and the tag are optional; a tag is the last line.
 
 **Glossary term**, in `docs/product/glossary.md`, alphabetical, no id and no tag:
 
