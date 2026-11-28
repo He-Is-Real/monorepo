@@ -328,8 +328,12 @@ refusing to sign the worker in, or `/failed` saying "try again": left in the que
 redelivers it 10 seconds to 10 minutes later (nacked), three tries at most: the third such
 delivery of a job is marked taken instead, with a `retry_limit` ERROR line
 (`what: media_job_delivery`), and the job, still open in the table, waits for the 18:00 resend.
-The worker counts these in its memory (a restart starts again). Waiting does not count: a render
-while another render runs, or the writer's "not yet" (Bunny hasn't settled a picture). A message that isn't a job it can read is
+Any other copy of that job in the queue over the next 6 hours is marked taken unworked (the
+evening's resend, 12 hours after the last send, is tried as usual). The worker counts these in its
+memory (a restart starts again). Waiting does not count: a render while another render runs, or
+the writer's "not yet" (Bunny hasn't settled a picture, or doesn't agree yet that a video failed;
+a failed call to Bunny on a "failed" answer gets the same reply, so the worker can't count it,
+but the writer's own count still ends the job at its third). A message that isn't a job it can read is
 dropped and logged (that includes one without a video id: every call to the writer names the
 job's video).
 
@@ -375,9 +379,11 @@ webhook` (bad signature: check the secret `bunny-stream-readonly-key` has the li
      of `media-worker-media-jobs` in Cloud Monitoring.
      Each evening at 18:00 London time (when Joel's machine is on) the housekeeping Job's media
      resend sends every job not ended whose last send (or, never sent, its writing) is over 12
-     hours old again, adds the reason `resent` and counts the send, until the job has been sent 4
-     times (its first send and three evenings). Then it isn't sent again: the next run logs one
-     `retry_limit` ERROR line (`what: media_job_resend`), and the moderators' list shows "a
+     hours old again, adds the reason `resent` and counts the send, for three evenings: until the
+     job has been sent 4 times (its first send and three evenings), or is over 84 hours old (so a
+     failed send still uses up its evening). The run that makes its last send logs one
+     `retry_limit` ERROR line (`what: media_job_resend`; a manual rerun that evening may log it
+     again); after that it isn't sent again, and 12 hours on the moderators' list shows "a
      problem on our side" until the worker answers it. Starting the worker is usually enough: the queue
      still holds the earlier sends for 31 days. A redelivered
      duplicate is harmless. To resend now: `gcloud run jobs execute housekeeping --region europe-west2 --wait
@@ -388,9 +394,9 @@ webhook` (bad signature: check the secret `bunny-stream-readonly-key` has the li
      file, the person was asked for a new one: nothing to do), or ours, after 3 failures
      (`bunny_unavailable`, `worker_error`, `other`). For ours, the nightly housekeeping
      (`media-retry`) opens a new check of the file of a waiting story, or of a published story the
-     site took off itself (P1-5), on up to 3 nights; after that the moderators' list shows "a
-     problem on our side", the next night logs one `retry_limit` ERROR line
-     (`what: media_nightly_retry`), and a story off the site stays off (never deleted automatically,
+     site took off itself (P1-5), on up to 3 nights; the night that opens the third logs one
+     `retry_limit` ERROR line (`what: media_nightly_retry`); after that the moderators' list shows
+     "a problem on our side", and a story off the site stays off (never deleted automatically,
      P1-9). The jobs of a waiting story or one the site took off aren't tidied away after 30
      days (P1-3, P1-9), so the count holds and the retries never start again. Once the
      3 retries are used, the database refuses every new job of that file, from whatever sends it

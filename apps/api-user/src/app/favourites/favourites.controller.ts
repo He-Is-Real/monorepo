@@ -88,32 +88,34 @@ export class FavouritesController {
     @Param('storyId') storyId: string,
   ): Promise<void> {
     if (!RECORD_ID.test(storyId)) throw notPublic();
-    await retryOnConflict(() =>
-      this.people.run(req, async ({ session }) => {
-        try {
-          // Idempotent: a heart already there is left as it is (D28).
-          const results = await runQuery(
-            session,
-            `LET $s = type::record('story', $id);
+    await retryOnConflict(
+      () =>
+        this.people.run(req, async ({ session }) => {
+          try {
+            // Idempotent: a heart already there is left as it is (D28).
+            const results = await runQuery(
+              session,
+              `LET $s = type::record('story', $id);
              IF (SELECT VALUE id FROM favourite WHERE person = $auth.id AND story = $s) = [] {
                CREATE favourite:ulid() SET person = $auth.id, story = $s RETURN NONE;
              };
              SELECT VALUE id FROM favourite WHERE person = $auth.id AND story = $s;`,
-            { id: storyId },
-          );
-          // A create the permissions refused is an empty result, not an error (D13 gotcha).
-          if ((results.at(-1) as unknown[]).length !== 1)
-            throw new WriteNotAppliedError('favourite');
-        } catch (err) {
-          // Two requests hearting the same story at once: the other one made it.
-          if (
-            err instanceof DatabaseQueryError &&
-            err.message.includes('favourite_unique')
-          )
-            return;
-          throw this.problemOf(err);
-        }
-      }),
+              { id: storyId },
+            );
+            // A create the permissions refused is an empty result, not an error (D13 gotcha).
+            if ((results.at(-1) as unknown[]).length !== 1)
+              throw new WriteNotAppliedError('favourite');
+          } catch (err) {
+            // Two requests hearting the same story at once: the other one made it.
+            if (
+              err instanceof DatabaseQueryError &&
+              err.message.includes('favourite_unique')
+            )
+              return;
+            throw this.problemOf(err);
+          }
+        }),
+      { record: `story:${storyId}` },
     );
   }
 
@@ -125,14 +127,16 @@ export class FavouritesController {
     @Param('storyId') storyId: string,
   ): Promise<void> {
     if (!RECORD_ID.test(storyId)) return; // can't be a heart: nothing to remove
-    await retryOnConflict(() =>
-      this.people.run(req, ({ session }) =>
-        runQuery(
-          session,
-          `DELETE favourite WHERE person = $auth.id AND story = type::record('story', $id)`,
-          { id: storyId },
+    await retryOnConflict(
+      () =>
+        this.people.run(req, ({ session }) =>
+          runQuery(
+            session,
+            `DELETE favourite WHERE person = $auth.id AND story = type::record('story', $id)`,
+            { id: storyId },
+          ),
         ),
-      ),
+      { record: `story:${storyId}` },
     );
   }
 

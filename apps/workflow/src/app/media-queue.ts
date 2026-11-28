@@ -97,12 +97,14 @@ export async function sendJobs(
         { jobId: q.job, kind: q.kind, videoId: q.video },
         q.story,
       );
-      await retryOnConflict(() =>
-        runQuery(
-          db,
-          `UPDATE type::record('mediaJob', $job) SET sentAt = time::now(), sends += 1 RETURN NONE`,
-          { job: q.job },
-        ),
+      await retryOnConflict(
+        () =>
+          runQuery(
+            db,
+            `UPDATE type::record('mediaJob', $job) SET sentAt = time::now(), sends += 1 RETURN NONE`,
+            { job: q.job },
+          ),
+        { record: `mediaJob:${q.job}` },
       );
     } catch (err) {
       // On the call's event (or its own line after it): the 18:00 resend sends the job.

@@ -356,21 +356,24 @@ export async function answerJob(
   arrivedAt: string,
 ): Promise<AnswerResult> {
   const vars = answerVars(job, video, answer, arrivedAt);
-  return retryOnConflict(async () => {
-    const results = await runQuery(
-      db,
-      `BEGIN TRANSACTION;${ANSWER_SQL}\nCOMMIT TRANSACTION;`,
-      vars,
-    ).catch(notFound);
-    const r = results[results.length - 2] as {
-      outcome: AnswerOutcome | 'gave_up';
-      render?: Omit<QueuedJob, 'kind'> | null;
-    };
-    return {
-      outcome: r.outcome,
-      render: r.render ? { ...r.render, kind: 'render' } : null,
-    };
-  });
+  return retryOnConflict(
+    async () => {
+      const results = await runQuery(
+        db,
+        `BEGIN TRANSACTION;${ANSWER_SQL}\nCOMMIT TRANSACTION;`,
+        vars,
+      ).catch(notFound);
+      const r = results[results.length - 2] as {
+        outcome: AnswerOutcome | 'gave_up';
+        render?: Omit<QueuedJob, 'kind'> | null;
+      };
+      return {
+        outcome: r.outcome,
+        render: r.render ? { ...r.render, kind: 'render' } : null,
+      };
+    },
+    { record: `mediaJob:${job}` },
+  );
 }
 
 /**
@@ -450,29 +453,34 @@ export async function failJob(
   video: string,
   code: string,
 ): Promise<FailureReply> {
-  return retryOnConflict(async () => {
-    const results = await runQuery(db, FAILURE_SQL, {
-      job,
-      videoId: video,
-      code,
-      errorType: errorTypeOf(code),
-      max: MAX_FAILURES,
-    }).catch(notFound);
-    const { ended, ...reply } = results[results.length - 2] as FailureReply & {
-      ended?: boolean;
-    };
-    // This failure ended it: the shared ERROR line (the retries rule); the nightly clean-up
-    // opens a new check of its file (fn::media::our_problem), up to 3 nights.
-    if (ended) {
-      writeRetryLimit({
-        what: 'media_job',
-        id: job,
-        tries: MAX_FAILURES,
-        then: 'nightly_cleanup',
-      });
-    }
-    return reply.outcome === undefined ? { retry: reply.retry } : reply;
-  });
+  return retryOnConflict(
+    async () => {
+      const results = await runQuery(db, FAILURE_SQL, {
+        job,
+        videoId: video,
+        code,
+        errorType: errorTypeOf(code),
+        max: MAX_FAILURES,
+      }).catch(notFound);
+      const { ended, ...reply } = results[
+        results.length - 2
+      ] as FailureReply & {
+        ended?: boolean;
+      };
+      // This failure ended it: the shared ERROR line (the retries rule); the nightly clean-up
+      // opens a new check of its file (fn::media::our_problem), up to 3 nights.
+      if (ended) {
+        writeRetryLimit({
+          what: 'media_job',
+          id: job,
+          tries: MAX_FAILURES,
+          then: 'nightly_cleanup',
+        });
+      }
+      return reply.outcome === undefined ? { retry: reply.retry } : reply;
+    },
+    { record: `mediaJob:${job}` },
+  );
 }
 
 function notFound(err: unknown): never {

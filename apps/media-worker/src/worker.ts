@@ -68,13 +68,25 @@ export class RenderSlot {
  * evenings), and the shared ERROR line says so. The writer's own count (MAX_FAILURES) ends the job
  * as gave_up before this when every failure was counted there.
  *
+ * A job whose tries ran out is remembered for {@link SendBacks.SPENT_FOR_MS}, and any other copy of
+ * it the queue holds (a second send of the same job) is marked taken at once instead of starting
+ * again from nought. The message carries nothing that tells the 18:00 resend apart from such a
+ * copy, so the memory is by time: shorter than the 12 hours between a job's sends (housekeeping
+ * RESEND_AFTER), so the next evening's resend is always tried.
+ *
  * Kept in this process's memory only (no database change; the job table can't be written while
  * the database is away): a worker restart starts every count again, so a job may get a few more
- * tries, never fewer. At most {@link SendBacks.MAX_JOBS} jobs are remembered, the oldest dropped.
+ * tries, never fewer. At most {@link SendBacks.MAX_JOBS} jobs of each are remembered, the oldest
+ * dropped.
  */
 export class SendBacks {
-  static readonly MAX_JOBS = 1000;
+  static readonly MAX_JOBS = 5000;
+  static readonly SPENT_FOR_MS = 6 * 60 * 60 * 1000;
   private readonly counts = new Map<string, number>();
+  /** Jobs whose tries ran out, and when. */
+  private readonly spentAt = new Map<string, number>();
+
+  constructor(private readonly now: () => number = Date.now) {}
 
   /** Counts one try of `job` that ended in trouble; how many it has had. */
   failed(job: string): number {
@@ -88,13 +100,38 @@ export class SendBacks {
     return n;
   }
 
-  /** The job left the queue: forget it. */
+  /** The job left the queue: forget its count. */
   forget(job: string): void {
     this.counts.delete(job);
   }
+
+  /** `job`'s tries ran out now. */
+  spend(job: string): void {
+    this.counts.delete(job);
+    this.spentAt.delete(job);
+    this.spentAt.set(job, this.now());
+    if (this.spentAt.size > SendBacks.MAX_JOBS) {
+      const oldest = this.spentAt.keys().next().value;
+      if (oldest !== undefined) this.spentAt.delete(oldest);
+    }
+  }
+
+  /** Whether `job`'s tries ran out within {@link SendBacks.SPENT_FOR_MS}. */
+  spent(job: string): boolean {
+    const at = this.spentAt.get(job);
+    if (at === undefined) return false;
+    if (this.now() - at < SendBacks.SPENT_FOR_MS) return true;
+    this.spentAt.delete(job);
+    return false;
+  }
 }
 
-/** A RETRY that is waiting, not trouble: it doesn't count towards the job's tries. */
+/**
+ * A RETRY that is waiting, not trouble: it doesn't count towards the job's tries. On a "failed"
+ * answer the writer's `retry: true` is the same whether Bunny doesn't agree yet (waiting) or a
+ * call to Bunny failed (counted by the writer, whose own MAX_FAILURES still ends the job at the
+ * third): the reply can't tell them apart, so this count leaves both out (an API change otherwise).
+ */
 const isWaiting = (entry: Omit<LogEntry, 'delivery'>) =>
   entry.step === 'busy' || entry.code === 'not_yet';
 
@@ -137,6 +174,7 @@ export async function handleJob(
       const tries = deps.sendBacks.failed(ids.job);
       if (tries >= MAX_TRIES) {
         delivery = 'DROP';
+        deps.sendBacks.spend(ids.job);
         writeRetryLimit({
           what: 'media_job_delivery',
           id: ids.job,
@@ -155,6 +193,10 @@ export async function handleJob(
   // sends it again).
   if (!ids.job || !ids.kind || !ids.video) {
     return done({ step: 'unreadable', delivery: 'DROP' });
+  }
+  // Another copy of a job whose tries just ran out ({@link SendBacks}): marked taken unworked.
+  if (deps.sendBacks.spent(ids.job)) {
+    return done({ step: 'spent', delivery: 'DROP' });
   }
   const job = { jobId, videoId: ids.video };
   const fail = (code: string) => failed(job, code, deps, done);

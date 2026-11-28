@@ -173,6 +173,21 @@ def log(message):
     print(message, flush=True)
 
 
+def log_retry_limit(what, tries, record=None):
+    """The one shared "tries ran out" ERROR line (the retries rule, RT-3: "for now just log"), in
+    the services' shape (libs/logging writeRetryLimit): `event: "retry_limit"` and `retry { what,
+    id, tries, then }`, one JSON line, which Google's logging reads as an ERROR entry. Ids only."""
+    retry = {"what": what, "tries": tries, "then": "gave_up"}
+    if record:
+        retry["id"] = record
+    log(json.dumps({
+        "severity": "ERROR",
+        "message": f"Gave up after {tries} tries: {what}",
+        "event": "retry_limit",
+        "retry": retry,
+    }))
+
+
 def scan(text, mode="data"):
     """Counts the top-level statements of SurrealQL text and checks the grammar (see the header).
 
@@ -489,6 +504,7 @@ class Runner:
                 return self.attempt(name, parts, extra_vars, marker)
             except RetryableCommitError as err:
                 if attempt == STEP_ATTEMPTS:
+                    log_retry_limit("migration_step", attempt, name)
                     raise MigrationError(str(err)) from err
                 log(f"{name}: retryable conflict, the step was rolled back; retrying ({attempt}/{STEP_ATTEMPTS - 1})")
                 time.sleep(0.5 * attempt)
@@ -670,7 +686,10 @@ def migrate(client, top, data, params, deadline):
             lease = run(client, "token", in_transaction(BOOKKEEPING, TAKE_TOKEN), {"migration_bundle": bundle_id})
             break
         except MigrationError as err:
-            if "conflict" not in str(err).lower() or attempt == MAX_TRIES - 1:
+            if "conflict" not in str(err).lower():
+                raise
+            if attempt == MAX_TRIES - 1:
+                log_retry_limit("migration_token", MAX_TRIES, bundle_id[:12])
                 raise
             time.sleep(0.2)
     token = lease[-2]["result"][0]["token"]

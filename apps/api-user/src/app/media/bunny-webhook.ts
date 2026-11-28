@@ -147,12 +147,14 @@ export async function sendStoryJobs(
         { jobId: j.job, kind: j.kind, videoId: j.video },
         story,
       );
-      await retryOnConflict(() =>
-        runQuery(
-          db,
-          `UPDATE type::record('mediaJob', $job) SET sentAt = time::now(), sends += 1 RETURN NONE`,
-          { job: j.job },
-        ),
+      await retryOnConflict(
+        () =>
+          runQuery(
+            db,
+            `UPDATE type::record('mediaJob', $job) SET sentAt = time::now(), sends += 1 RETURN NONE`,
+            { job: j.job },
+          ),
+        { record: `mediaJob:${j.job}` },
       );
     }
   } catch (err) {
@@ -257,6 +259,7 @@ export class BunnyWebhookController {
               { video: videoId, reason },
             )) as [QueuedJob | undefined]
           )[0],
+        { record: `storyFile:${videoId}` },
       );
       if (!queued) {
         // No file row names this video (another upload, or one long gone), or its waiting story's
@@ -278,12 +281,14 @@ export class BunnyWebhookController {
       };
       // In order per story: the story's id is the ordering key.
       await this.jobs.publish(job, queued.story);
-      await retryOnConflict(() =>
-        runQuery(
-          this.db,
-          `UPDATE type::record('mediaJob', $job) SET sentAt = time::now(), sends += 1 RETURN NONE`,
-          { job: queued.job },
-        ),
+      await retryOnConflict(
+        () =>
+          runQuery(
+            this.db,
+            `UPDATE type::record('mediaJob', $job) SET sentAt = time::now(), sends += 1 RETURN NONE`,
+            { job: queued.job },
+          ),
+        { record: `mediaJob:${queued.job}` },
       );
     } catch (err) {
       currentEvent()?.set({

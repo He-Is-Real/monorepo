@@ -381,6 +381,8 @@ describe('a render job (audio-picture-video 1B, K1)', () => {
 describe('a job sent back to the queue (the retries rule, RT-9)', () => {
   it('counts trouble towards three tries, then marks the job taken for the 18:00 resend and writes the retry_limit line', async () => {
     const { d } = deps(READY, { answer: { status: 503, body: {} } });
+    let now = 0;
+    d.sendBacks = new SendBacks(() => now);
     const errors = vi
       .spyOn(console, 'error')
       .mockImplementation(() => undefined);
@@ -407,7 +409,18 @@ describe('a job sent back to the queue (the retries rule, RT-9)', () => {
     } finally {
       errors.mockRestore();
     }
-    // Its next delivery (the 18:00 resend) starts counting again.
+    // Another copy of the same job still in the queue is marked taken unworked, not counted
+    // from nought again.
+    let checked = 0;
+    d.check = async () => {
+      checked++;
+      return READY;
+    };
+    now += SendBacks.SPENT_FOR_MS - 1;
+    await expect(handleJob(check, d)).resolves.toBe('DROP');
+    expect(checked).toBe(0);
+    // The next evening's resend (12 hours after the last send) is tried again.
+    now += 1;
     await expect(handleJob(check, d)).resolves.toBe('RETRY');
   });
 

@@ -493,7 +493,7 @@ export class StoryStore {
 
   /**
    * SubmitStory: editing → pending (R6: a `sent` status entry, which moves the
-   * story's pointer and version), once per Idempotency-Key, at `ifMatch`.
+   * story's pointer and version, { record: `story:${id}` }), once per Idempotency-Key, at `ifMatch`.
    * `checkMedia`: a video or audio story's file checks (uploads.ts), run with the others.
    * `shareVersion` (plan 4e): the version of the social media sharing consent ticked at the end
    * of the upload, recorded on the story in the submission's own write, with its
@@ -621,10 +621,11 @@ export class StoryStore {
    */
   async startEditing(id: string, ifMatch: number): Promise<CommandResult> {
     try {
-      return await retryOnConflict(async () => {
-        const results = await runQuery(
-          this.person,
-          `BEGIN TRANSACTION;
+      return await retryOnConflict(
+        async () => {
+          const results = await runQuery(
+            this.person,
+            `BEGIN TRANSACTION;
            LET $s = (SELECT version, ${STORY_STATUS} AS status
              FROM type::record('story', $id) WHERE submitter = $auth)[0];
            IF $s = NONE { THROW 'story_cmd:not_found' };
@@ -636,14 +637,16 @@ export class StoryStore {
            LET $u = (SELECT id, version FROM ONLY type::record('story', $id));
            $u;
            COMMIT TRANSACTION;`,
-          { id, version: ifMatch, from: CAN_START_EDITING },
-        );
-        const row = requireWritten<{ id: string; version: number }>(
-          results[results.length - 2],
-          'story',
-        );
-        return { id: recordKey(row.id), version: row.version };
-      });
+            { id, version: ifMatch, from: CAN_START_EDITING },
+          );
+          const row = requireWritten<{ id: string; version: number }>(
+            results[results.length - 2],
+            'story',
+          );
+          return { id: recordKey(row.id), version: row.version };
+        },
+        { record: `story:${id}` },
+      );
     } catch (err) {
       throw this.lifecycleProblem(err);
     }
@@ -659,10 +662,11 @@ export class StoryStore {
    */
   async delete(id: string, ifMatch: number): Promise<{ videos: string[] }> {
     try {
-      return await retryOnConflict(async () => {
-        const results = await runQuery(
-          this.person,
-          `BEGIN TRANSACTION;
+      return await retryOnConflict(
+        async () => {
+          const results = await runQuery(
+            this.person,
+            `BEGIN TRANSACTION;
            LET $s = (SELECT version, ${STORY_STATUS} AS status
              FROM type::record('story', $id) WHERE submitter = $auth)[0];
            IF $s = NONE { THROW 'story_cmd:not_found' };
@@ -673,10 +677,12 @@ export class StoryStore {
            IF array::len($gone) = 0 { THROW 'story_cmd:not_written' };
            $videos;
            COMMIT TRANSACTION;`,
-          { id, version: ifMatch },
-        );
-        return { videos: (results[results.length - 2] ?? []) as string[] };
-      });
+            { id, version: ifMatch },
+          );
+          return { videos: (results[results.length - 2] ?? []) as string[] };
+        },
+        { record: `story:${id}` },
+      );
     } catch (err) {
       throw this.lifecycleProblem(err);
     }

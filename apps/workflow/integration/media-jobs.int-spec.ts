@@ -488,6 +488,36 @@ describe('result writer: the worker’s answers → the job’s file row and the
       expect(await openJobs(video)).toEqual([]);
       expect(await ours(video)).toBe(true);
     });
+
+    // The retries rule (RT-10): a check sent on its first send and three evenings, unanswered, shows
+    // "a problem on our side", but never stops the render a late "ready" needs.
+    it('a ready audio file whose check was sent four times: its render opens', async () => {
+      const { story, video } = await videoStory('audio');
+      await submit(pat, story);
+      const [first] = await openJobs(video);
+      await rows(
+        migrator,
+        `UPDATE type::record('mediaJob', $id) SET sends = 4, sentAt = time::now() - 13h`,
+        { id: first },
+      );
+      const problem = await rows<{ ours: boolean; unanswered: boolean }>(
+        admin,
+        `RETURN fn::media::our_problem(type::record('storyFile', $video))`,
+        { video },
+      );
+      expect(problem[0]).toMatchObject({ ours: false, unanswered: true });
+
+      const result = await writeAnswer(
+        workflow,
+        first,
+        video,
+        ready(story),
+        next(),
+      );
+      expect(result).toMatchObject({ outcome: 'applied' });
+      expect(result.render).not.toBeNull();
+      expect(await openJobs(video)).toHaveLength(1);
+    });
   });
 
   describe('a "failed" answer (Part 1a)', () => {

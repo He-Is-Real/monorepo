@@ -586,12 +586,14 @@ export class Uploads {
   private async renew(user: RecordId, id: string, videoId: string) {
     let renewed: unknown;
     try {
-      [renewed] = await retryOnConflict(() =>
-        runQuery(
-          this.service,
-          `RETURN fn::upload::renew(type::record('story', $id), $person, $video)`,
-          { id, person: user, video: videoId },
-        ),
+      [renewed] = await retryOnConflict(
+        () =>
+          runQuery(
+            this.service,
+            `RETURN fn::upload::renew(type::record('story', $id), $person, $video)`,
+            { id, person: user, video: videoId },
+          ),
+        { record: `story:${id}` },
       );
     } catch (err) {
       const message =
@@ -824,13 +826,15 @@ export class Uploads {
     this.remember(path);
     if (recorded.processing === 'ready') return;
     try {
-      await retryOnConflict(() =>
-        runQuery(
-          this.service,
-          `UPDATE type::record('storyFile', $path) SET processing = 'ready'
+      await retryOnConflict(
+        () =>
+          runQuery(
+            this.service,
+            `UPDATE type::record('storyFile', $path) SET processing = 'ready'
              WHERE processing = NONE RETURN NONE`,
-          { path },
-        ),
+            { path },
+          ),
+        { record: `storyFile:${path}` },
       );
     } catch (err) {
       // The story moved on meanwhile (another tab changed its picture or submitted it).
