@@ -14,9 +14,11 @@ import type { Task, TaskContext, TaskResult } from './tasks';
  *   available"), its own run (modules/gcp/housekeeping.tf): every job not ended whose last send
  *   (or, if it was never sent, its writing) is over 12 hours old goes to the queue again, so a job
  *   sent the same evening isn't doubled;
- * - the tidy-up, in the nightly run: ended jobs go 30 days after they ended (J2), except while
- *   their story waits for review (P1-3: then they go once it is decided or deleted). The database
- *   lets housekeeping delete only those (mediaJob's permissions, schema-04-stories.surql), so the query only picks;
+ * - the tidy-up, in the nightly run: ended jobs go 30 days after they ended (J2). While their
+ *   story waits for review or is off the site because the site took it off (fn::media::job_kept,
+ *   P1-3, P1-9), the tidy-up skips them; once that ends, the next run deletes those already over
+ *   30 days. The database lets housekeeping delete only those (mediaJob's permissions,
+ *   schema-04-stories.surql), so the query only picks;
  * - the nightly new check of a waiting story whose newest job gave up on our side (Part 1a).
  * Job ids are ULIDs: no personal data, so the logs carry them.
  */
