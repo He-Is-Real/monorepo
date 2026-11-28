@@ -52,7 +52,7 @@ Next id: REQ-DAT-051
 
 ## Where data is held outside the UK
 
-- **REQ-DAT-021** Video and audio files are held at Bunny in Frankfurt, Germany, because Bunny does not offer London; pictures are stored in London. [D89]
+- **REQ-DAT-021** Video and audio files are held at Bunny in Frankfurt. [D89]
 - **REQ-DAT-022** Clerk, which holds sign-in data, is hosted in the US. [D6]
 - **REQ-DAT-023** Bunny's delivery network serves files worldwide. [D103]
 
