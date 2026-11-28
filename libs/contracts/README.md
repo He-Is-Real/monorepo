@@ -36,8 +36,8 @@ These hold across `api-public-read`, `api-user` and `api-admin`; each operation'
   with `PUT` and removed with `DELETE`, both idempotent. A status is never patched: it changes by command.
 - Our own JSON fields are camelCase (vendor payloads, such as Bunny's webhook, and header maps keep their names),
   times RFC 3339 UTC, and ids opaque (the record id without its table): clients never parse them.
-- Queries change nothing, except that `GET /v1/account` creates the person's record on first use. There is no
-  event store: the tables are the state.
+- Queries change no application state, except that signing in to api-user creates the person's record on first
+  use, whichever route that is (a query too). There is no event store: the tables are the state.
 - Paged lists use cursors (`?limit=&cursor=` → `{ data, nextCursor }`); some short lists (public themes, staff,
   the block list) are not paged. Public lists carry no totals.
 - Errors are RFC 9457 `application/problem+json` (`type`, `title`, `status`), with our `code` where the caller

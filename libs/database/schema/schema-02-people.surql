@@ -92,8 +92,9 @@ DEFINE EVENT OVERWRITE user_not_erased_identity ON user
   };
 -- Every table holding or linking person data (directly or through story) refuses a new or
 -- changed row for a person who doesn't exist or is erased, and bumps that person's fence, so a
--- write racing erasure conflicts at commit. On delete such a table bumps the fence without the
--- live check, since erasure deletes an erased person's rows (as story_fence does). The per-table list is the classification in
+-- write racing erasure conflicts at commit. A delete that bumps the person's fence does so without
+-- the live check, since erasure deletes an erased person's rows (as story_fence does). The
+-- per-table list is the classification in
 -- integration/person-linked.int-spec.ts, which fails if a table is added without being
 -- classified. A new table that holds or links person data calls this on create and update.
 DEFINE FUNCTION OVERWRITE fn::person::live($user: option<record<user>>) {
