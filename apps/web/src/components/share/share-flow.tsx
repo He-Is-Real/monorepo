@@ -917,12 +917,14 @@ type DraftState = ReturnType<typeof useDraft>;
 
 /**
  * The title's character counter, the same look as the story text's (RQ-12: Joel, 2026-11-28). It
- * counts the whole title by characters, as the database does.
+ * counts what the field's maxLength counts (UTF-16 units), so it never shows room the field will
+ * not accept. An emoji counts as 2 here although the database counts it as 1: such a title only
+ * stops a little early, it is never refused.
  */
 function TitleCount({ title }: { title: string }) {
   return (
     <FieldHint className="mt-1">
-      {[...title].length} / {TITLE_MAX} characters.
+      {title.length} / {TITLE_MAX} characters.
     </FieldHint>
   );
 }
