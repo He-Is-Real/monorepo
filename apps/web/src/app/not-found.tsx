@@ -1,6 +1,12 @@
 import { Heading, Text } from '@heisreal/web-ui';
 import { TextLink } from '@/components/page/text-link';
 
+/**
+ * An unknown address answers 404 with this page. When a page finds its story or text missing only
+ * after it started streaming, the status has already gone out as 200 and this page answers 200
+ * (PC-1); its `noindex` robots tag, which Next.js adds to a not-found render, is what keeps that
+ * out of search results.
+ */
 export default function NotFound() {
   return (
     <main

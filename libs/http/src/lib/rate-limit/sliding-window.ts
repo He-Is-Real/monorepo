@@ -1,7 +1,8 @@
 import { ipKeyGenerator } from 'express-rate-limit';
 
 /**
- * A sliding-window request counter kept in memory (RL-6: per running copy, nothing stored;
+ * A sliding-window request counter kept in memory (RL-6: per running copy, nothing stored: no
+ * database, Redis or edge service, and no caller's address is written anywhere;
  * Joel 2026-11-21: "use sliding window"). Framework-free: the APIs plug it into
  * express-rate-limit as its `store` (`SlidingWindowStore`), and web's proxy uses it directly.
  *

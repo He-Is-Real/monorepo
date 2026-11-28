@@ -1139,7 +1139,8 @@ DEFINE FUNCTION OVERWRITE fn::story::sender_ips_expire_before() {
 -- first. problem = what's still not ready; mediaChanged = the files differ from the reviewed ones,
 -- so it needs a moderator rather than Bunny. A hidden story whose files are fine (its uploader has
 -- no testimony consent) isn't listed, nor one a moderator hid. Runs with the caller's permissions
--- (api-admin reads the status log, the stories and their files).
+-- (api-admin reads the status log, the stories and their files). No admin page shows this list:
+-- it is there for someone querying the database.
 DEFINE FUNCTION OVERWRITE fn::story::hidden_by_media() {
   LET $hidden = (SELECT VALUE story FROM storyStatusLog
     WHERE action = 'hiddenBySystem' AND story.currentStatus = id ORDER BY at ASC);
