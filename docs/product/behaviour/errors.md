@@ -15,7 +15,7 @@ Next id: REQ-ERR-033
   Not: a page that fails while the server builds it, which shows the generic message.
 - **REQ-ERR-005** When a call from the browser to our APIs gets no answer (offline, or none within the time allowed), it says "We couldn't reach He Is Real. Check your internet connection and try again." [LG-13c]
 - **REQ-ERR-006** For REQ-ERR-005, a screen that did not load has a "Try again" button; after a button press (Save, Send, Delete) that button is how the person tries again, followed by what of theirs is safe ("Your story is kept on this device."). [LG-13c]
-- **REQ-ERR-008** Every error message from REQ-ERR-001 to REQ-ERR-007, and the restart countdown, shows a reference under it: a small quiet line "Reference: 0193…" with a Copy button. [LG-1]
+- **REQ-ERR-008** Every error message from REQ-ERR-001 to REQ-ERR-006, and the restart countdown, shows a reference under it: a small quiet line "Reference: 0193…" with a Copy button. [LG-1]
 - **REQ-ERR-009** The message on a card's player has a reference but no Copy button, because it sits over the picture and takes no presses; the reference can still be selected. [LG-1]
 - **REQ-ERR-010** The reference is a UUID v7 that means nothing to the person; the browser makes one before each call to our APIs and sends it as the call's trace id, so the API's log line has the same one. [LG-1b]
 - **REQ-ERR-011** When there is nothing to link (a page that could not be made, a crash in the page), the error screen makes a fresh reference. [LG-1b]
