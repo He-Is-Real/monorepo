@@ -261,7 +261,8 @@ const iso = (d: string | null | undefined) =>
  * The person's own stories: reads and the submit-flow commands (CreateDraftStory, EditStory,
  * SubmitStory), all in the person's own database session (D27), so the database checks
  * ownership, the person's agreements ("agree first", plan 4e), the story's shape and text limits
- * (D53, A3) and D94's limits.
+ * (D53, A3) and D94's limits. One method per intent (D25): each validates, lets the database
+ * check the story's rules and writes in one transaction.
  */
 export class StoryStore {
   constructor(

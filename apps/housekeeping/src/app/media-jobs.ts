@@ -16,7 +16,7 @@ import type { Task, TaskContext, TaskResult } from './tasks';
  *   sent the same evening isn't doubled;
  * - the tidy-up, in the nightly run: ended jobs go 30 days after they ended (J2), except while
  *   their story waits for review (P1-3: then they go once it is decided or deleted). The database
- *   lets housekeeping delete only those (docs/db-permissions.md), so the query only picks;
+ *   lets housekeeping delete only those (mediaJob's permissions, schema-04-stories.surql), so the query only picks;
  * - the nightly new check of a waiting story whose newest job gave up on our side (Part 1a).
  * Job ids are ULIDs: no personal data, so the logs carry them.
  */

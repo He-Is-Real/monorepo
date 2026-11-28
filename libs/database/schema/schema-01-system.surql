@@ -7,7 +7,14 @@
 -- is in access-clerk.surql (applied only when OpenTofu has Clerk's key). No top-level RETURN: inside
 -- the transaction it would end it early. CI applies these files to SurrealDB 3.2.4 on every PR, so
 -- any syntax 3.2.4 rejects is caught before merge. The 3.2.4 gotchas found in testing, which shape
--- much of what's here, are listed in docs/db-permissions.md ("SurrealDB 3.2.4 gotchas").
+-- much of what's here, are listed in ../SURREALDB-NOTES.md.
+-- Conventions across these files:
+-- - A field the server sets (a time, an actor, a counter) that a caller may write uses VALUE (and
+--   READONLY where it never changes), never DEFAULT alone: a DEFAULT takes whatever value the caller
+--   sends. A field no caller can write by permission (such as fence.n) may use DEFAULT.
+-- - "VALUE IF $auth = NONE AND $value != NONE { $value } ELSE { ... }" lets a system user (the
+--   migrator, dev-seed, the tests) set a time or actor as given, so data loads and tests can age
+--   rows; every other caller gets the server's value.
 
 -- ---------------------------------------------------------------- bookkeeping
 -- One row per data script, written by the runner in the script's own transaction (so a failed

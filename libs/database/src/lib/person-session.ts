@@ -15,6 +15,8 @@ export class PersonSessionRefusedError extends Error {
  * Runs `work` in a SurrealDB session **as the person** (D27), on the service's one long-lived
  * connection: the pattern proven in integration/request-sessions.int-spec.ts.
  *
+ * - Never authenticate the shared connection, or a session other requests use, as a person:
+ *   requests interleave, and one person's query would run as another.
  * - `newSession()`, never `forkSession()`: a fresh session has no identity, while a fork
  *   inherits the service login and keeps it if the person's token is rejected.
  * - If SurrealDB rejects the token (`DEFINE ACCESS clerk`), this throws

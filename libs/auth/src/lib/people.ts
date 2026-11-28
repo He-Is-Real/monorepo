@@ -34,7 +34,7 @@ export class BlockedEmailError extends Error {
 /**
  * Whether `value` is on the block list's `table` (`blockedEmail` or `blockedIp`). api-user's login
  * may read only the one row the query names in `$blockCheck`, never the list
- * (docs/db-permissions.md). Values are compared exactly; callers pass them lower-case.
+ * (blockedEmail and blockedIp in schema-02-people.surql). Values are compared exactly; callers pass them lower-case.
  */
 export async function isBlocked(
   db: SurrealQueryable,

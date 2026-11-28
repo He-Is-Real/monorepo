@@ -137,8 +137,8 @@ export const STORY_FILTERS_LET = `LET $ths = ($themes ?? []).filter(|$t| record:
  * SurrealQL: the condition a story passes. `s` is the path to the story's fields (`story.` from a
  * status entry, empty on the story or a row carrying its `primaryFormat` and `themeIds`).
  * `format: false` leaves the format out (counting stories by format). themeIds, not themeRefs:
- * 3.2.4's CONTAINS over an element index on record links finds nothing (docs/db-permissions.md,
- * "SurrealDB 3.2.4 gotchas").
+ * 3.2.4's CONTAINS over an element index on record links finds nothing (libs/database/SURREALDB-NOTES.md;
+ * pinned in engine-gotchas.int-spec.ts).
  */
 export function storyFiltersWhere(
   s = '',

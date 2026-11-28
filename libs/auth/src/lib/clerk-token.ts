@@ -84,7 +84,8 @@ const isNumber = (v: unknown): v is number =>
  *   `@heisreal.today` email (S-5 A), else it is returned as User.
  *
  * Throws {@link ClerkTokenError} on any failure. SurrealDB verifies the same signature and
- * `exp`/`nbf` again when the token opens a person session.
+ * `exp`/`nbf` again when the token opens a person session. Because SurrealDB checks neither `iss`
+ * nor `azp`, dev and production must never share a Clerk signing key.
  */
 export function verifyClerkToken(
   token: string,

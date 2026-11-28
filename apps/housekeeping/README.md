@@ -4,7 +4,7 @@ Housekeeping is a small job that tidies up after the site. Things people do leav
 happen at once: a replaced video can't be deleted while its upload link still works, an erased
 person's files at Bunny or Clerk may fail to delete the first time, and a media job may need
 sending again because Joel's PC was off. Housekeeping does that work later, on a timer, with the
-smallest database login that can (`service:housekeeping`, [docs/db-permissions.md](../../docs/db-permissions.md)).
+smallest database login that can (`service:housekeeping`, whose permissions are in [libs/database/schema](../../libs/database/schema)).
 The database itself refuses anything outside those rules, so a bug here can't delete the wrong
 thing.
 
@@ -73,8 +73,8 @@ oldest first; the rest wait for the next run. One chore failing doesn't stop the
 never sent, written) over 12 hours ago, to the `media-jobs` queue again, and records the send.
 A job sent the same evening isn't doubled; a duplicate is harmless anyway.
 
-What each chore may touch is also enforced by the database: see
-[docs/db-permissions.md](../../docs/db-permissions.md). The rules behind them (draft retention,
+What each chore may touch is also enforced by the database: see the table permissions in
+[libs/database/schema](../../libs/database/schema). The rules behind them (draft retention,
 upload limits, erasure) are in [docs/how-the-app-works.md](../../docs/how-the-app-works.md).
 
 ## Dry run and the per-run limit

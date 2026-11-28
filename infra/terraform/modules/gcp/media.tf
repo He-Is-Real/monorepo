@@ -17,14 +17,15 @@
 # result writer runs there. Jobs carry ids only, never a person's name or story text.
 #
 # Least privilege:
-#   media-worker   the worker's identity (D126: Joel's gcloud login acting as it; no key file).
+#   media-worker   the worker's identity: its own certificate (worker_identity.tf), never a
+#                  person's gcloud login and never a key file.
 #                  Pulls media-jobs through its subscription, calls the result writer (run.invoker
 #                  on it only) and (the bunny root) reads Bunny's read-only library key. It reads
 #                  a picture video's sound through 2-minute links to one file the result writer
 #                  signs (R3). No database password, no key that can change anything at Bunny
 #                  (K1), no key to Bunny's storage, nothing else.
 #   workflow       the result writer's runtime identity: reads its own database password and signs
-#                  in as service:workflow (docs/db-permissions.md); publishes to media-jobs (the
+#                  in as service:workflow (libs/database/schema); publishes to media-jobs (the
 #                  jobs it opens); and (the bunny root's result_writer_readers) reads Bunny's
 #                  library key, the images token key and the sound zone's token key: it makes
 #                  picture videos, signs the worker's one-hour pass and its sound links, and sets

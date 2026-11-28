@@ -1,8 +1,8 @@
 import { rows, run, TestDatabase } from './support/harness';
 
 /**
- * The SurrealDB 3.2.4 behaviours the schema and queries work around (docs/db-permissions.md,
- * "SurrealDB 3.2.4 gotchas"), pinned on scratch tables so an engine upgrade shows which still
+ * The SurrealDB 3.2.4 behaviours the schema and queries work around (libs/database/SURREALDB-NOTES.md),
+ * pinned on scratch tables so an engine upgrade shows which still
  * hold. A failure here means the engine changed: update that gotcha and the code relying on it.
  */
 describe('SurrealDB gotchas the schema relies on', () => {

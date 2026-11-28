@@ -23,7 +23,7 @@ import { orphanVideosTask } from './videos';
  * old (J2), last.
  *
  * To add a chore: a Task in its own file, listed here, with the database permission it needs
- * for service:housekeeping (docs/db-permissions.md) and any secret granted to the housekeeping
+ * for service:housekeeping (in libs/database/schema) and any secret granted to the housekeeping
  * service account in OpenTofu.
  */
 export const CHORES: readonly Task[] = [

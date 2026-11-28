@@ -17,7 +17,9 @@ apis:
 rules:
   info-license: off # private, unlicensed project
   no-unused-components: error
-  # Extensions used in the specs (see docs/api-conventions.md).
+  # Extensions used in the specs: x-milestone, the milestone that builds the operation (checked
+  # here); x-required-role, the lowest Clerk role it needs (checked by api-user's and api-admin's
+  # routes.spec.ts).
   rule/x-milestone:
     subject: { type: Operation, property: x-milestone }
     assertions:

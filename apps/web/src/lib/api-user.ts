@@ -10,7 +10,7 @@
  *
  * - **A fresh token on every call:** `getToken()` (Clerk's, from `useAuth()`) is asked each
  *   time; Clerk caches and renews it (it lives 60 s). No token, no request ({@link NotSignedIn}).
- * - **Errors are RFC 9457 problems** (docs/api-conventions.md, D30): any answer that isn't 2xx
+ * - **Errors are RFC 9457 problems** (libs/contracts/README.md, D30): any answer that isn't 2xx
  *   or 304 throws an {@link ApiUserProblem} with the problem's `status`, `code`, `detail` and
  *   field `errors`. A network failure or timeout throws {@link ApiUserUnavailable}, and so does a
  *   success whose body can't be read or parsed: either way the outcome is unknown.

@@ -8,6 +8,9 @@
 #
 # Fields not written yet are read through column_ifexists(), so a chart over them is empty
 # instead of failing.
+#
+# Dashboards are made here only, never in Axiom's own editor: a hand-made one is lost or drifts
+# from this file.
 locals {
   site_use_charts = [
     {

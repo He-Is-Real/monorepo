@@ -4,7 +4,7 @@ import type { SurrealQueryable } from 'surrealdb';
 /**
  * A statement failed. `message` is the root cause: in a failed transaction every other
  * statement only reports "not executed", and surrealdb.js 2.0.x's `collect()` throws that
- * unhelpful one (docs/db-permissions.md, gotchas).
+ * unhelpful one (libs/database/SURREALDB-NOTES.md).
  */
 export class DatabaseQueryError extends Error {
   constructor(
@@ -23,6 +23,10 @@ const NOT_RUN = 'not executed due to a failed transaction';
  * Runs SurrealQL and returns every statement's result in JSON form (record ids as
  * `table:id` strings, datetimes as RFC 3339 strings). `BEGIN`/`COMMIT` count as statements.
  * Throws {@link DatabaseQueryError} with the root cause if any statement failed.
+ *
+ * A command meets three outcomes: an event's THROW (a code the API maps), an empty result or a
+ * dropped field (the permissions; see {@link WriteNotAppliedError}), and a retryable conflict (an
+ * overlap; {@link retryOnConflict}).
  */
 export async function runQuery(
   db: SurrealQueryable,
@@ -71,7 +75,11 @@ function errorMessage(error: unknown): string {
 
 /**
  * Two transactions that touch the same person write the same fence row, so the second to
- * commit fails with this retryable conflict (docs/db-permissions.md, "Transactions").
+ * commit fails with this retryable conflict. A transaction sees the database as it was when it
+ * began and only write-write conflicts abort, so every write that depends on or changes a person
+ * bumps that person's fence (likewise a Clerk id, a theme and the Admin count; schema-01's
+ * `fence`). Expected, not a fault: a moderator approving while the person edits, two tabs of one
+ * person, a file failing during approval, two Admins saving the themes or the same legal version.
  */
 export function isTransactionConflict(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
@@ -82,7 +90,8 @@ export function isTransactionConflict(err: unknown): boolean {
 
 /**
  * Re-runs the whole command (re-read, re-check, re-write) on a retryable transaction conflict,
- * with a small bounded backoff. Any other error is thrown at once.
+ * with a small bounded backoff. Any other error is thrown at once. The retry sees the committed
+ * state, so a newer legal version or an erasure now refuses it.
  */
 export async function retryOnConflict<T>(
   work: () => Promise<T>,

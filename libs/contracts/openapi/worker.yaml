@@ -5,8 +5,8 @@ info:
   description: |
     **Internal async jobs (M7).** Not a public API: nothing on GKE accepts inbound connections.
 
-    The primary transport is message-based (D34): the APIs publish CloudEvents-format messages to
-    Pub/Sub with the GCP client (e.g. `story-submitted`), and the GKE **`workflow`**
+    The primary transport is message-based (D34): the APIs publish plain JSON messages (no
+    CloudEvents envelope) to Pub/Sub with the GCP client (e.g. `story-submitted`), and the GKE **`workflow`**
     (Dapr Workflow) dispatches to **`inference-worker`s** over Dapr pub/sub (`inference-task` /
     `inference-result`). The queue choice itself is deferred to M7 (D11). This HTTP contract describes
     the job set and payloads; the `/v1/tasks/{job}` endpoint is only the Cloud Tasks fallback, and the

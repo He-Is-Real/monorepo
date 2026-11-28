@@ -57,7 +57,9 @@ const PREAMBLE = `
  * scan at the LIMIT; local scale test, B2): never the whole story table. The cursor is a range
  * on publishedAt (inclusive; the cursor's own story and those before it at the same instant are
  * left out), and the page's last instant is read whole, so ties sort by id across pages too. Then
- * the story cards for that one page.
+ * the story cards for that one page. Keep it one sort field and a range on it: an ORDER BY on two
+ * fields sorts every matching row, and a cursor written as an OR ((a < x) OR (a = x AND id < y))
+ * starts the index scan at the top.
  */
 const LOG_FILTERS = `${PUBLISHED_ENTRY}
     AND ${storyFiltersWhere('story.')}`;

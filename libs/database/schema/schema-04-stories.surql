@@ -1,5 +1,6 @@
 -- schema-04-stories.surql: stories (one table, R11), their status log (R6), their files (R12)
--- and draft retention.
+-- and draft retention. story and storyStatusLog hold special-category (Art 9) data: an account's
+-- erasure (fn::account::erase) deletes its stories, and their status log entries go with them.
 -- Part of the declarative schema: every schema-NN-*.surql file, applied in name order in one
 -- transaction (see schema-01-system.surql).
 
@@ -15,8 +16,8 @@
 -- reassign or edit stories.
 -- Write scope per field (D41): the person's words (content fields) only by the person; the file
 -- pointers only by a new upload's storyFile row (D80: api-user's login, never the person's
--- session; storyFile_attach), except that the person may take their picture off or change its
--- description; the status pointer by the status log's event only. A field write outside its
+-- session; storyFile_attach), except that the person may take their picture off; the status
+-- pointer by the status log's event only. A field write outside its
 -- scope is silently dropped (field PERMISSIONS or VALUE), so check the stored state.
 -- WARNING (BE-12): a field on story is public for a published story unless it has its own
 -- `PERMISSIONS FOR select`. Every new field must say which: its own select rule, or Joel's
@@ -1010,7 +1011,7 @@ DEFINE FIELD OVERWRITE skippedMediaWait ON storyStatusLog TYPE option<bool> READ
   PERMISSIONS FOR select WHERE $auth = service:api_admin;
 -- On a person's "sent" entry (pending): the IP address the story was sent from (block list,
 -- G21 D; Joel 2026-11-11), so an Admin can block a recent abuser's address. api-user supplies it
--- (the client address Cloud Run passes, docs/how-the-app-works.md); kept only on the person's own
+-- (the client address Cloud Run passes: apps/api-user/src/app/stories/sender-ip.ts); kept only on the person's own
 -- "sent" entries (anything else is dropped), lower-case. Read by api-admin (Admins only:
 -- api-admin shows it to an Admin, never a Moderator) and by the person who sent it, in their own
 -- "Download my data" export (BL-4, Joel 2026-11-14). The nightly housekeeping clears it 30 days
@@ -1038,7 +1039,8 @@ DEFINE FIELD OVERWRITE senderEmail  ON storyStatusLog TYPE option<string> READON
 -- again): the email of the Moderator or Admin who took the action (EM-1, Joel 2026-11-17: "for
 -- showing which admins took what action"), from their verified sign-in; required on every entry
 -- api-admin writes (storyStatusLog_step). Kept only on moderator entries. api-admin's alone to
--- read, like `by`: the person who sent the story never sees it.
+-- read, like `by`: the person who sent the story never sees it. Text, not a link to the staff
+-- member: it goes with the story's entries, and stays when the staff member's own account is erased.
 DEFINE FIELD OVERWRITE staffEmail   ON storyStatusLog TYPE option<string> READONLY
   VALUE IF ($auth = NONE OR $auth = service:api_admin) AND $this.actor = 'moderator' { $value }
   ASSERT $value = NONE OR (string::len($value) <= 254 AND string::is_email($value)
@@ -1669,7 +1671,7 @@ DEFINE FUNCTION OVERWRITE fn::upload::renew($story: record<story>, $person: reco
 -- ends a job. Housekeeping
 -- deletes done jobs 30 days after they ended (J2). Person-linked through its file: every write
 -- needs the person to exist and not be erased, and bumps their fence, so it conflicts with an
--- erasure that overlaps it (docs/db-permissions.md, "Person-linked tables").
+-- erasure that overlaps it (classified in integration/person-linked.int-spec.ts).
 DEFINE TABLE OVERWRITE mediaJob SCHEMAFULL PERMISSIONS          -- id = mediaJob:<ulid>
   FOR select WHERE $auth IN [service:api_user, service:workflow, service:housekeeping,
     service:api_admin],

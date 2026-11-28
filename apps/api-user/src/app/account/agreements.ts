@@ -141,6 +141,9 @@ export async function agree(
  * "Agree first" (plan 4e; Joel, 2026-11-01): the database's refusals of a person's write until
  * they agree to the latest terms of use or testimony consent, and of an agreement on a version
  * that isn't the latest any more, as the contract's problems. `undefined` for anything else.
+ * The schema's other agreement refusals (agreement_not_own, agreement_time, agreement_kept,
+ * legal_version_kept) are left unmapped on purpose: they mean our own code wrote wrongly, so they
+ * answer 500.
  */
 export function agreementRefusalOf(err: unknown): HttpException | undefined {
   if (err instanceof HttpException) return undefined;
