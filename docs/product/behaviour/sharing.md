@@ -2,7 +2,7 @@
 
 Who: Signed-in person (sharing their own story and its files), Admin (limits), Moderator, the system.
 Data: `docs/db-permissions.md`.
-Next id: REQ-SHR-141
+Next id: REQ-SHR-142
 
 ## Contents
 
@@ -36,7 +36,7 @@ Next id: REQ-SHR-141
 
 ## The share page's steps
 
-- **REQ-SHR-003** The share page goes: choose the type, the testimony consent (only if the person has not agreed to the latest), preparation prompts, write or upload the file, details (optional first name, themes), review (with the optional social media box), then "waiting for review". [UNTRACED]
+- **REQ-SHR-003** The share page goes: choose the type, the testimony consent (only if the person has not agreed to the latest), preparation prompts, write or upload the file, details (optional first name, themes), review (with the optional social media box), then "waiting for review". [RQ-82]
 - **REQ-SHR-004** The preparation prompts are guidance only and are never stored. [J-2026-10-25-SHR]
 - **REQ-SHR-005** When the person presses an earlier step in the steps at the top of the share page, it opens at once, with nothing lost (drafts save as the person goes). [J-2026-11-10-SHR]
 - **REQ-SHR-006** A later step opens only once every step before it would pass its own Continue; otherwise the page stops at the first step that still needs something and shows that step's usual message. [J-2026-11-10-SHR]
@@ -50,7 +50,7 @@ Next id: REQ-SHR-141
 - **REQ-SHR-012** Once the video host has processed the story's video or audio file, the review step plays it in the video host's player, beside the picture. [J-2026-11-10-SHRb]
 - **REQ-SHR-013** Until the video host has processed it, the file's row is one status line: a tick, the file's name (when the tab knows it) and "Uploaded. Its preview will be ready later.", with no waiting or checking again. [RP-3]
 - **REQ-SHR-014** While the preview is not ready, the person can still send the story, or press "Save Draft and Exit" and come back later. [J-2026-11-10-SHRb]
-- **REQ-SHR-015** After a submission whose answer was lost, "Save Draft and Exit" first sends that same submission again: if it went through, the page shows "Thank you"; if that cannot be known yet, it confirms nothing and asks the person to try again. [UNTRACED]
+- **REQ-SHR-015** After a submission whose answer was lost, "Save Draft and Exit" first sends that same submission again: if it went through, the page shows "Thank you"; if that cannot be known yet, it confirms nothing and asks the person to try again. [RQ-83]
   Why: the person already asked to send it, and our server may still be working on it.
 - **REQ-SHR-016** The review step has a link styled as an outline button with an eye icon, full width on phones, with "Opens in a new tab" under it, that opens `/account/stories/{id}/preview` in a new tab. [J-2026-11-14-SHRb]
 - **REQ-SHR-017** The preview page shows the public story page's own parts, with a banner "Only you can see this preview", and no heart, share or related stories. Only the story's owner can open it. [J-2026-11-10-SHRb]
@@ -81,7 +81,8 @@ Next id: REQ-SHR-141
 - **REQ-SHR-132** When an Admin changes a limit, only the one save already in progress may finish under the old value; every later save uses the new one. [PR-118]
 - **REQ-SHR-036** A written story's text is 200 to 10,000 characters; a video or audio story's text has no minimum and is at most 10,000. [M1-A3]
 - **REQ-SHR-037** Invisible zero-width characters count towards the 200-character minimum. [M1O-A2]
-- **REQ-SHR-038** A story's title is at most 140 characters. [UNTRACED]
+- **REQ-SHR-038** A story's title is at most 140 characters. [RQ-12]
+- **REQ-SHR-141** The title field shows a character counter, the same as the story text. (planned) [RQ-12]
 - **REQ-SHR-039** A story has 1 to 5 themes, counted when it is submitted. [J-2026-10-28-SHR]
 - **REQ-SHR-040** A person has at most 3 open drafts; only never-sent stories count. [J-2026-10-25-SHR]
 - **REQ-SHR-133** The open-drafts limit applies only to what the person does themselves. [D112]
@@ -91,15 +92,15 @@ Next id: REQ-SHR-141
 - **REQ-SHR-042** When a limit changes, it applies to everyone at once: every later action must meet the limits in force. [J-2026-10-30-SHRb]
 - **REQ-SHR-136** When a limit changes, a story already sent or published is never checked against it again. [UNTRACED]
 - **REQ-SHR-043** An edit over a maximum is accepted only if it does not make it worse, so a long draft can still be trimmed; submitting needs every current minimum and maximum. [J-2026-10-30-SHRb]
-- **REQ-SHR-044** Trusted submitters have no open-drafts or weekly limits, only the hourly upload limit. [UNTRACED]
+- **REQ-SHR-044** Trusted submitters have no open-drafts or weekly limits; the hourly upload limit and the size limits still apply to them. [RQ-84]
 - **REQ-SHR-140** Trusted submitters get the largest video and audio sizes and lengths an Admin could set. [BE-14]
-- **REQ-SHR-046** Before a limit is reached, the share page shows what's left this week. [UNTRACED]
-- **REQ-SHR-047** At a limit, the share page explains kindly, says when the person can carry on, and holds that step back. [UNTRACED]
+- **REQ-SHR-046** Before a limit is reached, the share page shows what's left this week. [RQ-13]
+- **REQ-SHR-047** At a limit, the share page explains kindly, says when the person can carry on, and holds that step back. [RQ-14]
 
 ## Uploading files
 
 - **REQ-SHR-048** Files go straight from the person's browser to the outside services that store them; our servers never handle the files. [D80]
-- **REQ-SHR-049** Video and audio uploads show progress, can pause and resume, and carry on after a reload. [UNTRACED]
+- **REQ-SHR-049** Video and audio uploads show progress, can pause and resume, and carry on after a reload. [RQ-85]
 - **REQ-SHR-050** Our server, never the browser, decides which file belongs to a story, so nobody can point their story at someone else's media. [D80]
 - **REQ-SHR-137** A file can be uploaded only to the person's own story, only while it is in editing and unchanged since the page loaded it, and only if it is the story's kind. [D80]
 - **REQ-SHR-138** A picture's or video's width and height are above zero, and it is never taller than 1:3 or wider than 3:1. [D53]
@@ -127,7 +128,7 @@ Next id: REQ-SHR-141
 ## Pictures
 
 - **REQ-SHR-065** An audio story's picture and a video's own thumbnail can be uploaded, as a written story's picture can. [J-2026-10-30-SHR]
-- **REQ-SHR-066** Before upload, the browser converts every picture to WebP, at most 2048 pixels on the long side, no bigger than the largest picture file, and no more extreme than 1:3 or 3:1, so no location or camera data leaves the device. [UNTRACED]
+- **REQ-SHR-066** Before upload, the browser converts every picture to WebP, at most 2048 pixels on the long side, no bigger than the largest picture file, and no more extreme than 1:3 or 3:1, so no location or camera data leaves the device. [RQ-89]
 - **REQ-SHR-067** A picture has no smallest size: the browser and the server take anything from 1 pixel up. [TC-7]
   Why: someone may want to share pixel art.
 - **REQ-SHR-068** Before upload, the browser enlarges every picture under about 1,000 pixels on its longer side by a whole number, with hard pixel edges, until its longer side is at least about 1,000 pixels. [TC-7]

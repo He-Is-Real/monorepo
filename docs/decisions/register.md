@@ -5,6 +5,14 @@ in the pull request that builds it, in the format in `.agents/skills/writing-the
 
 | Id     | Date       | Decided, in plain words                                                                                                                | Now at                                                                      | Status             | Source                              |
 | ------ | ---------- | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ------------------ | ----------------------------------- |
+| RQ-89 | 2026-11-28 | Before upload, every picture becomes a WebP of at most 2048 pixels on the long side, with no location data | REQ-SHR-066 | in force | knowledge-system-rule-questions.html |
+| RQ-85 | 2026-11-28 | Video and audio uploads show progress, pause and resume, and carry on after a reload | REQ-SHR-049 | in force | knowledge-system-rule-questions.html |
+| RQ-84 | 2026-11-28 | Trusted submitters skip the open-drafts and weekly limits only; the hourly upload and size limits still apply | REQ-SHR-044 | in force | knowledge-system-rule-questions.html |
+| RQ-83 | 2026-11-28 | After a lost answer, Save Draft and Exit sends the same submission again before confirming anything | REQ-SHR-015 | in force | knowledge-system-rule-questions.html |
+| RQ-82 | 2026-11-28 | The share page steps go type, consent, prompts, file, details, review, then waiting for review | REQ-SHR-003 | in force | knowledge-system-rule-questions.html |
+| RQ-14 | 2026-11-28 | At a limit the share page explains kindly, says when to carry on, and holds the step back | REQ-SHR-047 | in force | knowledge-system-rule-questions.html |
+| RQ-13 | 2026-11-28 | Before a limit is reached, the share page shows what is left this week | REQ-SHR-046 | in force | knowledge-system-rule-questions.html |
+| RQ-12 | 2026-11-28 | A title is at most 140 characters, with a character counter like the story text's | REQ-SHR-038, REQ-SHR-141 | in force | knowledge-system-rule-questions.html |
 | BE-14 | 2026-11-27 | An Admin sets the largest upload on the Limits page, at most 10 GB video, 2 GB audio, 3 hours | REQ-SHR-140 | in force | knowledge-system-behaviour-vs-engineering.html |
 | PR-140 | 2026-10-31 | Assumptions listed for Joel in pull request 140 (pictures on stories), accepted as approved | REQ-SHR-057 | in force | https://github.com/He-Is-Real/monorepo/pull/140, accepted by Joel 2026-11-27 |
 | PR-133 | 2026-10-30 | Assumptions listed for Joel in pull request 133 (video and audio uploads), accepted as approved | REQ-SHR-124 | in force | https://github.com/He-Is-Real/monorepo/pull/133, accepted by Joel 2026-11-27 |
