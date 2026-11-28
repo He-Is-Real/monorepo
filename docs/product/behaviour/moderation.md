@@ -2,7 +2,7 @@
 
 Who: Moderator, Admin, Signed-in person (a story's owner), the system.
 Data: `docs/db-permissions.md#stories-schema-04-storiessurql`
-Next id: REQ-MOD-156
+Next id: REQ-MOD-157
 
 ## Contents
 
@@ -156,6 +156,7 @@ Next id: REQ-MOD-156
 ## Media processing
 
 - **REQ-MOD-143** While the machine that processes media is off, its work waits for up to 31 days, held in London. [D78]
+- **REQ-MOD-156** The media work runs on the machine that processes media, with a job's files only in memory and removed when the job ends. [RQ-95]
 - **REQ-MOD-131** When a story stops using a picture, or a video that could not be deleted at once, the nightly clean-up deletes it from the video host once no upload link for it can still be used. [R12]
 
 ## Not offered
