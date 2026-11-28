@@ -6,7 +6,7 @@ Next id: REQ-ERR-033
 
 ## When something goes wrong on our side
 
-- **REQ-ERR-001** When something goes wrong on our side (a server error, a technical refusal, a rate limit), the website says only "Something went wrong. Please try again later." on every page, admin pages included. [J-2026-11-09-ERR]
+- **REQ-ERR-001** When something goes wrong on our side (a server error, a technical refusal, a rate limit, an answer that could not be read), the website says only "Something went wrong. Please try again later." on every page, admin pages included. [J-2026-11-09-ERR]
 - **REQ-ERR-002** The website never shows an HTTP status, error code, error type or what the server is doing; the logs keep the full detail. [J-2026-11-09-ERR]
   Not: the database restart, which is named with its countdown (REQ-ERR-020).
 - **REQ-ERR-032** An error message never repeats story text or other personal data. [D30]
@@ -15,7 +15,6 @@ Next id: REQ-ERR-033
   Not: a page that fails while the server builds it, which shows the generic message.
 - **REQ-ERR-005** When a call from the browser to our APIs gets no answer (offline, or none within the time allowed), it says "We couldn't reach He Is Real. Check your internet connection and try again." [LG-13c]
 - **REQ-ERR-006** For REQ-ERR-005, a screen that did not load has a "Try again" button; after a button press (Save, Send, Delete) that button is how the person tries again, followed by what of theirs is safe ("Your story is kept on this device."). [LG-13c]
-- **REQ-ERR-007** An answer that came but could not be read, a server error, a refusal and a rate limit all keep the generic message; the restart countdown is unchanged. [LG-13c]
 - **REQ-ERR-008** Every error message from REQ-ERR-001 to REQ-ERR-007, and the restart countdown, shows a reference under it: a small quiet line "Reference: 0193…" with a Copy button. [LG-1]
 - **REQ-ERR-009** The message on a card's player has a reference but no Copy button, because it sits over the picture and takes no presses; the reference can still be selected. [LG-1]
 - **REQ-ERR-010** The reference is a UUID v7 that means nothing to the person; the browser makes one before each call to our APIs and sends it as the call's trace id, so the API's log line has the same one. [LG-1b]

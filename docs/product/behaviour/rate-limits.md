@@ -11,11 +11,7 @@ Each number is per caller and per running copy of the service.
 - **REQ-LIM-001** The website allows 600 page loads and actions a minute per Visitor or Signed-in person. [RL-2]
 - **REQ-LIM-024** The website allows 2 requests a minute for the sitemap. [RL-2]
 - **REQ-LIM-002** api-public-read allows a direct caller 120 requests a minute; the website's own calls share 3,000 a minute. [RL-2]
-- **REQ-LIM-003** api-user allows each caller 120 reads a minute. [RL-2]
-- **REQ-LIM-025** api-user allows each caller 60 changes a minute. [RL-2]
-- **REQ-LIM-026** api-user allows each caller 20 upload links an hour. [RL-2]
-- **REQ-LIM-027** api-user allows each caller 2 "Download my data" an hour. [RL-2]
-- **REQ-LIM-028** api-user allows each caller 10 deletes a minute. [RL-2]
+- **REQ-LIM-003** api-user allows each caller 120 reads, 60 changes and 10 deletes a minute, and 20 upload links and 2 "Download my data" an hour. [RL-2]
 - **REQ-LIM-004** api-user allows the browser's error reports 60 a minute per address, signed in or not, counted apart from other changes. [LG-13a]
 - **REQ-LIM-005** api-admin never limits a signed-in Moderator or Admin. [RL-2]
 - **REQ-LIM-006** api-admin counts only the requests it refuses for sign-in (not signed in, a refused or ended sign-in, no staff role, or a person the site does not know yet), 10 a minute per address. [RL-2]
@@ -26,13 +22,12 @@ Each number is per caller and per running copy of the service.
 ## How callers are counted
 
 - **REQ-LIM-010** Each running copy counts in its own memory only: nothing goes to the database, Redis or an edge service, and no address is written anywhere. [RL-6]
-- **REQ-LIM-011** A count lives in memory for its window, then goes. [RL-3]
 - **REQ-LIM-012** With two running copies a caller can get up to twice a limit, and a copy that restarts starts its counts again; no number is a site-wide promise. [RL-6]
 - **REQ-LIM-013** A caller's count covers the last full window (for example the last 60 seconds), not a clock minute that resets. [J-2026-11-21-LIM]
   Not: a fixed minute that resets, where waiting for the reset and bursting works.
-- **REQ-LIM-014** One caller is the IP address Google's front end saw. [RL-8]
+- **REQ-LIM-014** One caller is the IP address REQ-ACC-047 describes. [RL-8]
 - **REQ-LIM-029** An IPv6 address counts as its /56 network. [PR-261]
-- **REQ-LIM-015** The website counts each Visitor's page loads and actions; the sitemap has its own allowance; images, scripts and other static files are not counted. [RL-8]
+- **REQ-LIM-015** The website does not count images, scripts and other static files. [RL-8]
 - **REQ-LIM-016** api-user counts each caller by groups of routes (reads, ordinary changes, upload links, "Download my data", deleting, browser error reports), so a busy account can still delete its story or itself. [RL-8]
 - **REQ-LIM-017** api-public-read counts each caller, except the website's own server, whose calls carry a private key and share one large allowance. [RL-8]
 - **REQ-LIM-018** Clerk's and Bunny's webhooks have no limit; their signatures are checked. [UNTRACED]
