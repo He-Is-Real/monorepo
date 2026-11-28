@@ -82,7 +82,7 @@ Next id: REQ-SHR-142
 - **REQ-SHR-036** A written story's text is 200 to 10,000 characters; a video or audio story's text has no minimum and is at most 10,000. [M1-A3]
 - **REQ-SHR-037** Invisible zero-width characters count towards the 200-character minimum. [M1O-A2]
 - **REQ-SHR-038** A story's title is at most 140 characters. [RQ-12]
-- **REQ-SHR-141** The title field shows a character counter, the same as the story text. (planned) [RQ-12]
+- **REQ-SHR-141** The title field shows a character counter, the same as the story text. [RQ-12]
 - **REQ-SHR-039** A story has 1 to 5 themes, counted when it is submitted. [J-2026-10-28-SHR]
 - **REQ-SHR-040** A person has at most 3 open drafts; only never-sent stories count. [J-2026-10-25-SHR]
 - **REQ-SHR-133** The open-drafts limit applies only to what the person does themselves. [D112]
