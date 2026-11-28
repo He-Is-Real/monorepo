@@ -1,22 +1,16 @@
 ---
 name: writing-the-reference
 description: >
-  The format of the project's reference under docs/: behaviour and system rules, working
-  agreements, opinions (principles), glossary terms, actors and the decision register. Use whenever
-  you add, change or remove any rule, opinion, glossary term or register row under docs/, or move
-  guidance into the reference. Ends with `pnpm docs:check`.
+  The format of the project's reference under docs/: the one-line shape of a behaviour or system rule, ids,
+  approval tags, working agreements, opinions (principles), glossary terms, actors and the decision register.
+  Use whenever you add, change or remove any rule, opinion, glossary term or register row under docs/, or move
+  guidance into the reference. Ends with `pnpm docs:check`. For the wording itself, use writing-for-agents with
+  it.
 ---
 
 # Writing the reference
 
-## Where a piece of guidance goes
-
-- Needed on almost every task, and short: the root `AGENTS.md`, one or two lines.
-- A fact about how the site or the system is: the reference (`docs/product`, `docs/system`, `docs/process`).
-- True for one folder only: a short `AGENTS.md` in that folder, with a `CLAUDE.md` beside it holding `@AGENTS.md`.
-- A procedure with steps, or rules needed only for some tasks: a skill in `.agents/skills`.
-- Must never be broken: a check that runs (lint, CI, a refusal), with the text as explanation only.
-- True for one person or one machine: that person's own files, never the repo.
+## Files
 
 | File                                    | Holds                                  | Id                 |
 | --------------------------------------- | -------------------------------------- | ------------------ |
@@ -29,24 +23,26 @@ description: >
 
 ## How to write here
 
-1. Write only what an agent could not learn from the code and would get wrong without.
-2. One home per fact. Everywhere else, cite the id; never restate.
-3. One behaviour per entry, on one line, at most 50 words and 2 sentences.
-4. Trigger first, then who, then what happens. Present tense.
-5. Be exact: numbers, units, the words on screen in "quotes", glossary and actor names only. No soft words ("should", "usually", "generally", "appropriate", "where possible", "as needed", "TBD").
-6. Say what happens. Keep "must" and "never" for hard rules. No capitals for emphasis.
-7. Now only: no dates, names, history ("used to", "previously", "no longer", "formerly", "superseded"), option letters or pull-request numbers. End with the approval tag.
+The words follow the `writing-for-agents` skill (`.agents/skills/writing-for-agents/SKILL.md`): read it first.
+The rules below are the format this reference adds, and `pnpm docs:check` enforces the counts and banned words.
+
+1. The lines are behaviours (their ids stay `REQ-…`). A behaviour line stays true if the site is rewritten on another stack. A line that fails that test is engineering detail: it goes in a code comment beside the code it describes. The short list of direction lines (`docs/direction.md`) is the one exception.
+2. One behaviour per entry, on one line, at most 50 words and 2 sentences.
+3. Trigger first, then who, then what happens. Present tense.
+4. Glossary and actor names only. No soft words ("should", "usually", "generally", "appropriate", "where possible", "as needed", "TBD").
+5. No dates, names, history ("used to", "previously", "no longer", "formerly", "superseded"), option letters or pull-request numbers. End with the approval tag.
+6. Each promise is written once; everywhere else cites its id. Remove a specialised line when a broader line implies it so plainly that a reader would infer it from the broader line alone. A pull request that removes lines for this reason lists each removed line with the broader line that covers it.
+7. Behaviour and direction lines are rewritten in this format, never kept in the owner's typed words. (The register's Source column quotes chat approvals as its template says.)
 8. Add `Why:` only when it changes a case the rule does not name (always for an opinion). Add `Example:` or `Not:` only for a judgement word or a rule that was misread.
 9. To change a rule: rewrite it in place, keep the id, delete the old words wherever they are, and add the register row, in the pull request that builds it.
-10. A table for the same facts about many things; a numbered list for steps; never a picture alone.
-11. Never link from the reference to a decision doc. The register is the only bridge.
+10. Never link from the reference to a decision doc. The register is the only bridge.
 
 ## Ids
 
 - Each rule file's first lines are a title, one line on who it covers and where the data is, and `Next id: <id>` (within the first 10 lines). A new rule takes that id; then raise `Next id:` by one.
 - `REQ-<AREA>-<NNN>`: area is the file's 2 to 4 capital letters (`MOD`, `BRW`, `LOG`), number three digits. `WORK-<NNN>` and `PRIN-<NN>` likewise.
 - A changed rule keeps its id. A removed rule's id is never used again.
-- Files point at each other by id, never by line number or heading. Tests may quote the id they prove.
+- Files point at each other by id. Tests may quote the id they prove.
 
 ## Templates
 

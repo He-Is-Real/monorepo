@@ -15,6 +15,8 @@ Two docs record where we are and how the site behaves. Read both before starting
 
 Rules under `docs/product`, `docs/system` and `docs/process` are written in the format in the
 `writing-the-reference` skill (`.agents/skills/writing-the-reference/SKILL.md`) and checked by `pnpm docs:check`.
+Any other text an agent will read (an `AGENTS.md` file, a skill, a brief, a code comment, a pull-request
+description) follows the `writing-for-agents` skill (`.agents/skills/writing-for-agents/SKILL.md`).
 Questions for Joel, and written answers to his, follow the `writing-a-decision-doc` skill.
 
 API work follows `docs/api-conventions.md`; the OpenAPI specs in `libs/contracts/openapi` are the
