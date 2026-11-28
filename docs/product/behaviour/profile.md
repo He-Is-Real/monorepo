@@ -34,6 +34,7 @@ Next id: REQ-PRO-037
 ## Delete
 
 - **REQ-PRO-021** A Signed-in person can delete their own story in any state, after one "This can't be undone" question. [ED-3]
+- **REQ-PRO-022** Deleting a story deletes its videos and pictures and everyone's hearts on it, and takes it off the site at once. [ED-3]
 - **REQ-PRO-023** When a story is deleted, its videos and pictures are deleted at Bunny at once, waiting at most 8 seconds; if Bunny fails or is still busy then, the delete still succeeds and the nightly clean-up removes them. [OD-1]
 - **REQ-PRO-024** Delete my account is the one account-wide withdrawal: the page says what goes and what stays and asks the person to type "delete". [D82]
 - **REQ-PRO-025** Deleting an account also deletes the person at Clerk, which signs them out everywhere. [D82]
