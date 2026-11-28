@@ -40,4 +40,4 @@ The database runs on spare capacity that the hosting provider can take back at a
 - **REQ-ERR-024** A submit or an upload in the share flow says the restart message where it was tried, adding "Your story is saved.". [J-2026-11-09-ERR]
 - **REQ-ERR-025** Other places that show their own error after an action (saving a draft, admin pages) show "Something went wrong. Please try again later." there, with the named countdown at the bottom. [J-2026-11-09-ERR]
 - **REQ-ERR-026** The estimate is 2 minutes, counted from when our server first saw the database go, never less than 1 minute. [J-2026-11-07-ERR]
-- **REQ-ERR-027** The message at the bottom of the screen goes as soon as the next request the browser sends to our servers is answered, on the same page or another one. [J-2026-11-07-ERR]
+- **REQ-ERR-027** The message at the bottom of the screen goes as soon as the next request the browser sends to our server for signed-in people or for staff succeeds, on the same page or another one. [J-2026-11-07-ERR]
