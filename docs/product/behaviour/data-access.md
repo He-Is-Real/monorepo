@@ -10,9 +10,9 @@ Next id: REQ-ACS-018
 ## Stories
 
 - **REQ-ACS-003** Everyone else, the public and other signed-in people, can read a story only while it is approved, and then only its published parts. [R11]
-- **REQ-ACS-004** Someone who is not signed in can read only published stories, the themes and the legal texts. [UNTRACED]
+- **REQ-ACS-004** Someone who is not signed in can read only published stories, the themes, the legal texts and the site's own videos. [UNTRACED]
 - **REQ-ACS-005** A person can always read their own stories, in every state. [R11]
-- **REQ-ACS-006** Who sent a story, its sharing consent and when it was given, and when the story was started are private: only the owner and the parts of the system that need them can read them. [R11]
+- **REQ-ACS-006** Who sent a story, its sharing consent and when it was given, and when the story was started are private: only the owner and the parts of the system that need them can read them, apart from the email and IP address an Admin sees on its moderation page. [R11]
 
 ## A story's history
 
