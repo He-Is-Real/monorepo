@@ -68,6 +68,7 @@ import {
   type StoryPicture,
   type SubmissionLimits,
   type ThemeCategory,
+  TITLE_MAX,
 } from './share-api';
 import {
   formatWhen,
@@ -914,6 +915,20 @@ function SignedInFlow({
 type HeadingRef = React.RefObject<HTMLHeadingElement | null>;
 type DraftState = ReturnType<typeof useDraft>;
 
+/**
+ * The title's character counter, the same look as the story text's (RQ-12: Joel, 2026-11-28). It
+ * counts what the field's maxLength counts (UTF-16 units), so it never shows room the field will
+ * not accept. An emoji counts as 2 here although the database counts it as 1: such a title only
+ * stops a little early, it is never refused.
+ */
+function TitleCount({ title }: { title: string }) {
+  return (
+    <FieldHint className="mt-1">
+      {title.length} / {TITLE_MAX} characters.
+    </FieldHint>
+  );
+}
+
 function StepHeading({
   heading,
   children,
@@ -1494,15 +1509,16 @@ function WriteStep({
     >
       <StepHeading heading={heading}>Write your story</StepHeading>
       <div className="flex flex-col gap-5">
-        <Field id="story-title" error={problems.title}>
+        <Field id="story-title" hint error={problems.title}>
           <div>
             <FieldLabel>Title</FieldLabel>
             <Input
               size="standard"
-              maxLength={140}
+              maxLength={TITLE_MAX}
               value={draft.fields.title}
               onChange={(e) => draft.update({ title: e.target.value })}
             />
+            <TitleCount title={draft.fields.title} />
             <FieldError className="mt-1" />
           </div>
         </Field>
@@ -1665,15 +1681,16 @@ function MediaStep({
     >
       <StepHeading heading={heading}>Upload your {noun}</StepHeading>
       <div className="flex flex-col gap-5">
-        <Field id="story-title" error={titleProblem}>
+        <Field id="story-title" hint error={titleProblem}>
           <div>
             <FieldLabel>Title</FieldLabel>
             <Input
               size="standard"
-              maxLength={140}
+              maxLength={TITLE_MAX}
               value={draft.fields.title}
               onChange={(e) => draft.update({ title: e.target.value })}
             />
+            <TitleCount title={draft.fields.title} />
             <FieldError className="mt-1" />
           </div>
         </Field>
