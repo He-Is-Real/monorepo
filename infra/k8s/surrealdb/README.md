@@ -322,7 +322,7 @@ developers, deleted after 30 days, part of the GDPR erasure/retention map.
 
 - **Back up now:** GKE: `terraform -chdir=infra/terraform/live/dev/cluster apply -var backup_run=<new id>`.
   Locally: `kubectl -n database create job --from=cronjob/surrealdb-backup backup-manual`.
-- **Restore drill and restore:** [`docs/restore-runbook.md`](../../../docs/restore-runbook.md)
+- **Restore drill and restore:** [`docs/runbooks/restore.md`](../../../docs/runbooks/restore.md)
   (`stack-decisions.md` requires a tested restore; last drill 2026-11-22, passed).
 
 Always export to a **file**: on stdout the CLI mixes its log lines into the dump.

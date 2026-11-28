@@ -65,7 +65,7 @@ Before you finish.
 22. In a brief with long pasted material (a log, a document), put the material first inside named tags and the
     task after it.
 23. Point at a file by path and at a rule by id, never by line number or heading text.
-24. Sizes: the root `AGENTS.md` under 150 lines, a folder `AGENTS.md` at most 300 (no check counts it), a skill
+24. Sizes: the root `AGENTS.md` under 150 lines, a folder `AGENTS.md` at most 300 (`pnpm docs:check` warns above either), a skill
     body under 500 (ours aim for 150). A file over 100 lines starts with a contents list. Link to detail files
     one level deep.
 

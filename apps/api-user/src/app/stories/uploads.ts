@@ -59,7 +59,7 @@ import { currentEvent, note } from '@heisreal/logging/event';
  * event points the draft at it) and signs an S3 presigned PUT binding that path, the type and the
  * exact size (D68). Nothing is made at Bunny before the row, so a refusal leaves nothing behind. A
  * replaced picture's file is never deleted here: its row is detached, and housekeeping deletes it
- * once its PUT link can no longer be used (R12; media-runbook).
+ * once its PUT link can no longer be used (R12; docs/runbooks/media.md).
  */
 
 export interface UploadRequest {

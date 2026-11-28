@@ -1,6 +1,6 @@
 import { expect, type Page } from '@playwright/test';
 
-// Every control in Clerk's card, measured (44 px touch targets, AGENTS.md). The web e2e suite
+// Every control in Clerk's card, measured (44 px touch targets, apps/web/AGENTS.md). The web e2e suite
 // can't see these: its stand-in for Clerk is a plain box with nothing to press. One exception:
 // Clerk's own logo link ("Secured by Clerk"), which Clerk's appearance settings can't reach.
 // Used on the first step (clerk.behaviour.ts) and the email code step (account.behaviour.ts,

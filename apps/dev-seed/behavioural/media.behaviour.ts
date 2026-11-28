@@ -374,7 +374,7 @@ test.describe('on a 320 px phone', () => {
     }
   });
 
-  test('the real player’s controls are at least 44 × 44 px and fit inside it (AGENTS.md)', async ({
+  test('the real player’s controls are at least 44 × 44 px and fit inside it (apps/web/AGENTS.md)', async ({
     page,
   }) => {
     await page.goto(`/stories/${VIDEO.slug}`);

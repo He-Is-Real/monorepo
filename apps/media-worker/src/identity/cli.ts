@@ -157,7 +157,7 @@ async function check(): Promise<void> {
     cert = new X509Certificate((await store.current()).certificate);
   } catch {
     throw new Error(
-      "this machine has no worker identity: run 'tools/scripts/worker-identity.sh enrol <machine>' (docs/media-runbook.md)",
+      "this machine has no worker identity: run 'tools/scripts/worker-identity.sh enrol <machine>' (docs/runbooks/media.md)",
     );
   }
   if (cert.validToDate <= new Date()) {

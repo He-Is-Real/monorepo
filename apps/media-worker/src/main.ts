@@ -9,7 +9,7 @@
  * keeps a job's files only in memory ($XDG_RUNTIME_DIR) while the job runs and listens on
  * 127.0.0.1 only.
  *
- * Start it with tools/scripts/media-worker.sh (docs/media-runbook.md, "Media ready"), which starts
+ * Start it with tools/scripts/media-worker.sh (docs/runbooks/media.md, "Media ready"), which starts
  * Dapr beside it. It signs in as the media-worker Google account with this machine's own
  * certificate (W1-A, identity/): nobody's gcloud login, no Google key file. The certificate is
  * renewed here every few hours.

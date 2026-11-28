@@ -5,6 +5,15 @@ media jobs and search counts. The rules for writing logs are in the writing-logs
 (`.agents/skills/writing-logs/SKILL.md`) and AGENTS.md "Logging"; the decisions are LG-1 to LG-9 in
 `../project/context/research/logging.html`.
 
+## Contents
+
+- How agents read logs
+- The events
+- Reading with gcloud
+- Dashboards
+- Counts (stats)
+- Local runs
+
 **Where logs are.** Every service writes one JSON line per event to stdout; Cloud Run hands it to
 Cloud Logging, London bucket, kept 30 days, everything kept (no sampling, LG-6 A). The media worker
 runs off Google and sends its own lines there as the `media-worker` account (log name
@@ -31,7 +40,7 @@ minute, with `dropped_count`); both lines are in Google only.
 
 Agents read Axiom through the **Axiom MCP** server (tool `queryDataset`, APL; `getDatasetFields`
 lists the real field names) or the **Axiom CLI** (`axiom query`). Both are set up once per
-developer machine, outside the repo ([tooling-and-accounts.md](tooling-and-accounts.md), "Axiom");
+developer machine, outside the repo ([tooling-and-accounts.md](../tooling-and-accounts.md), "Axiom");
 `mise.toml` points the CLI at our EU edge. Agents only read: they never create, change or delete
 anything in Axiom (the dataset, the dashboards and, later, monitors are OpenTofu's,
 `infra/terraform/live/dev/axiom`).
@@ -205,7 +214,7 @@ Pub/Sub message as a `traceparent` attribute, but Dapr's Google Pub/Sub componen
 hand message attributes to the worker, so the worker's `ref` is its own. Join the two by `job.id`
 or the video's id (`job.video_id`) for now.
 
-More on the media pipeline: `docs/media-runbook.md`.
+More on the media pipeline: `docs/runbooks/media.md`.
 
 ## Dashboards
 

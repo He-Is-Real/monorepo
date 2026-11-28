@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Starts the media worker on this machine against dev (docs/media-runbook.md, "Media ready"):
+# Starts the media worker on this machine against dev (docs/runbooks/media.md, "Media ready"):
 # Dapr's sidecar (its Pub/Sub building block only, D129) beside apps/media-worker, both signed in
 # as the media-worker Google account with this machine's own certificate (W1-A; Joel, 2026-11-08):
 # nobody's gcloud login, never a Google key file. The worker renews the certificate itself.

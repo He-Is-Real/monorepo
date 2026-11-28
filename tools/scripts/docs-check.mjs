@@ -5,16 +5,18 @@
 //
 //   node tools/scripts/docs-check.mjs [--root <dir>] [--base <git ref>]
 //
-// --base (CI on pull requests): rules and principles changed since the merge base must carry a
-// tag whose register row exists and is not withdrawn or replaced; a new tag needs its row in the
-// same change. A wording fix that keeps its tag passes.
+// Approval tags are required only on the lines of the behaviour files (docs/product/behaviour/)
+// and the direction page (docs/system/direction.md). Elsewhere a tag is optional; one that is
+// there must still have a register row.
+//
+// --base (CI on pull requests): tagged rules and principles changed since the merge base must
+// carry a tag whose register row exists and is not withdrawn or replaced; a new tag needs its row
+// in the same change. A wording fix that keeps its tag passes.
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// The root AGENTS.md is trimmed in a later change, which turns this on.
-const ROOT_LIMIT_ENFORCED = false;
 // About 240 old decision ids are still cited; a later change removes them and turns this on.
 const OLD_IDS_ENFORCED = false;
 
@@ -27,6 +29,7 @@ const LIMITS = {
   file: 300,
   contents: 100,
   root: 150,
+  folder: 300,
   decided: 20,
 };
 const REGISTER = 'docs/decisions/register.md';
@@ -36,8 +39,11 @@ const ANY_ID = new RegExp(
   'g',
 );
 const RULE_LINE = new RegExp(
-  String.raw`^- \*\*(${RULE_ID})\*\* (.+?)( \(planned\))? \[([A-Za-z0-9.-]+)\]$`,
+  String.raw`^- \*\*(${RULE_ID})\*\* (.+?)( \(planned\))?(?: \[([A-Za-z0-9.-]+)\])?$`,
 );
+// The files whose lines need an approval tag.
+const tagRequired = (f) =>
+  f.startsWith('docs/product/behaviour/') || f === 'docs/system/direction.md';
 const STATUS = /^(approved, not built|in force|replaced by \S+|withdrawn)$/;
 const MONTHS = 'Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec';
 const HISTORY = [
@@ -225,10 +231,12 @@ const checkRules = (file, lines) => {
     checkBanned(file, n, lines[i]);
     if (termFile(file) || !lines[i].startsWith('- **')) continue;
     const m = lines[i].match(RULE_LINE);
-    if (!m) {
+    if (!m || (!m[4] && tagRequired(file))) {
       fail(
         `${file}:${n}`,
-        'rule line must be "- **<id>** <text> [<tag>]" on one line, id REQ-<AREA>-<NNN> or WORK-<NNN>, an optional " (planned)" before the tag, the tag last; fix its shape',
+        tagRequired(file)
+          ? 'rule line must be "- **<id>** <text> [<tag>]" on one line, id REQ-<AREA>-<NNN> or WORK-<NNN>, an optional " (planned)" before the tag, the tag last; fix its shape'
+          : 'rule line must be "- **<id>** <text>" on one line, id REQ-<AREA>-<NNN> or WORK-<NNN>, an optional " (planned)" and an optional [<tag>] last; fix its shape',
       );
       continue;
     }
@@ -270,7 +278,7 @@ const checkRules = (file, lines) => {
           `${id}: Why: is ${w} words, limit ${LIMITS.why}; keep one short reason`,
         );
     }
-    tagged.push({ id, tag, file, from: n });
+    if (tag) tagged.push({ id, tag, file, from: n });
     i = j - 1;
   }
 };
@@ -341,12 +349,12 @@ const checkPrinciples = (file, lines) => {
         `${id}: no Applies: line; say where the opinion bites`,
       );
     const last = body.at(-1)?.[0].match(TAG);
-    if (!last)
+    if (!last && tagRequired(file))
       fail(
         `${file}:${i + 1}`,
         `${id}: the last line must be the tag, "[<decision id>]"`,
       );
-    else tagged.push({ id, tag: last[1], file, from: i + 1 });
+    else if (last) tagged.push({ id, tag: last[1], file, from: i + 1 });
   });
 };
 
@@ -503,16 +511,34 @@ if (base) {
   }
 }
 
-// --- Root file size (KS-5) ------------------------------------------------------------------
-if (existsSync(join(root, 'AGENTS.md'))) {
-  const n = read('AGENTS.md').length;
-  const msg = `${n} lines, limit ${LIMITS.root}; move folder rules to folder AGENTS.md files or skills`;
-  if (n > LIMITS.root)
-    (ROOT_LIMIT_ENFORCED
-      ? fail
-      : (w, m) => warnings.push(`${w}: ${m} (warning only for now)`))(
-      'AGENTS.md',
-      msg,
+// --- AGENTS.md sizes (warnings) ----------------------------------------------------------------
+// The root file and each folder file, found by walking the tree (build output and dot folders
+// skipped), so the check also works outside a git checkout.
+const SKIP_DIRS = new Set([
+  'node_modules',
+  'dist',
+  'out-tsc',
+  'coverage',
+  'tmp',
+]);
+const agentsFiles = (rel) =>
+  readdirSync(join(root, rel), { withFileTypes: true }).flatMap((e) => {
+    const p = rel ? `${rel}/${e.name}` : e.name;
+    if (e.isDirectory())
+      return e.name.startsWith('.') || SKIP_DIRS.has(e.name)
+        ? []
+        : agentsFiles(p);
+    return e.name === 'AGENTS.md' ? [p] : [];
+  });
+for (const f of agentsFiles('')) {
+  const n = read(f).length;
+  if (f === 'AGENTS.md' && n > LIMITS.root)
+    warnings.push(
+      `AGENTS.md: ${n} lines, limit ${LIMITS.root}; move folder rules to folder AGENTS.md files or skills`,
+    );
+  else if (f !== 'AGENTS.md' && n > LIMITS.folder)
+    warnings.push(
+      `${f}: ${n} lines, limit ${LIMITS.folder}; move procedures into a skill`,
     );
 }
 

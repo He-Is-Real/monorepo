@@ -787,7 +787,7 @@ paths:
 
         Its video or audio at Bunny is deleted straight after the database commits: only the videos
         api-user made for this story (its file rows, D80), never seeded or shared media. If Bunny
-        can't be reached the video is left as an orphan for the clean-up sweep (media-runbook.md);
+        can't be reached the video is left as an orphan for the clean-up sweep (docs/runbooks/media.md);
         the answer is still `204`. Its file rows stay, so the upload limits still count them for
         7 days (D113). A retry after a lost answer gets `404`: it's gone.
       x-required-role: User

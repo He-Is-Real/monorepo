@@ -21,7 +21,7 @@ commands vs CRUD, errors, versioning, concurrency, "agree first") in
 | `apps/api-admin`       | Moderation/admin API (restricted hostname)      | DB login `service:api_admin`                                             |
 | `apps/housekeeping`    | Cloud Run Job: clean-ups, media resend (D71)    | DB login `service:housekeeping`; [README](apps/housekeeping/README.md)   |
 | `apps/workflow`        | Media result writer, Cloud Run (D78)            | Only the media worker may call it; DB login `service:workflow`           |
-| `apps/media-worker`    | Media worker with Dapr, on Joel's machine (D78) | No database; acts as `media-worker` ([runbook](docs/media-runbook.md))   |
+| `apps/media-worker`    | Media worker with Dapr, on Joel's machine (D78) | No database; acts as `media-worker` ([runbook](docs/runbooks/media.md))  |
 | `apps/dev-seed`        | Dev-only Job: resets dev to dummy data (D49)    | System user `dev_seed` (dev only); [README](apps/dev-seed/README.md)     |
 | `libs/secrets`         | Reads GCP Secret Manager via the SDK            | Fetched once at startup; missing secret = clear failure                  |
 | `libs/database`        | SurrealDB client (surrealdb.js), schema         | Own login per service; startup fails after 15 s if DB is down            |
@@ -45,7 +45,7 @@ outbound only, so they can't reach the database. They call the Cloud Run result 
 `apps/workflow`, directly with their answers (only the worker's Google account may), and it writes
 them to SurrealDB; every job is written to the `mediaJob` table before it is queued. The first
 worker, the media worker (its own app, `apps/media-worker`), comes with the next media-ready PR
-([docs/media-runbook.md](docs/media-runbook.md), "Media ready").
+([docs/runbooks/media.md](docs/runbooks/media.md), "Media ready").
 
 ## Getting started
 

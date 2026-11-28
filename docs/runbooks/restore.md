@@ -5,6 +5,13 @@ throwaway local copy; about 5 minutes end to end). Previous drill: 2026-10-05, p
 
 Run the drill every few months and after big schema changes, and update the line above.
 
+## Contents
+
+- What a backup is
+- The drill (dev)
+- A real restore
+- Results of the last drill (2026-11-22)
+
 ## What a backup is
 
 Every night at 02:30 UTC a Kubernetes job exports the whole `heisreal/main` database (schema,

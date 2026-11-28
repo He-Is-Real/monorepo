@@ -153,7 +153,7 @@ export async function deleteStoryImage(
  * is gone (its delete queued the folder). Through Bunny's Edge Storage API
  * (`uk.storage.bunnycdn.com` for the zone's S3 host `uk-s3.storage.bunnycdn.com`), the zone's
  * password as its `AccessKey`: S3 has no folders, and deleting a folder's last object by S3 leaves
- * the folder behind (media-runbook.md; proven on dev by dev-seed's upload spike). Done on 200, or
+ * the folder behind (docs/runbooks/media.md; proven on dev by dev-seed's upload spike). Done on 200, or
  * 404 (already gone); anything else throws.
  */
 export async function deleteStoryFolder(

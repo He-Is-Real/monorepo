@@ -102,7 +102,7 @@ resource "google_secret_manager_secret_iam_member" "upload_key_readers" {
 }
 
 # Housekeeping (M2): the nightly Job lists the stories' library and deletes
-# orphaned story videos (docs/media-runbook.md, "Replaced and orphaned
+# orphaned story videos (docs/runbooks/media.md, "Replaced and orphaned
 # videos"). The library key is the only Bunny secret it reads; the variable
 # accepts nothing but this project's housekeeping service account, which the
 # gcp root creates (apply that first).
@@ -117,7 +117,7 @@ resource "google_secret_manager_secret_iam_member" "stream_key_readers" {
 
 # Housekeeping (M2 plan PR 10): the nightly Job deletes the images-zone folders of stories that
 # are gone (erasure's queued pictures it retries, and abandoned drafts' pictures) with the zone
-# password, through Bunny's Edge Storage API (docs/media-runbook.md). Only this project's
+# password, through Bunny's Edge Storage API (docs/runbooks/media.md). Only this project's
 # housekeeping service account, as for the library key above.
 resource "google_secret_manager_secret_iam_member" "storage_password_readers" {
   for_each = toset(var.storage_password_readers)

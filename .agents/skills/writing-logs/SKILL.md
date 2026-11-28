@@ -146,11 +146,11 @@ today's lines: no personal data, tokens, keys or story content.
 
 **Sensitive fields are never plain (Joel, 23 Nov).** Only the session id and the token are logged,
 as keyed hashes (`user.session_hash`, `user.token_hash`). Cookies, API keys, passwords and auth
-headers are not logged at all, hashed or not: the session hash is enough to follow a visit. Never plain, **not even when the request fails**: the
+headers are not logged at all, hashed or not: the session hash is enough to follow a visit. Both hashes go on
+every event except search events. Never plain, **not even when the request fails**: the
 long text rule below is not an option for them. Strip them out of a request body before it is logged.
 
-**The long text rule (Joel, 23 Nov; widened 24 Nov, LG-9b B).** Long text: hashed unless the
-request ends in an error, a refusal or a rate limit. Write long text fields through one helper,
+**The long text rule (Joel, 23 Nov; widened 24 Nov, LG-9b B).** Write long text fields through one helper,
 never by hand: hashed by default, and **the full value whenever the work ends in an error, an input
 refusal or a rate limit** (`outcome: "error"`, `"input_refused"` or `"rate_limited"`), so a failure
 can be reproduced and we see what the person was trying to do (Joel: "I want to see what users
@@ -269,14 +269,14 @@ use(req: Request, res: Response, next: NextFunction) {
 
 - **Read in Axiom by default (LG-5, Joel 24 Nov).** Axiom (LG-3: free plan, Joel's account, edge
   deployment EU Central 1, one dataset per environment, `heisreal-dev`) gets every entry stdout
-  gets (`libs/logging/src/axiom.ts`); Joel and agents read there first (`docs/logs-runbook.md`).
+  gets (`libs/logging/src/axiom.ts`); Joel and agents read there first (`docs/runbooks/logs.md`).
   Search by `ref`, `user.id`, `story.id`, `action`, `outcome`.
 - **Agents read through the Axiom MCP or CLI**, set up per developer machine (never in the repo):
   MCP `queryDataset` (APL), or
   `axiom query "['heisreal-dev'] | where ref == '<reference>'" --start-time -1h -f json`. Dotted
   names need brackets (`['http.route']`); check names with `getDatasetFields` or
   `libs/logging/src/fields.ts`. Read only: never create, change or delete anything in Axiom.
-  Examples (by `ref`, failed requests by route, a service's last start-up): `docs/logs-runbook.md`,
+  Examples (by `ref`, failed requests by route, a service's last start-up): `docs/runbooks/logs.md`,
   "How agents read logs".
 - **Field budget:** Axiom's free plan keeps at most 256 fields per dataset and drops new ones
   beyond that. Every flattened field name we write is listed in `libs/logging/src/fields.ts`; a new
@@ -301,7 +301,7 @@ without dashes>"` for Cloud Run's line (the LG-4 trace field).
 - Long text goes through the one helper: hashed, in full only on error, input refusal or rate limit.
 - Search events: their own `event: "search"`, no `ref` or session/token hash; terms plain, who
   searched only as `hs1:` hashes, never plain; the route's own event has no terms.
-- No sampling; no hand-made spans beyond the wide event's, no automatic instrumentations, no new
+- No hand-made spans beyond the wide event's, no automatic instrumentations, no new
   span attribute without Joel.
 - Outside calls timed; errors as fields; `ref` present (except on search events).
 - Log sending can't throw or block.

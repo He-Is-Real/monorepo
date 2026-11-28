@@ -25,7 +25,7 @@ export interface DeletedStoryMedia {
  * side under one time budget, and a video or folder that couldn't go, or hadn't gone when the
  * budget ran out, is recorded on the request's event (`story.media_left`, internal ids only) and left to the nightly clean-up, the orphan sweep
  * for videos and the queued folder (pendingDeletion, story_picture_folder) for pictures
- * (docs/media-runbook.md).
+ * (docs/runbooks/media.md).
  */
 export async function discardDeletedStoryMedia(
   { stream, folders, budgetMs }: DeletedStoryMedia,
