@@ -57,7 +57,6 @@ Next id: REQ-BRW-089
 ## Search
 
 - **REQ-BRW-031** Search looks at published stories only. Its "best match" order compares each story only with the other published stories, so drafts and unpublished stories never change a score, the order or where loading more carries on. [J-2026-11-06-BRW]
-- **REQ-BRW-032** The database keeps the published stories' words in their own search table and updates it in the same step as a story is published or stops being published. [J-2026-11-06-BRW]
 - **REQ-BRW-033** A story's search words are its title, description, written text and the current names of its themes, all counting equally; category names are not included. [J-2026-11-06-BRWb]
 - **REQ-BRW-034** When a theme is renamed or deleted, the search words of the stories that carry it change at once. [J-2026-11-06-BRWb]
 
@@ -74,26 +73,23 @@ Next id: REQ-BRW-089
 - **REQ-BRW-039** A long written story shows about its first 600 characters with "Continue reading", unless that would hide fewer than 100 characters. [M1O-A1]
 - **REQ-BRW-088** A story keeps the date it was first published (its place in newest first) through every later approval or showing again, also after an edit. [R6]
 - **REQ-BRW-041** A withdrawn, erased or unknown story, or a legal-text version that does not exist, shows the "not found" page, which tells search engines not to index it ("noindex"). [PC-1]
-- **REQ-BRW-042** The "not found" page answers "OK" (200), not "not found" (404). [PC-1]
-  Why: Next.js sends a page's start before the page has checked anything.
-- **REQ-BRW-043** The page shown when a page fails to build ("Something went wrong. Please try again later.") or crashes in the browser ("This page stopped working. Reloading it usually fixes this.") tells search engines not to index it and answers "OK" (200). [PC-3]
+- **REQ-BRW-042** The "not found" page answers as a found page, not "not found"; only its "noindex" keeps it out of search engines. [PC-1]
+- **REQ-BRW-043** The page shown when a page fails to build ("Something went wrong. Please try again later.") or crashes in the browser ("This page stopped working. Reloading it usually fixes this.") tells search engines not to index it and answers as a found page. [PC-3]
 - **REQ-BRW-044** Sharing links show the site's brand picture, not the story's. [UNTRACED]
 - **REQ-BRW-045** Video, audio and pictures load only through signed links that expire, after 6 to 7 hours on dev. [D64]
 - **REQ-BRW-046** The About and Next Steps pages play the founder's videos. [J-2026-10-29-BRW]
 
 ## How fresh public pages are
 
-- **REQ-BRW-047** The public API keeps recent answers in memory for 30 seconds, so a story that is taken down to edit, deleted, hidden, new or edited can take up to 30 seconds to disappear or appear on a story page. [PC-2]
-- **REQ-BRW-048** Browsers and any CDN may keep a public API answer only for the part of its 30 seconds that is left. Nothing personal is kept this way. [PC-2]
-- **REQ-BRW-049** Each running copy of the website keeps saved pages in its own memory, with the time per page and per environment in `apps/web/src/page-cache.config.ts`; a changed time applies from the next deploy. [PC-1]
-- **REQ-BRW-084** Each running copy of the website keeps at most 50 MB of saved pages. [PR-263]
+- **REQ-BRW-047** A story that is taken down to edit, deleted, hidden, new or edited can take up to 30 seconds to disappear or appear on a story page. [PC-2]
+- **REQ-BRW-048** Browsers and caches between us and the reader never keep a public answer past REQ-BRW-047's 30 seconds, and never keep anything personal. [PC-2]
 - **REQ-BRW-050** Pages that change only with a new release (FAQs, Greatest story, Get ready, Contact, Donate) are kept until the next release, in dev and production. [PC-1]
 - **REQ-BRW-051** Home, Stories, About, Next steps, Privacy and Terms (and their earlier versions) are not kept in dev and are kept 30 seconds in production. [PC-2]
 - **REQ-BRW-052** In production, a story that is taken down can show for up to 60 seconds in total on Home and Stories, and up to 30 seconds on its story page. [PC-2]
-- **REQ-BRW-053** Single story pages are never kept. Signed-in, staff, moderation, account, share, consent and sign-in pages can never be kept: a build check and the server refuse a page-cache file that lists one. [PC-1]
+- **REQ-BRW-053** Single story pages are never kept. Signed-in, staff, moderation, account, share, consent and sign-in pages can never be kept. [PC-1]
 - **REQ-BRW-054** A saved page is never shown after its time, even if making a fresh one fails: the Visitor gets the "try again later" message instead. [PC-1]
 - **REQ-BRW-055** A page whose stories or texts could not be read is never saved: the Visitor sees the usual message, and the next visit tries again. [PC-1]
 - **REQ-BRW-085** A page whose founder's video could not be read is never saved: the Visitor sees "Video coming soon", and the next visit tries again. [UNTRACED]
-- **REQ-BRW-056** Saved pages hold nothing personal (sign-in runs in the browser), and the "noindex" header still applies to them. [PC-1]
-- **REQ-BRW-057** While the database restarts, each running copy of the public API answers from its last answers, kept for 30 minutes, instead of the restarting message, and tells browsers and CDNs not to keep them. [J-2026-11-07-BRW]
+- **REQ-BRW-056** Saved pages hold nothing personal (sign-in runs in the browser), and the "noindex" still applies to them. [PC-1]
+- **REQ-BRW-057** While the database restarts, public browsing answers from its last answers, kept for 30 minutes, instead of the restarting message, and tells browsers and caches not to keep them. [J-2026-11-07-BRW]
 - **REQ-BRW-058** During a database restart, a story deleted in the last 30 minutes can still show; this rare case is accepted. [J-2026-11-07-BRW]

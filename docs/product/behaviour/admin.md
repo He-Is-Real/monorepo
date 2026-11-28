@@ -17,7 +17,7 @@ Next id: REQ-ADM-044
 - **REQ-ADM-032** From 1280 px the account area is a little narrower so the "Admin" link fits the row. [PR-252]
 - **REQ-ADM-009** In the phone menu, the "Admin" link comes after a gap and a line. [PR-227]
 - **REQ-ADM-010** The "Admin" link shows as the current page on the admin landing page and on every admin and moderation page. [J-2026-11-20-ADM]
-- **REQ-ADM-011** Visitors and Signed-in people without a staff role never see the "Admin" link, and nobody sees it until api-user has said their role, so no link flashes. [J-2026-11-14-ADM]
+- **REQ-ADM-011** Visitors and Signed-in people without a staff role never see the "Admin" link, and nobody sees it until the site has checked their role, so no link flashes. [J-2026-11-14-ADM]
 - **REQ-ADM-012** The "Admin" link reflects the role when the page was loaded; after a role change it updates on the next full page load or sign-in. [PR-227]
 
 ## Admin landing page
@@ -52,8 +52,7 @@ Next id: REQ-ADM-044
 
 ## Other admin views
 
-- **REQ-ADM-027** The database can list the stories hidden because their media broke or changed; there is no admin page for it. [UNTRACED]
-- **REQ-ADM-028** Admins can read every story in every status, drafts included, with each story's status log and files, through api-admin; the moderators' list and story page show them every story. [R15]
+- **REQ-ADM-028** Admins can read every story in every status, drafts included, with each story's history and files: the moderators' list and story page show them every story. [R15]
 - **REQ-ADM-030** Before an Admin removes someone on the Staff page, the page asks "Remove …? They become a User.". [UNTRACED]
 - **REQ-ADM-031** The Block list page (Admins) lists blocked emails and IP addresses newest first, each with its note (or "No note yet"), who blocked it and when. [BN-2]
 - **REQ-ADM-041** When an Admin publishes a new version of a legal text and another version was published since they opened the page, the save is refused and they are told the text changed. [J-2026-11-01-DB]
