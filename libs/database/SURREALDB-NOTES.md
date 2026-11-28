@@ -37,8 +37,8 @@ they could change without anything failing. A note's test, in brackets, is in `i
   directly, never `$parent`. (The services' queries use `$parent` in a subquery as intended, e.g.
   `apps/api-user/src/app/stories/story-store.ts`.) (`engine-gotchas`)
 - `array<object>` items store keys the schema doesn't define (nested objects refuse them), and
-  `REMOVE FIELD` keeps the stored values: the schema checks such items' keys itself, and a removed field's
-  values are cleaned up by a data script. (`engine-gotchas`)
+  `REMOVE FIELD` keeps the stored values: check such items' keys explicitly in the schema, and clean up a
+  removed field's stored values separately. (`engine-gotchas`)
 
 ## Queries and indexes
 
@@ -55,10 +55,11 @@ they could change without anything failing. A note's test, in brackets, is in `i
 
 ## Transactions and scripts
 
-- A `RETURN` inside a transaction commits it early and skips the rest, wherever it hides; so do `BREAK`
-  and `CONTINUE` for the rest of their block. So a command's statements contain no `RETURN`, `BEGIN` or
-  `COMMIT` (`src/lib/idempotency.ts`), and data scripts may not use them (`schema/migrate.py`).
-  (`migration`)
+- A `RETURN` statement in a transaction, at the top level or nested in control flow (`IF`, blocks),
+  commits it early and skips the rest; `BREAK` and `CONTINUE` skip the rest of their block. So a
+  command's statements contain no such `RETURN`, `BEGIN` or `COMMIT` (`src/lib/idempotency.ts`), and data
+  scripts may not use them (`schema/migrate.py`). A `RETURN` inside a function, event or field
+  definition body, and a statement's `RETURN` clause (`CREATE … RETURN id`), are fine. (`migration`)
 - In a data script, a bare record path (`table:id.field`) in an `IF` fails ("Specify a database to use"):
   `LET` it first. `FOR $x IN (SELECT …)` fails: `LET` the rows, then loop over them. `SLEEP` needs root, so
   the runner refuses it (`schema/migrate.py`, `REFUSED_WORDS`).

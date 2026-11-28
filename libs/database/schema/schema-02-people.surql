@@ -92,7 +92,8 @@ DEFINE EVENT OVERWRITE user_not_erased_identity ON user
   };
 -- Every table holding or linking person data (directly or through story) refuses a new or
 -- changed row for a person who doesn't exist or is erased, and bumps that person's fence, so a
--- write racing erasure conflicts at commit. The per-table list is the classification in
+-- write racing erasure conflicts at commit. On delete such a table bumps the fence without the
+-- live check, since erasure deletes an erased person's rows (as story_fence does). The per-table list is the classification in
 -- integration/person-linked.int-spec.ts, which fails if a table is added without being
 -- classified. A new table that holds or links person data calls this on create and update.
 DEFINE FUNCTION OVERWRITE fn::person::live($user: option<record<user>>) {
@@ -254,7 +255,8 @@ DEFINE FUNCTION OVERWRITE fn::erasure::retry_after($attempts: int) {
 -- nothing else kept (the tombstone) records consent. On a caller's own
 -- permissions (api-user's rights are exactly these); anyone else's leave nothing done.
 -- Accepted risk (D13): api-user's own login can erase anyone's account. It destroys but discloses
--- nothing, and the backup restores it.
+-- nothing, and a backup recovers the database rows in its export (not the Bunny media or the
+-- Clerk account erasure queues for deletion).
 DEFINE FUNCTION OVERWRITE fn::account::erase($clerkUserId: string, $reason: string) {
   LET $fingerprint = type::record('erasedIdentity', crypto::sha256($clerkUserId));
   IF !record::exists($fingerprint) { CREATE $fingerprint RETURN NONE };

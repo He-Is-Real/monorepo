@@ -9,8 +9,9 @@
 -- any syntax 3.2.4 rejects is caught before merge. The 3.2.4 gotchas found in testing, which shape
 -- much of what's here, are listed in ../SURREALDB-NOTES.md.
 -- Conventions across these files:
--- - A field the server sets (a time, an actor, a counter) uses VALUE (and READONLY where it never
---   changes), never DEFAULT alone: a DEFAULT takes whatever value the client sends.
+-- - A field the server sets (a time, an actor, a counter) that a caller may write uses VALUE (and
+--   READONLY where it never changes), never DEFAULT alone: a DEFAULT takes whatever value the caller
+--   sends. A field no caller can write by permission (such as fence.n) may use DEFAULT.
 -- - "VALUE IF $auth = NONE AND $value != NONE { $value } ELSE { ... }" lets a system user (the
 --   migrator, dev-seed, the tests) set a time or actor as given, so data loads and tests can age
 --   rows; every other caller gets the server's value.
