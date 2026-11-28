@@ -124,7 +124,7 @@ Next id: REQ-MOD-156
 - **REQ-MOD-086** A story can't be approved until every upload is processed and its size and length are known, so nothing unchecked reaches the public. [M1-A2]
 - **REQ-MOD-146** A story can't be approved unless the person who sent it has agreed to a testimony consent, of any version. [J-2026-11-01-DB]
 - **REQ-MOD-152** A video story can't be approved until the picture shown for its video is the story's current picture. [J-2026-11-06-SHR]
-- **REQ-MOD-155** An audio story counts as ready, and can be approved, only once its picture video is made from the story's current picture. [DEC-1B]
+- **REQ-MOD-155** An audio story counts as ready, and can be approved, only once its picture video is ready and made from the story's current picture. [DEC-1B]
 - **REQ-MOD-088** While the story's video, audio file or picture could still be replaced through its upload link, a Moderator can't approve, and is told the time from which they can. [DEC-5]
   Why: what the Moderator watched is what gets published.
 - **REQ-MOD-089** An upload link can replace a video or audio file for an hour after it was signed, or signed again for a resumed upload, and a picture for 10 minutes. [DEC-5]
