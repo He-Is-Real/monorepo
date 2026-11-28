@@ -237,12 +237,12 @@ consent decorators or guard.
 - The database refuses the person's own writes until they have agreed, and its message starts
   with a code the API turns into a problem:
 
-  | The person's write                                                 | Needs                                         | Refused as                                                    |
-  | ------------------------------------------------------------------ | --------------------------------------------- | ------------------------------------------------------------- |
-  | Create, edit or submit a story; request an upload URL (`api-user`) | The latest terms of use and testimony consent | `403 terms_agreement_required` / `testimony_consent_required` |
-  | Heart a story, `PUT /v1/account/favourites/{storyId}`              | The latest terms of use                       | `403 terms_agreement_required`                                |
-  | Withdraw a story, delete a story or a heart, delete the account    | Nothing                                       |                                                               |
-  | Agree, or tick sharing, on a version that is no longer the latest  | (refused)                                     | `409 agreement_version_changed`: the page shows what changed  |
+  | The person's write                                                          | Needs                                         | Refused as                                                    |
+  | --------------------------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------- |
+  | Create, edit or submit a story; request an upload URL (`api-user`)          | The latest terms of use and testimony consent | `403 terms_agreement_required` / `testimony_consent_required` |
+  | Heart a story, `PUT /v1/account/favourites/{storyId}`                       | The latest terms of use                       | `403 terms_agreement_required`                                |
+  | Edit a story (start editing), delete a story or a heart, delete the account | Nothing                                       |                                                               |
+  | Agree, or tick sharing, on a version that is no longer the latest           | (refused)                                     | `409 agreement_version_changed`: the page shows what changed  |
 
 - Approving (`api-admin`) and publishing need the submitter's testimony consent, any version: an
   older one still covers the stories it was given for.

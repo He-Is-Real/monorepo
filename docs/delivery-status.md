@@ -173,6 +173,8 @@ Bring in the 24 existing testimonies. Before that:
 - ⚪ Church hardware secured before it holds real data
 - ⚪ Church worker machines keep their clocks right (automatic time sync turned on)
 - ⚪ A banner on the next visit when the privacy notice changes in a way that matters
+- ⚪ Decide the spam and safety checks on sharing: a check that a person is not a robot on the share
+  form, a verified email before the first story, and virus scanning of uploads
 - ⚪ Moving off Squarespace
 
 ## Emails ⚪
