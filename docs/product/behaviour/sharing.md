@@ -42,7 +42,6 @@ Next id: REQ-SHR-141
 - **REQ-SHR-006** A later step opens only once every step before it would pass its own Continue; otherwise the page stops at the first step that still needs something and shows that step's usual message. [J-2026-11-10-SHR]
 - **REQ-SHR-007** The later steps at the top open once a story is started or a draft is carried on. [J-2026-11-10-SHR]
 - **REQ-SHR-008** When the person chooses a later step while the story is saving, the page decides again once it has saved, from what is on screen then; if they chose another file meanwhile, they stay on the upload step with its usual message. [J-2026-11-10-SHR]
-- **REQ-SHR-009** When the person presses submit twice, the system creates neither two drafts nor two submissions. [D29]
 - **REQ-SHR-010** After the person sends a story for review, the page promises no email and says "Our team reads every story before it's published". [J-2026-10-28-SHRb]
 - **REQ-SHR-011** When a theme the person picked is deleted while they are sharing, submit asks them to choose again. [A7]
 
@@ -53,15 +52,14 @@ Next id: REQ-SHR-141
 - **REQ-SHR-014** While the preview is not ready, the person can still send the story, or press "Save Draft and Exit" and come back later. [J-2026-11-10-SHRb]
 - **REQ-SHR-015** After a submission whose answer was lost, "Save Draft and Exit" first sends that same submission again: if it went through, the page shows "Thank you"; if that cannot be known yet, it confirms nothing and asks the person to try again. [UNTRACED]
   Why: the person already asked to send it, and our server may still be working on it.
-- **REQ-SHR-016** The review step has a "See your story as others will" button, a link styled as an outline button with an eye icon, full width on phones, with "Opens in a new tab" under it, that opens `/account/stories/{id}/preview` in a new tab. [J-2026-11-14-SHRb]
+- **REQ-SHR-016** The review step has a link styled as an outline button with an eye icon, full width on phones, with "Opens in a new tab" under it, that opens `/account/stories/{id}/preview` in a new tab. [J-2026-11-14-SHRb]
 - **REQ-SHR-017** The preview page shows the public story page's own parts, with a banner "Only you can see this preview", and no heart, share or related stories. Only the story's owner can open it. [J-2026-11-10-SHRb]
-- **REQ-SHR-018** My submissions links every one of the person's stories that is not on the site to its preview page. [J-2026-11-10-SHRb]
 - **REQ-SHR-019** The links to the person's own video, audio and picture are signed only when that one story is read (never in the list, never publicly) and last one hour; reloading gets fresh ones. [J-2026-11-10-SHRb]
 - **REQ-SHR-020** An answer carrying signed media links is never "not modified", so the page never keeps expired links. [J-2026-11-10-SHRb]
 - **REQ-SHR-021** "Review and submit" shows the answers as aligned rows: label, answer and its link on one line on wider screens; on phones the label and link share the top line and the answer sits under them. [RP-1]
 - **REQ-SHR-022** Each link on "Review and submit" keeps its 44 px tap area and its full name, for example "Change title". [RP-1]
 - **REQ-SHR-023** On "Review and submit", an empty description reads "None added (optional)" in grey with an "Add" link, and no themes chosen reads "None chosen" with an "Add" link. [RP-2]
-- **REQ-SHR-024** On "Review and submit", the picture or thumbnail is a small picture, 120 px wide, in its row. There is no story card: the "See your story preview" button shows the result. [RP-1]
+- **REQ-SHR-024** On "Review and submit", the picture or thumbnail is a small picture, 120 px wide, in its row. There is no story card: the preview button (REQ-SHR-016) is the only way the step shows the result. [RP-1]
 
 ## Drafts and autosave
 
@@ -73,14 +71,13 @@ Next id: REQ-SHR-141
 - **REQ-SHR-030** "Save Draft and Exit" leaves straight away only when nothing has been typed; if the save fails, it stays and says so. [J-2026-11-14-SHR]
 - **REQ-SHR-031** On "Save Draft and Exit", a picture still uploading is waited for; a video or audio upload stops, and carries on when the person comes back and chooses the same file. [J-2026-11-14-SHR]
 - **REQ-SHR-032** Autosave saves the draft once it has a title and text, then after each pause. [D70]
-- **REQ-SHR-033** When the same draft is open in two tabs, each keeps its own changes, and the person is asked only when both changed the same thing. [D70]
 - **REQ-SHR-034** Text stays in the tab until the server has it, through reloads and outages. [D70]
 - **REQ-SHR-129** A person can start a draft only as themselves, with an existing account, after agreeing to the latest terms of use and testimony consent. [J-2026-11-01-DB]
 - **REQ-SHR-130** Only the person can change their story's content (title, words, name, story type, themes, picture and file), and only while it is in editing; staff and the system never change it, apart from an audio story's picture video (REQ-SHR-106). [D41]
 
 ## Limits
 
-- **REQ-SHR-035** An Admin can change each limit in this section; the numbers given are the values in force. [D112]
+- **REQ-SHR-035** An Admin can change each limit on stories and uploads, except REQ-SHR-131's; the numbers given are the values in force. [D112]
 - **REQ-SHR-131** A story's text is never over 50,000 characters and it never has more than 20 themes, whatever the settings. [PR-118]
 - **REQ-SHR-132** When an Admin changes a limit, only the one save already in progress may finish under the old value; every later save uses the new one. [PR-118]
 - **REQ-SHR-036** A written story's text is 200 to 10,000 characters; a video or audio story's text has no minimum and is at most 10,000. [M1-A3]
@@ -97,7 +94,6 @@ Next id: REQ-SHR-141
 - **REQ-SHR-043** An edit over a maximum is accepted only if it does not make it worse, so a long draft can still be trimmed; submitting needs every current minimum and maximum. [J-2026-10-30-SHRb]
 - **REQ-SHR-044** Trusted submitters have no open-drafts or weekly limits, only the hourly upload limit. [UNTRACED]
 - **REQ-SHR-140** Trusted submitters get the largest video and audio sizes and lengths an Admin could set. [BE-14]
-- **REQ-SHR-045** An Admin can also set a person's own limits; there is no admin page for that. [D112]
 - **REQ-SHR-046** Before a limit is reached, the share page shows what's left this week ("2 of 3 stories left…"). [UNTRACED]
 - **REQ-SHR-047** At a limit, the share page explains kindly, says when the person can carry on, and holds that step back. [UNTRACED]
 
@@ -109,14 +105,12 @@ Next id: REQ-SHR-141
 - **REQ-SHR-137** A file can be uploaded only to the person's own story, only while it is in editing and unchanged since the page loaded it, and only if it is the story's kind. [D80]
 - **REQ-SHR-138** A picture's or video's width and height are above zero, and it is never taller than 1:3 or wider than 3:1. [D53]
 - **REQ-SHR-051** A story has one video or audio file; replacing it deletes the old one at Bunny at once. [J-2026-10-25-SHR]
-- **REQ-SHR-052** When a story is sent for review, the system checks that its file arrived and is within the limits. [UNTRACED]
 - **REQ-SHR-053** When the person leaves the upload step while a video, audio file or picture is still uploading, by Back or the steps at the top, the step changes and the upload stops, with no question and no message. [J-2026-11-11-SHR]
 - **REQ-SHR-054** A stopped video or audio upload carries on from where it stopped when the person chooses the same file again; a stopped picture is chosen again. [J-2026-11-11-SHR]
 - **REQ-SHR-055** Going forward past the upload step, and sending, wait until its file and picture are complete. [J-2026-11-11-SHR]
 
 ## Upload limits
 
-- **REQ-SHR-056** An Admin can change each limit in this section; the numbers given are the values in force. [D112]
 - **REQ-SHR-057** A person makes at most 5 video and audio uploads in any 7 days; pictures never count towards it. [PR-140]
 - **REQ-SHR-058** A person makes at most 10 upload requests, for any file, an hour. [J-2026-10-25-SHR]
 - **REQ-SHR-139** Replacing a file or deleting a story frees no upload limit: the limits count every upload made. [D113]
@@ -185,7 +179,6 @@ Next id: REQ-SHR-141
 - **REQ-SHR-099** When Bunny refuses, cannot be reached, takes over 20 seconds or does not show the new picture, the story is not sent and stays as it was, and the person is told "We couldn't add your picture. Please add it again, then submit." [P1-13]
 - **REQ-SHR-100** A failed picture set at Bunny has no retry in the background and no picture job. [P1-13]
 - **REQ-SHR-101** Once Bunny shows the picture, the database records it on the video's record with the name of the picture file Bunny showed (for a video never given a picture, its untouched thumbnail). [RE-2]
-- **REQ-SHR-102** A video story cannot be approved until Bunny shows the picture it has now. [J-2026-11-06-SHR]
 - **REQ-SHR-103** The video's own checks never touch its picture or that file name. [RE-2]
 - **REQ-SHR-104** The story page shows Bunny's player with no picture of our own over it. [J-2026-11-08-SHR]
 
@@ -194,7 +187,6 @@ Next id: REQ-SHR-141
 - **REQ-SHR-105** Once an audio story's file is ready at Bunny, the media worker makes a video of the story's picture (or the site's default waveform picture) in the picture's own shape, at most 1280 px on its longer side, with the sound unchanged, and uploads it to a new Bunny video. [DEC-4]
 - **REQ-SHR-106** The audio story then shows that picture video instead of the audio file, keeping its edit number; the nightly clean-up deletes the audio file. [DEC-1B]
 - **REQ-SHR-107** A new picture, or the picture taken off, makes a new picture video. [DEC-1B]
-- **REQ-SHR-108** An audio story counts as ready only once its picture video is, so it cannot be approved before. [DEC-1B]
 
 ## Attached files on the page
 

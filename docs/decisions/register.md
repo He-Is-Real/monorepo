@@ -16,12 +16,11 @@ in the pull request that builds it, in the format in `.agents/skills/writing-the
 | J-2026-11-14-SHRb | 2026-11-14 | "See your story as others will" is an outline button opening the preview in a new tab | REQ-SHR-016 | in force | chat |
 | J-2026-11-14-SHR | 2026-11-14 | "Save Draft and Exit" saves the draft and goes to My submissions; people need not write in one go | REQ-SHR-027, REQ-SHR-028, REQ-SHR-029, REQ-SHR-030, REQ-SHR-031 | in force | chat: "people needn't write their story in one go" |
 | J-2026-11-11-SHR | 2026-11-11 | Leaving the upload step mid-upload just cancels the upload, with no question | REQ-SHR-053, REQ-SHR-054, REQ-SHR-055 | in force | m3-plan-and-m2-extras.html |
-| J-2026-11-10-SHRb | 2026-11-10 | The person sees their own upload on review and an owner-only preview page; can send before it is ready | REQ-SHR-012, REQ-SHR-014, REQ-SHR-017, REQ-SHR-018, REQ-SHR-019, REQ-SHR-020 | in force | chat |
+| J-2026-11-10-SHRb | 2026-11-10 | The person sees their own upload on review and an owner-only preview page; can send before it is ready | REQ-SHR-012, REQ-SHR-014, REQ-SHR-017, REQ-SHR-019, REQ-SHR-020 | in force | chat |
 | J-2026-11-10-SHR | 2026-11-10 | The steps at the top of the share page are buttons | REQ-SHR-005, REQ-SHR-006, REQ-SHR-007, REQ-SHR-008 | in force | chat |
 | J-2026-11-09-SHR | 2026-11-09 | A chosen picture is added straight away, with no Add button | REQ-SHR-070, REQ-SHR-071 | in force | chat |
 | J-2026-11-08-SHR | 2026-11-08 | The story page shows Bunny's player with no picture of our own over it | REQ-SHR-104 | in force | org-setup-and-picture-video.html |
 | J-2026-11-06-SHRb | 2026-11-06 | The browser blanks location and device metadata in MP4, MOV and M4A files before upload | REQ-SHR-117 | in force | chat |
-| J-2026-11-06-SHR | 2026-11-06 | A video story cannot be approved until Bunny shows the picture it has now | REQ-SHR-102 | in force | video-bundle-rethink.html |
 | J-2026-10-30-SHRb | 2026-10-30 | When a limit changes, every later action must meet the new limits, drafts already started included | REQ-SHR-042, REQ-SHR-043 | in force | chat: "make people stick to new rules even if they had progress under old rule" |
 | J-2026-10-30-SHR | 2026-10-30 | An audio story's picture and a video's own thumbnail can be uploaded | REQ-SHR-065 | in force | chat: "lets allow custom thumbnails picture uploads for videos too" |
 | J-2026-10-28-SHRb | 2026-10-28 | After sending for review, the page promises no email | REQ-SHR-010 | in force | m2-wave-b-ok.html |
