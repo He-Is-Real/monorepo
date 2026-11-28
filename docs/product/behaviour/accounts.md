@@ -85,7 +85,7 @@ Next id: REQ-ACC-066
 ## Who sent a story
 
 - **REQ-ACC-045** When a story is sent, api-user keeps the IP address it came from on the story's "sent" status entry only, never on any other step of its history, so an Admin can block a recent abuser's address. [G21]
-- **REQ-ACC-046** While the address is kept, an Admin sees it on the story's moderation view, with a link that fills it in on the Block list page; Moderators never see it, and no other staff page shows it. [G21]
+- **REQ-ACC-046** While the address is kept, an Admin sees it on the story's moderation view; Moderators never see it, and no other staff page shows it. [G21]
 - **REQ-ACC-047** The address is the last entry of `X-Forwarded-For`, the one Google's front end appends; earlier entries come from the client and can say anything. [G21]
   Why: api-user runs on Cloud Run with no load balancer, so only Google's own entry can be trusted.
 - **REQ-ACC-048** IP addresses are compared exactly, in one form: IPv6 short and lower-case. [G21]
