@@ -1,6 +1,11 @@
 import { Heading, Text } from '@heisreal/web-ui';
 import { TextLink } from '@/components/page/text-link';
 
+/**
+ * The "not found" page answers 200, not 404 (PC-1): Next.js streams a page's start, and with it
+ * the status, before the page has checked whether its story or text exists. Its `noindex` robots
+ * tag, which Next.js adds to a not-found render, is what keeps it out of search results.
+ */
 export default function NotFound() {
   return (
     <main
