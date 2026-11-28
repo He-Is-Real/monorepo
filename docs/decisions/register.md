@@ -161,7 +161,7 @@ in the pull request that builds it, in the format in `.agents/skills/writing-the
 | S-6 | 2026-11-11 | Baseline admins are made Admin again each time api-admin starts | REQ-ACC-027, REQ-ACC-028, REQ-ACC-029, REQ-ACC-058 | in force | m3-plan-and-m2-extras.html |
 | S-7 | 2026-11-11 | No staff invitations: a person creates an ordinary account first, then an Admin adds them | REQ-ACC-022, REQ-ACC-023 | in force | m3-plan-and-m2-extras.html |
 | ED-1 | 2026-11-11 | Edit takes a story off the site at once; it returns only after a moderator approves it again | REQ-PRO-014, REQ-PRO-016, REQ-PRO-017 | in force | m3-plan-and-m2-extras.html |
-| ED-3 | 2026-11-11 | A person deletes their own story in any state after one "This can't be undone" question | REQ-PRO-021 | in force | m3-plan-and-m2-extras.html |
+| ED-3 | 2026-11-11 | A person deletes their own story in any state after one "This can't be undone" question | REQ-PRO-021, REQ-PRO-022 | in force | m3-plan-and-m2-extras.html |
 | M3-6 | 2026-11-11 | A story being edited can change everything: words, themes, video or audio, picture | REQ-PRO-015 | in force | m3-plan-and-m2-extras.html |
 | LT-1 | 2026-11-11 | Legal text changes approved as written: block list, Edit instead of Withdraw, sent-from address | REQ-CON-005, REQ-CON-007 | in force | m3-plan-and-m2-extras.html |
 | J-2026-11-11-PRO | 2026-11-11 | My submissions shows each story's status in plain words | REQ-PRO-001, REQ-PRO-002 | in force | m3-plan-and-m2-extras.html |
