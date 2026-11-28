@@ -22,7 +22,9 @@ The wording follows the `writing-for-agents` skill (`.agents/skills/writing-for-
 ## Each question
 
 - It has its own id with a prefix no other page uses. Its title is the question in plain words.
-- It carries level pills: "Database", "API", "Behaviour", or "No database change", "Docs only" and the like, so the owner sees what the answer touches.
+- It carries exactly one kind pill, saying where its rule would live (the `writing-the-reference` skill): "Behaviour" (a promise to people, in the behaviour files), "Direction" (a short high-level line on the direction page) or "Engineering" (how it is built: a code comment, not the docs).
+- It adds a level pill only for a level the answer changes: "Database" only when the answer would change what the database stores or its permissions, "API" only when it would change the API. Never a "No database change" pill, or any "no X change" pill.
+- The page's "How to read it" note says what each pill means.
 - It says in plain words what happens today, what the problem is for a person or for the data, and what is being asked.
 - It shows the current proposal only: options in a table (what it means, good, less good). No history, no struck-out or withdrawn text.
 - It ends with a recommendation that weighs cost against benefit and prefers the simpler option.
