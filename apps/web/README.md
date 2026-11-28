@@ -143,4 +143,4 @@ unset means nothing is kept); `src/lib/page-cache.ts` refuses personal, staff an
 pages and never serves a copy past its time. Because Next.js streams a page's shell first,
 request-time `notFound()` answers 200 with a `noindex` robots tag, and `redirect()` (an old story
 slug) moves the browser in the page rather than with a 301 (Joel, 2026-11-21, PC-1 A). Rules:
-`docs/product/behaviour/browse.md`, "How fresh public pages are" and REQ-BRW-040 to REQ-BRW-042.
+`docs/product/behaviour/browse.md`, "How fresh public pages are" and REQ-BRW-041 and REQ-BRW-042.
