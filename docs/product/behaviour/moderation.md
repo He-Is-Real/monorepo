@@ -140,7 +140,6 @@ Next id: REQ-MOD-156
 - **REQ-MOD-098** When an approved story's media breaks, the system hides it, not un-approves it, and it comes back on its own when the same files work again. [D60]
 - **REQ-MOD-099** The approval records which video or audio file and which picture the Moderator reviewed; the story shows again only while it points at both, so after a new video or picture it stays hidden until a Moderator looks. [R12]
 - **REQ-MOD-150** When a published story's files stop being ready, or stop being the files that were reviewed, the site hides the story in that same moment. [J-2026-10-23-DB]
-- **REQ-MOD-151** Once the person who sent it withdrew testimony consent, a story the site hid never comes back on its own, not even after they give consent again. [D61]
 
 ## Unusable files and retries
 
@@ -156,7 +155,7 @@ Next id: REQ-MOD-156
 - **REQ-MOD-109** The same nightly retry covers a published story the site took off itself (for example while Bunny has lost its video), never one a Moderator hid: up to 3 nights, then it stays off the site. [P1-5]
 - **REQ-MOD-110** After those 3 nights the owner keeps seeing "We're fixing your video", and the moderators' list shows "A problem on our side" on the story. [P1-5]
 - **REQ-MOD-111** While a story waits for review or is off the site because the site took it off, its media jobs are kept, so its give-ups keep counting and its 3 nightly retries never start again. [P1-3]
-- **REQ-MOD-112** The 30-day tidy-up of done jobs skips those jobs; they go 30 days after the story is decided, shown again or deleted. [P1-3]
+- **REQ-MOD-112** The 30-day tidy-up of done jobs skips those jobs; they go 30 days after the story is decided or shown again; a deleted file's jobs go with it (REQ-MOD-138). [P1-3]
 - **REQ-MOD-113** Once the 3 retries are used, the database refuses every new check or render job for that story's file, in one place: a chore, Bunny's notice, a late copy of an answer from the queue, or the owner sending the same file again after Edit. [P1-9]
 - **REQ-MOD-114** A new file the owner uploads starts with no give-ups, and the cap doesn't apply while the story is back with its owner. [P1-9]
 
@@ -184,7 +183,7 @@ Next id: REQ-MOD-156
 - **REQ-MOD-128** The worker runs ffmpeg on its own machine, with files only in memory and removed when the job ends, then uploads the picture video. [UNTRACED]
 - **REQ-MOD-129** The writer then records the new video as the story's file only if the story still shows that audio file (a new recording wins), and checks the new video like any other. [DEC-1B]
 - **REQ-MOD-130** A render not needed any more (a new recording, the story deleted, or already made with the story's picture) ends without making anything. [DEC-1B]
-- **REQ-MOD-131** When a story stops pointing at a video or picture, the nightly clean-up deletes the file at Bunny or in the images storage zone once no upload link for it can still be used (2 hours). [R12]
+- **REQ-MOD-131** When a story stops pointing at a picture, or at a video whose at-once delete failed, the nightly clean-up deletes the file at Bunny or in the images storage zone once no upload link for it can still be used (2 hours). [R12]
 - **REQ-MOD-132** The nightly clean-up forgets a replaced file once it stops counting towards the 7-day upload limits. [R12]
 
 ## Not offered
