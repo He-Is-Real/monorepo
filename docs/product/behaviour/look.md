@@ -2,7 +2,14 @@
 
 Who: Visitor, Signed-in person, Moderator, Admin.
 Data: none.
-Next id: REQ-LOOK-036
+Next id: REQ-LOOK-047
+
+## Every page
+
+- **REQ-LOOK-036** Every page works from 320 px phones to large desktops, in light or dark (following the device, with a switch), with text enlarged to 200%. [J-2026-10-21-BRW]
+- **REQ-LOOK-037** Body text sits in a reading column of at most about 80 characters a line. [R1]
+- **REQ-LOOK-038** A page laid out in columns may be wider than the site's 1200 px content width, as long as no single column is wider than 1200 px. [J-2026-11-17-BRW]
+- **REQ-LOOK-039** In the header at 1280 px and wider with large text, the main links wrap onto more lines instead of running over the logo. [PR-257]
 
 ## Pieces
 
@@ -13,11 +20,16 @@ Next id: REQ-LOOK-036
 - **REQ-LOOK-004** Every chip a person presses has one look, the browse chip's, with a tick when chosen. [CH-1]
 - **REQ-LOOK-005** A label that only says something is a grey tag; a story's status is a dot and a word, coloured by meaning. [CH-2]
 - **REQ-LOOK-006** A story card's "NEW" pill has its own look, not the grey tag's. [UNTRACED]
+- **REQ-LOOK-044** Every button, and every link that looks like one, is 44 px tall (48 px for the home page's large calls to action), with semibold words, the site's keyboard outline and 8 px corners. [BT-1]
 - **REQ-LOOK-007** Every "Are you sure?" step has one look, in place of the button that opened it: a bold question, what will happen, the action button named for what it does and the way out, side by side, stacked full width on phones. [CD-1]
   Example: saving the submission limits, removing a staff member, Delete on My submissions.
+- **REQ-LOOK-040** The way out of an "Are you sure?" step says "Keep it" when deleting and "Cancel" for saves and edits. [CD-2]
+- **REQ-LOOK-041** When an "Are you sure?" step opens, keyboard focus lands on the question, never on the action button, so a second Enter does nothing; Escape means no and puts focus back on the button that opened it. Screen readers hear it as an alert dialog named by the question. [CD-1]
 - **REQ-LOOK-008** Every delete for good (an Admin's Delete on the moderation review page, "Delete my account" on Your data, Delete on My submissions) sits in a red-outlined "Danger zone" box with a warning sign, one look everywhere. [DL-2]
+- **REQ-LOOK-042** A delete-for-good button is solid danger red with a bin icon and says "Delete", or "Delete my account". Reject stays a plain red button among the moderation decisions. [DL-1]
 - **REQ-LOOK-009** Every open/close section has one look: closed, it is link-coloured underlined words after a small triangle that turns down when open. Open, a short helper hangs from a grey bar on its left, and long reading sits in a light panel with a fine edge. [DS-1]
   Example: "See all versions" and "How to format it" are short helpers; "Read the full version 3" is long reading.
+- **REQ-LOOK-043** Open/close sections are the browser's own open/close element: they work before the page's JavaScript loads, and Enter or Space opens and closes them. [DS-1]
 - **REQ-LOOK-010** Every check box has one look: one 22 px box, and pressing its words ticks it too. [CB-1]
 - **REQ-LOOK-011** Every switch has one look, its knob showing a ✓ when on, and is used only where pressing it changes the page at once ("Favourites only" on Stories). A choice saved later is a check box ("★ Highlighted" in the Themes panel). [SW-1]
 - **REQ-LOOK-012** Every set of tabs is underlined tabs. [TB-1]
@@ -26,6 +38,8 @@ Next id: REQ-LOOK-036
   Example: "Write a reason first." under Take down before a reason is typed; "Write a note first." for Send back and Reject.
 - **REQ-LOOK-015** Text boxes come in two sizes: a compact one beside drop-downs, a standard one wherever people type. [TF-1]
 - **REQ-LOOK-016** A notice comes in four kinds by meaning: danger, something went wrong (red); warning, needs a second look (amber); success, done (green); information, worth knowing (teal). [NT-1]
+- **REQ-LOOK-045** A notice (something happened or needs attention) is a tinted box with a coloured bar on the left and its kind's icon, with an optional bold first line ("What our team said"). [NT-1]
+- **REQ-LOOK-046** Screen readers hear an error notice at once and any other notice when the screen reader is free. [NT-1]
 - **REQ-LOOK-017** Every dialog has the Stories Filters panel's look: a bottom sheet on phones, a centred box on wider screens, a title bar with ×. [MG-3]
   Example: the Stories Filters panel and the Admin themes dialogs.
 - **REQ-LOOK-018** The FAQ page's questions are bordered boxes with a chevron. [MG-2]
